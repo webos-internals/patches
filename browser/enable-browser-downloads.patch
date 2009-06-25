@@ -1,0 +1,138 @@
+--- com.palm.app.originalbrowser/app/controllers/downloaddialog-assistant.js	Wed Dec 31 18:00:00 1969
++++ /tmp/com.palm.app.browser/app/controllers/downloaddialog-assistant.js	Tue Jun 23 23:52:06 2009
+@@ -0,0 +1,45 @@
++/**
++ * A network dialog assistant for display of current network status.
++ */
++DownloadDialogAssistant = Class.create({
++	
++	initialize: function(params) {
++		this.onDismiss = params.onDismiss;
++		this.onAccept = params.onAccept;
++		this.controller= params.sceneAssistant.controller;
++		
++		// Button handlers.
++		this.onDismissHandler = this.handleDismiss.bindAsEventListener(this);
++		this.onAcceptHandler = this.handleAccept.bindAsEventListener(this);
++	},
++	
++	setup: function(widget) {
++		this.widget = widget;
++		this.controller.get('acceptButton').addEventListener(Mojo.Event.tap, this.onAcceptHandler);
++		this.controller.get('acceptButton').focus();
++		this.controller.get('dismissButton').addEventListener(Mojo.Event.tap, this.onDismissHandler);
++		this.controller.get('dismissButton').focus();
++	},
++	
++	handleDismiss: function() {
++		this.onDismiss();
++		delete this.onDismiss;
++		this.widget.mojo.close();
++	},
++	handleAccept: function() {
++		this.onAccept();
++		delete this.onAccept;
++		this.widget.mojo.close();
++	},
++	
++	cleanup: function() {
++		Mojo.Log.info("NetworkDialogAssistant#cleanup()");
++		Mojo.Event.stopListening(this.controller.get('dismissButton'), Mojo.Event.tap, this.onDismissHandler);
++		Mojo.Event.stopListening(this.controller.get('acceptButton'), Mojo.Event.tap, this.onAcceptHandler);
++		
++		// Send a dismiss if NOT already sent a response
++		if (this.onDismiss) {
++			this.onDismiss();
++		}	
++	}
++});
+--- com.palm.app.originalbrowser/app/controllers/page-assistant.js	Fri May 22 16:13:51 2009
++++ /tmp/com.palm.app.browser/app/controllers/page-assistant.js	Wed Jun 24 01:02:54 2009
+@@ -119,6 +119,9 @@
+ 		this._webView.addEventListener(Mojo.Event.webViewUrlRedirect, this._onUrlRedirect.bind(this), false);
+ 		this._webView.addEventListener(Mojo.Event.webViewModifierTap, this._onModifierTapHandler, false);
+ 		this._webView.addEventListener(Mojo.Event.webViewUpdateHistory, this._onUpdateHistoryHandler, false);
++		this._downloadController = new DownloadController(this.controller);        
++		this._downloadController.setup();
++
+ 	}
+ 	catch (e) {
+ 		Mojo.Log.logException(e, 'PageAssistant#setup');
+@@ -1010,12 +1013,16 @@
+ 		// we are unable to perform the download.
+ 		if (!this._downloadWidgetElement) {
+ 			this._downloadWidgetElement = this.controller.showDialog({
+-				template: 'download/download-nosupport-dialog',
+-				assistant: new NetworkDialogAssistant({
++				template: 'download/download-popup',
++				assistant: new DownloadDialogAssistant({
+ 					sceneAssistant: this,
+ 					onDismiss: function() {
+ 						this._onPopupHandler('close');
+ 						delete this._downloadWidgetElement;
++					}.bind(this),
++					onAccept: function() {
++						this._onPopupHandler('close');
++					        this._downloadController.downloadResource(uri);
+ 					}.bind(this)})
+ 				});
+ 
+@@ -1096,7 +1103,7 @@
+ 			var mime = event.mimeType || '';
+ 			this._getResourceInfo(event.url, mime,
+ 				function(response) { // onSuccess
+-					if (response.returnValue && response.canStream) {
++					if (response.returnValue && response.canStream && response.mimeByExtenstion) {
+ 						this._streamResource(event.url, response.appIdByExtension, response.mimeByExtension);
+ 					}
+ 					else {
+--- com.palm.app.originalbrowser/app/views/download/download-container.html	Fri May 22 16:13:51 2009
++++ /tmp/com.palm.app.browser/app/views/download/download-container.html	Tue Jun 23 23:49:21 2009
+@@ -1,3 +1 @@
+-<div x-mojo-elements="List" class="palm-list no-lines">
+-	#{listElements}
+-</div>
+\ No newline at end of file
++#{listElements}
+--- com.palm.app.originalbrowser/app/views/download/download-popup.html	Wed Dec 31 18:00:00 1969
++++ /tmp/com.palm.app.browser/app/views/download/download-popup.html	Tue Jun 23 23:49:01 2009
+@@ -0,0 +1,8 @@
++<div id="palm-dialog-content" class="palm-dialog-content">
++	<div class="dialog-message" x-mojo-loc=""> Cannot find an application which can open this file. Would you like to download it to /media/internal/downloads?</div>
++</div>
++
++<div class="palm-dialog-buttons">
++	<div class="dismiss palm-button" id="acceptButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Yes</div>
++	<div class="dismiss palm-button" id="dismissButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">No</div>
++</div>
+--- com.palm.app.originalbrowser/app/views/page/page-scene.html	Fri May 22 16:13:52 2009
++++ /tmp/com.palm.app.browser/app/views/page/page-scene.html	Tue Jun 23 23:49:48 2009
+@@ -18,3 +18,7 @@
+ </div> 
+ 
+ 
++<div id="downloadListScroller" class="browser-download" x-mojo-element="Scroller">
++    <div id="downloadList" class="palm-list" x-mojo-element="List"></div>
++</div>
++
+--- com.palm.app.originalbrowser/sources.json	Fri May 22 16:26:51 2009
++++ /tmp/com.palm.app.browser/sources.json	Tue Jun 23 23:45:14 2009
+@@ -18,6 +18,18 @@
+   "source": "\/usr\/lib\/luna\/luna-network\/ConnectionWidget.js",
+   "scenes": ["page", "startpage"]
+  },
++{
++    "source":"app\/models\/download-model.js"
++ },
++ {
++    "source":"app\/controllers\/download-request.js"
++ },
++ {
++    "source":"app\/controllers\/downloaddialog-assistant.js"
++ },
++ {
++    "source":"app\/controllers\/download-controller.js"
++ },
+  {
+   "source": "app\/controllers\/page-assistant.js",
+   "scenes": "page"
