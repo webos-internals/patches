@@ -1,0 +1,327 @@
+Patch the musicplayer application to record a bookmark when pausing, changing tracks, or exiting the app.
+
+You can return to the bookmark by hitting "next" while playing a song, assuming you are before the bookmark.
+
+Bookmarks will be displayed in the playlist screen as a red line.
+
+see: http://predev.wikidot.com/bookmarking-mediaplayer for more info
+
+----------------------------
+
+diff -r -U 3 ../com.palm.app.musicplayer.orig/./app/controllers/localnowplaying-assistant.js ./app/controllers/localnowplaying-assistant.js
+--- ../com.palm.app.musicplayer.orig/./app/controllers/localnowplaying-assistant.js	2009-06-13 21:57:22.000000000 -0400
++++ ./app/controllers/localnowplaying-assistant.js	2009-06-29 08:12:27.068875000 -0400
+@@ -358,8 +358,12 @@
+ 					this._updateXOfYHeader();
+ 				}.bind(this));				
+ 			}  else if (message == this.musicPlayer.MESSAGE_PAUSE) {
++				// drnull - update the bookmark line when pausing for feedback
++				this._updateBookmarkLine();
+ 				this.showPlay();
+ 			}  else if (message == this.musicPlayer.MESSAGE_PLAY) {
++				// drnull - update the bookmark line when pausing for feedback
++				this._updateBookmarkLine();
+ 				this.showPause();
+ 			} else if (message == this.musicPlayer.MESSAGE_PLAYLIST_ENDED) {
+ 				this.showPlay();				
+@@ -984,6 +988,9 @@
+ 					this.nextSong();
+ 				} else if (event.command == "prev"){
+ 					this.prevSong();											
++					// drnull - a little bit hacky, but if you hit prev, it could 
++					// create a new bookmark where you were, so update here
++					this._updateBookmarkLine();
+ 				} else if (event.command == "pause"){
+ 					this.showPlay();
+ 					this.pause();
+@@ -1387,6 +1394,9 @@
+ 						//oldSongDiv.setAttribute ("class", oldSongItem.playingStatus); // done by markitemsPlayed
+ 						oldSongDiv.down('.elapsed').innerHTML = "00:00";
+ 						oldSongDiv.down('.progress-bar').style.width = 0;
++						// drnull
++						// make the line for non-active songs thinner
++						if (oldSongDiv.down('.bookmark-line').style.width == "2px") oldSongDiv.down('.bookmark-line').style.width = "1px";
+ 					}
+ 				}
+ 
+@@ -1560,6 +1570,24 @@
+ 		},
+ 		
+ 		/**
++		 * drnull - added to support the bookmark line
++		 * Fetch the bookmark line div.
++		 */
++		_getCurrentSongBookmarkLineDiv: function(){
++			var result = null;
++
++			if (this.controller.get('song_list') && this.displayedSong) {
++				var bookmarkDiv = this.controller.get('song_list').select('[x-mojo-media-songid="' + this.displayedSong.songID + '"]')[0];
++				if (bookmarkDiv) {
++					result = bookmarkDiv.down('.bookmark-line');
++				}
++			}
++
++			return result;
++		},
++
++		
++		/**
+ 		 * Format the duration into a displayable string.
+ 		 * 
+ 		 * @param {Object} secs
+@@ -1649,6 +1677,30 @@
+ 		_updateProgressBar: function(percentage){
+ 			this._getCurrentSongProgressBarDiv().style.width =  percentage + "%";
+ 		},
++
++		/**
++		 * drnull - added to support the bookmark line
++		 */
++		_updateBookmarkLine: function(){
++			var div=this._getCurrentSongBookmarkLineDiv();
++			if (div) {
++				if (this.musicPlayer.hasBookmark()) {
++					var secs = 0;
++					if (this.musicPlayer.audioPlayer.duration){
++						secs = this.musicPlayer.audioPlayer.duration;
++					} else if (this.musicPlayer.getCurrentSong().songDuration) {
++						secs = this.musicPlayer.getCurrentSong().songDuration;
++					}
++					var left = Math.max(0, 100*this.musicPlayer.getBookmarkTime()/secs - 1);
++					div.style.left = left + "%";
++					div.style.width = "2px";
++				}
++			} else {
++				Mojo.Log.error("couldn't find bookmark div, trying again in a bit...");
++				// call back later if we couldn't find the div
++				setTimeout(this._updateBookmarkLine.bind(this), 500);
++			}
++		},
+ 		
+ 		refreshAppMenu: function(){
+ 			var menuModel = this._appMenuModel;
+diff -r -U 3 ../com.palm.app.musicplayer.orig/./app/views/localnowplaying/listitem.html ./app/views/localnowplaying/listitem.html
+--- ../com.palm.app.musicplayer.orig/./app/views/localnowplaying/listitem.html	2009-06-13 21:24:05.000000000 -0400
++++ ./app/views/localnowplaying/listitem.html	2009-06-29 00:09:26.000000000 -0400
+@@ -3,6 +3,7 @@
+ 		<div class="#{playingStatus}" x-mojo-media-songid="#{songID}">
+ 		
+ 			<div class="progress-bar" style="width: #{songCompletedPercentage}%"></div>
++			<div class="bookmark-line" style="width: #{bookmarkWidth}; left: #{bookmarkPercentage}%"></div>
+ 			<div class="progress-bar-background"></div>
+ 
+ 			<div class="now-playing-list title truncating-text">#{songName}</div>
+diff -r -U 3 ../com.palm.app.musicplayer.orig/./scripts/MusicPlayer.js ./scripts/MusicPlayer.js
+--- ../com.palm.app.musicplayer.orig/./scripts/MusicPlayer.js	2009-05-22 18:13:31.000000000 -0400
++++ ./scripts/MusicPlayer.js	2009-06-29 08:23:45.464719200 -0400
+@@ -47,6 +47,9 @@
+ 		},
+ 		
+ 		stop: function(){
++			// drnull
++			// save current position before leaving
++			this.setBookmark();
+ 			if (!this.stopped){
+ 			}
+ 			
+@@ -186,7 +189,8 @@
+         },
+         
+         pause: function(){
+-			
++			// drnull
++			this.setBookmark();
+ 			if (this.audioPlayer.networkState != HTMLMediaElement.LOADING)
+            		this.audioPlayer.pause();
+ 			else
+@@ -361,6 +365,14 @@
+ 			Mojo.Log.info ("current song: " + currentSongNum)
+ 			Mojo.Log.info ("num songs: " + this.getNumSongs())			
+ 		
++			// drnull
++			// if we hit "next" but we are not up to the bookmarked time yet, go ahead and jump to it
++			if (this.hasBookmark() && this.audioPlayer.currentTime+1 < this.getBookmarkTime()) {
++				this.gotoBookmark();
++			} else {
++				//drnull
++				//save current position before jumping to new song
++				this.setBookmark();
+ 			if (currentSongNum == this.getNumSongs() - 1 &&
+ 				this.getRepeatMode() != this.playlist.REPEAT_MODE_ALL)  {
+ 				// if the playlist is over
+@@ -374,6 +386,7 @@
+ 				else
+ 					this.app.handleNextSong(playlistEnded, doNotSwitchSongs, this._doNextSong.bind(this));
+ 			}
++			}
+ 		
+ 				
+ 			return true;			       
+@@ -401,6 +414,9 @@
+ 			
+ 			if ((this.audioPlayer.currentTime > 4  && !force) || 
+ 				(currentSongNum == 0 && this.getRepeatMode() != this.playlist.REPEAT_MODE_ALL)) {
++				// drnull
++				// if we are going back to the beginning, set a bookmark first
++				this.setBookmark();
+                 this.audioPlayer.currentTime = 0;
+             }
+ 			else if (currentSongNum == 0 &&
+@@ -477,6 +493,10 @@
+ 		},
+ 		
+         jumpToSong: function(songNum, callback, doNotStartPlaying){
++			// drnull
++			// save current position before jumping to new song
++			this.setBookmark();
++
+         
+             this.playlist.setSong(songNum, function(){
+                 this._openCurrentSong(this.isPlaying, doNotStartPlaying);
+@@ -487,6 +507,99 @@
+             
+         },
+         
++		/**
++		 * drnull
++		 * Save the current play position in the song
++		 */
++		setBookmark: function() {
++			var cookie = this._bookmarkCookie();
++			if (cookie && this.audioPlayer.currentTime > 15) {
++				Mojo.Log.error("setBookmark:", this.playlist.getCurrentSong().songID, "-", this.playlist.getCurrentSong().songName, ": bookmark=", this.audioPlayer.currentTime);
++				cookie.put(this.audioPlayer.currentTime + " " + Math.max(0, 100*this.audioPlayer.currentTime/this.audioPlayer.duration-1));
++			}
++		},
++
++		/**
++		 * drnull
++		 * goto the bookmark stored in a cookie if available
++		 */
++		gotoBookmark: function() {
++			var bookmarkTime = this.getBookmarkTime();
++			if (bookmarkTime > 0) {
++				if (this.audioPlayer.duration < bookmarkTime) {
++					this.audioPlayer.currentTime = this.audioPlayer.duration;
++				} else {
++					this.audioPlayer.currentTime = bookmarkTime;
++				}
++
++				Mojo.Log.error("gotoBookmark:", this.playlist.getCurrentSong().songID, "-", this.playlist.getCurrentSong().songName, ": bookmark=", bookmarkTime);
++			}
++		},
++
++		/**
++		 * drnull
++		 * find out if this song has a bookmark cookie
++		 */
++		hasBookmark: function(id) {
++			var hasCookie = false;
++			var cookie = this._bookmarkCookie(id);
++			if (cookie) {
++				if (cookie.get() != null) hasCookie = true;
++			}
++			return hasCookie;
++		},
++
++		/**
++		 * drnull
++		 * get the bookmark time index for this song
++		 */
++		getBookmarkTime: function(id) {
++			var cookie = this._bookmarkCookie(id);
++			var index = 0;
++			if (cookie) {
++				value = cookie.get();
++				if (value) {
++					arr = new String(value).split(" ");
++					index = arr[0];
++					if (index == null) index = 0;
++				}
++			}
++			return index;
++		},
++
++		/**
++		 * drnull
++		 * get the bookmark percent for this song
++		 */
++		getBookmarkPercentage: function(id) {
++			var cookie = this._bookmarkCookie(id);
++			var index = 0;
++			if (cookie) {
++				value = cookie.get();
++				if (value) {
++					arr = new String(value).split(" ");
++					index = arr[1];
++					if (index == null) index = 0;
++				}
++			}
++			return index;
++		},
++
++			/**
++			 * drnull
++			 * single point of access to the cookie
++			 */
++			_bookmarkCookie: function(id) {
++				var cookie = null;
++				var songID = id;
++				if (songID == null && this.playlist && this.playlist.getCurrentSong())
++					songID = this.playlist.getCurrentSong().songID;
++				if (songID != null) {
++					cookie = new Mojo.Model.Cookie("com.palm.app.musicplayer.bookmark.song"+songID);
++				}
++				return cookie;
++			},
++
+         /**
+          * Toggle the reor mode on/off.
+          */
+diff -r -U 3 ../com.palm.app.musicplayer.orig/./scripts/ReorderablePlaylist.js ./scripts/ReorderablePlaylist.js
+--- ../com.palm.app.musicplayer.orig/./scripts/ReorderablePlaylist.js	2009-05-22 18:13:31.000000000 -0400
++++ ./scripts/ReorderablePlaylist.js	2009-06-29 09:06:38.385050000 -0400
+@@ -113,6 +113,14 @@
+ 		
+ 		song.playingStatus = this._playingStatus (songNum);
+ 		song.songNum = songNum;
++		//drnull
++		if (this.musicPlayer.hasBookmark(song.songID)) {
++			song.bookmarkPercentage = this.musicPlayer.getBookmarkPercentage(song.songID);
++			song.bookmarkWidth = "1px";
++		} else {
++			song.bookmarkPercentage = "0";
++			song.bookmarkWidth = "0px";
++		}
+ 		
+ 		if (songNum == this.getCurrentSongNum()){
+ 			var currentTime = Math.floor(this.musicPlayer.audioPlayer.currentTime);
+diff -r -U 3 ../com.palm.app.musicplayer.orig/./stylesheets/music-player.css ./stylesheets/music-player.css
+--- ../com.palm.app.musicplayer.orig/./stylesheets/music-player.css	2009-05-22 18:13:32.000000000 -0400
++++ ./stylesheets/music-player.css	2009-06-29 08:25:34.983147800 -0400
+@@ -738,6 +738,9 @@
+ .palm-reorder-element .active .progress-bar {
+ 	display: none;
+ }
++.palm-reorder-element .bookmark-line {
++	display: none;
++}
+ 
+ .active .progress-bar-background {
+ 	position: absolute;
+@@ -746,6 +749,16 @@
+ 	border-width: 15px 15px 11px 15px;
+ 	-webkit-border-image: url(../images/download-background.png) 15 15 11 15 stretch stretch;	
+ 	-webkit-box-sizing: border-box;
++	z-index: -3;
++}
++
++.bookmark-line {
++	position: absolute;
++	height: 58px; 
++	left: 0%;
++	width: 0px;
++	color: red;
++	background-color: red;
+ 	z-index: -2;
+ }
