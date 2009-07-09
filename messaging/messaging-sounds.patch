@@ -1,0 +1,268 @@
+This patch will allow you to specify the sound played for incoming messages and reminders.
+Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+@@ -42,6 +42,21 @@ NotificationAssistant.prototype.sendNoti
+ 	}
+ };
+ 
++NotificationAssistant.prototype.doBanner = function(bannerParams,bannerLaunchParams,bannerType,payload) {
++	if (payload.messagetone.fullPath)
++		bannerParams.soundFile = payload.messagetone.fullPath;
++	else if (payload.remindertone.fullPath)
++		bannerParams.soundFile = payload.remindertone.fullPath;
++	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
++};
++
++NotificationAssistant.prototype.playTone = function(payload) {
++	if (payload.messagetone.fullPath)
++		this.controller.playSoundNotification('alerts',payload.messagetone.fullPath);
++	else
++		this.controller.playSoundNotification('alerts','');
++};
++
+ /*
+  * <ReminderCode>
+  */
+@@ -75,7 +90,7 @@ NotificationAssistant.prototype.sendRemi
+ 		reminderPersonId: resp.personId,
+ 		clearBanner: true		
+ 	};
+-	this.controller.showBanner(bannerParams,bannerLaunchParams,'reminder');
++	MessagingMojoService.getRemindertone(this.doBanner.bind(this,bannerParams,bannerLaunchParams,'reminder'));
+ 	
+ 	var dashboard = this.controller.getStageController(stageName);
+ 	if (dashboard) {
+@@ -125,7 +140,7 @@ NotificationAssistant.prototype.consider
+ 	notificationData = $H(notificationData);
+ 	// check if we should only play a sound (when you are already in a chat & a new message comes in)
+ 	if(notificationData.get('playSoundOnly') && this.Messaging.messagingPrefs.enableNotificationSound) {
+-		this.controller.playSoundNotification('alerts','');
++		MessagingMojoService.getMessagetone(this.playTone.bind(this));
+ 		return; // don't display any visual notification
+ 	}	
+ 	
+@@ -166,13 +181,15 @@ NotificationAssistant.prototype.sendNewM
+ 	var bannerParams = {
+ 		messageText: notificationText
+ 	};
+-	if (this.Messaging.messagingPrefs.enableNotificationSound)
+-		bannerParams.soundClass = "alerts";
+ 	var bannerLaunchParams =  {
+ 		chatThreadId: notificationData.get('chatThreadId'),
+ 		clearBanner: true		
+ 	};
+-	this.controller.showBanner(bannerParams,bannerLaunchParams,'chat');
++	if (this.Messaging.messagingPrefs.enableNotificationSound) {
++		bannerParams.soundClass = "alerts";
++		MessagingMojoService.getMessagetone(this.doBanner.bind(this,bannerParams,bannerLaunchParams,'chat'));
++	} else
++		this.controller.showBanner(bannerParams,bannerLaunchParams,'chat');
+ 	
+ 	// Store the data so it can be used in the dashboard
+ 	var data = {
+@@ -209,14 +226,9 @@ NotificationAssistant.prototype.sendNewM
+ 		// delay creating the dashboard window for the case where the banner is clicked on
+ 		// to take you to the chat view.  This will likely result in the dashboard data
+ 		// being cleared.  If the dashboard data is empty, we do not need to create the dashboard.		
+-		if (this.Messaging.DisplayState.isDisplayOn()) {
+-			if (!this.isNewMessageDashboardPending) {
+-				this.isNewMessageDashboardPending = true; 
+-				createDashboard.delay(5);
+-			}
+-			
+-		} else {
+-			createDashboard(); // if the screen is off, create the dashboard right away
++		if (!this.isNewMessageDashboardPending) {
++			this.isNewMessageDashboardPending = true; 
++			createDashboard.delay(5);
+ 		}
+ 	}
+ };
+Index: /usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
++++ /usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
+@@ -64,6 +64,26 @@ var MessagingMojoService = {
+     });   	
+   },
+   
++  getMessagetone:  function(callback) {
++  	var request = new Mojo.Service.Request('palm://com.palm.systemservice', {
++  		method: 'getPreferences',
++  		parameters: {"keys":["messagetone"]},
++  		onSuccess: callback,
++  		onFailure: callback
++  	});
++  	return request;
++  },
++  
++  getRemindertone:  function(callback) {
++  	var request = new Mojo.Service.Request('palm://com.palm.systemservice', {
++  		method: 'getPreferences',
++  		parameters: {"keys":["remindertone"]},
++  		onSuccess: callback,
++  		onFailure: callback
++  	});
++  	return request;
++  },
++  
+   registerForIncomingMessages: function(params) {
+     return new Mojo.Service.Request(MessagingMojoService.identifier, {
+   	  method: 'registerForIncomingMessages', 
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+@@ -79,9 +79,13 @@ var SoundsalertsconfigAssistant = Class.
+ 		
+ 		
+ 		$('currentringtonerow').observe(Mojo.Event.tap, this.showAudioFilePicker.bindAsEventListener(this));
++		$('currentmessagerow').observe(Mojo.Event.tap, this.showMessageFilePicker.bindAsEventListener(this));
++		$('currentreminderrow').observe(Mojo.Event.tap, this.showReminderFilePicker.bindAsEventListener(this));
+ 				
+ 		this.getCurrentVolumes();
+ 		this.getCurrentRingtone();
++		this.getCurrentMessage();
++		this.getCurrentReminder();
+ 		this.getVibrateSettings();	
+ 		this.getOtherSettings();
+ 		
+@@ -223,7 +227,6 @@ var SoundsalertsconfigAssistant = Class.
+ 		}
+ 		else 
+ 			$('currentringtone').innerHTML = $L("Pick a ringtone");
+-		
+ 	},
+ 	
+ 	showAudioFilePicker: function(event) {
+@@ -237,6 +240,54 @@ var SoundsalertsconfigAssistant = Class.
+ 		$('currentringtone').innerHTML = file.name;
+ 	},
+ 	
++	// Message Picking
++	getCurrentMessage: function() {
++		this.getCurrentMessageReq = SystemService.getMessages(this.getCurrentMessageQuery.bind(this));
++	},
++	
++	getCurrentMessageQuery: function(payload) {        
++		if (payload.messagetone) {
++			$('currentmessage').innerHTML = payload.messagetone.name;
++			this.currMessagePath = payload.messagetone.fullPath;    
++		}
++	else 
++		$('currentmessage').innerHTML = $L("Pick a message sound");
++	},
++	
++	showMessageFilePicker: function(event) {
++		var params = {"kinds": ["ringtone"],"filePath":this.currMessagePath,"onSelect":this.selectedMessageFile.bind(this),actionType:"attach",actionName: $L("Done")};
++		Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	},
++	
++	selectedMessageFile: function(file) {        
++		this.setMessageReq = SystemService.setMessages(file);
++		$('currentmessage').innerHTML = file.name;
++	},
++	
++	// Reminder Picking
++	getCurrentReminder: function() {
++		this.getCurrentReminderReq = SystemService.getReminders(this.getCurrentReminderQuery.bind(this));
++	},
++	
++	getCurrentReminderQuery: function(payload) {        
++		if (payload.remindertone) {
++			$('currentreminder').innerHTML = payload.remindertone.name;
++			this.currReminderPath = payload.remindertone.fullPath;    
++		}
++		else 
++			$('currentreminder').innerHTML = $L("Pick a reminder sound");
++	},
++	
++	showReminderFilePicker: function(event) {
++		var params = {"kinds": ["ringtone"],"filePath":this.currReminderPath,"onSelect":this.selectedReminderFile.bind(this),actionType:"attach",actionName: $L("Done")};
++		Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	},
++	
++	selectedReminderFile: function(file) {        
++		this.setReminderReq = SystemService.setReminders(file);
++		$('currentreminder').innerHTML = file.name;
++	},
++	
+ 	getVibrateSettings: function() {
+ 		this.getVibrateSettingsReq = AudioService.getVibrateSettings(this.vibrateSettingsCB.bind(this),this);
+ 	},
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+@@ -26,6 +26,42 @@ SystemService.getRingtone = function(cal
+ 	return request;
+ }
+ 
++SystemService.getMessages = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["messagetone"]},
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setMessages = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"messagetone":value},
++	});
++	return request;
++}
++
++SystemService.getReminders = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["remindertone"]},
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setReminders = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"remindertone":value},
++	});
++	return request;
++}
++
+ SystemService.getSystemUISounds = function(callback) {
+ 	var request = new Mojo.Service.Request(SystemService.identifier, {
+ 			method: 'getPreferences',
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+@@ -48,9 +48,21 @@
+ 	                </div>
+ 	            </div>
+             </div>
++            		<div id='currentmessagerow' class="palm-row" x-mojo-tap-highlight="momentary">
++            			<div class="palm-row-wrapper">
++            				<div class="label" x-mojo-loc=''>Message</div>
++            				<div id='currentmessage' class="title"></div>
++            			</div>
++            		</div>
++            		<div id='currentreminderrow' class="palm-row" x-mojo-tap-highlight="momentary">
++            			<div class="palm-row-wrapper">
++            				<div class="label" x-mojo-loc=''>Reminder</div>
++            				<div id='currentreminder' class="title"></div>
++            			</div>
++            		</div>
+ 			<div class="palm-row">
+ 				<div class="palm-row-wrapper">
+-					<div class="title" x-mojo-loc=''>Volume</div>
++					<div class="title" x-mojo-loc=''>System Volume</div>
+ 					<div x-mojo-element="Slider" id='systemvolume' class="palm-slider"></div>
+ 	            </div>
+             </div>
