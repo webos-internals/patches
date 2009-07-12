@@ -1,7 +1,7 @@
 #!/bin/sh
 #
 # Quick script to enable call duration for phones on Sprint
-# See http://predev.wikidot.com/hidden-features
+# See http://predev.wikidot.com/hidden-features for more detail
 
 # Set the default going forward
 luna-send -n 1 palm://com.palm.systemservice/setPreferences '{"phoneAppHideCallDuration": false}'
