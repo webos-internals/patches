@@ -1,0 +1,60 @@
+Creating a patch which will allow you to snap pictures using the volume keys
+Index: /usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
++++ /usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+@@ -33,7 +33,7 @@ CaptureAssistant = Class.create({
+ 			this.sublaunch = false;
+ 			this.defaultFilename = null;
+ 		}
+-		
++		this.volumeKeySubscription = undefined;
+ 	},
+ 
+ 	
+@@ -86,6 +86,17 @@ CaptureAssistant = Class.create({
+ 			elemC.style.display = '';
+ 		}
+ 		
++		// listen to volume key events
++		this.volumeKeySubscription = new Mojo.Service.Request(
++			'palm://com.palm.keys/audio',
++			{
++				method: 'status',
++				parameters: {'subscribe': true},
++				onFailure: function() { Mojo.Log.error("Could not subscribe to volume key events."); },
++				onSuccess: this.handleVolumeKeys.bind(this)
++			}
++		);
++
+ 		llog("CaptureAssistant::setup() finished");
+ 	},
+ 	
+@@ -174,6 +185,11 @@ CaptureAssistant = Class.create({
+ 		}
+ 		
+ 		this.cameraControl.closeCamera();
++
++		// Clean up listener for volume keys
++		if(this.volumeKeySubscription) {
++			this.volumeKeySubscription.cancel();
++		}
+ 	},
+ 	
+ 	handleCommand: function(event){
+@@ -187,7 +203,14 @@ CaptureAssistant = Class.create({
+ 		
+ 	},
+ 	
+-		
++	// capture on release of volume keys
++	handleVolumeKeys: function(payload) {
++		// capture when either volume up or down buttons are released
++		if(payload.state === 'up' && (payload.key === 'volume_up' || payload.key === 'volume_down')) {
++			this.cameraControl.capture();
++		}
++	},
++
+ 	onKeyPress: function(event) {
+ 		// Space bar also takes a picture.
+ 		if (Mojo.Char.spaceBar == event.originalEvent.keyCode){
