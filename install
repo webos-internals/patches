@@ -1,0 +1,134 @@
+#!/bin/sh
+USER=`whoami`
+HOSTNAME=castle
+PATCH_NAME=$1
+GIT_PATH=/opt/src/modifications
+
+if [ "$USER" != "root" ]
+then
+  echo "ERROR: Must be root, try sudo -i"
+  exit 1
+fi
+
+if [ "$HOSTNAME" != "castle" ]
+then
+  echo "Script must be run on Pre"
+  exit 1
+fi
+
+if [ ! -e $GIT_PATH ]
+then
+  echo "ERROR: Cannot find git tree at: $GIT_PATH"
+  echo "Please visit http://www.webos-internals.org/wiki/Applying_Patches"
+  exit 1
+fi
+
+if [ $# -gt 1 ]
+then 
+  echo "ERROR: Too many arguments"
+  exit 1
+fi
+
+cd $GIT_PATH
+if [ $? -ne 0 ]
+then
+  echo "ERROR: Cannot find git path: $GIT_PATH"
+  echo "Please visit http://www.webos-internals.org/wiki/Applying_Patches"
+  exit 1
+fi
+
+if [ $# -eq 0 ]
+then
+  echo ""
+  echo -n "Patch name to apply? [ALL] > "
+  read PATCH_NAME
+fi
+
+if [ "$PATCH_NAME" = "-l" ]
+then
+  find . -name *.patch | awk -F/ '{print $NF}'
+  exit 0
+fi
+
+if [ "$PATCH_NAME" != "" ]
+then
+  echo "Looking for patch $PATCH_NAME..."
+  find . -name $PATCH_NAME | grep $PATCH_NAME
+  if [ $? -ne 0 ]
+  then
+    echo "ERROR: Could not find patch: $PATCH_NAME"
+    exit 1
+  fi
+fi
+
+echo "Pulling latest git tree..."
+git pull
+if [ $? -ne 0 ]
+then
+  echo "FAILED"
+  echo "Please visit http://www.webos-internals.org/wiki/Applying_Patches"
+  exit 1
+fi
+
+cd /
+if [ $? -ne 0 ]
+then
+  echo "Can't cd / ??? ----> RUN!"
+  exit 1
+fi
+
+
+if [ "$PATCH_NAME" = "" ]
+then
+  MAYBE_ALL=-a
+else
+  echo "Checking for patch in quilt series..."
+  quilt series | grep $PATCH_NAME
+  if [ $? -ne 0 ]
+  then
+    PATCH_PATH=`find . -name ${PATCH_NAME}`
+    echo "Importing patch ${GIT_PATH}/${PATCH_PATH}..."
+    quilt import ${GIT_PATH}/${PATCH_PATH}
+  fi
+
+  echo "Verifying patch is in quilt series..."
+  quilt series | grep $PATCH_NAME
+  if [ $? -ne 0 ]
+  then
+    echo "ERROR: Cannot find patch in series"
+    echo "Please visit http://www.webos-internals.org/wiki/Applying_Patches"
+    exit 1
+  fi
+fi
+
+echo "Remounting / rw..."
+mount -o rw,remount /
+if [ $? -ne 0 ]
+then
+  echo "ERROR: Could not remount / in rw"
+  echo "Please visit http://www.webos-internals.org/wiki/Applying_Patches"
+  exit 1
+fi
+
+echo "Popping previous patch..."
+quilt pop $MAYBE_ALL
+if [ $? -ne 0 ]
+then
+  echo "ERROR: Could not pop patch"
+  echo "Please visit http://www.webos-internals.org/wiki/Applying_Patches"
+  exit 1
+fi
+
+echo "Pushing new patch..."
+quilt push $MAYBE_ALL
+if [ $? -ne 0 ]
+then
+  echo "ERROR: Could not push patch"
+  echo "Please visit http://www.webos-internals.org/wiki/Applying_Patches"
+  exit 1
+fi
+
+echo "SUCCESS"
+
+echo "Remounting / to read-only"
+mount -o ro,remount /
