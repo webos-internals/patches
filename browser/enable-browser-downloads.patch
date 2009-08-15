@@ -1,44 +1,73 @@
-Enabled download functionality in the browser application.
-
-From: Rod Whitby <rod@whitby.id.au>
-
-
-20090706
-Added in ability to download instead of stream as described here
-http://predev.wikidot.com/downloading-from-the-browser
-
----
-
- .../app/controllers/downloaddialog-assistant.js    |   45 ++++++++++++++++++++
- .../app/controllers/page-assistant.js              |   13 ++++--
- .../app/views/download/download-container.html     |    4 --
- .../app/views/download/download-popup.html         |    8 ++++
- .../app/views/page/page-scene.html                 |    4 ++
- .../applications/com.palm.app.browser/sources.json |   12 +++++
- 6 files changed, 80 insertions(+), 6 deletions(-)
- create mode 100644 usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
- create mode 100644 usr/palm/applications/com.palm.app.browser/app/views/download/download-popup.html
-
-
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+Index: /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
 ===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-@@ -119,6 +119,9 @@ PageAssistant.prototype.setup = function
+--- /dev/null
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
+@@ -0,0 +1,45 @@
++/**
++ * A dialog assistant for display of yes/no box.
++ */
++DownloadDialogAssistant = Class.create({
++
++        initialize: function(params) {
++                this.onDismiss = params.onDismiss;
++                this.onAccept = params.onAccept;
++                this.controller= params.sceneAssistant.controller;
++
++                // Button handlers.
++                this.onDismissHandler = this.handleDismiss.bindAsEventListener(this);
++                this.onAcceptHandler = this.handleAccept.bindAsEventListener(this);
++        },
++
++        setup: function(widget) {
++                this.widget = widget;
++                this.controller.get('acceptButton').addEventListener(Mojo.Event.tap, this.onAcceptHandler);
++                this.controller.get('acceptButton').focus();
++                this.controller.get('dismissButton').addEventListener(Mojo.Event.tap, this.onDismissHandler);
++                this.controller.get('dismissButton').focus();
++        },
++
++        handleDismiss: function() {
++                this.onDismiss();
++                delete this.onDismiss;
++                this.widget.mojo.close();
++        },
++        handleAccept: function() {
++                this.onAccept();
++                delete this.onAccept;
++                this.widget.mojo.close();
++        },
++
++        cleanup: function() {
++                Mojo.Log.info("NetworkDialogAssistant#cleanup()");
++                Mojo.Event.stopListening(this.controller.get('dismissButton'), Mojo.Event.tap, this.onDismissHandler);
++                Mojo.Event.stopListening(this.controller.get('acceptButton'), Mojo.Event.tap, this.onAcceptHandler);
++
++                // Send a dismiss if NOT already sent a response
++                if (this.onDismiss) {
++                        this.onDismiss();
++                }
++        }
++});
+Index: /usr/palm/applications/com.palm.app.browser/app/controllers/global_code.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/global_code.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/global_code.js
+@@ -1449,6 +1449,8 @@ PageAssistant.prototype.setup = function
  		this._webView.addEventListener(Mojo.Event.webViewUrlRedirect, this._onUrlRedirect.bind(this), false);
  		this._webView.addEventListener(Mojo.Event.webViewModifierTap, this._onModifierTapHandler, false);
  		this._webView.addEventListener(Mojo.Event.webViewUpdateHistory, this._onUpdateHistoryHandler, false);
-+		this._downloadController = new DownloadController(this.controller);        
-+		this._downloadController.setup();
-+
++	    this._downloadController = new DownloadController(this.controller);
++        this._downloadController.setup();
  	}
  	catch (e) {
  		Mojo.Log.logException(e, 'PageAssistant#setup');
-@@ -973,27 +976,37 @@ PageAssistant.prototype._newBrowserPage 
+@@ -2287,28 +2289,39 @@ PageAssistant.prototype._newBrowserPage 
+  */
  PageAssistant.prototype._streamResource = function(uri, appid, mimeType){
  
- 	Mojo.Log.info("Streaming: '%s' with '%s' (%s)", uri, appid, mimeType);
--
+-	Mojo.Log.info("Streaming: '%s' with '%s' (%s)", uri, appid, mimeType);
++	Mojo.Log.error("Streaming: '%s' with '%s' (%s)", uri, appid, mimeType);
+ 
 -	// Only a few select applications can be
 -	crossAppScene = {
 -		'com.palm.app.videoplayer': 'nowplaying',
@@ -46,7 +75,37 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistan
 -	};
 -	var params = {target: uri, mimeType: mimeType};
 -	if (crossAppScene[appid]) {
--
++    this._downloadWidgetElement = this.controller.showDialog({
++        uri: uri,
++        mimeType: mimeType,
++        appid: appid,
++        template: 'download/download-stream-popup',
++        assistant: new DownloadDialogAssistant({
++        sceneAssistant: this,
++        onDismiss: function(cParams) { // DOWNLOAD
++                //this._onPopupHandler('close');
++                this._downloadController.downloadResource(uri);
++        }.bind(this),
++        onAccept: function(cParams) { // STREAM
++                var params = {target: uri, mimeType: mimeType, appid: appid};
++                // Only a few select applications can be
++                var crossAppScene = {
++                    'com.palm.app.videoplayer': 'nowplaying',
++                    'com.palm.app.streamingmusicplayer': 'nowplaying'
++                };
++                //this._onPopupHandler('close');
++                if (crossAppScene[appid]) {
++                    var args = { appId: appid, name: crossAppScene[appid] };
++                    this.controller.stageController.pushScene(args, params);
++                }
++                else {
++                    this._downloadController.downloadResource(uri);
++                }
++        }.bind(this)})
++    });
++    // Record we have a popup
++    //this._onPopupHandler('open');
+ 
 -		var args = { appId: appid, name: crossAppScene[appid] };
 -		this.controller.stageController.pushScene(args, params);
 -	}
@@ -57,194 +116,121 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistan
 -				'id': appid,
 -				'params': params
 -			}
-+	
-+	this._downloadWidgetElement = this.controller.showDialog({
-+		uri: uri,
-+		mimeType: mimeType,
-+		appid: appid,
-+		template: 'download/download-stream-popup',
-+		assistant: new DownloadDialogAssistant({
-+			sceneAssistant: this,
-+			onDismiss: function(cParams) { // DOWNLOAD
-+				this._onPopupHandler('close');
-+				this._downloadController.downloadResource(uri);
-+			}.bind(this),
-+			onAccept: function(cParams) { // STREAM
-+				var params = {target: uri, mimeType: mimeType, appid: appid};
-+				// Only a few select applications can be
-+				var crossAppScene = {
-+					'com.palm.app.videoplayer': 'nowplaying',
-+					'com.palm.app.streamingmusicplayer': 'nowplaying'
-+				};
-+				this._onPopupHandler('close');
-+				if (crossAppScene[appid]) {
-+					var args = { appId: appid, name: crossAppScene[appid] };
-+					this.controller.stageController.pushScene(args, params);
-+				} else {
-+					this._downloadController.downloadResource(uri);
-+				}
-+			}.bind(this)})
- 		});
+-		});
 -	}
-+		
-+	// Record we have a popup
-+	this._onPopupHandler('open');
  };
  
  /**
-@@ -1010,12 +1023,16 @@ PageAssistant.prototype._downloadResourc
- 		// we are unable to perform the download.
- 		if (!this._downloadWidgetElement) {
- 			this._downloadWidgetElement = this.controller.showDialog({
--				template: 'download/download-nosupport-dialog',
--				assistant: new NetworkDialogAssistant({
-+				template: 'download/download-popup',
-+				assistant: new DownloadDialogAssistant({
- 					sceneAssistant: this,
- 					onDismiss: function() {
- 						this._onPopupHandler('close');
- 						delete this._downloadWidgetElement;
-+					}.bind(this),
-+					onAccept: function() {
-+						this._onPopupHandler('close');
-+					        this._downloadController.downloadResource(uri);
- 					}.bind(this)})
- 				});
+@@ -2318,16 +2331,29 @@ PageAssistant.prototype._streamResource 
+  */
+ PageAssistant.prototype._downloadResource = function(uri) {
  
-@@ -1096,8 +1113,10 @@ PageAssistant.prototype._onWebViewResour
- 			var mime = event.mimeType || '';
- 			this._getResourceInfo(event.url, mime,
- 				function(response) { // onSuccess
--					if (response.returnValue && response.canStream) {
--						this._streamResource(event.url, response.appIdByExtension, response.mimeByExtension);
-+// Yes, palm, I caught your typo... writing it this way in case you fix it? 
-+// function currently returns mimeByExtenstion... guessing it should be mimeByExtension
-+					if (response.returnValue && response.canStream && (response.mimeByExtenstion||response.mimeByExtension)) {
-+						this._streamResource(event.url, response.appIdByExtension, (response.mimeByExtenstion||response.mimeByExtenstion));
- 					}
- 					else {
- 						Mojo.Log.info("Resource not streamed, downloading");
+-	Mojo.Log.info("Downloading: " + uri);
++        Mojo.Log.info("Downloading: " + uri);
+ 
+-	try {
+-		// We should no longer download a resource but inform the user
+-		// we are unable to perform the download.
+-		this.controller.showAlertDialog({
+-			onChoose: function(value) { /* Do Nothing */},
+-			message: $L('Cannot find an application which can open this file.'),
+-			choices:[{label:$L('OK'), value:'1', type:'dismiss'}]
+-		});
++        try {
++                // We should no longer download a resource but inform the user
++                // we are unable to perform the download.
++                if (!this._downloadWidgetElement) {
++                        this._downloadWidgetElement = this.controller.showDialog({
++                                template: 'download/download-popup',
++                                assistant: new DownloadDialogAssistant({
++                                        sceneAssistant: this,
++                                        onDismiss: function() {
++                                                //this._onPopupHandler('close');
++                                                delete this._downloadWidgetElement;
++                                        }.bind(this),
++                                        onAccept: function() {
++                                                //this._onPopupHandler('close');
++                                                this._downloadController.downloadResource(uri);
++                                        }.bind(this)})
++                                });
++
++                        // Record we have a popup
++                        //this._onPopupHandler('open');
++                }
+ 	} catch (e) {
+ 		Mojo.Log.logException(e, "#_downloadResource");
+ 	}
 Index: /usr/palm/applications/com.palm.app.browser/app/views/download/download-container.html
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.browser/app/views/download/download-container.html
 +++ /usr/palm/applications/com.palm.app.browser/app/views/download/download-container.html
-@@ -1,3 +1 @@
--<div x-mojo-elements="List" class="palm-list no-lines">
+@@ -1,3 +1,3 @@
+ <div x-mojo-elements="List" class="palm-list no-lines">
 -	#{listElements}
--</div>
++	#{-listElements}
+ </div>
 \ No newline at end of file
-+#{listElements}
-Index: /usr/palm/applications/com.palm.app.browser/app/views/page/page-scene.html
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/app/views/page/page-scene.html
-+++ /usr/palm/applications/com.palm.app.browser/app/views/page/page-scene.html
-@@ -18,3 +18,7 @@
- </div> 
- 
- 
-+<div id="downloadListScroller" class="browser-download" x-mojo-element="Scroller">
-+    <div id="downloadList" class="palm-list" x-mojo-element="List"></div>
-+</div>
-+
-Index: /usr/palm/applications/com.palm.app.browser/sources.json
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/sources.json
-+++ /usr/palm/applications/com.palm.app.browser/sources.json
-@@ -18,6 +18,18 @@
-   "source": "\/usr\/lib\/luna\/luna-network\/ConnectionWidget.js",
-   "scenes": ["page", "startpage"]
-  },
-+{
-+    "source":"app\/models\/download-model.js"
-+ },
-+ {
-+    "source":"app\/controllers\/download-request.js"
-+ },
-+ {
-+    "source":"app\/controllers\/downloaddialog-assistant.js"
-+ },
-+ {
-+    "source":"app\/controllers\/download-controller.js"
-+ },
-  {
-   "source": "app\/controllers\/page-assistant.js",
-   "scenes": "page"
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
-===================================================================
---- /dev/null
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
-@@ -0,0 +1,47 @@
-+/**
-+ * A network dialog assistant for display of current network status.
-+ */
-+DownloadDialogAssistant = Class.create({
-+	
-+	initialize: function(params) {
-+		this.onDismiss = params.onDismiss;
-+		this.onAccept = params.onAccept;
-+		this.controller= params.sceneAssistant.controller;
-+		
-+		// Button handlers.
-+		this.onDismissHandler = this.handleDismiss.bindAsEventListener(this);
-+		this.onAcceptHandler = this.handleAccept.bindAsEventListener(this);
-+	},
-+	
-+	setup: function(widget) {
-+		this.widget = widget;
-+		this.controller.get('acceptButton').addEventListener(Mojo.Event.tap, this.onAcceptHandler);
-+		this.controller.get('acceptButton').focus();
-+		this.controller.get('dismissButton').addEventListener(Mojo.Event.tap, this.onDismissHandler);
-+		this.controller.get('dismissButton').focus();
-+	},
-+	
-+	handleDismiss: function() {
-+		this.onDismiss();
-+		delete this.onAccept;
-+		delete this.onDismiss;
-+		this.widget.mojo.close();
-+	},
-+	handleAccept: function() {
-+		this.onAccept();
-+		delete this.onAccept;
-+		delete this.onDismiss;
-+		this.widget.mojo.close();
-+	},
-+	
-+	cleanup: function() {
-+		Mojo.Log.info("NetworkDialogAssistant#cleanup()");
-+		Mojo.Event.stopListening(this.controller.get('dismissButton'), Mojo.Event.tap, this.onDismissHandler);
-+		Mojo.Event.stopListening(this.controller.get('acceptButton'), Mojo.Event.tap, this.onAcceptHandler);
-+		
-+		// Send a dismiss if NOT already sent a response
-+		if (this.onDismiss) {
-+			this.onDismiss();
-+		}	
-+	}
-+});
 Index: /usr/palm/applications/com.palm.app.browser/app/views/download/download-popup.html
 ===================================================================
 --- /dev/null
 +++ /usr/palm/applications/com.palm.app.browser/app/views/download/download-popup.html
 @@ -0,0 +1,8 @@
 +<div id="palm-dialog-content" class="palm-dialog-content">
-+	<div class="dialog-message" x-mojo-loc=""> Cannot find an application which can open this file. Would you like to download it to /media/internal/downloads?</div>
++        <div class="dialog-message" x-mojo-loc=""> Cannot find an application which can open this file. Would you like to download it to /media/internal/downloads?</div>
 +</div>
 +
 +<div class="palm-dialog-buttons">
-+	<div class="dismiss palm-button" id="acceptButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Yes</div>
-+	<div class="dismiss palm-button" id="dismissButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">No</div>
++        <div class="dismiss palm-button" id="acceptButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Yes</div>
++        <div class="dismiss palm-button" id="dismissButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">No</div>
 +</div>
 Index: /usr/palm/applications/com.palm.app.browser/app/views/download/download-stream-popup.html
 ===================================================================
 --- /dev/null
 +++ /usr/palm/applications/com.palm.app.browser/app/views/download/download-stream-popup.html
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,8 @@
 +<div id="palm-dialog-content" class="palm-dialog-content">
-+	<div class="dialog-message" x-mojo-loc="">This file type has been registered as a streaming media file.  Would you like to download it to /media/internal/downloads instead?</div>
++        <div class="dialog-message" x-mojo-loc="">This file type has been registered as a streaming media file. Would you like to download it to /media/internal/downloads instead?</div>
 +</div>
 +
 +<div class="palm-dialog-buttons">
 +        <div class="dismiss palm-button" id="acceptButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Stream</div>
-+	<div class="dismiss palm-button" id="dismissButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Download</div>
++        <div class="dismiss palm-button" id="dismissButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Download</div>
 +</div>
-+                
+Index: /usr/palm/applications/com.palm.app.browser/app/views/page/page-scene.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.browser/app/views/page/page-scene.html
++++ /usr/palm/applications/com.palm.app.browser/app/views/page/page-scene.html
+@@ -16,5 +16,9 @@
+ <div id="server-disconnected" class="palm-scrim"> 
+ 	<div id="server-disconnected-spinner" x-mojo-element="Spinner"></div> 
+ </div> 
++<div id="downloadListScroller" class="browser-download" x-mojo-element="Scroller">
++	<div id="downloadList" class="palm-list" x-mojo-element="List"></div>
++</div>
++
+ 
+ 
+Index: /usr/palm/applications/com.palm.app.browser/sources.json
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.browser/sources.json
++++ /usr/palm/applications/com.palm.app.browser/sources.json
+@@ -1,5 +1,17 @@
+-[
++[ 
+  {
+-  "source": "app\/controllers\/global_code.js"
++	"source":"app\/models\/download-model.js"
++ },
++ {
++	"source":"app\/controllers\/download-request.js"
++ },
++ {
++	"source":"app\/controllers\/download-controller.js"
++ },
++ {
++    "source":"app\/controllers\/downloaddialog-assistant.js"
++ },
++ {
++    "source": "app\/controllers\/global_code.js"
+  }
+ ]
