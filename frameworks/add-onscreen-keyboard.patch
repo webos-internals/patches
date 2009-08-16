@@ -1,11 +1,5 @@
-commit 395b3d2af8af90e522d011196d66d47a363ea121
-Author: Eric <egaudet@egaudet-ubuntu.(none)>
-Date:   Thu Aug 13 23:03:11 2009 -0400
-
-    Add onscreen keyboard support (v0.2.0)
-
 diff --git a/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js b/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js
-index 4307893..97bd500 100644
+index 4307893..9321d83 100644
 --- a/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js
 +++ b/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js
 @@ -674,6 +674,7 @@ _Dialog:'widget_dialog',
@@ -94,11 +88,12 @@ index 4307893..97bd500 100644
  Mojo.Locale.alternateCharacters=Mojo.Locale.readStringTable(altCharTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
  Mojo.Locale.alternateCharactersFull=Mojo.Locale.readStringTable(altCharFullTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
  Mojo.Locale.DateTimeStrings=Mojo.Locale.readStringTable("datetime_table.json",Mojo.Locale.current,Mojo.Locale.frameworkResourcePath);
-@@ -34320,6 +34348,652 @@ return true;
+@@ -34320,6 +34348,787 @@ return true;
  }
  return false;
  };
 +
++/* oskb */
 +Mojo.Widget.OnScreenKeyboard=Class.create({
 +
 +HI_PADDING_TOP:40,
@@ -115,24 +110,31 @@ index 4307893..97bd500 100644
 +
 +HI_MAX_BOTTOM:5,
 +
-+
-+itemTemplate:Mojo.Widget.getSystemTemplatePath('/kbselector/char'),
-+
-+
++/* oskb */
 +initialize:function(){
 +this.ONSCREEN_KB_OPEN=0;
 +this.ONSCREEN_KB_FILTERING_STATE=1;
 +this.ONSCREEN_KB_CLOSED=2;
 +this.ONSCREEN_KB_EMPTY=3;
 +
-+this.state=this.ONSCREEN_KB_OPEN;
++this.SHIFT_OFF=0;
++this.SHIFT_ONCE=1;
++this.SHIFT_LOCK=2;
 +
++this.state=this.ONSCREEN_KB_OPEN;
++this.shiftState=this.SHIFT_OFF;
++
++this.templateSuffix=""
++this.layout="portrait"
++this.scroll=false;
++this.textCase="lowercase";
 +this.charList=[];
 +this.localizedTable=Mojo.Locale.kbCharacters;
 +this.localizedTableFull=Mojo.Locale.kbCharactersFull;
 +},
 +
 +
++/* oskb */
 +setup:function(){
 +var model=this.controller.model;
 +
@@ -152,9 +154,11 @@ index 4307893..97bd500 100644
 +this.handleKeyEvent=this.handleKeyEvent.bind(this);
 +this.handleKeyUpEvent=this.handleKeyUpEvent.bind(this);
 +this.handleMouseEvent=this.handleMouseEvent.bind(this);
++this.handleOrientation=this.handleOrientation.bindAsEventListener(this);
 +this.controller.listen(this.target,"keydown",this.handleKeyEvent,true);
 +this.controller.listen(this.target,"keyup",this.handleKeyUpEvent,true);
 +this.controller.listen(this.controller.document,Mojo.Event.tap,this.handleMouseEvent,true);
++this.controller.listen(this.controller.document,Mojo.Event.orientationChange,this.handleOrientation,true);
 +
 +if(this.chorded){
 +
@@ -169,6 +173,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +cleanup:function(){
 +
 +
@@ -182,53 +187,48 @@ index 4307893..97bd500 100644
 +
 +
 +
++/* oskb */
 +cleanupEventListeners:function(){
 +this.controller.stopListening(this.target,"keydown",this.handleKeyEvent,true);
 +this.controller.stopListening(this.target,"keyup",this.handleKeyUpEvent,true);
 +this.controller.stopListening(this.controller.document,Mojo.Event.tap,this.handleMouseEvent,true);
++this.controller.stopListening(this.controller.document,Mojo.Event.orientationChange,this.handleOrientation,true);
 +},
 +
 +
++/* oskb */
 +loadTable:function(chr){
 +var data,list;
 +var i=0;
 +var that=this;
 +var table;
++var letter;
 +
 +this.charList=[];
-+if(chr){
-+table=this.localizedTable;
-+}else if(chr===undefined){
 +table=this.localizedTableFull;
-+}else{
-+return;
-+}
 +
 +table.each(function(c){
-+if(chr){
-+if(c.keyCode==chr){
-+list=c.list;
-+}
-+}else{
-+list=c.list;
-+}
-+if(list){
-+list.each(function(item){
-+data={
-+index:i,
-+character:item,
-+letter:c.letter,
-+keyCode:c.keyCode
-+};
-+that.charList.push(data);
-+i++;
-+});
-+}
-+list=undefined;
++/* TODO: get rid of list idea that doesn't need to exist for kb */
++  list = c.list;
++  letter = c.letter;
++  if(list){
++    list.each(function(item){
++      data={
++        index:i,
++        character:item,
++        letter:letter,
++        keyCode:c.keyCode
++      };
++
++      that.charList.push(data);
++      i++;
++    });
++  }
++  list=undefined;
 +});
 +},
 +
-+
++/* oskb */
 +_setPopupPositions:function(picker){
 +var top='',left='';
 +var cursorPos=Mojo.View.getCursorPosition(this.controller.window);
@@ -278,12 +278,12 @@ index 4307893..97bd500 100644
 +top='0px';
 +}
 +
-+console.log("Set left 0");
 +left = '0px';
 +this.charPicker.setStyle({'top':top,'left':left});
 +},
 +
 +
++/* oskb */
 +translateToRow:function(results){
 +
 +var finished=false;
@@ -306,6 +306,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++  /* oskb */
 +renderWidget:function(chr){
 +var data;
 +var charContent;
@@ -320,9 +321,10 @@ index 4307893..97bd500 100644
 +divPrefix:this.divPrefix
 +};
 +
++this.itemTemplate=Mojo.Widget.getSystemTemplatePath('/kbselector/char'+this.templateSuffix),
 +this.itemsModel={items:this.translateToRow(this.charList)};
 +this.charPicker=undefined;
-+pickerContent=Mojo.View.render({object:charContentModel,template:Mojo.Widget.getSystemTemplatePath('/kbselector/charselector')});
++pickerContent=Mojo.View.render({object:charContentModel,template:Mojo.Widget.getSystemTemplatePath('/kbselector/charselector'+this.templateSuffix)});
 +
 +parent=Mojo.View.getScrollerForElement(this.target);
 +if(!parent){
@@ -332,17 +334,24 @@ index 4307893..97bd500 100644
 +this.controller.reparent(parent);
 +}
 +this.controller.element.innerHTML=pickerContent;
++/* If we are not set to scroll (i.e. symbol button not pressed), remove 
++ * the scroller widget before instantiating */
++if (!this.scroll) {
++  this.controller.get(this.divPrefix+"-char-selector").removeAttribute("x-mojo-element");
++}
 +
 +this.charPicker=this.controller.get(this.divPrefix+'-kb-char-selector-div');
 +
 +this.controller.scene.setupWidget('char-list',
-+{itemTemplate:Mojo.Widget.getSystemTemplatePath('kbselector/char-selector-row'),renderLimit:30},this.itemsModel);
++{itemTemplate:Mojo.Widget.getSystemTemplatePath('kbselector/char-selector-row'+this.templateSuffix),renderLimit:30},this.itemsModel);
 +this.controller.instantiateChildWidgets(this.charPicker);
 +this.controller.scene.showWidgetContainer(this.charPicker);
 +this._setPopupPositions(this.charPicker);
 +
 +this.selectedIndex=0;
++/*
 +this._updateSelected(null,this._selectedIdxElem());
++*/
 +if(this._selectedIdxElem()){
 +this.perLine=Math.floor(Element.getWidth(this.charPicker)/Element.getWidth(this._selectedIdxElem()));
 +}else{
@@ -360,12 +369,14 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +enterOpenState:function(){
 +
 +this.state=this.ONSCREEN_KB_OPEN;
 +},
 +
 +
++/* oskb */
 +_maybeRemoveCharpicker:function(){
 +if(this.charPicker){
 +if(this.charPicker.parentNode){
@@ -376,6 +387,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +enterFilteringState:function(keyCode){
 +
 +this.state=this.ONSCREEN_KB_FILTERING_STATE;
@@ -392,6 +404,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +handleModelChanged:function(model,what){
 +Element.show(this.charPicker);
 +if(Mojo.Char.isValid(this.controller.model.character)){
@@ -400,12 +413,14 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +_emptyAndClose:function(){
 +this.state=this.ONSCREEN_KB_EMPTY;
 +this.close();
 +},
 +
 +
++/* oskb */
 +close:function(){
 +
 +if(this.state===this.ONSCREEN_KB_FILTERING_STATE||this.state===this.ONSCREEN_KB_OPEN){
@@ -417,18 +432,58 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +isOpen:function(){
 +return this.state!==this.ONSCREEN_KB_CLOSED;
 +},
 +
++/* oskb */
 +isSpecialChar:function(keyCode){
-+  return(this.isSymKey(keyCode) || Mojo.Char.isEnterKey(keyCode));
++  return(Mojo.Char.isEnterKey(keyCode));
 +},
 +
++/* oskb */
 +isSupported:function(keyCode){
-+  return(keyCode && !this.isSymKey(keyCode) && (keyCode !== Mojo.Char.shift) && (keyCode !== Mojo.Char.altkey));
++  return(keyCode && (keyCode !== Mojo.Char.altkey));
 +},
 +
++/* oskb */
++updateText:function(){
++  for (var i=0; i<28; i++) {
++    this.controller.get(this.divPrefix+"-"+i).setStyle({"text-transform":this.textCase});
++    switch(this.textCase) {
++      case 'uppercase':
++        this.charList[i].letter = this.charList[i].letter.toUpperCase();
++        break;
++      case 'lowercase':
++        this.charList[i].letter = this.charList[i].letter.toLowerCase();
++        break;
++    }
++  }
++},
++
++/* oskb */
++handleShift:function(keyCode){
++if (this.shiftState === this.SHIFT_OFF) {
++  this.shiftState = this.SHIFT_ONCE;
++  this.textCase = "uppercase";
++}
++else if (this.shiftState === this.SHIFT_ONCE) {
++  this.shiftState = this.SHIFT_LOCK;
++  this._updateSelected(null, this.controller.get(this.divPrefix+"-31"));
++  return;
++}
++else {
++  this.shiftState = this.SHIFT_OFF;
++  this.textCase = "lowercase";
++  this._updateSelected(this.controller.get(this.divPrefix+"-31"), null);
++}
++
++/* oskb */
++this.updateText();
++},
++
++/* oskb */
 +exitSelector:function(chr){
 +var letter;
 +var characterVal,selection;
@@ -441,13 +496,8 @@ index 4307893..97bd500 100644
 +isWebView=true;
 +}
 +
-+/*
-+this.state=this.ONSCREEN_KB_CLOSED;
-+*/
-+
-+
 +if(chr){
-+letter=chr.letter;
++letter=chr.letter || chr.character || " ";
 +selection=this.controller.window.getSelection();
 +
 +if (Mojo.Char.isDeleteKey(chr.keyCode)) {
@@ -461,6 +511,22 @@ index 4307893..97bd500 100644
 +  }
 +  Mojo.Event.send(this.target,'keydown',{keyCode:chr.keyCode});
 +  Mojo.Event.send(this.target,'keyup',{keyCode:chr.keyCode});
++}
++else if (chr.keyCode === Mojo.Char.shift) {
++  this.handleShift(chr.keyCode);
++}
++else if (this.isSymKey(chr.keyCode)) {
++  /* TODO: is this really the only way to dynamically start/stop scrolling? */
++  this.scroll = !this.scroll;
++  this.renderWidget();
++  if (this.scroll) {
++    this._updateSelected(null,this.controller.get(this.divPrefix+"-38"));
++  }
++  else {
++    this._updateSelected(this.controller.get(this.divPrefix+"-38"),null);
++  }
++  
++  return;
 +}
 +else if (!this.isSupported(chr.keyCode)) {
 +  console.log("Char keycode " + chr.keyCode + " not supported (yet)");
@@ -493,9 +559,15 @@ index 4307893..97bd500 100644
 +if(!isWebView){
 +this.target.focus();
 +}
++if (this.shiftState === this.SHIFT_ONCE && chr.keyCode !== Mojo.Char.shift){
++  this.shiftState = this.SHIFT_OFF;
++  this.textCase = "lowercase";
++  this.updateText();
++}
 +},
 +
 +
++/* oskb */
 +_safeRemove:function(){
 +this.controller.scene.removeContainer(this.controller.element);
 +if(this.controller.element&&this.controller.element.parentNode){
@@ -504,6 +576,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +_insertChar:function(origValue,letter,start,end){
 +var value='';
 +if(origValue){
@@ -517,6 +590,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +advance:function(){
 +var old=this._selectedIdxElem();
 +var newElm;
@@ -527,11 +601,13 @@ index 4307893..97bd500 100644
 +this.selectedIndex++;
 +}
 +
++/* oskb */
 +newElm=this._selectedIdxElem();
 +this._updateSelected(old,newElm);
 +},
 +
 +
++/* oskb */
 +retreat:function(){
 +var old,newElm;
 +
@@ -546,6 +622,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +_getMatching:function(element,query){
 +if(!element){
 +return;
@@ -554,6 +631,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +_updateSelected:function(oldSelection,newSelection){
 +var node;
 +if(oldSelection){
@@ -572,6 +650,7 @@ index 4307893..97bd500 100644
 +
 +
 +
++/* oskb */
 +moveDown:function(){
 +var old,newElm;
 +if(this.selectedIndex+this.perLine<this.charList.length){
@@ -583,6 +662,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +moveUp:function(){
 +var old,newElm;
 +if(this.selectedIndex-this.perLine>=0){
@@ -594,6 +674,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +updatePosition:function(key){
 +switch(key){
 +case Mojo.Char.leftArrow:
@@ -619,6 +700,7 @@ index 4307893..97bd500 100644
 +
 +
 +
++/* oskb */
 +handleKeyUpEvent:function(event){
 +var keyCode=event.keyCode;
 +var chr;
@@ -634,6 +716,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +handleKeyEvent:function(event){
 +var keyCode=event.keyCode;
 +
@@ -670,7 +753,46 @@ index 4307893..97bd500 100644
 +}
 +},
 +
++maybeChangeLayout:function(orientation){
++  switch (this.layout) {
++    case "portrait":
++      console.log("in portrait, orient " + orientation);
++      if (orientation==="left" || orientation==="right") {
++        console.log("redraw");
++        this.layout="landscape";
++        this.templateSuffix="-ls";
++        this.renderWidget();
++      }
++    break;
++    case "landscape":
++      console.log("in landscape, orient " + orientation);
++      if (orientation==="up" || orientation==="down") {
++        console.log("redraw");
++        this.layout="portrait";
++        this.templateSuffix="";
++        this.renderWidget();
++      }
++    break;
++  }
++},
 +
++/* oskb */
++handleOrientation:function(event){
++/*TODO: I'm not sure why, but every change I get two events, back to back.
++ *      For now just ignore the 2nd orient event */
++console.log("ORIENT position" + event.orientation);
++
++if (this.ignoreSecond) {
++  this.ignoreSecond=false;
++  return;
++}
++else {
++  this.ignoreSecond=true;
++  this.maybeChangeLayout(event.orientation);
++}
++},
++
++/* oskb */
 +handleMouseEvent:function(event){
 +
 +switch(this.state){
@@ -691,11 +813,13 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +getEntered:function(){
 +return this.charList[this.selectedIndex];
 +},
 +
 +
++/* oskb */
 +getSelected:function(target){
 +var chr=target.getAttribute('name');
 +
@@ -707,6 +831,7 @@ index 4307893..97bd500 100644
 +
 +
 +
++/* oskb */
 +isDirectionalKey:function(key){
 +if(key==Mojo.Char.leftArrow||key==Mojo.Char.upArrow||key==Mojo.Char.rightArrow||key==Mojo.Char.downArrow){
 +return true;
@@ -715,6 +840,7 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +isInCharPicker:function(target){
 +if(!this.charPicker){
 +return;
@@ -726,16 +852,19 @@ index 4307893..97bd500 100644
 +},
 +
 +
++/* oskb */
 +isSymKey:function(keyCode){
 +return keyCode===Mojo.Char.sym;
 +},
 +
 +
++/* oskb */
 +_selectedIdxElem:function(){
 +return this.controller.get(this.divPrefix+"-"+this.selectedIndex);
 +},
 +
 +
++/* oskb */
 +handleCommand:function(commandEvent){
 +if(commandEvent.type===Mojo.Event.back&&(this.state!==this.ONSCREEN_KB_CLOSED&&this.state!==this.ONSCREEN_KB_EMPTY)){
 +this.exitSelector();
@@ -749,51 +878,51 @@ index 4307893..97bd500 100644
  
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/resources/en_us/kbchars_fulltable.json b/usr/palm/frameworks/mojo/submissions/191.15/resources/en_us/kbchars_fulltable.json
 new file mode 100644
-index 0000000..53036e0
+index 0000000..79681c6
 --- /dev/null
 +++ b/usr/palm/frameworks/mojo/submissions/191.15/resources/en_us/kbchars_fulltable.json
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,88 @@
 +[
-+  {"keyCode": 80, "letter":"q", "list": ["q"]},
-+  {"keyCode": 80, "letter":"w", "list": ["w"]},
-+  {"keyCode": 69, "letter":"e", "list": ["e"]},
-+  {"keyCode": 80, "letter":"r", "list": ["r"]},
-+  {"keyCode": 80, "letter":"t", "list": ["t"]},
-+  {"keyCode": 80, "letter":"y", "list": ["y"]},
-+  {"keyCode": 80, "letter":"u", "list": ["u"]},
-+  {"keyCode": 70, "letter":"i", "list": ["i"]},
-+  {"keyCode": 70, "letter":"o", "list": ["o"]},
-+  {"keyCode": 80, "letter":"p", "list": ["p"]},
++  {"keyCode": 50, "letter":"q", "list": ["q"]},
++  {"keyCode": 50, "letter":"w", "list": ["w"]},
++  {"keyCode": 50, "letter":"e", "list": ["e"]},
++  {"keyCode": 50, "letter":"r", "list": ["r"]},
++  {"keyCode": 50, "letter":"t", "list": ["t"]},
++  {"keyCode": 50, "letter":"y", "list": ["y"]},
++  {"keyCode": 50, "letter":"u", "list": ["u"]},
++  {"keyCode": 50, "letter":"i", "list": ["i"]},
++  {"keyCode": 50, "letter":"o", "list": ["o"]},
++  {"keyCode": 50, "letter":"p", "list": ["p"]},
 +
-+  {"keyCode": 65, "letter":"a", "list": ["a"]},
-+  {"keyCode": 80, "letter":"s", "list": ["s"]},
-+  {"keyCode": 68, "letter":"d", "list": ["d"]},
-+  {"keyCode": 70, "letter":"f", "list": ["f"]},
-+  {"keyCode": 70, "letter":"g", "list": ["g"]},
-+  {"keyCode": 70, "letter":"h", "list": ["h"]},
-+  {"keyCode": 70, "letter":"j", "list": ["j"]},
-+  {"keyCode": 70, "letter":"k", "list": ["k"]},
-+  {"keyCode": 70, "letter":"l", "list": ["l"]},
++  {"keyCode": 50, "letter":"a", "list": ["a"]},
++  {"keyCode": 50, "letter":"s", "list": ["s"]},
++  {"keyCode": 50, "letter":"d", "list": ["d"]},
++  {"keyCode": 50, "letter":"f", "list": ["f"]},
++  {"keyCode": 50, "letter":"g", "list": ["g"]},
++  {"keyCode": 50, "letter":"h", "list": ["h"]},
++  {"keyCode": 50, "letter":"j", "list": ["j"]},
++  {"keyCode": 50, "letter":"k", "list": ["k"]},
++  {"keyCode": 50, "letter":"l", "list": ["l"]},
 +  {"keyCode": 8, "letter":"\b", "list": ["&laquo"]},
 +
-+  {"keyCode": 18, "letter":"O", "list": ["O"]},
-+  {"keyCode": 90, "letter":"z", "list": ["z"]},
-+  {"keyCode": 80, "letter":"x", "list": ["x"]},
-+  {"keyCode": 67, "letter":"c", "list": ["c"]},
-+  {"keyCode": 80, "letter":"v", "list": ["v"]},
-+  {"keyCode": 66, "letter":"b", "list": ["b"]},
-+  {"keyCode": 70, "letter":"n", "list": ["n"]},
-+  {"keyCode": 70, "letter":"m", "list": ["m"]},
++  {"keyCode": 18, "letter":"orange", "list": ["&curren"]},
++  {"keyCode": 50, "letter":"z", "list": ["z"]},
++  {"keyCode": 50, "letter":"x", "list": ["x"]},
++  {"keyCode": 50, "letter":"c", "list": ["c"]},
++  {"keyCode": 50, "letter":"v", "list": ["v"]},
++  {"keyCode": 50, "letter":"b", "list": ["b"]},
++  {"keyCode": 50, "letter":"n", "list": ["n"]},
++  {"keyCode": 50, "letter":"m", "list": ["m"]},
 +  {"keyCode": 90, "letter":",", "list": [","]},
 +  {"keyCode": 13, "letter":"\n", "list": ["&raquo"]},
 +
 +  {"keyCode": 00, "letter":"blank", "list": ["&deg"]},
 +  {"keyCode": 16, "letter":"shift", "list": ["&yen"]},
 +  {"keyCode": 90, "letter":"@", "list": ["@"]},
-+  {"keyCode": 90, "letter":" ", "list": ["&nbsp"]},
-+  {"keyCode": 90, "letter":" ", "list": ["&nbsp"]},
-+  {"keyCode": 90, "letter":" ", "list": ["&nbsp"]},
-+  {"keyCode": 90, "letter":" ", "list": ["&nbsp"]},
++  {"keyCode": 32, "letter":" ", "list": ["&nbsp"]},
++  {"keyCode": 32, "letter":" ", "list": ["&nbsp"]},
++  {"keyCode": 32, "letter":" ", "list": ["&nbsp"]},
++  {"keyCode": 32, "letter":" ", "list": ["&nbsp"]},
 +  {"keyCode": 90, "letter":".", "list": ["."]},
 +  {"keyCode": 17, "letter":"sym", "list": ["&iquest"]},
 +  {"keyCode": 00, "letter":"blank", "list": ["&deg"]},
@@ -808,37 +937,38 @@ index 0000000..53036e0
 +  {"keyCode": 90, "letter":"7", "list": ["7"]},
 +  {"keyCode": 90, "letter":"8", "list": ["8"]},
 +  {"keyCode": 90, "letter":"9", "list": ["9"]},
-+  {"keyCode": 90, "letter":".", "list": ["."]},
 +
-+  {"keyCode": 65, "letter":"A", "list": ["A"], "modifier": 16},
-+  {"keyCode": 67, "letter":"c", "list": ["©","ç"]},
-+  {"keyCode": 67, "letter":"C", "list": ["Ç"], "modifier": 16},
-+  {"keyCode": 69, "letter":"e", "list": ["é","è","ë","ê","ē"]},
-+  {"keyCode": 69, "letter":"E", "list": ["É","È","Ë","Ê"], "modifier": 16},
-+  {"keyCode": 73, "letter":"i", "list": ["í","ì","ï","î"]},
-+  {"keyCode": 73, "letter":"I", "list": ["Í","Ì","Ï","Î"], "modifier": 16},
-+  {"keyCode": 78, "letter":"n", "list": ["ñ"]},
-+  {"keyCode": 78, "letter":"N", "list": ["Ñ"], "modifier": 16},
-+  {"keyCode": 79, "letter":"o", "list": ["ó","ò","ö","ô","œ","õ","ø"]},
-+  {"keyCode": 79, "letter":"O", "list": ["Ó","Ò","Ö","Ô","Œ","Õ","Ø"], "modifier": 16},
-+  {"keyCode": 83, "letter":"s", "list": ["ß"]},
-+  {"keyCode": 85, "letter":"u", "list": ["ú","ù","ü","û"]},
-+  {"keyCode": 85, "letter":"U", "list": ["Ú","Ù","ÜÛ"], "modifier": 16},
-+  {"keyCode": 88, "letter":"x", "list": ["×","¤"]},
-+  {"keyCode": 89, "letter":"y", "list": ["ÿ"]},
-+  {"keyCode": 89, "letter":"Y", "list": ["Ÿ"], "modifier": 16},
-+  {"keyCode": 82, "letter":"r", "list": ["®"]},
-+  {"keyCode": 80, "letter":"p", "list": ["¶"]},
-+  {"keyCode": 84, "letter":"t", "list": ["™"]},
-+  {"keyCode": 68, "letter":"D", "list": ["†","‡"], "modifier": 16},
-+  {"keyCode": 96, "letter":"0", "list": ["°"]},
-+  {"keyCode": 97, "letter":"1", "list": ["¹", "¼", "½"]},
-+  {"keyCode": 98, "letter":"2", "list": ["²"]},
-+  {"keyCode": 99, "letter":"3", "list": ["³", "¾"]},
-+  {"keyCode": 67, "letter":"!", "list": ["¡"]},
-+  {"keyCode": 67, "letter":"?", "list": ["¿"]},
-+  {"keyCode": 67, "letter":":", "list": [":-)", ":-(", ";-)"]},
-+  {"keyCode": 67, "letter":"$", "list": ["$","¢","€","£","¥"]}
++  {"keyCode": 190, "letter":"", "list": ["~","\\","•","`","÷","^","[","]","{","}","<",">","«","»","Ø","µ","|"]},
++  {"keyCode": 65,  "letter":"", "list": ["á","à","ä","â","ã","å","æ"]},
++  {"keyCode": 65,  "letter":"", "list": ["Á","À","Ä","Â","Ã","Å","Æ"], "modifier": 16},
++  {"keyCode": 67,  "letter":"", "list": ["©","ç"]},
++  {"keyCode": 67,  "letter":"", "list": ["Ç"], "modifier": 16},
++  {"keyCode": 69,  "letter":"", "list": ["é","è","ë","ê","ē"]},
++  {"keyCode": 69,  "letter":"", "list": ["É","È","Ë","Ê"], "modifier": 16},
++  {"keyCode": 73,  "letter":"", "list": ["í","ì","ï","î"]},
++  {"keyCode": 73,  "letter":"", "list": ["Í","Ì","Ï","Î"], "modifier": 16},
++  {"keyCode": 78,  "letter":"", "list": ["ñ"]},
++  {"keyCode": 78,  "letter":"", "list": ["Ñ"], "modifier": 16},
++  {"keyCode": 79,  "letter":"", "list": ["ó","ò","ö","ô","œ","õ","ø"]},
++  {"keyCode": 79,  "letter":"", "list": ["Ó","Ò","Ö","Ô","Œ","Õ","Ø"], "modifier": 16},
++  {"keyCode": 83,  "letter":"", "list": ["ß"]},
++  {"keyCode": 85,  "letter":"", "list": ["ú","ù","ü","û"]},
++  {"keyCode": 85,  "letter":"", "list": ["Ú","Ù","Ü","Û"], "modifier": 16},
++  {"keyCode": 88,  "letter":"", "list": ["×","¤"]},
++  {"keyCode": 89,  "letter":"", "list": ["ÿ"]},
++  {"keyCode": 89,  "letter":"", "list": ["Ÿ"], "modifier": 16},
++  {"keyCode": 82,  "letter":"", "list": ["®"]},
++  {"keyCode": 80,  "letter":"", "list": ["¶"]},
++  {"keyCode": 84,  "letter":"", "list": ["™"]},
++  {"keyCode": 68,  "letter":"", "list": ["†","‡"], "modifier": 16},
++  {"keyCode": 96,  "letter":"", "list": ["°"]},
++  {"keyCode": 97,  "letter":"", "list": ["¹", "¼", "½"]},
++  {"keyCode": 98,  "letter":"", "list": ["²"]},
++  {"keyCode": 99,  "letter":"", "list": ["³", "¾"]},
++  {"keyCode": 67,  "letter":"", "list": ["¡"]},
++  {"keyCode": 67,  "letter":"", "list": ["¿"]},
++  {"keyCode": 67,  "letter":"", "list": [":-)", ":-(", ";-)"]},
++  {"keyCode": 67,  "letter":"", "list": ["$","¢","€","£","¥"]}
 +]
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/resources/en_us/kbchars_fulltable_qwertz.json b/usr/palm/frameworks/mojo/submissions/191.15/resources/en_us/kbchars_fulltable_qwertz.json
 new file mode 100644
@@ -1106,7 +1236,7 @@ index 0000000..6774f8f
 +  {"keyCode": 67, "letter":"$", "list": ["$","¢","€","£","¥"]}
 +]
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css b/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css
-index 39fa4ec..612a873 100644
+index 39fa4ec..c621a72 100644
 --- a/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css
 +++ b/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css
 @@ -483,7 +483,7 @@ a:visited {
@@ -1118,7 +1248,7 @@ index 39fa4ec..612a873 100644
    width: 48px;
    height: 48px;
    line-height: 48px;
-@@ -511,6 +511,60 @@ span.selected-char {
+@@ -511,6 +511,78 @@ span.selected-char {
  }
  
    
@@ -1127,7 +1257,7 @@ index 39fa4ec..612a873 100644
 +.kb-char-selector-container {
 +  z-index: 199500; /* same as popup */
 +  position:fixed;
-+  width: 320px;
++  width: 315px;
 +  border-width: 24px;
 +  -webkit-border-image: url(../images/palm-popup-background.png) 24 24 24 24 repeat repeat;
 +  -webkit-box-sizing: border-box;
@@ -1172,20 +1302,54 @@ index 39fa4ec..612a873 100644
 +  background: url(../images/filter-search-highlight.png) bottom repeat-x;
 +}
 +
-+.char-selector-element:nth-child(10n) {
++.kb-char-selector-element:nth-child(10n) {
 +  border-right: none;
 +}
++
++/* Landscape rows */
++.kb-char-selector-column.landscape {
++  width: 480px;
++}
++
++.kb-char-selector-element.landscape {
++  width: 41px;
++}
++
++.kb-char-selector-container.landscape {
++  width: 480px;
++}
++
++.kb-char-selector-container.landscape .kb-char-selector-wrapper {
++  margin: -15px -16px -15px -16px;
++}
++
 +
  /** Slider and Progress Slider **/
  
  .palm-row-wrapper > .palm-slider {
-@@ -665,4 +719,4 @@ span.selected-char {
+@@ -665,4 +737,4 @@ span.selected-char {
    height: 111px;
    background: url(../images/disclaimer-beta.png) no-repeat;     
    -webkit-palm-mouse-target: ignore;
 -}
 \ No newline at end of file
 +}
+diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-ls.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-ls.html
+new file mode 100644
+index 0000000..f5f4f36
+--- /dev/null
++++ b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-ls.html
+@@ -0,0 +1,3 @@
++<div id="#{divPrefix}-#{index}" name="#{index}" class="kb-char-selector-element landscape" x-mojo-tap-highlight="momentary">
++	<span name="#{index}">#{-character}</span>
++</div>
+diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-selector-row-ls.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-selector-row-ls.html
+new file mode 100644
+index 0000000..a5a8217
+--- /dev/null
++++ b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-selector-row-ls.html
+@@ -0,0 +1 @@
++<div class="kb-char-selector-column landscape">#{-characters}</div>
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-selector-row.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-selector-row.html
 new file mode 100644
 index 0000000..847f837
@@ -1204,16 +1368,29 @@ index 0000000..d3865c2
 +	<span name="#{index}">#{-character}</span>
 +</div>
 \ No newline at end of file
+diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector-ls.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector-ls.html
+new file mode 100644
+index 0000000..28aa368
+--- /dev/null
++++ b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector-ls.html
+@@ -0,0 +1,7 @@
++<div  class="kb-char-selector-container landscape" id="#{divPrefix}-kb-char-selector-div">
++  <div class="kb-char-selector-wrapper">
++  	<div class="kb-char-selector-content landscape" x-mojo-element="Scroller" id="#{divPrefix}-char-selector">
++		<div class="kb-char-selector-content landscape" id="char-list" x-mojo-element="List">
++		</div>  
++  </div>
++</div> 
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector.html
 new file mode 100644
-index 0000000..2fad781
+index 0000000..b2b7ea5
 --- /dev/null
 +++ b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector.html
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,7 @@
 +<div  class="kb-char-selector-container" id="#{divPrefix}-kb-char-selector-div">
 +  <div class="kb-char-selector-wrapper">
++  	<div class="char-selector-content" x-mojo-element="Scroller" id="#{divPrefix}-char-selector">
 +		<div class="kb-char-selector-content" id="char-list" x-mojo-element="List">
 +		</div>  
 +  </div>
 +</div> 
-\ No newline at end of file
