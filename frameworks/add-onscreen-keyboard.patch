@@ -1,5 +1,5 @@
 diff --git a/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js b/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js
-index 4307893..3e02de5 100644
+index 4307893..d34d15a 100644
 --- a/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js
 +++ b/usr/palm/frameworks/mojo/builtins/palmInitFramework191_15.js
 @@ -674,6 +674,7 @@ _Dialog:'widget_dialog',
@@ -31,11 +31,34 @@ index 4307893..3e02de5 100644
  
  
  
-@@ -4891,6 +4899,15 @@ if(webView){
+@@ -4008,6 +4016,7 @@ this.document=this.window.document;
+ this.paramsFromURI=this.document.baseURI.toQueryParams();
+ this.stageType=this.paramsFromURI.window||"card";
+ this._stageProxy=stageProxy;
++this.metaCount=0;
+ 
+ this._stagePreparing=true;
+ 
+@@ -4871,6 +4880,13 @@ var scene=this.topScene();
+ var tempTextArea,msg,scriptNode;
+ var webView;
+ 
++/* Use pageup (179) for emulator */
++if (event.keyCode === Mojo.Char.metaKey || event.keyCode === 179) {
++  if (this.metaCount === 2) {
++    this.metaDoubleTap=true;
++  }
++}
++
+ if(Mojo.Controller.isGoBackKey(event)){
+ var newEv=Mojo.Event.make(Mojo.Event.back,{originalEvent:event});
+ this.sendEventToCommanders(newEv);
+@@ -4891,6 +4907,16 @@ if(webView){
  webView.mojo.isEditing(this._sendCharpickerEventCallback.bind(this,Mojo.Event.renderAltCharacters,webView,null));
  }
  }
-+}else if(this.enableOnScreenKeyboard&&event.keyCode===Mojo.Char.metaKey){
++}else if(this.enableOnScreenKeyboard&&this.metaDoubleTap){
++this.metaDoubleTap=false;
 +if(this.doesTargetAcceptKeys(event.target)){
 +this._sendCharpickerEvent(Mojo.Event.renderOnScreenKeyboard,event.target,null);
 +}else{
@@ -47,7 +70,31 @@ index 4307893..3e02de5 100644
  }else if(event.keyCode===Mojo.Char.o&&event.ctrlKey&&event.shiftKey&&Mojo.Config.debuggingEnabled){
  
  
-@@ -9431,6 +9448,9 @@ Mojo.Event.renderAltCharacters='mojo-altchars';
+@@ -4933,8 +4959,6 @@ tempTextArea.remove();
+ }else{
+ 
+ 
+-
+-
+ scene=this.activeScene();
+ if(event.metaKey&&scene&&scene.handleShortcut(String.fromCharCode(event.which),event)){
+ Event.stop(event);
+@@ -4949,6 +4973,14 @@ this._forwardEventToTopContainer(Mojo.Event.keyup,event);
+ _keyDownHandler:function(event){
+ var webView;
+ 
++if (event.keyCode === Mojo.Char.metaKey || event.keyCode === 179) {
++  this.metaCount++;
++  console.log("meta count = " + this.metaCount);
++  if (this.metaCount === 1) {
++    this.metaTimer=this.window.setTimeout(function(){this.metaCount=0;}.bind(this), 600);
++  }
++}
++
+ if(this.enableAltCharPicker&&event.keyCode!==Mojo.Char.opt&&event.ctrlKey){
+ if(this.doesTargetAcceptKeys(event.target)){
+ this._sendCharpickerEvent(Mojo.Event.renderChordedAltCharacters,event.target,event.keyCode);
+@@ -9431,6 +9463,9 @@ Mojo.Event.renderAltCharacters='mojo-altchars';
  Mojo.Event.renderChordedAltCharacters='mojo-altchars-chorded';
  
  
@@ -57,7 +104,7 @@ index 4307893..3e02de5 100644
  Mojo.Event.orientationChange='mojo-orientation';
  
  
-@@ -10619,7 +10639,7 @@ return stringTable;
+@@ -10619,7 +10654,7 @@ return stringTable;
  
  Mojo.Locale.set=function(currentLocale,formatRegion){
  var deviceInfo=Mojo.Environment.DeviceInfo;
@@ -66,7 +113,7 @@ index 4307893..3e02de5 100644
  
  if(Mojo.Locale.current!=currentLocale){
  Mojo.Locale.current=currentLocale;
-@@ -10660,13 +10680,21 @@ Mojo.Locale.frameworkStrings=Mojo.Locale.readStringTable("strings.json",Mojo.Loc
+@@ -10660,13 +10695,21 @@ Mojo.Locale.frameworkStrings=Mojo.Locale.readStringTable("strings.json",Mojo.Loc
  if(deviceInfo.keyboardType===Mojo.Environment.AZERTY){
  altCharTable="alternatechars_table_azerty.json";
  altCharFullTable="alternatechars_fulltable_azerty.json";
@@ -88,7 +135,27 @@ index 4307893..3e02de5 100644
  Mojo.Locale.alternateCharacters=Mojo.Locale.readStringTable(altCharTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
  Mojo.Locale.alternateCharactersFull=Mojo.Locale.readStringTable(altCharFullTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
  Mojo.Locale.DateTimeStrings=Mojo.Locale.readStringTable("datetime_table.json",Mojo.Locale.current,Mojo.Locale.frameworkResourcePath);
-@@ -34320,6 +34348,991 @@ return true;
+@@ -19131,6 +19174,9 @@ handleMouseEvent:function(event){
+ if(event.target&&Mojo.View.getParentWithAttribute(event.target,"x-mojo-element","CharSelector")){
+ return;
+ }
++if(event.target&&Mojo.View.getParentWithAttribute(event.target,"x-mojo-element","OnScreenKeyboard")){
++return;
++}
+ 
+ switch(this.STATE){
+ case this.ADDRESSING_WIDGET_UNFOCUSED:
+@@ -28599,7 +28645,8 @@ return false;
+ 
+ sendChanges:function(triggeringEvent){
+ 
+-if(!Mojo.View.getParentWithAttribute(triggeringEvent.target,'x-mojo-element','CharSelector')){
++if(!Mojo.View.getParentWithAttribute(triggeringEvent.target,'x-mojo-element','CharSelector') &&
++   !Mojo.View.getParentWithAttribute(triggeringEvent.target,'x-mojo-element','OnScreenKeyboard')){
+ this.maybeSendPropertyChangeEvent(triggeringEvent);
+ }
+ },
+@@ -34320,6 +34367,1073 @@ return true;
  }
  return false;
  };
@@ -112,11 +179,13 @@ index 4307893..3e02de5 100644
 +
 +/* oskb */
 +initialize:function(){
-+this.ONSCREEN_KB_THEMES_PATH=Mojo.Config.IMAGES_HOME+'/virt_kb/';
-+this.ONSCREEN_KB_OPEN=0;
-+this.ONSCREEN_KB_FILTERING_STATE=1;
-+this.ONSCREEN_KB_CLOSED=2;
-+this.ONSCREEN_KB_EMPTY=3;
++this.VIRT_KB_MEDIA_PATH='/media/internal/virtual-keyboard/';
++this.VIRT_KB_THEMES_PATH=this.VIRT_KB_MEDIA_PATH + 'themes/';
++this.VIRT_KB_SOUNDS_PATH=this.VIRT_KB_MEDIA_PATH + 'sounds/';
++this.VIRT_KB_OPEN=0;
++this.VIRT_KB_FILTERING_STATE=1;
++this.VIRT_KB_CLOSED=2;
++this.VIRT_KB_EMPTY=3;
 +
 +this.SHIFT_OFF=0;
 +this.SHIFT_ONCE=1;
@@ -126,16 +195,15 @@ index 4307893..3e02de5 100644
 +this.FUNC_ONCE=1;
 +this.FUNC_LOCK=2;
 +
-+this.state=this.ONSCREEN_KB_OPEN;
++this.state=this.VIRT_KB_OPEN;
 +this.shiftState=this.SHIFT_OFF;
 +this.funcState=this.FUNC_OFF;
 +
-+this.enableDrag = false;
++this.dragEnabled=false;
++this.scrollEnabled=false;
 +this.customStyle=undefined;
-+this.theme="black_boxy";
 +this.templateSuffix="";
 +this.layout="portrait";
-+this.scroll=false;
 +this.textCase="lowercase";
 +this.charList=[];
 +this.localizedTable=Mojo.Locale.kbCharacters;
@@ -146,6 +214,14 @@ index 4307893..3e02de5 100644
 +/* oskb */
 +setup:function(){
 +var model=this.controller.model;
++
++var options = Mojo.parseJSON(palmGetResource(this.VIRT_KB_MEDIA_PATH + '/kb_config.json'));
++
++if (options) {
++  this.theme=options.theme;
++  this.haptic=options.haptic;
++  this.clickFile=options.clickFile;
++}
 +
 +this.controller.exposeMethods(['close','isOpen']);
 +if(this.controller.attributes.target){
@@ -168,22 +244,22 @@ index 4307893..3e02de5 100644
 +this.handleDragging=this.handleDragging.bindAsEventListener(this);
 +this.handleKeyEvent=this.handleKeyEvent.bind(this);
 +this.handleKeyUpEvent=this.handleKeyUpEvent.bind(this);
-+this.handleMouseEvent=this.handleMouseEvent.bind(this);
++this.handleTapEvent=this.handleTapEvent.bind(this);
 +this.handleOrientation=this.handleOrientation.bindAsEventListener(this);
 +this.controller.listen(this.target,"keydown",this.handleKeyEvent,true);
 +this.controller.listen(this.target,"keyup",this.handleKeyUpEvent,true);
-+this.controller.listen(this.controller.document,Mojo.Event.tap,this.handleMouseEvent,true);
 +this.controller.listen(this.controller.document,Mojo.Event.orientationChange,this.handleOrientation,true);
 +this.controller.listen(this.controller.document,Mojo.Event.dragStart,this.handleDragStart,true);
 +this.controller.listen(this.controller.document,Mojo.Event.dragEnd,this.handleDragEnd,true);
 +this.controller.listen(this.controller.document,Mojo.Event.dragging,this.handleDragging,true);
-+this.controller.listen(this.controller.document,'mouseover',this.handleMouseOver,true);
-+this.controller.listen(this.controller.document,'mouseup',this.handleMouseUp,true);
-+this.controller.listen(this.controller.document,'mousedown',this.handleMouseDown,true);
++this.controller.listen(this.controller.document,'mouseover',this.handleMouseOver,false);
++this.controller.listen(this.controller.document,'mouseup',this.handleMouseUp,false);
++this.controller.listen(this.controller.document,'mousedown',this.handleMouseDown,false);
++this.controller.listen(this.controller.document,Mojo.Event.tap,this.handleTapEvent,true);
 +
 +if(this.chorded){
 +
-+this.state=this.ONSCREEN_KB_FILTERING_STATE;
++this.state=this.VIRT_KB_FILTERING_STATE;
 +}else{
 +this.enterOpenState();
 +}
@@ -200,7 +276,7 @@ index 4307893..3e02de5 100644
 +
 +this.charPicker=undefined;
 +this.selectedIndex=undefined;
-+this.state=this.ONSCREEN_KB_CLOSED;
++this.state=this.VIRT_KB_CLOSED;
 +this.cleanupEventListeners();
 +},
 +
@@ -212,14 +288,14 @@ index 4307893..3e02de5 100644
 +cleanupEventListeners:function(){
 +this.controller.stopListening(this.target,"keydown",this.handleKeyEvent,true);
 +this.controller.stopListening(this.target,"keyup",this.handleKeyUpEvent,true);
-+this.controller.stopListening(this.controller.document,Mojo.Event.tap,this.handleMouseEvent,true);
 +this.controller.stopListening(this.controller.document,Mojo.Event.orientationChange,this.handleOrientation,true);
 +this.controller.stopListening(this.target,Mojo.Event.dragStart,this.handleDragStart,true);
 +this.controller.stopListening(this.controller.document,Mojo.Event.dragEnd,this.handleDragEnd,true);
 +this.controller.stopListening(this.controller.document,Mojo.Event.dragging,this.handleDragging,true);
-+this.controller.stopListening(this.controller.document,'mouseover',this.handleMouseOver,true);
-+this.controller.stopListening(this.controller.document,'mouseup',this.handleMouseUp,true);
-+this.controller.stopListening(this.controller.document,'mousedown',this.handleMouseDown,true);
++this.controller.stopListening(this.controller.document,'mouseover',this.handleMouseOver,false);
++this.controller.stopListening(this.controller.document,'mouseup',this.handleMouseUp,false);
++this.controller.stopListening(this.controller.document,'mousedown',this.handleMouseDown,false);
++this.controller.stopListening(this.controller.document,Mojo.Event.tap,this.handleTapEvent,false);
 +},
 +
 +
@@ -261,7 +337,7 @@ index 4307893..3e02de5 100644
 +});
 +
 +if (this.theme !== "default") {
-+  var themeTable = palmGetResource(this.ONSCREEN_KB_THEMES_PATH + this.theme + '/theme_config.json');
++  var themeTable = palmGetResource(this.VIRT_KB_THEMES_PATH + this.theme + '/theme_config.json');
 +  if (themeTable) {
 +    var themeObject = Mojo.parseJSON(themeTable);
 +    var idx;
@@ -280,7 +356,7 @@ index 4307893..3e02de5 100644
 +        if (c) {
 +          that.charList[idx].character=c;
 +          if (img) {
-+          that.charList[idx].character="<img name='" + idx + "' class='kb-img' src='"+that.ONSCREEN_KB_THEMES_PATH + that.theme + "/" + img + "' alt='" + c + "'>";
++          that.charList[idx].character="<img name='" + idx + "' class='kb-img' src='"+that.VIRT_KB_THEMES_PATH + that.theme + "/" + img + "' alt='" + c + "'>";
 +          }
 +          if (span) {
 +            that.charList[idx].span = span;
@@ -297,7 +373,7 @@ index 4307893..3e02de5 100644
 +
 +/* oskb */
 +_setPopupPositions:function(picker){
-+var top='',left='';
++var top='',left='0';
 +var cursorPos=Mojo.View.getCursorPosition(this.controller.window);
 +var targetLeft;
 +var pickerDims;
@@ -312,7 +388,24 @@ index 4307893..3e02de5 100644
 +
 +pickerDims=Mojo.View.getDimensions(picker);
 +
++/*
++console.log("left offset = " + targetLeft);
++console.log("cursor pos = " + cursorPos.x + ", " + cursorPos.y);
++console.log("viewDims = " + viewDims.width + " X " + viewDims.height);
++console.log("pickerDimes = " + pickerDims.width + " X " + pickerDims.height);
++console.log("target dims " + this.target.width + " X " + this.target.height);
++*/
 +
++this.maxVert = viewDims.height - pickerDims.height;
++top=viewDims.height - pickerDims.height;
++if (cursorPos.y >= top) {
++  top = cursorPos.y - pickerDims.height;;
++}
++
++/*
++this.charPicker.appendChild(Mojo.View.createScrim(this.controller.document));
++*/
++/*
 +if((pickerDims.height+this.HI_PADDING_BOTTOM+cursorPos.y)>viewDims.height){
 +top=cursorPos.y-(pickerDims.height+this.HI_PADDING_TOP);
 +if(top<this.HI_MINIMUM_TOP){
@@ -336,6 +429,7 @@ index 4307893..3e02de5 100644
 +
 +left=minWidth;
 +}
++*/
 +
 +left+='px';
 +top+='px';
@@ -416,7 +510,7 @@ index 4307893..3e02de5 100644
 +this.controller.element.innerHTML=pickerContent;
 +/* If we are not set to scroll (i.e. symbol button not pressed), remove 
 + * the scroller widget before instantiating */
-+if (!this.scroll) {
++if (!this.scrollEnabled) {
 +  this.controller.get(this.divPrefix+"-char-selector").removeAttribute("x-mojo-element");
 +}
 +
@@ -446,6 +540,11 @@ index 4307893..3e02de5 100644
 +this.controller.scene.showWidgetContainer(this.charPicker);
 +this._setPopupPositions(this.charPicker);
 +
++this.funcDiv=this.controller.get(this.divPrefix+"-20");
++this.shiftDiv=this.controller.get(this.divPrefix+"-31");
++this.symDiv=this.controller.get(this.divPrefix+"-35");
++this.blankDivLeft=this.controller.get(this.divPrefix+"-30");
++this.blankDivRight=this.controller.get(this.divPrefix+"-36");
 +/*
 +console.log("EG: HTML = " + this.charPicker.innerHTML);
 +*/
@@ -473,7 +572,7 @@ index 4307893..3e02de5 100644
 +/* oskb */
 +enterOpenState:function(){
 +
-+this.state=this.ONSCREEN_KB_OPEN;
++this.state=this.VIRT_KB_OPEN;
 +},
 +
 +
@@ -491,7 +590,7 @@ index 4307893..3e02de5 100644
 +/* oskb */
 +enterFilteringState:function(keyCode){
 +
-+this.state=this.ONSCREEN_KB_FILTERING_STATE;
++this.state=this.VIRT_KB_FILTERING_STATE;
 +
 +if(this.currCode!==keyCode){
 +this.currCode=keyCode;
@@ -516,7 +615,7 @@ index 4307893..3e02de5 100644
 +
 +/* oskb */
 +_emptyAndClose:function(){
-+this.state=this.ONSCREEN_KB_EMPTY;
++this.state=this.VIRT_KB_EMPTY;
 +this.close();
 +},
 +
@@ -524,7 +623,7 @@ index 4307893..3e02de5 100644
 +/* oskb */
 +close:function(){
 +
-+if(this.state===this.ONSCREEN_KB_FILTERING_STATE||this.state===this.ONSCREEN_KB_OPEN){
++if(this.state===this.VIRT_KB_FILTERING_STATE||this.state===this.VIRT_KB_OPEN){
 +this.exitSelector(this.getEntered());
 +return;
 +}
@@ -535,7 +634,7 @@ index 4307893..3e02de5 100644
 +
 +/* oskb */
 +isOpen:function(){
-+return this.state!==this.ONSCREEN_KB_CLOSED;
++return this.state!==this.VIRT_KB_CLOSED;
 +},
 +
 +/* oskb */
@@ -564,40 +663,45 @@ index 4307893..3e02de5 100644
 +},
 +
 +/* oskb */
-+handleShift:function(keyCode){
++handleShift:function(){
 +if (this.shiftState === this.SHIFT_OFF) {
 +  this.shiftState = this.SHIFT_ONCE;
++  this.shiftDiv.addClassName("kb-active-char");
 +  this.textCase = "uppercase";
 +}
 +else if (this.shiftState === this.SHIFT_ONCE) {
 +  this.shiftState = this.SHIFT_LOCK;
-+  this._updateSelected(null, this.controller.get(this.divPrefix+"-31"));
++  this.shiftDiv.addClassName("locked");
 +  return;
 +}
 +else {
 +  this.shiftState = this.SHIFT_OFF;
 +  this.textCase = "lowercase";
-+  this._updateSelected(this.controller.get(this.divPrefix+"-31"), null);
++  this.shiftDiv.removeClassName("kb-active-char");
++  this.shiftDiv.removeClassName("locked");
 +}
 +
 +this.updateText();
 +},
 +
-+handleFunc:function(keyCode){
++/* oskb */
++handleFunc:function(){
 +/* TODO: Update the keys on screen when using text (default theme) */
 +if (this.funcState === this.FUNC_OFF) {
 +  this.funcState = this.FUNC_ONCE;
++  this.funcDiv.addClassName("kb-active-char");
 +  this.useAltChars = true;
 +}
 +else if (this.funcState === this.FUNC_ONCE) {
 +  this.funcState = this.FUNC_LOCK;
-+  this._updateSelected(null, this.controller.get(this.divPrefix+"-20"));
++  this.funcDiv.addClassName("locked");
 +  return;
 +}
 +else {
 +  this.funcState = this.FUNC_OFF;
 +  this.useAltChars = false;
-+  this._updateSelected(this.controller.get(this.divPrefix+"-20"), null);
++  this.funcDiv.removeClassName("kb-active-char");
++  this.funcDiv.removeClassName("locked");
 +}
 +},
 +
@@ -608,7 +712,6 @@ index 4307893..3e02de5 100644
 +var tagName=this.target.tagName;
 +var selectionStart,selectionEnd;
 +var isWebView=false;
-+
 +
 +if(this.target.mojo&&this.target.mojo.insertStringAtCursor){
 +isWebView=true;
@@ -623,8 +726,10 @@ index 4307893..3e02de5 100644
 +
 +selection=this.controller.window.getSelection();
 +
-+if (chr.keyCode === 0) {
-+  this.enableDrag = true;
++if (chr.keyCode === 0 && !this.scrollEnabled) {
++  this.dragEnabled = true;
++  this.blankDivLeft.addClassName("kb-active-char locked");
++  this.blankDivRight.addClassName("kb-active-char locked");
 +  return;
 +}
 +else if (Mojo.Char.isDeleteKey(chr.keyCode)) {
@@ -632,7 +737,7 @@ index 4307893..3e02de5 100644
 +}
 +else if (this.isSpecialChar(chr.keyCode)) {
 +  if (Mojo.Char.isEnterKey(chr.keyCode)) {
-+    this.state=this.ONSCREEN_KB_CLOSED;
++    this.state=this.VIRT_KB_CLOSED;
 +    this.cleanupEventListeners();
 +    this._safeRemove.bind(this).delay(0.2);
 +  }
@@ -640,22 +745,26 @@ index 4307893..3e02de5 100644
 +  Mojo.Event.send(this.target,'keyup',{keyCode:chr.keyCode});
 +}
 +else if (chr.keyCode === Mojo.Char.altKey) {
-+  this.handleFunc(chr.keyCode);
++  if (this.shiftState === this.SHIFT_LOCK) {
++    this.handleShift();
++  }
++  this.handleFunc();
 +}
 +else if (chr.keyCode === Mojo.Char.shift) {
-+  this.handleShift(chr.keyCode);
++  if (this.funcState === this.FUNC_LOCK) {
++    this.handleFunc();
++  }
++  this.handleShift();
 +}
 +else if (this.isSymKey(chr.keyCode)) {
 +  /* TODO: is this really the only way to dynamically start/stop scrolling? */
-+  this.scroll = !this.scroll;
++  this.scrollEnabled = !this.scrollEnabled;
 +  this.renderWidget();
-+  if (this.scroll) {
-+    console.log("EG: lock sym " + this.preview.name);
-+    /* TODO: why won't it shrink? */
-+    this._getMatching(this.charPicker, this.preview.name).addClassName("kb-locked-char");
++  if (this.scrollEnabled) {
++    this.symDiv.addClassName("kb-active-char locked");
 +  }
 +  else {
-+    console.log("EG: unlock sym");
++    this.symDiv.removeClassName("kb-active-char locked");
 +  }
 +  
 +  return;
@@ -691,13 +800,18 @@ index 4307893..3e02de5 100644
 +if(!isWebView){
 +this.target.focus();
 +}
-+if (this.shiftState === this.SHIFT_ONCE && chr.keyCode !== Mojo.Char.shift){
++
++if (chr && this.shiftState === this.SHIFT_ONCE && chr.keyCode !== Mojo.Char.shift){
 +  this.shiftState = this.SHIFT_OFF;
++  this.shiftDiv.removeClassName("locked");
++  this.shiftDiv.removeClassName("kb-active-char");
 +  this.textCase = "lowercase";
 +  this.updateText();
 +}
-+if (this.funcState === this.FUNC_ONCE && chr.keyCode !== Mojo.Char.altKey){
++if (chr && this.funcState === this.FUNC_ONCE && chr.keyCode !== Mojo.Char.altKey){
 +  this.funcState = this.FUNC_OFF;
++  this.funcDiv.removeClassName("locked");
++  this.funcDiv.removeClassName("kb-active-char");
 +  this.useAltChars = false;
 +}
 +},
@@ -838,6 +952,8 @@ index 4307893..3e02de5 100644
 +
 +/* oskb */
 +handleKeyUpEvent:function(event){
++this.exitSelector();
++return;
 +var keyCode=event.keyCode;
 +var chr;
 +
@@ -845,7 +961,7 @@ index 4307893..3e02de5 100644
 +return;
 +
 +if(this.isSymKey(keyCode)){
-+if(this.state===this.ONSCREEN_KB_FILTERING_STATE){
++if(this.state===this.VIRT_KB_FILTERING_STATE){
 +chr=this.getEntered();
 +}
 +this.exitSelector(chr);
@@ -857,6 +973,7 @@ index 4307893..3e02de5 100644
 +
 +/* oskb */
 +handleKeyEvent:function(event){
++return;
 +var keyCode=event.keyCode;
 +
 +if(Mojo.Char.isEnterKey(keyCode)){
@@ -881,9 +998,9 @@ index 4307893..3e02de5 100644
 +}
 +
 +switch(this.state){
-+case this.ONSCREEN_KB_OPEN:
-+case this.ONSCREEN_KB_FILTERING_STATE:
-+case this.ONSCREEN_KB_EMPTY:
++case this.VIRT_KB_OPEN:
++case this.VIRT_KB_FILTERING_STATE:
++case this.VIRT_KB_EMPTY:
 +this.enterFilteringState(keyCode);
 +Event.stop(event);
 +break;
@@ -913,7 +1030,15 @@ index 4307893..3e02de5 100644
 +playClick:function(){
 +var request = new Mojo.Service.Request('palm://com.palm.crotest', {
 +    method: 'PlaySound',
-+    parameters: {"file":"/media/internal/sounds/click1.wav"}
++    parameters: {"file":this.VIRT_KB_SOUNDS_PATH + this.clickFile}
++    });
++},
++
++/* oskb */
++vibrate:function(){ 
++var request2 = new Mojo.Service.Request('palm://com.palm.vibrate', {
++    method: 'vibrate',
++    parameters: {"period": 0, "duration": this.haptic}
 +    });
 +},
 +
@@ -921,8 +1046,6 @@ index 4307893..3e02de5 100644
 +handleOrientation:function(event){
 +/*TODO: I'm not sure why, but every change I get two events, back to back.
 + *      For now just ignore the 2nd orient event */
-+console.log("ORIENT position" + event.orientation);
-+
 +if (this.ignoreSecond) {
 +  this.ignoreSecond=false;
 +  return;
@@ -934,88 +1057,114 @@ index 4307893..3e02de5 100644
 +},
 +
 +/* oskb */
-+handleMouseOver:function(event){
-+if (this.scroll || this.enableDrag) {
++handleMouseDown:function(event){
++if (this.scrollEnabled || this.dragEnabled) {
 +  return;
 +}
-+if (this.preview) {
-+  this.preview.removeClassName("kb-selected-char");
++
++if (this.isInCharPicker(event.target)) {
++  if (this.haptic > 0 && this.haptic <= 100) {
++    this.vibrate();
++  }
++
++  var name = event.target.getAttribute('name');
++  this.preview=this.controller.get(this.divPrefix+"-"+name);
++  if (this.preview) {
++    this.preview.addClassName("kb-selected-char");
++  }
 +}
-+if (event.target) {
-+  event.target.addClassName("kb-selected-char");
-+  this.preview=event.target;
++else {
++  this.exitSelector();
 +}
 +},
 +
 +/* oskb */
-+handleMouseDown:function(event){
-+var request2 = new Mojo.Service.Request('palm://com.palm.vibrate', {
-+    method: 'vibrate',
-+    parameters: {"period": 0, "duration": 100}
-+    });
++handleMouseOver:function(event){
++if (this.scrollEnabled || this.dragEnabled) {
++  return;
++}
++
++if (this.preview && (this.preview !== event.target)) {
++  this.preview.removeClassName("kb-selected-char");
++  this.preview=undefined;
++}
++
++if (this.isInCharPicker(event.target)) {
++  var name = event.target.getAttribute('name');
++  this.preview=this.controller.get(this.divPrefix+"-"+name);
++  if (this.preview) {
++    this.preview.addClassName("kb-selected-char");
++  }
++}
 +},
 +
 +/* oskb */
 +handleMouseUp:function(event){
-+if (this.scroll || this.enableDrag) {
++if (this.scrollEnabled || this.dragEnabled) {
 +  return;
 +}
 +
-+if (this.preview) {
-+  this.preview.removeClassName.bind(this.preview).defer("kb-selected-char");
++if (this.isInCharPicker(event.target)) {
++  if (this.clickFile) {
++    this.playClick();
++  }
++
++  if (this.preview) {
++    this.preview.removeClassName.bind(this.preview).defer("kb-selected-char");
++    this.preview=undefined;
++  }
++
++  if (this.state === this.VIRT_KB_OPEN){
++    this.exitSelector(this.getSelected(event.target));
++    event.stop();
++  }
 +}
 +},
 +
 +/* oskb */
-+handleMouseEvent:function(event){
-+switch(this.state){
-+case this.ONSCREEN_KB_OPEN:
-+case this.ONSCREEN_KB_FILTERING_STATE:
-+case this.ONSCREEN_KB_SINGLEFILTER_STATE:
-+if(this.isInCharPicker(event.target)){
-+console.log("kb CHAR MOUSE EVENT"+this.getSelected(event.target));
-+this.exitSelector(this.getSelected(event.target));
-+event.stop();
-+}else{
-+this.exitSelector();
++handleTapEvent:function(event){
++if (!this.scrollEnabled) {
++  return;
 +}
-+break;
-+default:
-+break;
++
++if (this.state === this.VIRT_KB_OPEN){
++  var name = event.target.getAttribute('name');
++  this.preview=this.controller.get(this.divPrefix+"-"+name);
++  if (this.preview) {
++    this.preview.addClassName("kb-selected-char");
++  }
++  this.exitSelector(this.charList[name]);
++  event.stop();
++  if (this.preview) {
++    this.preview.removeClassName.bind(this.preview).defer("kb-selected-char");
++  }
 +}
 +},
 +
 +/* oskb */
 +handleDragStart:function(event){
-+if (this.enableDrag && !this.scroll) {
-+  var maxVert=235;
-+  if (this.layout==="landscape") {
-+    maxVert=128;
-+  }
-+    
-+Mojo.Drag.startDragging(this.controller.scene,this.charPicker,event.down,
-+{preventHorizontal:true,
-+preventDropReset:true,
-+draggingClass: "kb-drag",
-+maxVerticalPixel: maxVert,
-+minVerticalPixel: 0});
++if (this.dragEnabled && !this.scrollEnabled) {
++  Mojo.Drag.startDragging(this.controller.scene,this.charPicker,event.down,
++  {
++    preventHorizontal:true,
++    preventDropReset:true,
++    draggingClass: "kb-drag",
++    maxVerticalPixel: this.maxVert,
++    minVerticalPixel: 0
++  });
 +}
-+
 +},
 +
 +/* oskb */
 +handleDragging:function(event){
-+if (!this.already) {
-+  console.log("EG: DRAGGGGING!!!");
-+  this.already=true;
-+  console.log("EG: HTML = " + this.charPicker.innerHTML);
-+}
 +},
 +
 +/* oskb */
 +handleDragEnd:function(event){
-+this.enableDrag = false;
++this.dragEnabled = false;
 +this.charPicker.setStyle({"position":"fixed"});
++this.blankDivLeft.removeClassName("kb-active-char locked");
++this.blankDivRight.removeClassName("kb-active-char locked");
 +},
 +
 +/* oskb */
@@ -1070,7 +1219,7 @@ index 4307893..3e02de5 100644
 +
 +/* oskb */
 +handleCommand:function(commandEvent){
-+if(commandEvent.type===Mojo.Event.back&&(this.state!==this.ONSCREEN_KB_CLOSED&&this.state!==this.ONSCREEN_KB_EMPTY)){
++if(commandEvent.type===Mojo.Event.back&&(this.state!==this.VIRT_KB_CLOSED&&this.state!==this.VIRT_KB_EMPTY)){
 +this.exitSelector();
 +Event.stop(commandEvent);
 +}
@@ -1080,392 +1229,6 @@ index 4307893..3e02de5 100644
  /* Compressed by the perl version of jsmin. */
  /* JavaScript::Minifier 0.02 */
  
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/@.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/@.png
-new file mode 100644
-index 0000000..3eed96d
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/@.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/a.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/a.png
-new file mode 100644
-index 0000000..7a378c6
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/a.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/b.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/b.png
-new file mode 100644
-index 0000000..68bbaad
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/b.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/backspace.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/backspace.png
-new file mode 100644
-index 0000000..ffc68d4
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/backspace.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/blank.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/blank.png
-new file mode 100644
-index 0000000..f273074
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/blank.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/c.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/c.png
-new file mode 100644
-index 0000000..32fa7d1
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/c.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/comma.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/comma.png
-new file mode 100644
-index 0000000..981c2b1
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/comma.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/d.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/d.png
-new file mode 100644
-index 0000000..dd68b7a
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/d.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/e.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/e.png
-new file mode 100644
-index 0000000..d939021
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/e.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/enter.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/enter.png
-new file mode 100644
-index 0000000..2eaece3
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/enter.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/f.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/f.png
-new file mode 100644
-index 0000000..9b7c223
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/f.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/function.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/function.png
-new file mode 100644
-index 0000000..14ac6d1
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/function.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/g.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/g.png
-new file mode 100644
-index 0000000..681ea61
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/g.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/h.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/h.png
-new file mode 100644
-index 0000000..51f786b
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/h.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/i.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/i.png
-new file mode 100644
-index 0000000..6f9913e
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/i.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/j.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/j.png
-new file mode 100644
-index 0000000..b96a617
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/j.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/k.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/k.png
-new file mode 100644
-index 0000000..4a17143
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/k.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/l.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/l.png
-new file mode 100644
-index 0000000..a6c6f09
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/l.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/m.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/m.png
-new file mode 100644
-index 0000000..8563da8
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/m.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/n.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/n.png
-new file mode 100644
-index 0000000..456f89c
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/n.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/o.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/o.png
-new file mode 100644
-index 0000000..ca36c55
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/o.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/p.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/p.png
-new file mode 100644
-index 0000000..60e1b0e
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/p.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/period.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/period.png
-new file mode 100644
-index 0000000..175dc28
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/period.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/q.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/q.png
-new file mode 100644
-index 0000000..d9f7441
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/q.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/r.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/r.png
-new file mode 100644
-index 0000000..70646b6
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/r.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/s.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/s.png
-new file mode 100644
-index 0000000..cb2e49f
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/s.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/shift.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/shift.png
-new file mode 100644
-index 0000000..6f17bac
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/shift.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/space.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/space.png
-new file mode 100644
-index 0000000..91273e7
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/space.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/sym.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/sym.png
-new file mode 100644
-index 0000000..5cf07de
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/sym.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/t.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/t.png
-new file mode 100644
-index 0000000..b374c77
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/t.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/theme_config.json b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/theme_config.json
-new file mode 100644
-index 0000000..a7dc887
---- /dev/null
-+++ b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/theme_config.json
-@@ -0,0 +1,43 @@
-+[
-+  {"index":0, "character":"q", "image":"q.png"},
-+  {"index":1, "character":"w", "image":"w.png"},
-+  {"index":2, "character":"e", "image":"e.png"},
-+  {"index":3, "character":"r", "image":"r.png"},
-+  {"index":4, "character":"t", "image":"t.png"},
-+  {"index":5, "character":"y", "image":"y.png"},
-+  {"index":6, "character":"u", "image":"u.png"},
-+  {"index":7, "character":"i", "image":"i.png"},
-+  {"index":8, "character":"o", "image":"o.png"},
-+  {"index":9, "character":"p", "image":"p.png"},
-+
-+  {"index":10, "character":"a", "image":"a.png"},
-+  {"index":11, "character":"s", "image":"s.png"},
-+  {"index":12, "character":"d", "image":"d.png"},
-+  {"index":13, "character":"f", "image":"f.png"},
-+  {"index":14, "character":"g", "image":"g.png"},
-+  {"index":15, "character":"h", "image":"h.png"},
-+  {"index":16, "character":"j", "image":"j.png"},
-+  {"index":17, "character":"k", "image":"k.png"},
-+  {"index":18, "character":"l", "image":"l.png"},
-+  {"index":19, "character":"\b", "image":"backspace.png"},
-+
-+  {"index":20, "character":"alt-orange", "image":"function.png"},
-+  {"index":21, "character":"z", "image":"z.png"},
-+  {"index":22, "character":"x", "image":"x.png"},
-+  {"index":23, "character":"c", "image":"c.png"},
-+  {"index":24, "character":"v", "image":"v.png"},
-+  {"index":25, "character":"b", "image":"b.png"},
-+  {"index":26, "character":"n", "image":"n.png"},
-+  {"index":27, "character":"m", "image":"m.png"},
-+  {"index":28, "character":",", "image":"comma.png"},
-+  {"index":29, "character":"\n", "image":"enter.png"},
-+
-+  {"index":30, "character":"blank", "image":"blank.png"},
-+  {"index":31, "character":"shift", "image":"shift.png"},
-+  {"index":32, "character":"@", "image":"@.png"},
-+  {"index":33, "character":" ", "image":"space.png"},
-+  {"index":34, "character":".", "image":"period.png"},
-+  {"index":35, "character":"sym-ctrl", "image":"sym.png"},
-+  {"index":36, "character":"blank", "image":"blank.png"},
-+
-+]
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/u.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/u.png
-new file mode 100644
-index 0000000..d2de1cd
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/u.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/v.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/v.png
-new file mode 100644
-index 0000000..82513bc
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/v.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/w.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/w.png
-new file mode 100644
-index 0000000..8630f9a
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/w.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/x.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/x.png
-new file mode 100644
-index 0000000..f8d287a
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/x.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/y.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/y.png
-new file mode 100644
-index 0000000..37e6ecd
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/y.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/z.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/z.png
-new file mode 100644
-index 0000000..4119966
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_boxy/z.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/@.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/@.png
-new file mode 100644
-index 0000000..6504917
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/@.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/a.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/a.png
-new file mode 100644
-index 0000000..7e15e46
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/a.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/b.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/b.png
-new file mode 100644
-index 0000000..b995d25
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/b.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/backspace.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/backspace.png
-new file mode 100644
-index 0000000..18212ad
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/backspace.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/blank.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/blank.png
-new file mode 100644
-index 0000000..e3589cf
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/blank.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/c.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/c.png
-new file mode 100644
-index 0000000..968c81d
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/c.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/comma.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/comma.png
-new file mode 100644
-index 0000000..2c9f9d3
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/comma.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/d.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/d.png
-new file mode 100644
-index 0000000..2cb8f78
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/d.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/e.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/e.png
-new file mode 100644
-index 0000000..7c8456b
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/e.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/enter.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/enter.png
-new file mode 100644
-index 0000000..5b4ee9e
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/enter.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/f.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/f.png
-new file mode 100644
-index 0000000..3d0f471
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/f.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/function.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/function.png
-new file mode 100644
-index 0000000..9d97f9b
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/function.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/g.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/g.png
-new file mode 100644
-index 0000000..1da2a45
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/g.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/h.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/h.png
-new file mode 100644
-index 0000000..358438b
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/h.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/i.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/i.png
-new file mode 100644
-index 0000000..e042b65
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/i.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/j.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/j.png
-new file mode 100644
-index 0000000..d2c1bff
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/j.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/k.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/k.png
-new file mode 100644
-index 0000000..0cdecde
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/k.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/l.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/l.png
-new file mode 100644
-index 0000000..f6692c1
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/l.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/m.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/m.png
-new file mode 100644
-index 0000000..b6295cd
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/m.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/n.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/n.png
-new file mode 100644
-index 0000000..113d404
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/n.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/o.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/o.png
-new file mode 100644
-index 0000000..a8bb522
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/o.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/p.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/p.png
-new file mode 100644
-index 0000000..fbdf8f5
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/p.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/period.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/period.png
-new file mode 100644
-index 0000000..4af2e1e
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/period.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/q.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/q.png
-new file mode 100644
-index 0000000..e82e1a9
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/q.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/r.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/r.png
-new file mode 100644
-index 0000000..69933e7
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/r.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/s.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/s.png
-new file mode 100644
-index 0000000..047cf16
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/s.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/shift.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/shift.png
-new file mode 100644
-index 0000000..6707923
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/shift.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/space.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/space.png
-new file mode 100644
-index 0000000..1f24711
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/space.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/sym.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/sym.png
-new file mode 100644
-index 0000000..81597d8
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/sym.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/t.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/t.png
-new file mode 100644
-index 0000000..a4324fe
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/t.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/theme_config.json b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/theme_config.json
-new file mode 100644
-index 0000000..a7dc887
---- /dev/null
-+++ b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/theme_config.json
-@@ -0,0 +1,43 @@
-+[
-+  {"index":0, "character":"q", "image":"q.png"},
-+  {"index":1, "character":"w", "image":"w.png"},
-+  {"index":2, "character":"e", "image":"e.png"},
-+  {"index":3, "character":"r", "image":"r.png"},
-+  {"index":4, "character":"t", "image":"t.png"},
-+  {"index":5, "character":"y", "image":"y.png"},
-+  {"index":6, "character":"u", "image":"u.png"},
-+  {"index":7, "character":"i", "image":"i.png"},
-+  {"index":8, "character":"o", "image":"o.png"},
-+  {"index":9, "character":"p", "image":"p.png"},
-+
-+  {"index":10, "character":"a", "image":"a.png"},
-+  {"index":11, "character":"s", "image":"s.png"},
-+  {"index":12, "character":"d", "image":"d.png"},
-+  {"index":13, "character":"f", "image":"f.png"},
-+  {"index":14, "character":"g", "image":"g.png"},
-+  {"index":15, "character":"h", "image":"h.png"},
-+  {"index":16, "character":"j", "image":"j.png"},
-+  {"index":17, "character":"k", "image":"k.png"},
-+  {"index":18, "character":"l", "image":"l.png"},
-+  {"index":19, "character":"\b", "image":"backspace.png"},
-+
-+  {"index":20, "character":"alt-orange", "image":"function.png"},
-+  {"index":21, "character":"z", "image":"z.png"},
-+  {"index":22, "character":"x", "image":"x.png"},
-+  {"index":23, "character":"c", "image":"c.png"},
-+  {"index":24, "character":"v", "image":"v.png"},
-+  {"index":25, "character":"b", "image":"b.png"},
-+  {"index":26, "character":"n", "image":"n.png"},
-+  {"index":27, "character":"m", "image":"m.png"},
-+  {"index":28, "character":",", "image":"comma.png"},
-+  {"index":29, "character":"\n", "image":"enter.png"},
-+
-+  {"index":30, "character":"blank", "image":"blank.png"},
-+  {"index":31, "character":"shift", "image":"shift.png"},
-+  {"index":32, "character":"@", "image":"@.png"},
-+  {"index":33, "character":" ", "image":"space.png"},
-+  {"index":34, "character":".", "image":"period.png"},
-+  {"index":35, "character":"sym-ctrl", "image":"sym.png"},
-+  {"index":36, "character":"blank", "image":"blank.png"},
-+
-+]
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/u.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/u.png
-new file mode 100644
-index 0000000..0077ad6
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/u.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/v.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/v.png
-new file mode 100644
-index 0000000..92e09ab
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/v.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/w.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/w.png
-new file mode 100644
-index 0000000..787be5b
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/w.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/x.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/x.png
-new file mode 100644
-index 0000000..7b1f1ee
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/x.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/y.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/y.png
-new file mode 100644
-index 0000000..795ebf3
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/y.png differ
-diff --git a/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/z.png b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/z.png
-new file mode 100644
-index 0000000..0f466d4
-Binary files /dev/null and b/usr/palm/frameworks/mojo/submissions/191.15/images/virt_kb/black_glossy/z.png differ
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/resources/en_us/kbchars_fulltable.json b/usr/palm/frameworks/mojo/submissions/191.15/resources/en_us/kbchars_fulltable.json
 new file mode 100644
 index 0000000..1d35116
@@ -1824,32 +1587,43 @@ index 0000000..6774f8f
 +  {"keyCode": 67, "letter":"$", "list": ["$","¢","€","£","¥"]}
 +]
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css b/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css
-index 39fa4ec..b9e7491 100644
+index 39fa4ec..b98b50c 100644
 --- a/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css
 +++ b/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/global.css
-@@ -483,7 +483,7 @@ a:visited {
- }
+@@ -16,6 +16,7 @@
+ @import url(global-iconography.css);
+ @import url(global-widget-addressing.css);
+ @import url(global-widget-mvpicker.css);
++@import url(webos-internals-virtual-keyboard.css);
  
- .char-selector-element {
--  color: #666;
-+  color: red;
-   width: 48px;
-   height: 48px;
-   line-height: 48px;
-@@ -511,6 +511,96 @@ span.selected-char {
- }
- 
-   
+ a {
+   color: #00c;
+@@ -665,4 +666,4 @@ span.selected-char {
+   height: 111px;
+   background: url(../images/disclaimer-beta.png) no-repeat;     
+   -webkit-palm-mouse-target: ignore;
+-}
+\ No newline at end of file
++}
+diff --git a/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/webos-internals-virtual-keyboard.css b/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/webos-internals-virtual-keyboard.css
+new file mode 100755
+index 0000000..025851b
+--- /dev/null
++++ b/usr/palm/frameworks/mojo/submissions/191.15/stylesheets/webos-internals-virtual-keyboard.css
+@@ -0,0 +1,130 @@
 +/* Styles for On Screen Keyboard */
 +
 +.kb-char-selector-container {
-+  background: url(../images/scrim.png) fixed 0 0 repeat-x;
 +  position: fixed;
-+  z-index: 199500;
++  z-index: 199500; /* same as popup */
 +  width: 320px;
 +}
 +
 +/*
++.kb-char-selector-wrapper {
++  position: relative;
++  z-index: 100000;
++}
 +.kb-char-selector-wrapper {
 +  z-index: 199500;
 +  position:relative;
@@ -1872,22 +1646,28 @@ index 39fa4ec..b9e7491 100644
 +}
 +
 +.kb-char-selector-element{
-+  color: black;
++  color: white;
 +  width:10%;
 +  height:48px;
-+  line-height: 48px
++  line-height:48px;
 +  display:inline-block;
 +  float:left;
-+  margin-right: -1px;
 +  font-weight: normal;
 +  text-align: center;
-+  border-right: 1px solid #999;
++  vertical-align: middle;
++  margin-right: -1px;
 +  border-bottom: 1px solid #999;
++  border-right: 1px solid #999;
 +}
 +
 +.kb-char-selector-element .kb-img{
++  position: relative;
 +  width: 100%;
-+  height:48px;
++  height: 100%;
++}
++
++.kb-char-selector-element .kb-span{
++  position: relative;
 +}
 +
 +/*
@@ -1908,17 +1688,49 @@ index 39fa4ec..b9e7491 100644
 +}
 +  */
 +
-+.kb-img.kb-locked-char {
-+  width: 50%;
-+  height: 50%;
++
++  /*
++.kb-char-selector-element.kb-selected-char{
++  color: red;
++  font-weight: bold;
++  color: #1f75bf;
++  height: 48px;
++  background: url(../images/filter-search-highlight.png) bottom repeat-x;
++}
++  */
++
++.kb-char-selector-element.kb-selected-char .kb-span{
++  top: -100%;
++  left: -100%;
++  color: red;
 +}
 +
-+.kb-img.kb-selected-char {
++.kb-char-selector-element.kb-selected-char .kb-img{
++  width: 150%;
++  height: 150%;
++}
++
++/*
++.kb-char-selector-element.kb-active-char{
++  background:#0072ff;
++}
++
++.kb-char-selector-element.kb-active-char.locked{
++  background:#984c08;
++}
++  */
++
++.kb-char-selector-element.kb-active-char .kb-img{
 +  position: relative;
-+  left: -50%;
-+  top: -50%;
-+  width: 200%;
-+  height: 200%;
++  width: 70%;
++  height: 70%;
++  top:15%;
++}
++
++.kb-char-selector-element.kb-active-char.locked .kb-img{
++  width: 50%;
++  height: 50%;
++  top:15%;
 +}
 +
 +/* Landscape rows */
@@ -1929,25 +1741,14 @@ index 39fa4ec..b9e7491 100644
 +.kb-char-selector-column.landscape {
 +  width: 480px;
 +}
-+
- /** Slider and Progress Slider **/
- 
- .palm-row-wrapper > .palm-slider {
-@@ -665,4 +755,4 @@ span.selected-char {
-   height: 111px;
-   background: url(../images/disclaimer-beta.png) no-repeat;     
-   -webkit-palm-mouse-target: ignore;
--}
-\ No newline at end of file
-+}
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-ls.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-ls.html
 new file mode 100644
-index 0000000..fb91dfe
+index 0000000..3d78ff7
 --- /dev/null
 +++ b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-ls.html
 @@ -0,0 +1,3 @@
 +<div id="#{divPrefix}-#{index}" name="#{index}" class="kb-char-selector-element landscape" x-mojo-tap-highlight="momentary">
-+  <span name="#{index}">#{-character}</span>
++  <span name="#{index}" class="kb-span">#{-character}</span>
 +</div>
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-selector-row-ls.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char-selector-row-ls.html
 new file mode 100644
@@ -1966,12 +1767,12 @@ index 0000000..847f837
 \ No newline at end of file
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char.html
 new file mode 100644
-index 0000000..0946d2a
+index 0000000..6cfac50
 --- /dev/null
 +++ b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/char.html
 @@ -0,0 +1,3 @@
 +<div id="#{divPrefix}-#{index}" name="#{index}" class="kb-char-selector-element" x-mojo-tap-highlight="momentary">
-+  <span name="#{index}">#{-character}</span>
++  <span name="#{index}" class="kb-span">#{-character}</span>
 +</div>
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector-ls.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector-ls.html
 new file mode 100644
@@ -1988,13 +1789,13 @@ index 0000000..28aa368
 +</div> 
 diff --git a/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector.html b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector.html
 new file mode 100644
-index 0000000..b2b7ea5
+index 0000000..600c1c3
 --- /dev/null
 +++ b/usr/palm/frameworks/mojo/submissions/191.15/templates/kbselector/charselector.html
 @@ -0,0 +1,7 @@
 +<div  class="kb-char-selector-container" id="#{divPrefix}-kb-char-selector-div">
 +  <div class="kb-char-selector-wrapper">
-+  	<div class="char-selector-content" x-mojo-element="Scroller" id="#{divPrefix}-char-selector">
++  	<div class="kb-char-selector-content scroll" x-mojo-element="Scroller" id="#{divPrefix}-char-selector">
 +		<div class="kb-char-selector-content" id="char-list" x-mojo-element="List">
 +		</div>  
 +  </div>
