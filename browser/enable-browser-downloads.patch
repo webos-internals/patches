@@ -226,7 +226,42 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/global_code.j
  	}
  };
  
-@@ -5327,12 +5455,25 @@ UrlBar.prototype._hidePortrait = functio
+@@ -4956,8 +5084,10 @@ UrlBar.prototype.isAGotoUrlBarKey = func
+ UrlBar.prototype.setOrientation = function(orientation) {
+ 
+ 	if (orientation !== 'up') {
+-		// In landscape and down we ALWAYS hide the BAR so we make sure it's
+-		// already hidden by calling' 'hide'.
++		this.show = this._showNoOp;
++		this.hide = this._hideNoOp;
++	} else {
++		// Default is portrait.
+ 		this._hidePortrait();
+ 	}
+ 
+@@ -4984,6 +5114,12 @@ UrlBar.prototype.setup = function(proper
+ 	this._onPropertyChange = properties.onPropertyChange || function(){};
+ 	this._configOrientation(properties.orientation || 'up');
+ 
++        if (properties.orientation === 'up') {                               
++                owidth = 271;                                                
++        } else {                                                             
++                owidth = 430;                                                
++        }                                                                    
++                
+ 	this.models = {
+ 		urlInput: {
+ 			template: 'page/url-field',
+@@ -5001,7 +5137,7 @@ UrlBar.prototype.setup = function(proper
+ 				url: ''
+ 			},
+ 
+-			width: 271
++			width: owidth
+ 		},
+ 
+ 		// Beware: These are shallow copies.
+@@ -5327,12 +5463,25 @@ UrlBar.prototype._hidePortrait = functio
  	this.controller.setMenuVisible(Mojo.Menu.viewMenu, false);
  };
  
@@ -254,7 +289,7 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/global_code.j
  };
  
  UrlBar.prototype.isVisible = function() {
-@@ -5738,12 +5879,43 @@ Chrome.prototype._hidePortrait = functio
+@@ -5738,12 +5887,43 @@ Chrome.prototype._hidePortrait = functio
  	}
  };
  
@@ -373,75 +408,11 @@ Index: /usr/palm/applications/com.palm.app.browser/sources.json
 +    "source": "app\/controllers\/global_code.js"
   }
  ]
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
-@@ -16,8 +16,11 @@ function Chrome(controller) {
- 
- Chrome.prototype.setOrientation = function(orientation) {
- 	
--	if ((orientation !== 'up')) {
--		// In landscape and down we ALWAYS hide the chrome and force a slide off.
-+	if (orientation !== 'up') {
-+		this.show = this._showNoOp;
-+		this.hide = this._hideNoOp;
-+	} else {
-+		// Default is portrait.
- 		this._hidePortrait();
- 	}
- 
-@@ -102,12 +105,43 @@ Chrome.prototype._hidePortrait = functio
- 	}
- };
- 
-+Chrome.prototype.show = UrlBar.prototype._showNoOp;
-+Chrome.prototype.hide = UrlBar.prototype._hideNoOp;
-+
- Chrome.prototype._showNoOp = function() {
--	// DO NOTHING - We don't show anything in landscape.	
-+	
-+	var animator;
-+	var element = this.controller.get(this._elementName);
-+	
-+	// If we are visible then the current spacer height is 
-+	if (element && (this._currentHeight === 0)) {
-+		animator = Mojo.Animation.animateStyle(element, 'height', 'linear', {
-+			from: 0,
-+			to: this._maxHeight,
-+			duration: 0.15,
-+			reverse: false
-+		});
-+	
-+		this._currentHeight = this._maxHeight;
-+	}
- };
- 
- Chrome.prototype._hideNoOp = function() {
--	// DO NOTHING - We should not be displayed in landscape.
-+
-+	var animator;
-+	var element = this.controller.get(this._elementName);
-+
-+	if (element && (this._currentHeight > 0)) {
-+		animator = Mojo.Animation.animateStyle(element, 'height', 'linear', {
-+			from: 0,
-+			to: this._maxHeight,
-+			duration: 0.15,
-+			reverse: true
-+		});
-+	
-+	
-+		this._currentHeight = 0;
-+	}
- };
- 
- Chrome.prototype.isVisible = function() {
 Index: /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
 ===================================================================
 --- /dev/null
 +++ /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,46 @@
 +/**
 + * A dialog assistant for display of yes/no box.
 + */
@@ -473,6 +444,7 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialo
 +        handleAccept: function() {
 +                this.onAccept();
 +                delete this.onAccept;
++				 delete this.onDismiss;
 +                this.widget.mojo.close();
 +        },
 +
@@ -487,50 +459,6 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialo
 +                }
 +        }
 +});
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
-@@ -45,8 +45,10 @@ UrlBar.prototype.isAGotoUrlBarKey = func
- UrlBar.prototype.setOrientation = function(orientation) {
- 
- 	if (orientation !== 'up') {
--		// In landscape and down we ALWAYS hide the BAR so we make sure it's
--		// already hidden by calling' 'hide'.
-+		this.show = this._showNoOp;
-+		this.hide = this._hideNoOp;
-+	} else {
-+		// Default is portrait.
- 		this._hidePortrait();
- 	}
- 
-@@ -417,11 +419,24 @@ UrlBar.prototype._hidePortrait = functio
- };
- 
- UrlBar.prototype._showNoOp = function() {
--	// DO NOTHING - We don't show anything in landscape.
-+
-+	var menuAssistant = this.controller._menu.assistant;
-+	var spacerHeight = menuAssistant.viewSpacerHeight;
-+
-+	menuAssistant.viewSpacerHeight = 0;
-+	this.controller.setMenuVisible(Mojo.Menu.viewMenu, true);
- };
- 
-+UrlBar.prototype.show = UrlBar.prototype._showNoOp;
-+UrlBar.prototype.hide = UrlBar.prototype._hideNoOp;
-+
- UrlBar.prototype._hideNoOp = function() {
--	// DO NOTHING - We should not be displayed in landscape.
-+
-+	var menuAssistant = this.controller._menu.assistant;
-+	var spacerHeight = menuAssistant.viewSpacerHeight;
-+
-+	menuAssistant.viewSpacerHeight = 0;
-+	this.controller.setMenuVisible(Mojo.Menu.viewMenu, false);
- };
- 
- UrlBar.prototype.isVisible = function() {
 Index: /usr/palm/applications/com.palm.app.browser/app/views/download/download-container.html
 ===================================================================
 --- /dev/null
@@ -566,3 +494,16 @@ Index: /usr/palm/applications/com.palm.app.browser/app/views/download/download-s
 +        <div class="dismiss palm-button" id="acceptButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Stream</div>
 +        <div class="dismiss palm-button" id="dismissButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Download</div>
 +</div>
+Index: /usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
++++ /usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
+@@ -753,7 +753,7 @@ div#historyScroller {
+ }
+ 
+ .search-results-container .palm-list {
+-	width: 304px;
++	width=100%;
+ }
+ 
+ .search-results-container .search.first {
