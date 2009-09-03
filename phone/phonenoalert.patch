@@ -1,10 +1,9 @@
 Turns off the system tones during a call.  Will reset them to the original setting after the call.
-Turns off the system tones during a call.  Will reset them to the original setting after the call.
 Index: /usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
-@@ -13,12 +13,35 @@ var FormattedCall =  Class.create({
+@@ -13,12 +13,32 @@ var FormattedCall =  Class.create({
  			this.formatCall(id, lineState);
  	},
  	
@@ -13,16 +12,14 @@ Index: /usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
 +	},
 +	
 +	getSSStatusQuery: function(payload) {
-+                if (payload.muted == true || payload.muted == false) {                                                                                                         
-+                	Mojo.Log.error("SVC Initial Muted Value: %j",payload.muted);                                                            
-+                        SSmute = payload.muted;                                                                                        
-+                	AudioService.muteSystemSound(true);
-+                	SystemService.setSystemUISounds(false);
++                if (!(payload === undefined)) {                                                                                                         
++                	Mojo.Log.error("SVC Initial Value: %j",payload.volume);                                                            
++                        SSVolume = payload.volume;                                                                                        
++                	AudioService.setSystemVolume(0,null,null);
 +                } else {                                                                                                                    
-+                        Mojo.Log.error("SVC No initial value.  Setting to false.");                                                             
-+                        SSmute = false;               
-+                        AudioService.muteSystemSound(true);
-+                        SystemService.setSystemUISounds(false);                                                                                 
++                        Mojo.Log.error("SVC No initial volume.  Setting to 50.");                                                             
++                        SSVolume = 50;               
++                        AudioService.setSystemVolume(0,null,null);
 +              	}	
 +	},
 +	
@@ -34,25 +31,23 @@ Index: /usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
  		this.state = this.formatState(callMsg[lineNumber].state);
 +        	if (this.state == "Ended") {
 +        		Mojo.Log.error("SVC resetting system volume for conference call");
-+        		AudioService.muteSystemSound(SSmute);
-+        		SystemService.setSystemUISounds(!SSmute);
++        		AudioService.setSystemVolume(SSVolume,null,null);
 +        	}	
          this.conferenceLabel = this.formatConferenceLabel();
  		// TODO: not sure why i didn't have this in the first place
  		this.contact = this.conferenceLabel;
-@@ -48,9 +71,17 @@ var FormattedCall =  Class.create({
+@@ -48,9 +68,16 @@ var FormattedCall =  Class.create({
  		this.contact = this.formatContact(this.formatNumber(callMsg[lineNumber].number), callMsg[lineNumber].contact.name, callMsg[lineNumber].cnapName),
  		this.lineNumber = lineNumber;
  		this.id = callMsg[lineNumber].id;
 -		
 +		if (this.lineNumber == 0 && this.state == "") {
-+			Mojo.Log.error("SVC setting system volume to mute");
++			Mojo.Log.error("SVC setting system volume to 0");
 +			this.getSSStatus();
 +		}
 +		if (this.state == "Ended" || this.state == "Ending") {
-+			Mojo.Log.error("SVC resetting system volume to %j",SSmute);
-+			AudioService.muteSystemSound(SSmute);
-+			SystemService.setSystemUISounds(!SSmute);
++			Mojo.Log.error("SVC resetting system volume to %j",SSVolume);
++			AudioService.setSystemVolume(SSVolume,null,null);
 +		}
  		// ensure empty label is displayed as empty
 -		this.displayLabel = (callMsg[lineNumber].contact.labelFormatted ? callMsg[lineNumber].contact.labelFormatted : "");
@@ -64,45 +59,20 @@ Index: /usr/palm/applications/com.palm.app.phone/sources.json
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.phone/sources.json
 +++ /usr/palm/applications/com.palm.app.phone/sources.json
-@@ -1,5 +1,11 @@
+@@ -1,5 +1,8 @@
  [
    {
-+    "source": "app\/models\/SystemService.js"
-+  },
-+  {
 +    "source": "app\/models\/audio-luna-service.js"
 +  },
 +  {
      "source": "app\/models\/QDLogger.js"
    },
    {
-Index: /usr/palm/applications/com.palm.app.phone/app/models/SystemService.js
-===================================================================
---- /dev/null
-+++ /usr/palm/applications/com.palm.app.phone/app/models/SystemService.js
-@@ -0,0 +1,17 @@
-+/* Copyright 2009 Palm, Inc.  All rights reserved. */
-+
-+var SystemService = Class.create({ 
-+	initialize: function() { 
-+	}
-+});
-+
-+
-+SystemService.identifier = 'palm://com.palm.systemservice';
-+
-+SystemService.setSystemUISounds = function(value){
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+			method: 'setPreferences',
-+			parameters: {"systemSounds":value}, 			
-+		});
-+	return request;
-+}
 Index: /usr/palm/applications/com.palm.app.phone/app/models/audio-luna-service.js
 ===================================================================
 --- /dev/null
 +++ /usr/palm/applications/com.palm.app.phone/app/models/audio-luna-service.js
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,24 @@
 +/* Copyright 2009 Palm, Inc.  All rights reserved. */
 +
 +var AudioService = Class.create({ 
@@ -110,24 +80,20 @@ Index: /usr/palm/applications/com.palm.app.phone/app/models/audio-luna-service.j
 +	}
 +});
 +    
-+AudioService.getSystemSoundStatus = function(callback) {
-+   var request = new Mojo.Service.Request(AudioService.system_identifier, {
-+         method: 'status',
-+         parameters: {"subscribe": false},
-+         onSuccess: callback,
-+         onFailure: callback
-+    });
-+    return request;
-+}
-+         	  	  	      	
-+AudioService.muteSystemSound = function(mute) {
-+   var request = new Mojo.Service.Request(AudioService.system_identifier, {
-+         method: 'setMuted',
-+         parameters: {"muted": mute}, 
-+    });
-+    return request;
++AudioService.setSystemVolume = function(volume,callback, sceneController) {
++	var request = new Mojo.Service.Request(AudioService.system_identifier, {
++		method: 'setVolume',
++		parameters: {volume:volume },
++		onSuccess: function(response) {
++		if(callback)
++			callback(response);
++		},
++		onFailure: function(response) {
++		if(callback)
++			callback(response);
++		},			
++	});
++	return request;
 +}
 +
 +AudioService.system_identifier = 'palm://com.palm.audio/system';
-+AudioService.ringtone_identifier = 'palm://com.palm.audio/ringtone';
-+AudioService.vibrate_identifier = 'palm://com.palm.audio/vibrate';
