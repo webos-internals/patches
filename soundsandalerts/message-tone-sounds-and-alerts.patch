@@ -1,9 +1,108 @@
-diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
-index 1280518..09c20c7 100644
---- a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
-+++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
-@@ -81,9 +81,15 @@ var SoundsalertsconfigAssistant = Class.create({
- 		
+Updated for 1.2
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+@@ -52,9 +52,27 @@
+ 	                </div>
+ 	            </div>
+             </div>
++	    <div id='currentalertrow' class="palm-row" x-mojo-tap-highlight="momentary">
++		<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Alert</div>
++			<div id='currentalert' class="title"></div> 
++		</div>
++	    </div>
++	    <div id='currentnotificationrow' class="palm-row" x-mojo-tap-highlight="momentary">
++			<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Notification</div>
++			<div id='currentnotification' class="title"></div>  
++		</div>
++	    </div>
++	    <div id='currentmessagerow' class="palm-row" x-mojo-tap-highlight="momentary">
++			<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Messages</div>
++			<div id='currentmessage' class="title"></div>     
++		</div>
++	    </div>            
+ 			<div class="palm-row last">
+ 				<div class="palm-row-wrapper">
+-					<div class="title" x-mojo-loc=''>Volume</div>
++					<div class="title" x-mojo-loc=''>System Volume</div>
+ 					<div x-mojo-element="Slider" id='systemvolume' class="palm-slider"></div>
+ 	            </div>
+             </div>
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+@@ -28,6 +28,60 @@ SystemService.getRingtone = function(cal
+ 	return request;
+ }
+ 
++SystemService.getAlerts = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["alerttone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setAlerts = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"alerttone":value}, 
++	});
++	return request;
++}
++
++SystemService.getNotifications = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["notificationtone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setNotifications = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"notificationtone":value}, 
++	});
++	return request;
++}
++
++SystemService.getMessages = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["messagetone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setMessages = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"messagetone":value}, 
++	});
++	return request;
++}
++
+ SystemService.getSystemUISounds = function(callback) {
+ 	var request = new Mojo.Service.Request(SystemService.identifier, {
+ 			method: 'getPreferences',
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+@@ -94,9 +94,15 @@ var SoundsalertsconfigAssistant = Class.
+ 		$('system_ui_sounds').observe('mojo-property-change', this.toggleSystemUISounds.bindAsEventListener(this));
  		
  		$('currentringtonerow').observe(Mojo.Event.tap, this.showAudioFilePicker.bindAsEventListener(this));
 +		$('currentalertrow').observe(Mojo.Event.tap, this.showAlertFilePicker.bindAsEventListener(this));
@@ -18,76 +117,75 @@ index 1280518..09c20c7 100644
  		this.getVibrateSettings();	
  		this.getOtherSettings();
  		
-@@ -240,6 +246,85 @@ var SoundsalertsconfigAssistant = Class.create({
+@@ -260,6 +266,84 @@ var SoundsalertsconfigAssistant = Class.
  		$('currentringtone').innerHTML = file.name;
  	},
  	
 +	// Alert Picking
 +	getCurrentAlert: function() {
-+		this.getCurrentAlertReq = SystemService.getAlerts(this.getCurrentAlertQuery.bind(this));
++	this.getCurrentAlertReq = SystemService.getAlerts(this.getCurrentAlertQuery.bind(this));
 +	},
 +	
-+	getCurrentAlertQuery: function(payload) {		
-+		if (payload.alerttone) {
-+			$('currentalert').innerHTML = payload.alerttone.name;
-+			this.currAlertPath = payload.alerttone.fullPath;	
-+		}
-+		else 
-+			$('currentalert').innerHTML = $L("Pick an alert");
-+		
++	getCurrentAlertQuery: function(payload) {
++	if (payload.alerttone) {
++	$('currentalert').innerHTML = payload.alerttone.name;
++	this.currAlertPath = payload.alerttone.fullPath;
++	}
++	else 
++	$('currentalert').innerHTML = $L("Pick an alert");
++	
 +	},
 +	
 +	showAlertFilePicker: function(event) {
-+		var params = {"kinds": ["ringtone"],"filePath":this.currAlertPath,"onSelect":this.selectedAlertFile.bind(this),actionType:"attach",actionName: $L("Done")};
-+		Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	var params = {"kinds": ["ringtone"],"filePath":this.currAlertPath,"onSelect":this.selectedAlertFile.bind(this),actionType:"attach",actionName: $L("Done")};
++	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
 +	},
 +	
-+	selectedAlertFile: function(file) {		
-+		//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
-+		this.setAlertReq = SystemService.setAlerts(file);
-+		$('currentalert').innerHTML = file.name;
++	selectedAlertFile: function(file) {
++	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
++	this.setAlertReq = SystemService.setAlerts(file);
++	$('currentalert').innerHTML = file.name;
 +	},
-+
++	
 +	// Notification Picking
 +	getCurrentNotification: function() {
-+		this.getCurrentNotificationReq = SystemService.getNotifications(this.getCurrentNotificationQuery.bind(this));
++	this.getCurrentNotificationReq = SystemService.getNotifications(this.getCurrentNotificationQuery.bind(this));
 +	},
 +	
-+	getCurrentNotificationQuery: function(payload) {		
-+		if (payload.notificationtone) {
-+			$('currentnotification').innerHTML = payload.notificationtone.name;
-+			this.currNotificationPath = payload.notificationtone.fullPath;	
-+		}
-+		else 
-+			$('currentnotification').innerHTML = $L("Pick a notification");
-+		
++	getCurrentNotificationQuery: function(payload) {
++	if (payload.notificationtone) {
++	$('currentnotification').innerHTML = payload.notificationtone.name;
++	this.currNotificationPath = payload.notificationtone.fullPath;
++	}
++	else 
++	$('currentnotification').innerHTML = $L("Pick a notification");
++	
 +	},
 +	
 +	showNotificationFilePicker: function(event) {
-+		var params = {"kinds": ["ringtone"],"filePath":this.currNotificationPath,"onSelect":this.selectedNotificationFile.bind(this),actionType:"attach",actionName: $L("Done")};
-+		Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	var params = {"kinds": ["ringtone"],"filePath":this.currNotificationPath,"onSelect":this.selectedNotificationFile.bind(this),actionType:"attach",actionName: $L("Done")};
++	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
 +	},
 +	
-+	selectedNotificationFile: function(file) {		
-+		//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
-+		this.setNotificationReq = SystemService.setNotifications(file);
-+		$('currentnotification').innerHTML = file.name;
++	selectedNotificationFile: function(file) {
++	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
++	this.setNotificationReq = SystemService.setNotifications(file);
++	$('currentnotification').innerHTML = file.name;
 +	},
-+
-+
++	
 +	// Message Picking
 +	getCurrentMessage: function() {
 +		this.getCurrentMessageReq = SystemService.getMessages(this.getCurrentMessageQuery.bind(this));
 +	},
 +	
-+	getCurrentMessageQuery: function(payload) {		
++	getCurrentMessageQuery: function(payload) {
 +		if (payload.messagetone) {
 +			$('currentmessage').innerHTML = payload.messagetone.name;
-+			this.currMessagePath = payload.messagetone.fullPath;	
++			this.currMessagePath = payload.messagetone.fullPath;
 +		}
 +		else 
-+			$('currentmessage').innerHTML = $L("Pick an message");
-+		
++		$('currentmessage').innerHTML = $L("Pick an message");
++	
 +	},
 +	
 +	showMessageFilePicker: function(event) {
@@ -95,7 +193,7 @@ index 1280518..09c20c7 100644
 +		Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
 +	},
 +	
-+	selectedMessageFile: function(file) {		
++	selectedMessageFile: function(file) {
 +		//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
 +		this.setMessageReq = SystemService.setMessages(file);
 +		$('currentmessage').innerHTML = file.name;
@@ -104,101 +202,3 @@ index 1280518..09c20c7 100644
  	getVibrateSettings: function() {
  		this.getVibrateSettingsReq = AudioService.getVibrateSettings(this.vibrateSettingsCB.bind(this),this);
  	},
-diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js b/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
-index c5babe5..cdf2383 100644
---- a/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
-+++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
-@@ -28,6 +28,60 @@ SystemService.getRingtone = function(callback) {
- 	return request;
- }
- 
-+SystemService.getAlerts = function(callback) {
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+			method: 'getPreferences',
-+			parameters: {"keys":["alerttone"]}, 
-+			onSuccess: callback,
-+			onFailure: callback
-+		});
-+	return request;
-+}
-+
-+SystemService.setAlerts = function(value){
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+			method: 'setPreferences',
-+			parameters: {"alerttone":value}, 			
-+		});
-+	return request;
-+}
-+
-+SystemService.getNotifications = function(callback) {
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+			method: 'getPreferences',
-+			parameters: {"keys":["notificationtone"]}, 
-+			onSuccess: callback,
-+			onFailure: callback
-+		});
-+	return request;
-+}
-+
-+SystemService.setNotifications = function(value){
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+			method: 'setPreferences',
-+			parameters: {"notificationtone":value}, 			
-+		});
-+	return request;
-+}
-+
-+SystemService.getMessages = function(callback) {
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+			method: 'getPreferences',
-+			parameters: {"keys":["messagetone"]}, 
-+			onSuccess: callback,
-+			onFailure: callback
-+		});
-+	return request;
-+}
-+
-+SystemService.setMessages = function(value){
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+			method: 'setPreferences',
-+			parameters: {"messagetone":value}, 			
-+		});
-+	return request;
-+}
-+
- SystemService.getSystemUISounds = function(callback) {
- 	var request = new Mojo.Service.Request(SystemService.identifier, {
- 			method: 'getPreferences',
-diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html b/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
-index 88a6b73..52cc968 100644
---- a/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
-+++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
-@@ -48,9 +48,27 @@
- 	                </div>
- 	            </div>
-             </div>
-+	<div id='currentalertrow' class="palm-row" x-mojo-tap-highlight="momentary">
-+				<div class="palm-row-wrapper">
-+					<div class="label" x-mojo-loc=''>Alert</div>
-+	            	<div id='currentalert' class="title"></div>					
-+	            </div>
-+             </div>
-+	<div id='currentnotificationrow' class="palm-row" x-mojo-tap-highlight="momentary">
-+				<div class="palm-row-wrapper">
-+					<div class="label" x-mojo-loc=''>Notification</div>
-+	            	<div id='currentnotification' class="title"></div>					
-+	            </div>
-+             </div>
-+	<div id='currentmessagerow' class="palm-row" x-mojo-tap-highlight="momentary">
-+				<div class="palm-row-wrapper">
-+					<div class="label" x-mojo-loc=''>Messages</div>
-+	            	<div id='currentmessage' class="title"></div>					
-+	            </div>
-+             </div>
- 			<div class="palm-row">
- 				<div class="palm-row-wrapper">
--					<div class="title" x-mojo-loc=''>Volume</div>
-+					<div class="title" x-mojo-loc=''>System Volume</div>
- 					<div x-mojo-element="Slider" id='systemvolume' class="palm-slider"></div>
- 	            </div>
-             </div>
