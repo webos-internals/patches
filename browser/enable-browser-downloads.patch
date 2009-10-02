@@ -1,29 +1,56 @@
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-@@ -1198,27 +1198,116 @@
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js b/usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
+index 4e0f974..fc1520d 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
+@@ -102,12 +102,39 @@ Chrome.prototype._hidePortrait = function() {
+ 	}
+ };
+ 
++Chrome.prototype.show = UrlBar.prototype._showNoOp;
++Chrome.prototype.hide = UrlBar.prototype._hideNoOp;
++
+ Chrome.prototype._showNoOp = function() {
+ 	// DO NOTHING - We don't show anything in landscape.	
++	var animator;
++	var element = this.controller.get(this._elementName);
++	
++	// If we are visible then the current spacer height is 
++	if (element && (this._currentHeight === 0)) {
++		animator = Mojo.Animation.animateStyle(element, 'height', 'linear', {
++			from: 0,
++			to: this._maxHeight,
++			duration: 0.15,
++			reverse: false
++		});
++		this._currentHeight = this._maxHeight;
++	}
+ };
+ 
+ Chrome.prototype._hideNoOp = function() {
+ 	// DO NOTHING - We should not be displayed in landscape.
++	var animator;
++	var element = this.controller.get(this._elementName);
++	if (element && (this._currentHeight > 0)) {
++		animator = Mojo.Animation.animateStyle(element, 'height', 'linear', {
++			from: 0,
++			to: this._maxHeight,
++			duration: 0.15,
++			reverse: true
++		});
++		this._currentHeight = 0;
++	}
+ };
+ 
+ Chrome.prototype.isVisible = function() {
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+index a805d2c..1074480 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+@@ -1198,7 +1198,95 @@ PageAssistant.prototype._newBrowserPage = function(url, pageIdentifier){
  PageAssistant.prototype._streamResource = function(uri, appid, mimeType){
  
  	Mojo.Log.info("Streaming: '%s' with '%s' (%s)", uri, appid, mimeType);
 -
--	// Only a few select applications can be
--	crossAppScene = {
--		'com.palm.app.videoplayer': 'nowplaying',
--		'com.palm.app.streamingmusicplayer': 'nowplaying'
--	};
--	var params = {target: uri, mimeType: mimeType};
--	if (crossAppScene[appid]) {
--
--		var args = { appId: appid, name: crossAppScene[appid] };
--		this.controller.stageController.pushScene(args, params);
--	}
--	else {
--		this.controller.serviceRequest('palm://com.palm.applicationManager', {
--			method: 'open',
--			parameters: {
--				'id': appid,
--				'params': params
 +	if(appid === 'com.palm.app.email')
 +	{
 +	    //an email was clicked, so we bypass the download dialog and open the email app.
@@ -113,37 +140,36 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistan
 +	                this._downloadResource(uri);
 +	        }.bind(this),
 +	        onAccept: function(cParams) { // STREAM
-+	                // Only a few select applications can be
-+			crossAppScene = {
-+				'com.palm.app.videoplayer': 'nowplaying',
-+				'com.palm.app.streamingmusicplayer': 'nowplaying'
-+			};
-+			var params = {target: uri, mimeType: mimeType};
-+			if (crossAppScene[appid]) {
-+				var args = { appId: appid, name: crossAppScene[appid] };
-+				this.controller.stageController.pushScene(args, params);
-+			} else {
-+				this.controller.serviceRequest('palm://com.palm.applicationManager', {
-+					method: 'open',
-+					parameters: {
-+						'id': appid,
-+						'params': params
-+					}
-+				});
- 			}
--		});
+ 	// Only a few select applications can be
+ 	crossAppScene = {
+ 		'com.palm.app.videoplayer': 'nowplaying',
+@@ -1206,11 +1294,9 @@ PageAssistant.prototype._streamResource = function(uri, appid, mimeType){
+ 	};
+ 	var params = {target: uri, mimeType: mimeType};
+ 	if (crossAppScene[appid]) {
+-
+ 		var args = { appId: appid, name: crossAppScene[appid] };
+ 		this.controller.stageController.pushScene(args, params);
 -	}
+-	else {
++			} else {
+ 		this.controller.serviceRequest('palm://com.palm.applicationManager', {
+ 			method: 'open',
+ 			parameters: {
+@@ -1219,6 +1305,9 @@ PageAssistant.prototype._streamResource = function(uri, appid, mimeType){
+ 			}
+ 		});
+ 	}
 +	        }.bind(this)})
 +	});
 +
  };
  
  /**
-@@ -2237,7 +2326,32 @@
+@@ -2237,6 +2326,31 @@ PageAssistant.prototype._onKeyDownEvent = function(event) {
  		// allowed to trigger the bar.
  		if (this._addressBar.isAGotoAddressBarEvent(event.originalEvent)) {
  			this._gotoUrlBar();
--		}
 +	       	} else {
 +		       	var key = event.originalEvent.keyCode;
 +		       	var scroller = this.controller.getSceneScroller();
@@ -169,15 +195,14 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistan
 +		       	} else {
 +			       	Mojo.Log.error("Ignoring keyCode", key);
 +		       	}
-+                }
+ 		}
  	}
  };
- 
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
-@@ -47,6 +47,10 @@
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js b/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
+index 94abd5d..cafa2e4 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
+@@ -47,6 +47,10 @@ UrlBar.prototype.setOrientation = function(orientation) {
  	if (orientation !== 'up') {
  		// In landscape and down we ALWAYS hide the BAR so we make sure it's
  		// already hidden by calling' 'hide'.
@@ -188,7 +213,7 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
  		this._hidePortrait();
  	}
  
-@@ -73,6 +77,12 @@
+@@ -73,6 +77,12 @@ UrlBar.prototype.setup = function(properties) {
  	this._onPropertyChange = properties.onPropertyChange || function(){};
  	this._configOrientation(properties.orientation || 'up');
  
@@ -201,7 +226,7 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
  	this.models = {
  		urlInput: {
  			template: 'page/url-field',
-@@ -90,7 +100,7 @@
+@@ -90,7 +100,7 @@ UrlBar.prototype.setup = function(properties) {
  				url: ''
  			},
  
@@ -210,7 +235,7 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
  		},
  
  		// Beware: These are shallow copies.
-@@ -416,12 +426,25 @@
+@@ -416,12 +426,25 @@ UrlBar.prototype._hidePortrait = function() {
  	this.controller.setMenuVisible(Mojo.Menu.viewMenu, false);
  };
  
@@ -236,134 +261,25 @@ Index: /usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
  };
  
  UrlBar.prototype.isVisible = function() {
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/chrome.js
-@@ -102,12 +102,39 @@
- 	}
- };
- 
-+Chrome.prototype.show = UrlBar.prototype._showNoOp;
-+Chrome.prototype.hide = UrlBar.prototype._hideNoOp;
-+
- Chrome.prototype._showNoOp = function() {
--	// DO NOTHING - We don't show anything in landscape.	
-+	// DO NOTHING - We don't show anything in landscape.
-+	var animator;
-+	var element = this.controller.get(this._elementName);
-+	
-+	// If we are visible then the current spacer height is 
-+	if (element && (this._currentHeight === 0)) {
-+		animator = Mojo.Animation.animateStyle(element, 'height', 'linear', {
-+			from: 0,
-+			to: this._maxHeight,
-+			duration: 0.15,
-+			reverse: false
-+		});
-+		this._currentHeight = this._maxHeight;
-+	}
- };
- 
- Chrome.prototype._hideNoOp = function() {
- 	// DO NOTHING - We should not be displayed in landscape.
-+	var animator;
-+	var element = this.controller.get(this._elementName);
-+	if (element && (this._currentHeight > 0)) {
-+		animator = Mojo.Animation.animateStyle(element, 'height', 'linear', {
-+			from: 0,
-+			to: this._maxHeight,
-+			duration: 0.15,
-+			reverse: true
-+		});
-+		this._currentHeight = 0;
-+	}
- };
- 
- Chrome.prototype.isVisible = function() {
-Index: /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
-===================================================================
---- /dev/null
-+++ /usr/palm/applications/com.palm.app.browser/app/controllers/downloaddialog-assistant.js
-@@ -0,0 +1,46 @@
-+/**
-+ * A dialog assistant for display of yes/no box.
-+ */
-+DownloadDialogAssistant = Class.create({
-+
-+        initialize: function(params) {
-+                this.onDismiss = params.onDismiss;
-+                this.onAccept = params.onAccept;
-+                this.controller= params.sceneAssistant.controller;
-+
-+                // Button handlers.
-+                this.onDismissHandler = this.handleDismiss.bindAsEventListener(this);
-+                this.onAcceptHandler = this.handleAccept.bindAsEventListener(this);
-+        },
-+
-+        setup: function(widget) {
-+                this.widget = widget;
-+                this.controller.get('acceptButton').addEventListener(Mojo.Event.tap, this.onAcceptHandler);
-+                this.controller.get('acceptButton').focus();
-+                this.controller.get('dismissButton').addEventListener(Mojo.Event.tap, this.onDismissHandler);
-+                this.controller.get('dismissButton').focus();
-+        },
-+
-+        handleDismiss: function() {
-+                this.onDismiss();
-+                delete this.onDismiss;
-+                this.widget.mojo.close();
-+        },
-+        handleAccept: function() {
-+                this.onAccept();
-+                delete this.onAccept;
-+				 delete this.onDismiss;
-+                this.widget.mojo.close();
-+        },
-+
-+        cleanup: function() {
-+                Mojo.Log.info("NetworkDialogAssistant#cleanup()");
-+                Mojo.Event.stopListening(this.controller.get('dismissButton'), Mojo.Event.tap, this.onDismissHandler);
-+                Mojo.Event.stopListening(this.controller.get('acceptButton'), Mojo.Event.tap, this.onAcceptHandler);
-+
-+                // Send a dismiss if NOT already sent a response
-+                if (this.onDismiss) {
-+                        this.onDismiss();
-+                }
-+        }
-+});
-Index: /usr/palm/applications/com.palm.app.browser/app/views/download/download-stream-popup.html
-===================================================================
---- /dev/null
-+++ /usr/palm/applications/com.palm.app.browser/app/views/download/download-stream-popup.html
-@@ -0,0 +1,8 @@
-+<div id="palm-dialog-content" class="palm-dialog-content">
-+        <div class="dialog-message" x-mojo-loc="">This file type has been registered as a streaming media file. Would you like to download it to /media/internal/downloads instead?</div>
-+</div>
-+
-+<div class="palm-dialog-buttons">
-+        <div class="dismiss palm-button" id="acceptButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Stream</div>
-+        <div class="dismiss palm-button" id="dismissButton" x-mojo-loc="" x-mojo-tap-highlight="momentary">Download</div>
-+</div>
-Index: /usr/palm/applications/com.palm.app.browser/sources.json
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/sources.json
-+++ /usr/palm/applications/com.palm.app.browser/sources.json
-@@ -47,6 +47,9 @@
-   {
+diff --git a/usr/palm/applications/com.palm.app.browser/sources.json b/usr/palm/applications/com.palm.app.browser/sources.json
+index 54187ce..7d79e70 100644
+--- a/usr/palm/applications/com.palm.app.browser/sources.json
++++ b/usr/palm/applications/com.palm.app.browser/sources.json
+@@ -48,6 +48,9 @@
    	"source": "app\/controllers\/download-controller.js",
    },
-+  {
+   {  
 +  	"source":"app\/controllers\/downloaddialog-assistant.js"
 +  },
-   {  
++  {  
    	"source": "app\/controllers\/preferences-assistant.js",
    },
-Index: /usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
-+++ /usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
-@@ -753,7 +753,7 @@
+   {
+diff --git a/usr/palm/applications/com.palm.app.browser/stylesheets/browser.css b/usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
+index 6215e0b..aee8654 100644
+--- a/usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
++++ b/usr/palm/applications/com.palm.app.browser/stylesheets/browser.css
+@@ -753,7 +753,7 @@ div#historyScroller {
  }
  
  .search-results-container .palm-list {
