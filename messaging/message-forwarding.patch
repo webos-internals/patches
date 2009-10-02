@@ -1,129 +1,190 @@
-Updated for WebOS 1.1.0
-This mod will allow you to forward a message by simply tapping on
-the text of a message in the chat view. It does not interfere with
-the current attachment-tapping behavior. Tapping an attached image
-ask if you want to forward. Selecting "No" will still prompt for a
-save, etc., while selecting "Yes" will open a the compose dialog,
-with the message and attachments pre-populated. 
-
-Submitted by JackieRipper with modifications by Atlanta
 Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-@@ -1482,7 +1482,16 @@ var ChatviewAssistant = Class.create({
- 			
- 		var mmsImageTarget = MessagingUtils.getClassUpChain(eventTarget,'MMSImageObject');
- 		if(mmsImageTarget) {
--			this.controller.stageController.pushScene('imageview', mmsImageTarget.getAttribute('originalSrc'));
-+			var imagePath = mmsImageTarget.getAttribute('originalSrc');
-+			this.controller.showAlertDialog({
-+				onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, imagePath);} else {this.controller.stageController.pushScene('imageview', imagePath);}},
-+				title: $L("Forward Message"),
-+				message: $L("Do you want to forward this message?"),
-+				choices:[
-+					{label:$L("Yes"), value:"forward", type:"affirmative"},
-+					{label:$L("No"), value:"", type:"negative"}
-+				]
-+			});
- 			return;		
- 		}
+@@ -1541,59 +1541,104 @@ var ChatviewAssistant = Class.create({
+ 		MessagingMojoService.deleteMessage(this.controller, event.item.messageId);
+ 	},
  
-@@ -1499,23 +1508,59 @@ var ChatviewAssistant = Class.create({
- 				target: videoPath,
- 				title: videoName
- 			};
+-	handleMessageTap: function(event){
+-		var eventTarget = this.controller.get(event.originalEvent.target);
+-			
+-		var mmsImageTarget = MessagingUtils.getClassUpChain(eventTarget,'MMSImageObject');
+-		if(mmsImageTarget) {
+-			this.controller.stageController.pushScene('imageview', mmsImageTarget.getAttribute('originalSrc'));
+-			return;		
+-		}
++        handleMessageTap: function(event){
++                var eventTarget = this.controller.get(event.originalEvent.target);
+ 
+-		var mmsVideoTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-video');
+-		if(mmsVideoTarget) {
+-			var videoPath = mmsVideoTarget.getAttribute('filePath');
+-			var videoName = mmsVideoTarget.getAttribute('fileInfo');
+-			
+-			var args = {
+-				appId: "com.palm.app.videoplayer",
+-				name: "nowplaying"
+-			};
+-			var params = {
+-				target: videoPath,
+-				title: videoName
+-			};
 -			this.controller.stageController.pushScene(args, params); 			
-+			this.controller.showAlertDialog({
-+				onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, videoPath);} else {this.controller.stageController.pushScene(args, params);}},
-+				title: $L("Forward Message"),
-+				message: $L("Do you want to forward this message?"),
-+				choices:[
-+					{label:$L("Yes"), value:"forward", type:"affirmative"},
-+					{label:$L("No"), value:"", type:"negative"}
-+				]
-+			});
- 			return;		
- 		}
- 		
- 		var mmsVcardTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-vcard');
- 		if(mmsVcardTarget) {
- 			var filePath = mmsVcardTarget.getAttribute('filePath');
--			this.controller.stageController.pushScene('mmsTextAttachment', filePath); 			
-+			this.controller.showAlertDialog({
-+				onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, filePath);} else {this.controller.stageController.pushScene('mmsTextAttachment', filePath);}},
-+				title: $L("Forward Message"),
-+				message: $L("Do you want to forward this message?"),
-+				choices:[
-+					{label:$L("Yes"), value:"forward", type:"affirmative"},
-+					{label:$L("No"), value:"", type:"negative"}
-+				]
-+			});
- 			return;		
- 		}
- 		
- 		var mmsVcalTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-vcal');
- 		if(mmsVcalTarget) {
- 			var filePath = mmsVcalTarget.getAttribute('filePath');
--			this.controller.stageController.pushScene('mmsTextAttachment', filePath); 			
-+			this.controller.showAlertDialog({
-+				onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, filePath);} else {this.controller.stageController.pushScene('mmsTextAttachment', filePath);}},
-+				title: $L("Forward Message"),
-+				message: $L("Do you want to forward this message?"),
-+				choices:[
-+					{label:$L("Yes"), value:"forward", type:"affirmative"},
-+					{label:$L("No"), value:"", type:"negative"}
-+				]
-+			});
- 			return;		
- 		}		
+-			return;		
+-		}
+-		
+-		var mmsVcardTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-vcard');
+-		if(mmsVcardTarget) {
+-			var filePath = mmsVcardTarget.getAttribute('filePath');
+-			MessagingMojoService.launchFile(this.controller, 'text/x-vcard', 'file://'+filePath);
+-			return;		
+-		}
+-		
+-		var mmsVcalTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-vcal');
+-		if(mmsVcalTarget) {
+-			var filePath = mmsVcalTarget.getAttribute('filePath');
+-			MessagingMojoService.launchFile(this.controller, 'text/x-vcalendar', 'file://'+filePath);
+-			return;		
+-		}		
+-				
+-		MessagingUtils.simpleListClick(this.controller.get(event.originalEvent.target), "chatRow", function(targetRow){
+-			var messageData = {
+-				errorCode: targetRow.getAttribute("errorCode"),
+-				status: targetRow.getAttribute("status"),
+-				messageId: targetRow.getAttribute("messageId"),
+-				flags: targetRow.getAttribute("flags"),
+-				messageType: targetRow.getAttribute("messageType")
+-			};
+-			
+-			MessagingMojoService.getMessageErrorInfo(this.controller, messageData.messageId, messageData.flags, this.handleMessageErrorPopup.bind(this,messageData));
++                var mmsImageTarget = MessagingUtils.getClassUpChain(eventTarget,'MMSImageObject');
++                if(mmsImageTarget) {
++                        var imagePath = mmsImageTarget.getAttribute('originalSrc');
++                        this.controller.showAlertDialog({
++                                onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, imagePath);} else {this.controller.stageController.pushScene('imageview', imagePath);}},
++                                title: $L("Forward Message"),
++                                message: $L("Do you want to forward this message?"),
++                                choices:[
++                                        {label:$L("Yes"), value:"forward", type:"affirmative"},
++                                        {label:$L("No"), value:"", type:"negative"}
++                                ]
++                        });
++                        return;
++                }
+ 
+-		}.bind(this), false);
+-	},
++                var mmsVideoTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-video');
++                if(mmsVideoTarget) {
++                        var videoPath = mmsVideoTarget.getAttribute('filePath');
++                        var videoName = mmsVideoTarget.getAttribute('fileInfo');
 +
-+		if (!mmsImageTarget && !mmsVideoTarget && !mmsVcardTarget && !mmsVcalTarget) {
-+			this.controller.showAlertDialog({
-+				onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, '');}},
-+				title: $L("Forward Message"),
-+				message: $L("Do you want to forward this message?"),
-+				choices:[
-+					{label:$L("Yes"), value:"forward", type:"affirmative"},
-+					{label:$L("No"), value:"", type:"negative"}
-+				]
-+			});
-+		}
- 				
- 		MessagingUtils.simpleListClick(this.controller.get(event.originalEvent.target), "chatRow", function(targetRow){
- 			var messageData = {
-@@ -2115,4 +2160,4 @@ var ChatviewAssistant = Class.create({
- 		this.controller.sceneScroller.mojo.revealBottom();
- 		this.controller.sceneScroller.mojo.revealBottom();
- 	}
--});
-\ No newline at end of file
-+});
++                        var args = {
++                                appId: "com.palm.app.videoplayer",
++                                name: "nowplaying"
++                        };
++                        var params = {
++                                target: videoPath,
++                                title: videoName
++                        };
++                        this.controller.showAlertDialog({
++                                onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, videoPath);} else {this.controller.stageController.pushScene(args, params);}},
++                                title: $L("Forward Message"),
++                                message: $L("Do you want to forward this message?"),
++                                choices:[
++                                        {label:$L("Yes"), value:"forward", type:"affirmative"},
++                                        {label:$L("No"), value:"", type:"negative"}
++                                ]
++                        });
++                        return;
++                }
++
++                var mmsVcardTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-vcard');
++                if(mmsVcardTarget) {
++                        var filePath = mmsVcardTarget.getAttribute('filePath');
++                        this.controller.showAlertDialog({
++                                onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, filePath);} else {this.controller.stageController.pushScene('mmsTextAttachment', filePath);}},
++                                title: $L("Forward Message"),
++                                message: $L("Do you want to forward this message?"),
++                                choices:[
++                                        {label:$L("Yes"), value:"forward", type:"affirmative"},
++                                        {label:$L("No"), value:"", type:"negative"}
++                                ]
++                        });
++                        return;
++                }
++
++                var mmsVcalTarget = MessagingUtils.getClassUpChain(eventTarget,'mms-vcal');
++                if(mmsVcalTarget) {
++                        var filePath = mmsVcalTarget.getAttribute('filePath');
++                        this.controller.showAlertDialog({
++                                onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, filePath);} else {this.controller.stageController.pushScene('mmsTextAttachment', filePath);}},
++                                title: $L("Forward Message"),
++                                message: $L("Do you want to forward this message?"),
++                                choices:[
++                                        {label:$L("Yes"), value:"forward", type:"affirmative"},
++                                        {label:$L("No"), value:"", type:"negative"}
++                                ]
++                        });
++                        return;
++                }
++
++                if (!mmsImageTarget && !mmsVideoTarget && !mmsVcardTarget && !mmsVcalTarget) {
++                        this.controller.showAlertDialog({
++                                onChoose: function(value) {if(value == "forward"){MessagingMojoService.forwardMessage(this.controller, event.item.messageText, '');}},
++                                title: $L("Forward Message"),
++                                message: $L("Do you want to forward this message?"),
++                                choices:[
++                                        {label:$L("Yes"), value:"forward", type:"affirmative"},
++                                        {label:$L("No"), value:"", type:"negative"}
++                                ]
++                        });
++                }
++
++                MessagingUtils.simpleListClick(this.controller.get(event.originalEvent.target), "chatRow", function(targetRow){
++                        var messageData = {
++                                errorCode: targetRow.getAttribute("errorCode"),
++                                status: targetRow.getAttribute("status"),
++                                messageId: targetRow.getAttribute("messageId"),
++                                flags: targetRow.getAttribute("flags"),
++                                messageType: targetRow.getAttribute("messageType")
++                        };
++
++                        MessagingMojoService.getMessageErrorInfo(this.controller, messageData.messageId, messageData.flags, this.handleMessageErrorPopup.bind(this,messageData));
++
++                }.bind(this), false);
++        },
+ 	
+ 	
+ 	handleMessageErrorPopup: function(messageData,messageErrorData) {
 Index: /usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
-@@ -8,6 +8,23 @@ var MessagingMojoService = {
+@@ -8,7 +8,25 @@ var MessagingMojoService = {
    displayIdentifier: 'palm://com.palm.display/control',
    telephonyIdentifier: 'palm://com.palm.telephony',
    systemManagerIdentifier: 'palm://com.palm.systemmanager',
 +  forwardIdentifier: 'palm://com.palm.applicationManager',
-+  	
-+  forwardMessage: function(sceneController,messageText,attachment) {
-+  	var opts = {
-+  		method: 'launch',
-+  		parameters: {
-+  			id: 'com.palm.app.messaging',
-+  			params: {
-+  			}
-+  		}
-+  	};
-+  	if (messageText)
-+  		opts.parameters.params.messageText = 'FWD: '+messageText;
-+  	if (attachment)
-+  		opts.parameters.params.attachment = attachment;
-+  	return sceneController.serviceRequest(MessagingMojoService.forwardIdentifier,opts);
-+  },
  
++  forwardMessage: function(sceneController,messageText,attachment) {
++	var opts = {
++                method: 'launch',
++                parameters: {
++                        id: 'com.palm.app.messaging',
++                        params: {
++                        }
++                }
++        };
++        if (messageText)
++                opts.parameters.params.messageText = 'FWD: '+messageText;
++        if (attachment)
++                opts.parameters.params.attachment = attachment;
++        return sceneController.serviceRequest(MessagingMojoService.forwardIdentifier,opts);
++  },
++  
++  
    launchMessaging: function(sceneController,params) {  
  	return sceneController.serviceRequest("palm://com.palm.applicationManager", {
+ 		method:'launch',
