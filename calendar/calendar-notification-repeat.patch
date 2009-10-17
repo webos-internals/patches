@@ -1,0 +1,98 @@
+This patch will repeat the reminder notification every 2 minutes until you either dismiss or snooze the reminder.
+Index: /usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
+@@ -95,6 +95,9 @@ var AppAssistant = Class.create({
+ 		} 
+ 		else if (launchParams.alarmclose){
+ 			this.closeReminder(launchParams.alarmclose);
++		}
++		else if (launchParams.playalarmsound){
++			this.playAlarmSound();
+ 		} 
+ 		else if (launchParams.dayChange){
+ 			this.dayChange();
+@@ -236,6 +239,13 @@ var AppAssistant = Class.create({
+ 		}
+ 	},
+ 	
++	playAlarmSound: function() {
++		if (this.openReminderAlert) {
++			this.openReminderAlert.playAlarmSound();
++			this.openReminderAlert = null;
++		}
++	},
++	
+ 	scheduleNextReminder: function(eventId) {
+ 		new Mojo.Service.Request('palm://com.palm.calendar', {
+ 			method: 'scheduleNextReminder',
+Index: /usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
++++ /usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
+@@ -49,6 +49,9 @@ var ReminderAssistant = Class.create({
+ 			this.removeAutoCloseTask();
+ 			
+ 		}
++		
++		//remove the Notification repeat task
++		this.removePlayAlarmSoundTask();
+ 	},
+ 
+ 	remindersUpdated: function() {
+@@ -67,6 +70,9 @@ var ReminderAssistant = Class.create({
+ 		this.reminder = this.reminders.getMostRecentReminder();
+ 		this.scheduleAutoCloseTask();
+ 		this.updateDisplay();
++		
++		//setup the notification repeat task
++		this.schedulePlayAlarmSoundTask();
+ 	},
+ 
+ 	updateDisplay: function() {
+@@ -269,6 +275,14 @@ var ReminderAssistant = Class.create({
+ 		this.dismissed = true; // prevent snooze
+ 		this.closeAlert();
+ 	},
++	
++	playAlarmSound: function() {
++		//temporarily set the snooze to 0 will immediately re-trigger allert to get our attention.
++		this.dismissed = false;
++		this.DEFAULT_SNOOZE = 0;
++		this.closeAlert();
++	},
++					
+ 	specialCleanup:function(){
+ 		Mojo.Log.info("****************in special cleanup");
+ 		this.shuttingDown =true;
+@@ -308,6 +322,29 @@ var ReminderAssistant = Class.create({
+ 					                	});
+ 	},
+ 	
++	schedulePlayAlarmSoundTask: function() {
++		//retrigger reminder every two minutes until we acknowledge it.
++		//change the value in addMinutes to a value other than 2 if you prefer a different time span for the notification repeat.
++		//ultimatly it would be best to add this to the preferences page.
++		var playSoundTime = new Date().addMinutes(2);
++		
++		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++					method: 'updateTask',
++					parameters: {uri: 'palm://com.palm.applicationManager/open',
++					arguments: {'id': 'com.palm.app.calendar',
++						'params': {'playalarmsound': 'true'}},
++					key: 'calendar-playalarmsound',
++					start: {date: playSoundTime.toUTCString()}}
++					});
++	},
++
++	removePlayAlarmSoundTask: function() {
++		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++			method: 'removeTask',
++			parameters: {key: 'calendar-playalarmsound'}
++			});
++	},																						
++	
+   	replaceHTML: function(element, content) {
+       	var range = element.ownerDocument.createRange();
+       	range.selectNode(element);

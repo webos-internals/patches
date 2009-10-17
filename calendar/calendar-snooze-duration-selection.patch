@@ -1,0 +1,190 @@
+This patch adds a snooze duration selection to the reminder notification. 
+Currently i cannot get the snooze duration list to scroll so the snooze duration options are limited to 4 options.
+This patch is currently only compatible with 1.2.1. It will need to be udpated with each new WebOS update due to the import of the base stylesheets.
+Index: /usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
+@@ -314,9 +314,9 @@ var AppAssistant = Class.create({
+ 		var height;
+ 		var reminder = getReminderManager().getReminder(eventId);
+ 		if (reminder.attendees.length > 1 /*now we include the organizer in attendee list*/)
+-			height = 183;
++			height = 237;//183_orig;
+ 		else
+-		  	height = 129;
++		  	height = 183;//129_orig;
+ 		
+ 		var needThrobbing =(hasNewContent || !isSnoozedReminder) ? true:false;
+ 		
+Index: /usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
++++ /usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
+@@ -3,7 +3,7 @@
+ 
+ var ReminderAssistant = Class.create({
+ 	initialize: function(needThrobbing) {
+-		this.DEFAULT_SNOOZE = 5;
++		this.DEFAULT_SNOOZE = 30;
+ 		this.reminders = getReminderManager();
+ 		getAppAssistant().openReminderAlert = this;
+ 		this.requests = [];
+@@ -20,7 +20,54 @@ var ReminderAssistant = Class.create({
+ 			this.controller.stageController.indicateNewContent(true);
+ 		}
+ 	},
++	
++	//Until i figure out (or someone) how to get the scrolling of the list selection to work reduce this
++	//list to your favorite three
++	//Make sure you update the default snooze value to respectively
++	//The options set in these instructions will give you a 30 min default value and the options for 1hr,
++	//2hrs and 1day. 
++	//Note that the 30min option is added to the top so we can use it as a default but is left in the
++	//correct location commented out for when the scrolling is working.
++	snoozeOptions: [
++		{label:$L('30 Minutes'), value:'30'},
++		//{label:$L('5 Minutes'), value:'5'},
++		//{label:$L('10 Minutes'), value:'10'},
++		//{label:$L('15 Minutes'), value:'15'},
++		//{label:$L('30 Minutes'), value:'30'},
++		{label:$L('1 Hour'), value:'60'},
++		{label:$L('2 Hours'), value:'120'},
++		//{label:$L('4 Hours'), value:'240'},
++		//{label:$L('8 Hours'), value:'480'},
++		//{label:$L('10 Hours'), value:'600'},
++		//{label:$L('12 Hours'), value:'720'},
++		{label:$L('1 Day'), value:'1440'},
++		//{label:$L('2 Days'), value:'2880'},
++		//{label:$L('3 Days'), value:'4320'},
++		//{label:$L('4 Days'), value:'5760'},
++		//{label:$L('5 Days'), value:'7200'},
++		//{label:$L('6 Days'), value:'8640'},
++		//{label:$L('1 Week'), value:'10080'},
++		//{label:$L('2 Weeks'), value:'20160'}
++		],
++		
+ 	setup: function() {
++		this.controller.setupWidget('myscroller',
++		{
++		    mode:'vertical'
++		});
++	
++		//setup the snooze duration selector list
++		this.selectorChoices = this.snoozeOptions;
++		this.selectorAttributes = { label: "Snooze Duration", labelPlacement: "left", choices: this.selectorChoices, modelProperty:'value' };
++		
++		//Need to figure out how to remember previous selected snooze value.
++		//set the default duration to match the default snooze value
++		this.selectorModel = {value:'30'};
++		this.selectorModel.value = '30'; 
++		this.controller.setupWidget('snoozeSelector', this.selectorAttributes, this.selectorModel);
++		
++		this.onSnoozeDurationChangedHandler = this.onSnoozeDurationChanged.bindAsEventListener(this);
++	
+ 		this.service = getCalendarService();
+ 
+ 		this.reminders.observeReminders('alert', this);
+@@ -124,6 +171,9 @@ var ReminderAssistant = Class.create({
+ 		
+ 		this.controller.get('reminder-dismiss').addEventListener(Mojo.Event.tap, this.onDismissHandler);
+ 		this.controller.get('reminder-snooze').addEventListener(Mojo.Event.tap, this.onSnoozeHandler);
++		
++		//add snoozeDuration event listners
++		this.controller.get('snoozeSelector').addEventListener(Mojo.Event.propertyChange, this.onSnoozeDurationChangedHandler);
+ 	},
+ 
+ 	removeListeners: function() {
+@@ -139,6 +189,10 @@ var ReminderAssistant = Class.create({
+ 		if (email) email.removeEventListener(Mojo.Event.tap, this.onEmailHandler);
+ 		var snooze = this.controller.get('reminder-snooze');
+ 		if (snooze) snooze.removeEventListener(Mojo.Event.tap, this.onSnoozeHandler);
++		
++		//remove snoozeDuration event listners
++		var snoozeDuration = this.controller.get('snoozeSelector');
++		if (snoozeDuration) snoozeDuration.removeEventListener(Mojo.Event.propertyChange, this.onSnoozeDurationChangedHandler);
+ 	},
+ 	
+ 	
+@@ -229,7 +283,15 @@ var ReminderAssistant = Class.create({
+ 		this.snoozed =true;
+ 		this.closeAlert();
+ 	},
+-	
++
++	//handle the change event for the snooze duration.
++	//set the default snooze value to the selection value
++	//need to figure out how to save this value for reuse when the snooze duration expires so that we can set the selection to the same value prevously selected
++	onSnoozeDurationChanged: function(value) {
++		this.DEFAULT_SNOOZE = this.selectorModel.value;
++		this.closeAlert();               
++	},
++				
+ 	removeReminder: function() {
+ 		this.reminders.removeReminder(this.reminder.id);
+ 	},
+Index: /usr/palm/applications/com.palm.app.calendar/app/views/reminder/reminder-scene.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.calendar/app/views/reminder/reminder-scene.html
++++ /usr/palm/applications/com.palm.app.calendar/app/views/reminder/reminder-scene.html
+@@ -5,6 +5,15 @@
+ 		</div>
+ 		<div id="reminder-event"  class="palm-dashboard-text-container"></div>
+ 	</div>
++	<div class="palm-dashboard-text-container">
++		<div class="palm-row" x-mojo-tap-highlight="momentary">
++			<div class="palm-row-wrapper">
++				<div id="myscroller" class="snoozeScroller" x-mojo-element="Scroller">
++					<div id="snoozeSelector" class="dashboard-event-snooze-duration" x-mojo-element="ListSelector"></div>
++				</div>
++			</div>
++		</div>
++	</div>
+ 	<div id="reminder-email" class="reminder-button-contact" style="display:none" x-mojo-loc="">Contact meeting attendees</div>
+ 	<div id="reminder-dismiss" class="reminder-button-dismiss" x-mojo-loc="">Dismiss</div>
+ 	<div id="reminder-snooze" class="reminder-button-snooze" x-mojo-loc="">Snooze</div>
+Index: /usr/palm/applications/com.palm.app.calendar/stylesheets/notification.css
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.calendar/stylesheets/notification.css
++++ /usr/palm/applications/com.palm.app.calendar/stylesheets/notification.css
+@@ -2,6 +2,10 @@
+  * Copyright 2008 Palm Inc. Confidential until public release.
+  */
+ 
++/*@import url(global.css);*/
++/*Note the version needs to be updated to match the latest mojo framework on your device.*/
++@import url(/usr/palm/frameworks/mojo/submissions/200.18/stylesheets/global.css);
++
+ /* event popup notifications */
+ 
+ .notification-panel	{
+@@ -215,4 +219,29 @@ div#remindersScroller {
+ 	width: 320px;
+ }
+ 
++//added to support snooze duration
++.dashboard-event-snooze-duration {
++	width: 320px;
++	margin-left: -15px;
++}
++		
++.dashboard-event-snooze-duration .label{
++	font-size: 12px;
++}
+ 
++.dashboard-event-snooze-duration .title{
++	font-size: 16px;
++}
++	
++.dashboard-event-snooze-duration .palm-popup-content .title {
++	font-size: 8px;
++}
++
++.snoozeScroller {
++   	margin-left: auto;
++	margin-right: auto;
++	width: 320px;
++	height: 335px;
++	border-style: none;
++	border-width: 0;
++}			
