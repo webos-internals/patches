@@ -3,20 +3,20 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
-@@ -33,6 +33,8 @@ var ListAssistant = Class.create(App.Sce
+@@ -34,7 +34,8 @@ var ListAssistant = Class.create(App.Sce
  			visible:true,
  			items: [
  				{label:$L('Compose'), icon:'compose', command:'compose'},
+-				{},
 +				{label:$L('Delete All'), icon:'delete', command:'deleteall'},
 +				{label:$L('All Read'), icon:'priority', command:'readall'},
- 				{},
  				{label:$L('Update'), icon:'sync', command:'sync'}
  			]};
-@@ -166,6 +168,14 @@ var ListAssistant = Class.create(App.Sce
- 			case 'sync':
- 				this.handleSyncFolder();
- 				break;
-+				
+ 	this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
+@@ -179,6 +180,14 @@ var ListAssistant = Class.create(App.Sce
+   handleCommand: function(event) {
+ 	if (event.type == Mojo.Event.command) {
+ 		switch (event.command) {
 +			case 'deleteall':
 +				this.handleDeleteAll();
 +				break;
@@ -24,62 +24,106 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.
 +			case 'readall':
 +				this.handleReadAll();
 +				break;
- 
- 			case Mojo.Menu.prefsCmd:
- 				MenuController.showPrefs(this.controller.stageController);
-@@ -182,6 +192,109 @@ var ListAssistant = Class.create(App.Sce
- 		event.stopPropagation();
++
+ 			case 'compose':
+ 				this.handleSend();
+ 				break;
+@@ -479,6 +488,153 @@ var ListAssistant = Class.create(App.Sce
  	}
    },
-+  
+ 
++  handleDeleteAll: function (event) {
++     	
++	var totalCount = 0;
++     			
++	totalCount = this.emailListElement.mojo.getLength();
++     					
++	this.controller.showAlertDialog({
++  		onChoose: function(value) {
++			if(value == 'yes') {
++				//Delete all items in this folder
++				this.deleteAll();
++			}
++		},
++		title: '<b>' + $L('Delete All') + '</b>',
++		message: $L('Are you sure you want to delete all ') + "<b>" + totalCount + "</b>" + $L(' items in this folder?'),
++		choices: [
++			{label:$L('Yes'), value:'yes', type:'affirmative'},
++			{label:$L('No'), value:'no', type:'alert'}
++			]
++	});
++  },
++
 +  handleDeleteAllResponse: function (event) {
-+        this.deleteAll();
++        //check to see if there are more items to delete.
++	this.deleteAll();
 +  },
 +
 +  deleteAll: function(){
-+  	var count = this.emailListElement.mojo.getLength();
++    
++    	var count = this.emailListElement.mojo.getLength();
++      	
 +	var id;
-+	if(count > 0) 
-+	{	
-+		var item = this.emailListElement.mojo.getNodeByIndex(0);	
-+		if(item !== undefined)
-+		{
-+		   id = item.id;
-+		   if(id)
-+		   {
-+			this.controller.serviceRequest(Email.identifier, {
-+			        	method: 'setDeleted',
-+			                parameters: {'message':id, 'value': true },
-+			                onSuccess: this.handleDeleteAllResponse.bind(this),
-+			                onFailure: this.handleDeleteAllResponse.bind(this)
-+	             			});
-+	     	   }
-+		}
-+		else
-+		{
-+			this.deleteAll();			
-+		}
-+	}
-+  },
++      	        
++	if(count > 0)
++	{
++      		var i;
 +
-+  handleDeleteAll: function (event) {
-+	var totalCount = 0;
-+	totalCount = this.emailListElement.mojo.getLength();
-+	if (totalCount > 0) {
-+					this.controller.showAlertDialog({
-+                             onChoose: function(value) {
-+  	                              		if(value == 'yes') {
-+							this.deleteAll();
-+	                        	        	}
-+						},
-+	                                	title: '<b>' + $L('Delete All') + '</b>',
-+                      				message: $L('Are you sure you want to delte all ') + "<b>" + totalCount + "</b>" + $L(' items in this folder?'),
-+                       				choices: [
-+                               				{label:$L('Yes'), value:'yes', type:'affirmative'},
-+                                    			{label:$L('No'), value:'no', type:'alert'}
-+                                                 	]
-+                			});
-+               	}
++      		//Since the list is loaded dynamically we may have the count of all emails but not all of the data
++      		//So start with count and work backward with error handling
++		//When reach 0 trigger at least one more pass after data has had a chance to refresh
++		for(i=count-1; i>=0; i--)
++		{
++			var item = this.emailListElement.mojo.getNodeByIndex(i);
++
++			if(item !== undefined)
++			{
++				id = item.id;
++
++				if(id)
++				{
++					if(i === 0)
++					{
++						this.controller.serviceRequest(Email.identifier, {
++							method: 'setDeleted',
++							parameters: {'message':id, 'value': true },
++							onSuccess: this.handleDeleteAllResponse.bind(this),
++							onFailure: this.handleDeleteAllResponse.bind(this)
++							});
++					}
++					else 
++					{
++						this.controller.serviceRequest(Email.identifier, {
++							method: 'setDeleted',
++							parameters: {'message':id, 'value': true },
++							onSuccess: undefined,
++							onFailure: undefined
++							});
++					}
++				}//if(id)
++			}//if item !== undefined
++			else
++			{
++				if(i === 0)
++				{
++					//item was undefined probably because it is currently marked for delete
++					//this.deleteAll();
++					
++					//send msg to delete a bogus msg id. It will fail but will also give the list a chance to update
++					//so that when the deleteall gets called again we can proceed
++					//just calling deleteall causes an endless loop because the list doesnt get a chance to update if
++					//the 0 index item does not happen to be part of the currently loaded set of data
++					//need to find a better way to get the list to refresh but this should work for now.
++					this.controller.serviceRequest(Email.identifier, {
++					        method: 'setDeleted',
++						parameters: {'message':-1, 'value': true },
++						onSuccess: this.handleDeleteAllResponse.bind(this),
++						onFailure: this.handleDeleteAllResponse.bind(this)
++						});
++				}
++			}
++		}//for
++	}//count > 0
 +  },
 +
 +  handleReadAllResponse: function (event) {
@@ -93,17 +137,18 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.
 +		var item = this.emailListElement.mojo.getNodeByIndex((tleft - 1));	
 +		if(item !== undefined)
 +		{
-+		   id = item.id;
-+		   if(id)
-+		   {
-+			this.controller.serviceRequest(Email.identifier, {
++		   	id = item.id;
++		   	if(id)
++		   	{
++				this.controller.serviceRequest(Email.identifier, {
 +			        	method: 'setRead',
 +			                parameters: {'message':id, 'value': true },
 +			                onSuccess: this.handleReadAllResponse.bind(this),
 +			                onFailure: this.handleReadAllResponse.bind(this)
 +	             			});
-+	     	}
-+	     	tleft = tleft - 1;
++	     		}
++	     	
++	     		tleft = tleft - 1;
 +		}
 +		else
 +		{
@@ -134,6 +179,6 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.
 +  		}
 +  },
 +
- 	
-   handleSend: function() {
- 	MenuController.showComposeView(null, this.folderObj.login);
+   updateFolderStatusModel: function(response) {
+ 	if (!response.folders) {
+ 		Mojo.Log.warn("updateFolderStatusModel got unexpected response ", Object.toJSON(response))
