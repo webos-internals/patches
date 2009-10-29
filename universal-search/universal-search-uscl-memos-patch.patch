@@ -1,0 +1,121 @@
+Index: /usr/palm/applications/com.palm.app.notes/app/controllers/app-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.notes/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.notes/app/controllers/app-assistant.js
+@@ -13,6 +13,12 @@
+     {
+ 		var name = 'notes';
+ 		var stageController = this.controller.getStageController(name);
++		if (params && ("newNoteText" in params)) {
++			this.data.newNoteText = params.newNoteText;
++		}
++		else {
++			this.data.newNoteText = null;
++		}
+ 		if (stageController) 
+ 		{
+ 			this.launch(false, stageController);
+@@ -31,6 +37,24 @@
+ 	{
+ 		if (!created) 
+ 		{
++			if ("newNoteText" in this.data && this.data.newNoteText !== null) {
++				var scenes = stageController.getScenes();
++				var top = scenes[0];
++				if (!(scenes && scenes.length === 1)) {
++					// doing this if the top scene
++					// is already 'grid' causes an
++					// unwanted transition effect.
++					stageController.popScenesTo('grid');
++				}
++				else {
++					// In GridAssistant, activate() calls
++					// refreshList() which calls
++					// _createNewNoteFromParams().
++					// Since in this situation activate
++					// isn't called, we do this "manually".
++					stageController.delegateToSceneAssistant('_createNewNoteFromParams');
++				}
++			}
+ 			stageController.activate();
+ 		}
+ 		else 
+Index: /usr/palm/applications/com.palm.app.notes/app/controllers/grid-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.notes/app/controllers/grid-assistant.js
++++ /usr/palm/applications/com.palm.app.notes/app/controllers/grid-assistant.js
+@@ -136,7 +136,7 @@
+ 		this.controller.getSceneScroller().mojo.revealTop(0);
+     },
+     
+-    handleNewNote: function()
++    handleNewNote: function(newNoteText)
+     {
+         // Get top element.  We insert before this one so we need to know its position and its color
+         var top = this.gridElement.mojo.getItemAt(0, 1); // row-0,col-1 : Skip notepad which is element 0
+@@ -151,12 +151,20 @@
+         }
+         this.controller.stageController.pushScene('note', 
+         {
++            newNoteText: newNoteText,
+             model: this.model,
+             color: Note.colors[(Note.colors.indexOf(top.color) + 1) % Note.colors.length],
+             position: this._findInsertPosition('a', top.position)
+         });
+     },
+     
++    _createNewNoteFromParams: function () {
++	    if ("newNoteText" in this.data && this.data.newNoteText !== null) {
++		    this.handleNewNote(this.data.newNoteText);
++		    this.data.newNoteText = null;
++	    }
++    },
++
+     handleEditNote: function(id, color)
+     {
+         this.controller.stageController.pushScene('note', 
+@@ -330,6 +338,7 @@
+ 			self.gridElement.mojo.render(list);
+ 			self._enableDisableFilter(total);
+ 			self._ready.defer();
++			self._createNewNoteFromParams();
+ 		});
+     },
+ 	
+Index: /usr/palm/applications/com.palm.app.notes/app/controllers/note-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.notes/app/controllers/note-assistant.js
++++ /usr/palm/applications/com.palm.app.notes/app/controllers/note-assistant.js
+@@ -18,6 +18,12 @@
+ 			color: data.color,
+ 			position: data.position,
+ 		};
++        if (data.newNoteText) {
++                this.newNoteText = data.newNoteText;
++        }
++        else {
++                this.newNoteText = "";
++        }
+     },
+     
+     setup: function()
+@@ -48,7 +54,7 @@
+         };
+         this.noteTextModel = 
+         {
+-            value: isnew ? '' : ' ',
++            value: isnew ? this.newNoteText : ' ',
+             disabled: false
+         };
+         this.controller.setupWidget('noteText', this.noteTextAttributes, this.noteTextModel);
+Index: /usr/palm/applications/com.palm.app.notes/appinfo.json
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.notes/appinfo.json
++++ /usr/palm/applications/com.palm.app.notes/appinfo.json
+@@ -7,5 +7,5 @@
+ 	"version": "1.0",
+ 	"icon": "icon.png",
+ 	"noWindow": true,
+-	"keywords": ["Notes", "Stickies", "Notepad"]
++	"keywords": ["Notes", "Stickies", "Notepad", "iGrokTheCommandLine"] 
+ }

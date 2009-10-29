@@ -1,0 +1,444 @@
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+@@ -37,6 +37,12 @@
+ 				  'noDomain': 'IM'
+ 				};
+  
++if (!String.prototype.trim) {
++	String.prototype.trim = function () {
++		return this.replace(/^\s+/, "").replace(/\s+$/, "");
++	};
++}
++
+ GlobalSearchAssistant = Class.create({  
+ 	initialize : function(controller, appAssistant) {
+ 		
+@@ -71,6 +77,8 @@
+ 			'2': $L("Other")
+ 		};
+ 		
++		this.buildCommandLineAppList();
++
+ 		this.quickDial = {};
+ 		this.searchApps = $A();
+ 		this.globalSearchModel = {mode:'vertical'};
+@@ -119,6 +127,9 @@
+ 		this.webDrawer = { showWeb: false };
+ 		this.controller.setupWidget('web_drawer', {unstyled:true, property:'showWeb'}, this.webDrawer);
+ 		
++		this.commandLineDrawer = { showCommandLine: false };
++		this.controller.setupWidget('command_line_drawer', {unstyled: true, property: 'showCommandLine'}, this.commandLineDrawer);
++		
+ 		//set up searchtermfield
+ 		this.searchTermTextAttributes = {
+ 			textReplacement:false,
+@@ -1284,6 +1295,226 @@
+ 		ApplicationService.launch('com.palm.app.browser', params);		
+ 	},
+ 	
++	commandEntries: {
++		"calc": {
++			usage: "<i>expression</i>",
++			description: "Perform a calculation.",
++			method: function (s) {
++				// Yes, I'm aware that eval is usually
++				// evil.  The user chooses to use 'calc'
++				// at their own risk.  I'm only using it
++				// here because I'm too lazy at the
++				// moment to write an infix expression
++				// calculator.
++				var result = eval(s);
++				var that = this;
++				this.controller.showAlertDialog({
++					onChoose: function () { that.deactivate(); },
++					title: "Result",
++					message: s + " = " + result,
++					choices: [ { label: "OK", value: "ok" } ]
++				});
++			}
++		},
++		"imdb": {
++			usage: "<i>query</i>",
++			description: "Find something on IMDB.com.",
++			url: "http://www.imdb.com/find?s=all&q="
++		},
++		"dict": {
++			usage: "<i>word</i>",
++			description: "Find a word on Dictionary.com.",
++			url: "http://m.reference.com/d/search.html?q="
++		},
++		"thes": {
++			usage: "<i>word</i>",
++			description: "Find a word on Thesaurus.com.",
++			url: "http://m.reference.com/t/search.html?q="
++		},
++		"memo": "note",
++		"note": {
++			usage: "<i>text</i>",
++			description: "Quickly create a new note.",
++			appId: "com.palm.app.notes",
++			param: "newNoteText"
++		},
++		"m": "memo",
++		"n": "note",
++		"c": "calc",
++		"d": "dict",
++		"th": "thes",
++		"help": {
++			method: function () {
++				var that = this;
++				var commands = [];
++				var realCommands = [];
++				var aka = {};
++				var command;
++				var entry;
++				var aliasedTo;
++
++				for (command in this.commandEntries) {
++					if (this.commandEntries.hasOwnProperty(command)) {
++						if (command === "help") {
++							continue;
++						}
++						commands.push(command);
++					}
++				}
++				commands.forEach(function (command) {
++					aliasedTo = null;
++					entry = that.commandEntries[command];
++					if (entry.constructor === String) {
++						while (entry.constructor === String) {
++							aliasedTo = entry;
++							entry = that.commandEntries[entry];
++						}
++					}
++					else {
++						if (entry.appId &&
++						    that.commandLineApps &&
++						    !that.commandLineApps[entry.appId + "_default"]) {
++							return;
++						}
++						realCommands.push(command);
++					}
++					if (aliasedTo) {
++						if (!aka[aliasedTo]) {
++							aka[aliasedTo] = [];
++						}
++						aka[aliasedTo].push(command);
++					}
++				});
++				var html = "";
++				html += "<div style='font-size: smaller;'>";
++				realCommands.forEach(function (command) {
++					var entry = that.commandEntries[command];
++					if (!aka[command]) {
++						aka[command] = [];
++					}
++					html += "<div style='text-indent: -1em; padding-left: 1em;'>";
++					html += "<b>";
++					html += (aka[command].concat([command]).
++						 map(function (s) { return "." + s; }).
++						 join("|"));
++					html += "</b>";
++					if (entry.usage) {
++						html += " " + entry.usage;
++					}
++					if (entry.description) {
++						html += " &mdash; " + entry.description;
++					}
++					html += "</div>";
++				});
++				html += "</div>";
++				this.controller.showAlertDialog({
++					onChoose: function () { that.deactivate(); },
++					title: "Commands",
++					message: html,
++					allowHTMLMessage: true,
++					choices: [ { label: "OK", value: "ok" } ]
++				});
++			}
++		},
++	},
++
++	deactivateWithError: function (message) {
++		var that = this;
++		this.controller.showAlertDialog({
++			onChoose: function () { that.deactivate(); },
++			title: "Error",
++			message: message,
++			choices: [ { label: "OK", value: "ok" } ]
++		});
++	},
++
++	runCommand: function (command, arg) {
++		if (!this.commandEntries) {
++			return null;
++		}
++		var entry = this.commandEntries[command];
++		if (!entry) {
++			this.deactivateWithError("." + command + ": Command not found.");
++			return null;
++		}
++		while (entry.constructor === String) {
++			// handle aliases.
++			entry = this.commandEntries[entry];
++		}
++		if (!entry) {
++			this.deactivateWithError("." + command + ": Command not found.");
++			return null;
++		}
++		if (arg === "") {
++			this.deactivateWithError("." + command + ": No arguments specified.");
++			return null; 
++		}
++		if (entry.method) {
++			var result = entry.method.apply(this, [arg]);
++			return result;
++		}
++		else if (entry.appId) {
++			if (this.commandLineApps && 
++			    !this.commandLineApps[entry.appId + "_default"]) {
++				this.deactivateWithError("." + command + ": The application " + entry.appId +
++							 " is not configured for the Universal Search Command Line.");
++				return null;
++			}
++			var params = {};
++			params[entry.param] = arg;
++			this.controller.serviceRequest(
++				"palm://com.palm.applicationManager", {
++					method: "launch",
++					parameters: {
++						id: entry.appId,
++						params: params
++					}
++				}
++			);
++		}
++		else if (entry.url) {
++			this.launchBrowser(entry.url + encodeURIComponent(arg.trim()));
++		}
++		else {
++			this.deactivateWithError("." + command + ": Command not implemented.");
++			return null;
++		}
++	},
++
++	buildCommandLineAppList: function () {
++		// get a complete list of apps.
++		this.commandLineListRequest = 
++			new Mojo.Service.Request("palm://com.palm.applicationManager", {
++				method: 'searchApps',
++				parameters: {'keyword': 'igrokthecommandline'},
++				onSuccess: this.handleAppResultsForCommandLineList.bind(this),
++				onFailure: this.handleAppResultsForCommandLineList.bind(this)
++			});
++	},
++
++	handleAppResultsForCommandLineList: function (response) {
++		var that = this;
++		var apps = response.apps;
++		if (!apps) {
++			return;
++		}
++		this.commandLineApps = {};
++		apps.forEach(function (app) {
++			var launchPoint = app.launchPoint;
++			that.commandLineApps[launchPoint] = true;
++		});
++	},
++
++	runCommandLine: function (s) {
++		if (!/^\s*\.(\S+)\s*(.*)$/.test(s)) {
++			this.deactivateWithError("No command supplied.");
++			return;
++		}
++		var command = RegExp.$1;
++		var arg     = RegExp.$2;
++		return this.runCommand(command, arg);
++	},
++	
+ 	launchHelpApp: function(url) {
+ 		var params = {"target":"http://help.palm.com/search/results.cgi?q="+this.buildSearchQuery(url)};
+ 		ApplicationService.launch('com.palm.app.help', params);
+@@ -1305,10 +1536,22 @@
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
++				}
++				else if (this.commandLineString(this.currentFilter)) {
++					//$('twitter').removeClassName('last');
++					$('commandlinetext').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = true;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb =  false ;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine =  false ;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 					//$('twitter').addClassName('last');
+ 				}
+ 				$('find').removeClassName('single');
+@@ -1340,11 +1583,23 @@
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
++				}
++				else if (this.commandLineString(this.currentFilter)) {
++					//$('twitter').removeClassName('last');
++					$('commandlinetext').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = true;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				else {
+ 					//$('twitter').addClassName('last');
+ 					this.webDrawer.showWeb = false;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				$('find').removeClassName('single');
+ 				$('find').addClassName('first');
+@@ -1395,10 +1650,22 @@
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
++				}
++				else if (this.commandLineString(this.currentFilter)) {
++					//$('twitter').removeClassName('last');
++					$('commandlinetext').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = true;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb = false;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 					//$('twitter').addClassName('last');
+ 				}
+ 				$('find').removeClassName('single');
+@@ -1653,6 +1920,8 @@
+ 		this.numberDiv.hide();
+ 		this.webDrawer.showWeb =  false ;
+ 		this.controller.modelChanged(this.webDrawer);
++		this.commandLineDrawer.showCommandLine =  false ;
++		this.controller.modelChanged(this.commandLineDrawer);
+ 		this.expandedSearchDrawer.showExpanded = false;
+ 		this.controller.modelChanged(this.expandedSearchDrawer);
+ 		this.searchApps.clear();
+@@ -1661,10 +1930,15 @@
+ 		$('wikipedia').removeClassName('selected');
+ 		$('twitter').removeClassName('selected');
+ 		$('web').removeClassName('selected');
++		$('commandLine').removeClassName('selected');
+ 		this.searchField.mojo.setText("");
+ 		this.gpsInfo = undefined;
+ 	},
+ 	
++	commandLineString: function (s) {
++		return /^\s*\./.test(s);
++	},
++	
+   webSiteString: function(s){
+ 	if (s.indexOf("http://") == 0)
+ 		return s;
+@@ -1762,6 +2036,7 @@
+ 	//clear search':
+ 	$('google').removeClassName('palm-focus');
+ 	$('web').removeClassName('palm-focus');
++	$('commandLine').removeClassName('palm-focus');
+   },
+   highlightSelection: function() {
+   	
+@@ -1821,11 +2096,19 @@
+ 			if (this.webDrawer.showWeb == true) {
+ 				$('google').removeClassName('palm-focus');
+ 				$('web').addClassName('palm-focus');
++				$('commandLine').removeClassName('palm-focus');
+ 				this.highlightTarget = $('web');
+ 			}
++			else if (this.commandLineDrawer.showCommandLine == true) {
++				$('google').removeClassName('palm-focus');
++				$('web').removeClassName('palm-focus');
++				$('commandLine').addClassName('palm-focus');
++				this.highlightTarget = $('commandLine');
++			}
+ 			else if(this.expandedSearchDrawer.showExpanded == true){
+ 				$('google').addClassName('palm-focus');
+ 				$('web').removeClassName('palm-focus');
++				$('commandLine').removeClassName('palm-focus');
+ 				this.highlightTarget = $('google');
+ 			}
+ 			break;		
+@@ -1833,6 +2116,7 @@
+ 	if (this.enterKeyActionItem != "search") {
+ 		$('google').removeClassName('palm-focus');
+ 		$('web').removeClassName('palm-focus');
++		$('commandLine').removeClassName('palm-focus');
+ 	}
+   },
+   
+@@ -1922,6 +2206,8 @@
+ 			}
+ 			if (this.webDrawer.showWeb == true)
+ 				this.launchBrowser(this.currentFilter);
++			else if (this.commandLineDrawer.showCommandLine == true)
++				this.runCommandLine(this.currentFilter);
+ 			else {
+ 				this.launchBrowser(this.URLs['google'] + encodeURIComponent(this.currentFilter));
+ 			}
+Index: /usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div.html
+@@ -36,4 +36,14 @@
+ 			</div>
+ 		</div> 
+ 	</div>  
++	<div id='command_line_drawer' x-mojo-element="Drawer">
++		<div class="palm-row last" id="commandLine" name="search-identifier" x-mojo-tap-highlight="persistent">
++			<div class="palm-row-wrapper">
++				<div class="title search-command-line truncating-text">
++					<span class="prefix">cmd:</span>
++					<span id="commandlinetext">#{filterText}</span>
++				</div>
++			</div>
++		</div> 
++	</div>  
+ </div>
+\ No newline at end of file
+Index: /usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
++++ /usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
+@@ -161,6 +161,16 @@
+ 	text-align: center;
+ }
+     
++.palm-group.search .search-command-line {
++	text-align: left;
++	font-size: smaller;
++	color: yellow;
++}
++.palm-group.search .search-command-line .prefix {
++	color: black;
++	font-weight: bold;
++}
++    
+ .palm-group.search .palm-group-title {
+ 	max-width: 264px;                   
+ }                       
