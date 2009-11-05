@@ -1,0 +1,106 @@
+Name: Brightness in Device Menu
+Version: 1.2.1-1
+Author: Jason Robitaille
+Description: Adds screen brightness control to the device menu  (MIT license)
+
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -32,6 +32,8 @@
+ 		var msg = $L("Battery: #{batlevel}");
+ 		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel())});
+ 						
++		this.controller.setupWidget('brightSlider', {minValue: 0, maxValue: 100}, this.brightModel = { value: 50});
++
+ 		this.modesModel = {scrollbars: false, mode: "vertical"},
+ 		this.controller.setupWidget('devicescroller', {}, this.modesModel);
+ 		this.menuscroller = this.controller.get('devicescroller');
+@@ -37,6 +39,7 @@
+ 		this.menuscroller = this.controller.get('devicescroller');
+ 		
+ 		this.drawerModel = {myOpenProperty:false};
++		this.controller.setupWidget('brightdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('wifidetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('btdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.wifidrawer = this.controller.get('wifidetails');
+@@ -113,6 +116,8 @@
+ 	},
+ 	
+ 	activate: function() {
++		this.controller.get('brightSlider').addEventListener(Mojo.Event.propertyChange, this.handleBrightSlider.bindAsEventListener(this));
++		this.controller.get('brightRow').addEventListener(Mojo.Event.tap, this.handleBrightTap.bindAsEventListener(this));
+ 		this.controller.get('dm_airplanemode').addEventListener(Mojo.Event.tap, this.toggleAirplaneMode.bindAsEventListener(this));
+ 		this.controller.get('wifilist').addEventListener(Mojo.Event.listTap,this.handleWiFiTap.bindAsEventListener(this));
+ 		this.controller.get('btlist').addEventListener(Mojo.Event.listTap,this.handleBTTap.bindAsEventListener(this));		
+@@ -126,6 +131,18 @@
+ 		//Close the App because this is a first launch.
+ 		this.toggleDeviceMenu();						
+ 	},	
++
++	handleBrightTap: function(event) {
++		this.controller.get('brightdetails').mojo.setOpenState(!this.controller.get('brightdetails').mojo.getOpenState());
++	},
++
++	handleBrightSlider: function(event) {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'setProperty',
++			parameters:{maximumBrightness:Math.round(event.value)}
++		});
++		this.controller.get('dm_brightness').innerText = "Brightness: " + Math.round(event.value) + "%";
++	},
+ 		
+ 	cleanup: function() {
+ 		Mojo.Log.error("Device Menu - Clean up called");				
+@@ -900,7 +917,8 @@
+ 			this.clearWiFiList();
+ 			this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
+ 			this.wifidrawer.mojo.setOpenState(false);
+ 		}		
++		this.controller.get('brightdetails').mojo.setOpenState(false);	
+ 		//this.isVisible = false;
+ 		if(this.isVisible){
+ 			this.toggleDeviceMenu();
+@@ -944,6 +962,20 @@
+ 			this.isVisible = true;
+ 			var date = new Date();		
+ 			this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'});
++			this.controller.serviceRequest('palm://com.palm.display/control', {
++				method: 'getProperty',
++				parameters:{properties:['maximumBrightness']},
++				onSuccess: function(response) {
++					if(response.maximumBrightness != undefined) {
++						this.brightModel.value = parseInt(response.maximumBrightness);
++						this.controller.modelChanged(this.brightModel);
++						this.controller.get('dm_brightness').innerText = "Brightness: " + response.maximumBrightness + "%";
++					} else {
++						this.controller.get('dm_brightness').innerText = "Brightness: ??%";
++					}
++				}.bind(this)
++			});
++
+ 			this.controller.stageController.activate();
+ 			
+ 			var animateDialog = function(){
+--- .orig/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ /usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -23,8 +23,21 @@
+ 				
+ 				<div class="palm-row"><div class="palm-row-wrapper">
+ 					<div id="dm_battery" class="title dim"></div>
+ 				</div></div> 
+ 				
++				<div class="palm-section-divider">
++				</div>
++
++				<div class="palm-row" id="brightRow" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div id="dm_brightness" class="title"></div>
++				</div></div>
++
++				<div id="brightdetails" x-mojo-element="Drawer">
++					<div class="palm-row first"><div class="palm-row-wrapper">
++						<div x-mojo-element="Slider" id="brightSlider" style="padding-top: 30px; height: 50px;"></div>
++					</div></div>
++				</div>
++
+ 				<div class="palm-section-divider">
+ 				</div>               
+ 				
