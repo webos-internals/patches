@@ -1,0 +1,77 @@
+Name: YouTube Video Downloads
+Version: 1.2.1-1
+Author: Jason Robitaille
+Description: Adds a download option for videos in the YouTube app  (MIT license)
+
+--- .orig/usr/palm/applications/com.palm.app.youtube/app/controllers/video-assistant.js
++++ /usr/palm/applications/com.palm.app.youtube/app/controllers/video-assistant.js
+@@ -15,7 +15,10 @@
+ 		// setup bottom menus
+ 		this.cmdMenuModel = {items: [{label: $L('More'), submenu:'more-menu'}, 
+ 									{label: $L('Share'), submenu:'share-menu'}]};
+-									
++
++		this.moreMenuModel.items[2] = {label: $L('Download'), command:'download', disabled:false};
++		this.currProgress = -1;
++		this.controller.modelChanged(this.moreMenuModel);
+ 		this.controller.setupWidget('more-menu', undefined, this.moreMenuModel);
+ 		this.controller.setupWidget('share-menu', undefined, this.shareMenuModel);
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, {menuClass: "no-fade"}, this.cmdMenuModel);
+@@ -59,6 +59,47 @@
+ 				}
+ 				event.stop(event);
+ 			}
++			else if (event.command == 'download') {
++				this.moreMenuModel.items[2] = {label: $L('-Downloading-'), command:'download', disabled:true};
++				this.controller.modelChanged(this.moreMenuModel);
++				var filename = this.video.title;
++				if(filename.length>40) { filename = filename.substring(0, 39) + "..."; }
++				this.controller.serviceRequest('palm://com.palm.downloadmanager/', {
++					method: 'download',
++					parameters: {
++						target: this.video.link,
++						mime: "video/mp4",
++						targetFilename: filename + ".mp4",
++						subscribe: true
++					},
++					onSuccess: function(response) {
++						if(response.completed) {
++							this.moreMenuModel.items[2] = {label: $L('Download'), command:'download', disabled:false};
++							this.controller.modelChanged(this.moreMenuModel);
++							this.controller.showBanner("Download finished!", "");
++							/*this.controller.showAlertDialog({
++								onChoose: function(value){},
++								title: "Download Complete",
++								message: "\"" + response.target + "\" downloaded successfully!",
++								choices: [{label: "OK", value: "ok"}],
++								allowHTMLMessage: true
++							});*/
++						} else {
++							if(response.amountReceived && response.amountTotal) {
++								var percent = (response.amountReceived / response.amountTotal)*100;
++								percent = Math.round(percent);
++								if(percent!=NaN) {
++									if(this.currProgress != percent) {
++										this.currProgress = percent;
++										this.controller.showBanner("Downloading: " + percent + "%", "");
++									}
++								}
++							}
++						}
++					}.bind(this)
++				});
++				event.stop(event);
++			}
+ 			else if (event.command == 'email' && this.video.shareLink && this.video.shareLink != "") {
+ 				this.controller.serviceRequest('luna://com.palm.applicationManager', {
+ 				 		method: 'open',
+@@ -86,7 +86,8 @@
+ 	moreMenuModel: {label: $L('More'), 
+ 					items: [
+ 						{label: $L('More from This Author'), command:'more'}, 
+-						{label: $L('Related Videos'), command:'related' }
++						{label: $L('Related Videos'), command:'related'},
++						{label: $L('Download'), command:'download' }
+ 					]},
+ 					
+ 	shareMenuModel: {label: $L('Share'), 
