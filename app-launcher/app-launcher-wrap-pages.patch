@@ -1,0 +1,128 @@
+This patch will wrap the launcher pages. Works both for changing between pages and also moving apps from one page to another.
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -84,7 +84,10 @@ var LauncherAssistant = Class.create({
+ 		
+ 		this.reorderController = new ReorderController(this, this.onReorderFinished.bind(this));
+ 		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.onPageChange.bindAsEventListener(this));
+-		
++
++		this.scrollStartingHandler = this.scrollStarting.bindAsEventListener(this);
++		Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
++						
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
+ 
+ 		// pre-calculate commonly used measurements
+@@ -153,7 +156,25 @@ var LauncherAssistant = Class.create({
+ 			}
+ 		}
+ 	},
+-		
++
++	scrollStarting: function(event) {
++		event.scroller.addListener(this);
++	},	
++
++	moved: function(scrollEnding, position) {
++		// snap to a valid location
++		if ( Math.abs(position.x) > (this.pageDivs.length-1)*this.kPageWidth + 100) 
++		{
++			$('launcher_root').mojo.setSnapIndex(0, false);
++			this.updatePageIndicators();
++		}
++		else if( position.x - 100 > 0 )
++		{
++			$('launcher_root').mojo.setSnapIndex(this.pageDivs.length-1, false);
++			this.updatePageIndicators();
++		}
++	},	
++
+ 	/* keep track of which page we are on */
+ 	onPageChange: function(event) {
+ 		this.activePageIndex = event.value;
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
+@@ -426,28 +426,71 @@ var ReorderController = Class.create({
+ 	},
+ 	
+ 	_cyclePage: function(direction) {
+-		
+ 		var canPage = false;
+-		if (direction == -1 && this.activePage.previous() !== null) {
++		var useFirst = false;
++		var useLast = false;
++		if (direction == -1 ){//&& this.activePage.previous() !== null) {
+ 			this.previousPage = this.activePage;
+-			this.activePage = this.activePage.previous();
++			
++			if(this.activePage.previous() == null)
++			{
++//not sure why this doesnt work and need to do while loop instead. 			
++//				this.activePage = this.launcherAssistant.pagesModel.getPage(this.launcherAssistant.pagesModel.getNumPages()-1);
++				while(this.activePage.next() !== null)
++				{
++					this.activePage = this.activePage.next();
++				}
++				useLast = true;
++			}
++			else
++			{
++				this.activePage = this.activePage.previous();
++			}
++			
+ 			canPage = true;
+ 		}
+-		else if (direction == 1 && this.activePage.next() !== null) {
++		else if (direction == 1 ){// && this.activePage.next() !== null) {
+ 			this.previousPage = this.activePage;
+-			this.activePage = this.activePage.next();
++			
++			if(this.activePage.next() == null)
++			{
++//not sure why this doesnt work and need to do while loop instead.			
++//				this.activePage = this.launcherAssistant.pagesModel.getPage(0);
++				while(this.activePage.previous() !== null)
++				{
++					this.activePage = this.activePage.previous();
++				}
++				useFirst = true;
++			}
++			else
++			{
++				this.activePage = this.activePage.next();
++			}
++			
+ 			canPage = true;
+ 		}
+-	    
++		
+ 		if (canPage) {
+ 			// disable any more reordering while we transition to a new page
+ 			this._removeDropTargets();
+-			
++		
+ 			// reveal the page we are about to scroll to
+ 			this.activePage.show();
+ 			
+ 			this.pagingAnimating = true;
+-			$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.activePageIndex + direction, true);
++			
++			if(useFirst)
++			{
++				$('launcher_root').mojo.setSnapIndex(0, true);
++			}
++			else if(useLast)
++			{
++				$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.pagesModel.getNumPages()-1, true);
++			}
++			else
++			{
++				$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.activePageIndex + direction, true);
++			}
+ 		}
+ 	},
+ 	
