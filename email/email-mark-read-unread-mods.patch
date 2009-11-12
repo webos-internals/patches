@@ -1,0 +1,3527 @@
+INTRODUCTION
+This patch modifies how messages are marked as read or unread in the 
+email application.
+
+WEBOS VERSION COMPATABILITY
+This patch is designed and tested for webOS version 1.2.1 only.
+
+DESCRIPTION
+This patch makes the following changes:
+1) Messages are NOT marked as read when they are opened from the message 
+list card. Normally, this is what happens, which may not be useful if you 
+just want to review a message but don't want to have it be marked as read.
+
+2) The "Mark as Read"/"Mark as Unread" menu item is properly coded to 
+set the label based on the read/unread state of the message. Because of 
+the default of marking a message as read when it is opened, the menu item 
+was hard-coded to always display as "Mark as Unread". Per #1 above, if 
+messages are not being marked as read when they are opened, this change 
+is needed to ensure the menu renders correctly.
+
+3) The message is marked as read when any of the following actions 
+happen:
+	a) message is forwarded
+	b) message is replied to (regular reply or reply-all)
+	c) message is deleted
+Index: /usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -1,1741 +1,1756 @@
+-/* Copyright 2009 Palm, Inc.  All rights reserved. */
+-
+-var MessageAssistant = Class.create({
+-	initialize : function(targetEmail, folderId, focusStage, detailsObj) {
+-		this.data = { id: targetEmail, senderDetails:{} }; // data.id
+-		// This data is used to pre-render info in case the mailservice isn't able to respond quickly enough
+-		if (detailsObj) {
+-			this.data.prerenderData = true;
+-			this.data.displayName = detailsObj.displayName;
+-			this.data.summary = detailsObj.summary;
+-			this.data.timeStamp = detailsObj.timeStamp;
+-			this.data.flags = detailsObj.flags;
+-			this.data.priority = detailsObj.priority;
+-		}
+-		this.folderId = folderId;
+-		this.account = {};
+-		this.gotFirstResponse = false;
+-		this.bodyLeftOffset = 0;
+-		this.transition = null;
+-		this.waitingForMessageBodyTimeout = undefined;
+-		this.attachmentDLProgress = {
+-			lastUpdate:0,
+-			progress:{},
+-			subs:{},
+-			clearSubscription: function(id) {
+-				try {
+-					this.subs[id].cancel();
+-					delete (this.subs[id]);
+-					delete (this.progress[id]);
+-				} catch (e) {
+-					Mojo.Log.logException(e, "clearSubscription");
+-				}
+-			}
+-		};
+-		
+-		this.boundShowHideRecipients = this.showHideRecipients.bind(this);
+-		this.boundGotoNextEmailNewer = this.gotoNextEmail.bind(this, 'newer');
+-		this.boundGotoNextEmailOlder = this.gotoNextEmail.bind(this, 'older');
+-		this.boundHandleInviteResponseAccept = this.handleInviteResponse.bind(this, 'accept');
+-		this.boundHandleInviteResponseTentative = this.handleInviteResponse.bind(this, 'tentative');
+-		this.boundHandleInviteResponseDecline = this.handleInviteResponse.bind(this, 'decline');
+-		this.boundHandleInviteResponseRemove = this.handleInviteResponse.bind(this, 'remove');
+-		this.boundHandleLinkClicked = this.handleLinkClicked.bind(this);
+-		this.boundHandleInlineImageSaved = this.handleInlineImageSaved.bind(this);
+-		this.boundHandleWebViewSingleTap = this.handleWebViewSingleTap.bind(this);
+-		
+-		if (focusStage === true) {
+-			this.focusStageTimer = this.focusEmailStage.bind(this).delay(0.6);
+-		}
+-	},
+-
+-	addAsScrollListener: function(event) {
+-		event.scroller.addListener(this);
+-	},
+-
+-	moved: function() {
+-		var scrollOffset = this.messageTarget.viewportOffset();
+-		if (this.bodyLeftOffset === scrollOffset.left) {
+-			return;
+-		} else if (this.webview !== undefined) {
+-			this.bodyLeftOffset = scrollOffset.left;
+-			// Get the width of the browseradapter since that should tell the truth about its width
+-			var webviewWidth = this.webview.down().getWidth();
+-			//console.log("offsets: ov x=" + scrollOffset.left + ", w=" + this.emailHeaderBlock.getWidth() + ", wh=" + webviewWidth);
+-			
+-			if (scrollOffset.left > 0) {
+-				scrollOffset.left = 0;
+-			} else {
+-				var rightExtent = (this.emailHeaderBlock.getWidth() - webviewWidth);
+-				if (scrollOffset.left < rightExtent) {
+-					scrollOffset.left = rightExtent;
+-				}
+-			}
+-			
+-			// move the header block & the attached pictures block so they appear to not scroll horizontally
+-			var leftOffset = -scrollOffset.left + 'px';
+-			this.emailHeaderBlock.setStyle({ 'left': leftOffset });
+-			this.emailPicturesBlock.setStyle({ 'left': leftOffset });
+-		}
+-	},
+-
+-	displayContactAvatarAndPresence: function(baseId, storageId, resp) {
+-		var nameId = baseId + "-name";
+-		var avatarId = baseId + "-photo";
+-		var presenceId = baseId + "-presence";
+-
+-		// If this person isn't in contact, give him ID=0. This is done in case the 
+-		// contact was deleted, in which case the old settings need to be cleared.
+-		if (!resp.record) {
+-			resp.record = { id:0 };
+-		}
+-
+-		if (baseId === "email-sender") {
+-			this.data.fromID = resp.record.id;
+-
+-//<Reminder Info>			
+-			if (resp.record && resp.record.reminder) {
+-				if (this.contactReminder === undefined) {
+- 					this.contactReminder = new ContactReminder();
+-				}
+-				this.contactReminder.displayReminder(resp);
+-			}
+-		} else {
+-			this.controller.get(storageId).writeAttribute('contactid', resp.record.id);
+-		}
+-
+-		var nameElem = this.controller.get(nameId);
+-		if (resp.record.displayText) {
+-			nameElem.update(resp.record.displayText);
+-		} else if (resp.record.firstName && resp.record.lastName) {
+-			nameElem.update(resp.record.firstName + " " + resp.record.lastName);
+-		} else if (resp.record.firstName) {
+-			nameElem.update(resp.record.firstName);
+-		} else if (resp.record.lastName) {
+-			nameElem.update(resp.record.lastName);
+-		}
+-
+-		if (resp.record.pictureLocSquare) {
+-			Mojo.Log.info("Displaying sender's picture ", resp.record.pictureLocSquare);
+-			var imgElem = this.controller.get(avatarId);
+-			imgElem.src = "file://" + resp.record.pictureLocSquare;
+-			var imgFrame = imgElem.up('.from-photo');
+-			if (imgFrame !== undefined) {
+-				imgFrame.show();
+-			}
+-			imgElem.up().up().up().addClassName("has-avatar-icon"); 
+-		}
+-
+-		if (resp.record) {
+-			if (resp.record.imAvailability !== undefined &&
+-			    resp.record.imAvailability !== null &&
+-				resp.record.imAvailability !== IMName.NO_PRESENCE) {
+-				Mojo.Log.info("imAvailability = ", resp.record.imAvailability);
+-				var imPresence;
+-				switch (resp.record.imAvailability) {
+-	                case IMName.BUSY:
+-	                    imPresence = 'status-busy';
+-	                    break;
+-	                case IMName.IDLE:
+-	                    imPresence = 'status-idle';
+-	                    break;
+-	                case IMName.ONLINE:
+-	                    imPresence = 'status-available';
+-	                    break;
+-					default:
+-	                    imPresence = 'status-offline';
+-				}
+-				var imgElem = this.controller.get(presenceId);
+-				imgElem.addClassName(imPresence);
+-				imgElem.show();
+-			}
+-		}
+-	},
+-
+-	folderAndAccountDetails: function(resp) {
+-		// this gives us the following properties folder, account, login, protocol: EAS|IMAP|POP3}
+-		this.account = resp;
+-		// Add the email id to the account info because it will be used by the moveto scene
+-		this.account.emailId = this.data.id;
+-		var assistant = Mojo.Controller.getAppController().assistant;
+-		assistant.notificationAssistant.clear(resp.account, resp.folder, this.data.id);
+-		assistant.clearDebounce('m'+this.data.id);
+-	},
+-
+-	updateRecipientStatus: function() {
+-		EmailRecipient.getDetails(this.controller, this.data.senderDetails.address, this.displayContactAvatarAndPresence.bind(this, 'email-sender', null));
+-
+-		if (this.data.onlyRecipients !== undefined) {
+-			var theThis = this;
+-			this.data.onlyRecipients.each(function(r) {
+-				EmailRecipient.getDetails(theThis.controller, r.address, theThis.displayContactAvatarAndPresence.bind(theThis, 'recip-'+r.id, r.id));
+-			});
+-		}
+-	},
+-
+-	handleSenderTap: function(event) {
+-		this.showSenderContactDetails(event);
+-	},
+-	
+-	showSenderContactDetails: function(event) {
+-		if (this.data.fromID) {
+-			EmailRecipient.launchContactDetails(this.controller, this.data.fromID);
+-		} else {
+-			var displayName = this.data.displayName;
+-			// if the display name is the email address it isn't really the person's name
+-			if (displayName === this.data.senderDetails.address) {
+-				displayName = "";
+-			}
+-			EmailRecipient.addToContacts(this.controller, this.data.senderDetails.address, displayName);
+-		}
+-	},
+-
+-	handleRecipientListSelect: function(event) {
+-		var targetRow = this.controller.get(event.target);
+-		if (!targetRow.hasClassName('email-recipient')) {
+-			targetRow = targetRow.up('div.email-recipient');
+-		}
+-
+-		if (targetRow) {
+-			var contactId = targetRow.readAttribute('contactid');
+-			if (contactId && contactId > 0) {
+-				EmailRecipient.launchContactDetails(this.controller, contactId);
+-			} else {
+-				var address = targetRow.readAttribute('address');
+-				var displayName = targetRow.readAttribute('displayname');
+-				displayName = displayName.escapeHTML();
+-				EmailRecipient.addToContacts(this.controller, address, displayName);
+-			}
+-		}
+-	},
+-
+-	showHideRecipients: function(event) {
+-		this.recipsDrawer.element.mojo.setOpenState(!this.recipsDrawer.element.mojo.getOpenState());
+-		this.controller.get('email_recipients_compressed_list').toggle();
+-		this.controller.get('email_recipients_compressed_count').toggle();
+-	},
+-
+-	messageDetailsUpdated: function(resp) {
+-		if (this.gotFirstResponse === false) {
+-			this.gotFirstResponse = true;
+-			this.renderMessage(resp);
+-		} else {
+-			Mojo.Log.info("renderMessage: waiting for message body. isFullyLoaded=", resp.isFullyLoaded);
+-			if (resp.isFullyLoaded == "true") {
+-				if (this.waitingForMessageBodyTimeout !== undefined) {
+-					clearTimeout(this.waitingForMessageBodyTimeout);
+-					this.waitingForMessageBodyTimeout = undefined;
+-				}
+-				// Add the email body to the stored data model
+-				this.data.textURI = resp.textURI;
+-				this.data.text = resp.text;
+-				this.renderMessageBody(resp);
+-			}
+-
+-			// POP doesn't know it has attachments until it has downloaded the full envelope
+-			// so use the new attachment list if one there doesn't already exist
+-			if ((!this.data.attachments || this.data.attachments.length === 0) &&
+-			    resp.attachments && EmailFlags.hasAttachment(resp.flags)) {
+-				this.data.attachments = resp.attachments;
+-				this.renderMessageAttachments(resp.attachments);
+-			}
+-		}
+-	},
+-
+-	// This is a special function that is only called when the scene is first launched
+-	// and activate() occurs before the mailservice has time to respond with the full
+-	// email data.
+-	prerenderMessage: function(resp) {
+-		this.data.prerenderData = false; // only want to prerender email once
+-		Mojo.Log.info("prerenderMessage ", resp.id);
+-
+-		if ((resp.flags & EmailFlags.flaggedBit) !== 0) {
+-			resp.flagged = "starred";
+-		}
+-
+-		//convert the timestamp into a Date
+-		var theDate = new Date(parseInt(resp.timeStamp));
+-		resp.formattedDate = Mojo.Format.formatDate(theDate, {date:'medium', time:'short'});
+-		resp.meridiem = "";
+-
+-		var content = Mojo.View.render({template: 'message/message_from', object:resp});
+-		this.controller.get('email_from').update(content);
+-		//subject
+-		resp.priority = Email.getPriorityClass(resp.priority);
+-		content = Mojo.View.render({template: 'message/message_subject', object: resp});
+-		this.controller.get('email_subject').update(content);
+-	},
+-
+-	renderMessage: function(resp) {
+-		var content;
+-		Mojo.Log.info("renderMessage ", resp.id);
+-		this.data = resp;
+-
+-		// Set the "read" flag if need be
+-		if (!EmailFlags.isRead(resp.flags)) {
+-			Email.setRead(resp.id, true);
+-		}
+-
+-		// Very first thing to do with recipients is fix them up for the address picker.
+-		EmailRecipient.addAddressPickerFields(resp.recipients);
+-
+-		var attachments = resp.attachments;
+-
+-		if (resp.displayName) {
+-			resp.displayName = resp.displayName.escapeHTML();
+-		}
+-
+-		if (this.data.summary == null || this.data.summary.length === 0) {
+-			this.data.summary = $L("Untitled message");
+-		} else {
+-			resp.summary = resp.summary.escapeHTML();
+-		}
+-
+-		if ((resp.flags & EmailFlags.flaggedBit) !== 0) {
+-			resp.flagged = "starred";
+-			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuClearFlag;
+-		} else {
+-			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuSetFlag;
+-		}
+-
+-		//text -- if it is fully loaded then render it (need to check for string "true" since that's what's coming in json).
+-		if (this.data.isFullyLoaded == "true") {
+-			this.renderMessageBody(this.data);
+-		} else {
+-			this.waitForMessageBody();
+-		}
+-
+-		//convert the timestamp into a Date
+-		//February 15, 2008 - 12:57 PM
+-		var theDate = new Date(parseInt(resp.timeStamp));
+-		resp.formattedDate = Mojo.Format.formatDate(theDate, {date:'medium', time:'short'});
+-		resp.meridiem = ""; //theDate.toString($L('t'));
+-
+-		content = Mojo.View.render({template: 'message/message_from', object:resp});
+-		this.controller.get('email_from').update(content);
+-		//subject
+-		resp.priority = Email.getPriorityClass(resp.priority);
+-		content = Mojo.View.render({template: 'message/message_subject', object: resp});
+-		this.controller.get('email_subject').update(content);
+-
+-		this.controller.get('previous_email').observe(Mojo.Event.tap, this.boundGotoNextEmailNewer);
+-		this.controller.get('next_email').observe(Mojo.Event.tap, this.boundGotoNextEmailOlder);
+-
+-		//recipients
+-		this.renderMessageRecipients(resp);
+-
+-		if (EmailFlags.isMeetingRequest(resp.flags)) {
+-			var invite = new Object();
+-			if (resp.whenStart) {
+-				var startDate = new Date(parseInt(resp.whenStart));
+-				var dateFormat = $L('EEE, MMM d');
+-				var whenObject = {
+-					date:      Mojo.Format.formatDate(startDate, {date:dateFormat}),
+-					startTime: Mojo.Format.formatDate(startDate, {time:'short'}),
+-					endTime:   Mojo.Format.formatDate(new Date(parseInt(resp.whenEnd)), {time:'short'})
+-				};
+-				invite.when = $L("#{date}, #{startTime} - #{endTime}").interpolate(whenObject);				
+-			} else {
+-				// Service used to format the date. That doesn't work for too many reasons
+-				invite.when = $L("#{when}").interpolate(resp); //TODO parse this and put in local date format
+-			}
+-			if (resp.busyStatus === 0) {
+-				// Maybe change the style here
+-				invite.conflict = $L("Conflicts with another event");
+-			}
+-			invite.where = $L("#{where}").interpolate(resp).escapeHTML();
+-
+-			content = Mojo.View.render({template: 'message/meeting_invitation', object: invite});
+-			this.controller.get('email-readview-invitations').update(content);
+-
+-			this.controller.get('invite-accept').observe(Mojo.Event.tap, this.boundHandleInviteResponseAccept);
+-			this.controller.get('invite-tentative').observe(Mojo.Event.tap, this.boundHandleInviteResponseTentative);
+-			this.controller.get('invite-decline').observe(Mojo.Event.tap, this.boundHandleInviteResponseDecline);
+-		}
+-		else if (EmailFlags.isMeetingCancel(resp.flags)) {
+-			content = Mojo.View.render({template: 'message/meeting_cancellation', object: {}});
+-			this.controller.get('email-readview-invitations').update(content);
+-			this.controller.get('invite-remove').observe(Mojo.Event.tap, this.boundHandleInviteResponseRemove);
+-		}
+-		else {
+-			this.controller.get('email-readview-invitations').update("");
+-		}
+-
+-		// Attachments - some may be in the HTML body, so only show the attachments area if there
+-		// is something in the attachments array
+-		if (attachments && EmailFlags.hasAttachment(this.data.flags)) {
+-			this.renderMessageAttachments(attachments);
+-		} else {
+-			// If no attachments, make sure old UI is cleaned out.
+-			this.controller.get('email-readview-attachments-block').hide();
+-			this.emailPicturesBlock.update("");
+-		}
+-		
+-		// Ensure the whiteness is at least tall enough to fill the screen. 
+-		var contentContainer = this.controller.get('email-readview-content-container');
+-		var po = contentContainer.positionedOffset();
+-		var minHeight = (this.controller.window.innerHeight - po.top) + 'px';
+-		contentContainer.setStyle({'min-height':minHeight})
+-
+-		// Got the message details so say we're ready to render
+-		if (this.delayActivate === true) {
+-			this.delayActivate = false;
+-			if (this.readyToActivateCallback !== undefined) {
+-				this.readyToActivateCallback();
+-				this.readyToActivateCallback = undefined;
+-			}
+-		}
+-
+-		// Get details about the next and previous emails to know where the user can navigate.
+-		// NOTE: this needs to be after message_subject is rendered 
+-		this.controller.serviceRequest(Email.identifier, {
+-			method: 'getNextMessages',
+-			parameters: {'message':this.data.id, 'folder': this.folderId },
+-			onSuccess: this.handleNextMessagesResponse.bind(this),
+-			onFailure: function(response) { Mojo.Log.error("getNextMessages failed "+Object.toJSON(response)); }
+-		});
+-		
+-		if (this.transition !== null) {
+-			this.transition.run();
+-			this.transition.cleanup();
+-			this.transition = null;
+-		}
+-	},
+-
+-	renderMessageRecipients: function(resp) {
+-		var recips = resp.recipients;
+-		this.data.onlyRecipients = [];
+-		this.data.senderDetails = {};
+-		var content = null;
+-		if (recips) {
+-			var recipTypes;
+-			if (EmailFlags.isMeetingType(resp.flags)) {
+-				recipTypes = [ $L("From"), $L("Required"), $L("Optional"), $L("Bcc"), $L("From") ];
+-			} else {
+-				recipTypes = [ $L("From"), $L("To"), $L("Cc"), $L("Bcc"), $L("From") ];
+-			}
+-
+-			var theThis = this;
+-			var prevRecp = {}; // This is used to determine when to display To/Cc/Bcc divider 
+-			recips.each(function(r) {
+-				if(recipTypes[r.role] !== undefined) {
+-					if (r.role === EmailRecipient.roleTo || r.role === EmailRecipient.roleCc || r.role === EmailRecipient.roleBcc) {
+-						r.roleStr = recipTypes[r.role];
+-						if (r.role != prevRecp.role) {
+-							r.rowDisplayRole = "show";
+-							r.hasDivider = "has-divider";
+-							prevRecp.hideLast = "last";
+-						}
+-						theThis.data.onlyRecipients.push(r);
+-						EmailRecipient.getDetails(theThis.controller, r.address, theThis.displayContactAvatarAndPresence.bind(theThis, 'recip-'+r.id, r.id));
+-						prevRecp = r;
+-					}
+-					// roleReplyTo can overwrite the senderDetails because it takes precidence over roleFrom
+-					else if (r.role === EmailRecipient.roleReplyTo) {
+-						theThis.data.senderDetails = r;
+-					}
+-					// roleFrom should not overwrite the senderDetails because roleReplyTo takes precidence
+-					else if (r.role === EmailRecipient.roleFrom && theThis.data.senderDetails.address === undefined) {
+-						theThis.data.senderDetails = r;
+-					}
+-				}
+-			});
+-
+-			if (this.data.senderDetails.address !== undefined) {
+-				// Get the contact ID for the sender of the email
+-				EmailRecipient.getDetails(this.controller, this.data.senderDetails.address, this.displayContactAvatarAndPresence.bind(this, 'email-sender', null));
+-			}
+-
+-			if (this.data.onlyRecipients.length > 0) {
+-				var recipElem = this.controller.get('email_recipients');
+-				content = Mojo.View.render({
+-				    collection: this.data.onlyRecipients,
+-				    template: 'message/message_recips'
+-				});
+-				recipElem.update(content);
+-
+-				var recipsSummary = { count:0, to:[], cc:[], bcc:[] };
+-				this.data.onlyRecipients.each(function(r) {
+-					if (r.role === EmailRecipient.roleTo) {
+-						recipsSummary.to.push(r.displayName);
+-						recipsSummary.count++;
+-					} else if (r.role === EmailRecipient.roleCc) {
+-						recipsSummary.cc.push(r.displayName);
+-						recipsSummary.count++;
+-					} else if (r.role === EmailRecipient.roleBcc) {
+-						recipsSummary.bcc.push(r.displayName);
+-						recipsSummary.count++;
+-					}
+-				});
+-
+-				if (recipsSummary.count > 0) {
+-					recipsSummary.displayTo = "none";
+-					recipsSummary.displayCc = "none";
+-					recipsSummary.displayBcc = "none";
+-					if (recipsSummary.to.length > 0 && recipsSummary.cc.length > 0) {
+-						recipsSummary.displayTo = "inline";
+-						recipsSummary.displayCc = "inline";
+-						recipsSummary.toList = recipsSummary.to.join(', ');
+-						recipsSummary.ccList = recipsSummary.cc.join(', ');
+-					} else if (recipsSummary.to.length > 0) {
+-						recipsSummary.displayTo = "inline";
+-						recipsSummary.toList = recipsSummary.to.join(', ');
+-					} else if (recipsSummary.cc.length > 0) {
+-						recipsSummary.displayCc = "inline";
+-						recipsSummary.ccList = recipsSummary.cc.join(', ');
+-					} else if (recipsSummary.bcc.length > 0) {
+-						recipsSummary.displayBcc = "inline";
+-						recipsSummary.bccList = recipsSummary.bcc.join(', ');
+-					}
+-
+-					if (recipsSummary.count === 1) {
+-						recipsSummary.recipientCount = $L("1 recipient");
+-					} else {
+-						recipsSummary.recipientCount = $L("#{count} recipients").interpolate(recipsSummary);
+-					}
+-
+-					content = Mojo.View.render({template: 'message/message_recips_compressed', object: recipsSummary });
+-					this.recipientController = this.controller.get('email_recipients_controller')
+-					this.recipientController.update(content);
+-					// Observe the row since that is the entire height and width of the tappable area
+-					this.recipientController.up(".palm-row").observe(Mojo.Event.tap, this.boundShowHideRecipients, true);
+-				}
+-			}
+-		}
+-		
+-		// If there were no recipients, then display the default "no recips" 
+-		if (content === null) {
+-			Mojo.Log.info("displaying 'Only BCC recipients'");
+-			var renderParams = {
+-				template: 'message/message_recips_compressed',
+-				object: {onlyBccRecipient: $L("Only BCC recipients"), displayTo: "none", displayCc: "none", displayBcc: "none" }
+-			};
+-			this.controller.get('email_recipients_controller').update(Mojo.View.render(renderParams));
+-		}
+-	},
+-
+-	processTextProperty: function(data) {
+-		// If it is an html email, it starts with "<!DOCTYPE" or "<html" some simple html tag
+-		if (!data.isHtml) {
+-			//console.log("******* NO MATCH *********")
+-			// Plain text needs to replace the carriage returns with html line-break tags
+-			data.text = data.text.escapeHTML().gsub("\n","<br>");
+-		} else {
+-			//console.log("******* MATCH *********")
+-			data.text = data.text.stripScripts();
+-		}
+-	},
+-
+-	renderMessageBody: function(data) {
+-		if (data.isFullyLoaded != "true") {
+-			Mojo.Log.error("renderMessageBody aborted because data.isFullyLoaded == ", data.isFullyLoaded)
+-			return;
+-		}
+-
+-		this.hideNoBodyUI();
+-
+-		if (data.textURI && this.webview.mojo.openURL) {
+-			this.controller.get('email_text').hide();
+-
+-			try {
+-				Mojo.Log.breadcrumb("rendering URI " + data.textURI);
+-				this.webview.mojo.setEnableJavaScript(false);
+-				this.webview.mojo.openURL("file://" + data.textURI);
+-			} catch (e) {
+-				Mojo.Log.logException(e, 'renderMessageBody openUrl');	
+-			}
+-			
+-			// If the service didn't supply the text to use for replying to an email, request it now.
+-			if (!data.text) {
+-				var processTextProperty = this.processTextProperty;
+-				this.controller.serviceRequest(Message.identifier, {
+-						method: 'messageFileText',
+-						parameters: { 'textURI':data.textURI },
+-						onSuccess: function(resp) {
+-							data.text = resp.text;
+-							processTextProperty(data);
+-						},
+-						onFailure: function() { Mojo.Log.error("messageFileText failed for textURI", data.textURI) }
+-					});
+-			} else {
+-				// Defer b/c this can be done after the email is rendered
+-				this.processTextProperty.defer(data);
+-			}
+-		} else {
+-			Mojo.Log.warn("WARNING: EMAIL using plain text");
+-			var adapter = this.controller.get('email_body_text_outer');
+-			if (adapter == null) {
+-				adapter = this.controller.get('email_body_text');
+-			}
+-			adapter.hide();
+-			var emailBody = this.controller.get('email_text');
+-			// Strip out all scripts since they can do dangerous things
+-			data.text = data.text.stripScripts();
+-			// Since this is plain text, need to replace the carriage returns with html line-break tags
+-			data.text = data.text.gsub("\n","<br>");
+-			data.styles = "width:"+this.controller.window.innerWidth+"px;";
+-			var content = Mojo.View.render({
+-				template: 'message/message_text',
+-				object: data
+-			});
+-			emailBody.update(content);
+-			emailBody.show();
+-		}		
+-		
+-		this.webview.mojo.focus();
+-	},
+-
+-	renderMessageAttachments: function(attachments) {
+-		// Show the div containing the attachments. For multiple attachments, also
+-		// show the expand/collapse controller
+-		this.controller.get('email-readview-attachments-block').show();
+-
+-		var picturesList = [];
+-		var names = undefined;
+-		attachments.each(function(a) {
+-			a.displayName = a.displayName.escapeHTML();
+-			if (names === undefined) {
+-				names = a.displayName.substring(0); // copy of the name 
+-			} else {
+-				names += ", " + a.displayName;
+-			}
+-			// Icons
+-			Attachments.processFileObject(a);
+-			// Picture to be displayed
+-			if (a.iconType == "type-image") {
+-				var extension = a.extension.toLowerCase();
+-				if (extension === ".jpg" || extension === ".jpeg" || extension === ".png") {
+-					a.fixeduri = "file:///var/luna/data/extractfs/" + a.uri + ":0:0:320:240:3";
+-				} else {
+-					a.fixeduri = a.uri;
+-				}
+-				picturesList.push(a);
+-			} else {
+-				a.displayImage = "display:none";
+-			}
+-
+-			// Download %
+-			if (a.uri) {
+-				a.display = "display: none;";
+-				a.download = "";
+-			} else {
+-				a.download = "show-download-icon";
+-				a.display = "display: none;";
+-			}
+-		});
+-
+-		// Only show the special "this file and N others" if there's more than 1 attachment 
+-		if (attachments.length > 1) {
+-			// Setup the attachment compressed view
+-			var content = Mojo.View.render({
+-				object: { displayName:names, count:attachments.length },
+-				template: 'message/message_attachments_compressed'
+-			});
+-			this.attachmentsShowElem.update(content);
+-		}
+-		
+-		content = Mojo.View.render({
+-			collection: attachments,
+-			template: 'message/message_attachments'
+-		});
+-		this.controller.get('email-readview-attachments-list').update(content);
+-
+-		// Attachment pictures
+-		if (picturesList.length > 0) {
+-			content = Mojo.View.render({
+-				collection: picturesList,
+-				template: 'message/message_pictures'
+-			});
+-			this.emailPicturesBlock.update(content);
+-		} else {
+-			this.emailPicturesBlock.update("");
+-		}
+-
+-		// Convert any downloaded audio attachments to AudioTag controls
+-		attachments.each(function(a) {
+-			if (a.uri !== undefined) {
+-				this.setupAudioTag(a);
+-			}
+-		}.bind(this));		
+-
+-		//
+-		// Now that the contents of the list are ready, compute heights and setup the "drawer" 
+-		// 
+-		this.attachmentList = this.controller.get('attachlist-list1');
+-		this.attachmentList.setStyle({height:'auto'}); // make sure the height below is the full height
+-		this.attachmentListHeight = parseInt(this.attachmentList.getHeight(), 10);
+-
+-		// If the list contains only 1 item so it isn't considered as "shown"
+-		this.attachmentListShown = (attachments.length > 1);
+-		if (this.attachmentListShown) {
+-			// Initially hide the attachments list
+-			this.attachmentListShown = false;
+-			this.attachmentList.setStyle({'height':'46px'});
+-			this.attachmentList.hide();
+-			this.attachmentsShowElem.show();
+-		} else {
+-			this.attachmentsShowElem.hide();
+-			this.attachmentList.show();
+-		}
+-	},
+-
+-	setupAudioTag: function(a) {
+-		var success = false;
+-		if (a.uri !== undefined && a.mimeType.startsWith("audio")) {
+-			var audioElement = this.controller.get("progress_" + a.id);
+-			try {
+-				audioElement.show();
+-				var audioTag = AudioTag.extendElement(audioElement, this.controller, a.uri);
+-				audioTag.autoplay = false;
+-				this.controller.get("adetails_" + a.id).hide();
+-				success = true;
+-			} catch (e) {
+-				audioElement.hide();
+-			}
+-		}
+-		return success;
+-	},
+-
+-	waitForMessageBody: function() {
+-		// If the transport can't retrieve the message in a reasonable amount of time, error out
+-		this.waitingForMessageBodyTimeout = this.waitMessageError.bind(this).delay(45);		
+-		this.showNoBodyUI();
+-	},
+-
+-	waitMessageError: function(resp) {
+-		if (this.messageSubscription) {
+-			this.messageSubscription.cancel();
+-			this.messageSubscription = null;
+-		}
+-		Mojo.Log.error("waitMessageError", Object.toJSON(resp));
+-		
+-		// Waiting for message body means the message exists, but the body
+-		// isn't yet on device. If the error occured before even waiting for
+-		// the body, then popScene out to the previous scene because this
+-		// email doesn't even exists anymore.   
+-		if (this.waitingForMessageBodyTimeout === undefined) {
+-			// This should only occur if the email ID doesn't exist so go back to the previous scene
+-			Mojo.Log.error("popping the message scene because message doesn't exists. ID=", this.data.id);
+-			this.controller.stageController.popScene(resp);
+-		} else {
+-			clearTimeout(this.waitingForMessageBodyTimeout);
+-			this.waitingForMessageBodyTimeout = undefined;
+-			this.hideNoBodyUI();
+-
+-			// Display error text
+-			this.plainTextBody.update(Mojo.View.render({template: 'message/failed_to_download_err', object:{}}));
+-			this.plainTextBody.show();
+-		}
+-	},
+-
+-	showNoBodyUI: function() {
+-		var nobodyDiv = this.controller.get('email_no_body')
+-		nobodyDiv.show();
+-		this.controller.instantiateChildWidgets(nobodyDiv);
+-		this.controller.get('email_no_body_spinner').mojo.start();
+-	},
+-
+-	hideNoBodyUI: function() {
+-		this.controller.get('email_no_body_spinner').mojo.stop();
+-		this.controller.get('email_no_body').hide();
+-	},
+-
+-	handleToggleFavorites: function(event) {
+-		// Flip the flagged bit
+-		var value = true;
+-		this.data.flags = this.data.flags ^ EmailFlags.flaggedBit;
+-		if ((this.data.flags & EmailFlags.flaggedBit) == 0) {
+-			this.controller.get('email_favorite').removeClassName("starred");
+-			this.data.flagged = "";
+-			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuSetFlag;
+-			value = false;
+-		} else {
+-			this.controller.get('email_favorite').addClassName("starred");
+-			this.data.flagged = "starred";
+-			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuClearFlag;
+-		}
+-		//console.log("Setting flagged for " + this.data.id + " to " + value);
+-		Email.setFlagged(this.data.id, value);
+-	},
+-
+-	handleAttachmentTapped: function(event) {
+-		var targetRow = this.controller.get(event.target);
+-		var listDiv = targetRow;
+-		if (!listDiv.hasClassName('attachment-info')) {
+-			listDiv = listDiv.up('div.attachment-info');
+-		}
+-
+-		if (listDiv) {
+-			var attachmentUri = listDiv.getAttribute('x-uri');
+-			var attachmentMimeType = listDiv.getAttribute('x-mimetype');
+-			if (attachmentUri) {
+-				if (attachmentMimeType.startsWith("audio")) {
+-					// Do nothing because the AudioTag widget handles taps for audio files
+-				} else if (attachmentMimeType.startsWith("image")) {
+-					this.controller.stageController.pushScene('imageview', attachmentUri);
+-				} else {
+-					if (attachmentUri.startsWith("/")) {
+-						attachmentUri = "file://" + attachmentUri;
+-					}
+-					//Message.launchAttachment(this.controller, attachmentUri, this.error.bind(this));
+-					Message.getResourceType(this.controller, attachmentUri, attachmentMimeType, this.gotResourceType.bind(this), this.useInternalResourceHandler.bind(this, attachmentMimeType));
+-				}
+-			} else if (event.target.className === "download-cancel") {
+-				this.stopAttachmentDownload(listDiv.id);
+-			} else {
+-				// Stop the timeout
+-				if (this.hideTimeout) {
+-					clearTimeout(this.hideTimeout);
+-					this.hideTimeout = null;
+-				}
+-				this.startAttachmentDownload(listDiv.id);
+-			}
+-		}
+-	},
+-
+-	handleImageTapped: function(event) {
+-		var imgElem = this.controller.get(event.target.id);
+-		var uri = imgElem.getAttribute('x-uri');
+-		this.controller.stageController.pushScene('imageview', uri);
+-	},
+-
+-	/*
+-	 * Callback function for getResourceType
+-	 */
+-	gotResourceType: function(payload) {
+-		//Check if this is launchable
+-		if(payload.returnValue && payload.appIdByExtension) {
+-			Message.launchAttachments(this.controller,payload.uri, payload.appIdByExtension, payload.mimeByExtension);			
+-		} else {
+-			this.useInternalResourceHandler(payload.mimeByExtension, payload);
+-		}
+-	},
+-
+-	useInternalResourceHandler: function(mimeType, response) {
+-		var type = Attachments.getIconTypeFromMimeType(mimeType);
+-		if (!type) {
+-			try {
+-				var extensionIndex = response.uri.lastIndexOf('.');
+-				if (extensionIndex > 0) {
+-					var extension = response.uri.substring(extensionIndex + 1).toLowerCase();
+-					type = Attachments.getIconTypeFromExtension(extension);
+-				}
+-			} catch (e) {
+-				Mojo.Log.logException(e, "MessageAssistant.useInternalResourceHandler");
+-			}
+-		}
+-
+-		if (type === "type-image") {
+-			this.controller.stageController.pushScene('imageview', response.uri);
+-		} else {
+-			Mojo.Log.error("Email - Attachment can't be opened!");
+-			this.controller.showAlertDialog({
+-				onChoose: function(value) {},
+-				message: $L("Cannot find an application which can open this file."),
+-				choices: [
+-					{label:$L('OK'), value:'dismiss', type:'alert'}
+-				]
+-			});
+-		}
+-	},
+-
+-	startAttachmentDownload: function(id) {
+-		Mojo.Log.info("start attachment download", id);
+-		var progressbar = this.controller.get('progress_' + id);
+-		if (progressbar.visible()) {
+-			Mojo.Log.info("ignoring tap because attachment is already downloading");
+-		} else {
+-			this.attachmentDLProgress.subs[id] = Message.loadAttachment(id, this.attachmentDownloadProgress.bind(this), this.attachmentError.bind(this, id));
+-
+-			// This makes the progressbar show up so the user gets immediate feedback. 
+-			this.controller.get('file_size_' + id).hide(); // showing the progress bar so hide the file size		
+-			this.controller.get('progress_' + id).show(); // ensures the progress bar is shown
+-			// Set the initial progress to 0%
+-			this.attachmentUpdateProgressbar(id, 0);
+-		}
+-	},
+-
+-	stopAttachmentDownload: function(id) {
+-		Mojo.Log.info("stop attachment download", id);
+-		this.attachmentDLProgress.clearSubscription(id);
+-		Message.cancelLoadAttachment(this.controller, id);
+-
+-		// This makes the progressbar show up so the user gets immediate feedback. 
+-		this.controller.get('file_size_' + id).show();		
+-		this.controller.get('progress_' + id).hide();
+-		// Set the initial progress to 0%		
+-		this.attachmentUpdateProgressbar(id, 0);
+-	},
+-
+-	handleInviteResponse: function(response, event) {
+-		Mojo.Log.info("handleInviteResponse ", response);
+-		var notificationAssistant = Mojo.Controller.getAppController().assistant.notificationAssistant;
+-		notificationAssistant.handleNotification({ type:"general", message:$L("Sending invitation response") });
+-		Email.inviteResponse(this.data, response);
+-		this.controller.stageController.popScene();
+-	},
+-
+-	attachmentError: function(id, err) {
+-		Mojo.Log.error("handleError ", err.errorText);
+-		this.stopAttachmentDownload(id);
+-		var that = this;
+-		var errorText;
+-		if (err.errorText && err.errorText.length > 0) {
+-			errorText = $L("Error downloading file. Server reports: #{errorText}").interpolate(err).escapeHTML();
+-		} else {
+-			errorText = $L("Error while downloading file.");
+-		}
+-
+-		this.controller.showAlertDialog({
+-			onChoose: function(value) {},
+-			title: $L("Unable To Download File"),
+-			message: errorText,
+-			choices: [ {label:$L('OK'), value:'dismiss', type:'alert'} ]
+-		});
+-	},
+-
+-	handleAttachmentDetails: function(attachment) {
+-		Mojo.Log.info("handleAttachmentDetails ", attachment.id);
+-
+-		// Update the uri for this attachment now that we got one.
+-		this.data.attachments.each(function(a) {
+-			if (a.id == attachment.id) {
+-				a.uri = attachment.uri;
+-				$break;
+-			}
+-		});
+-
+-		// For some reason the id needs to be a string so using toString().
+-		var elem = this.controller.get((attachment.id).toString());
+-		var newUri = attachment.uri;
+-		elem.writeAttribute('x-uri', newUri);
+-		elem.writeAttribute('x-mimetype', attachment.mimeType);
+-
+-		var audioSetup = this.setupAudioTag(attachment);
+-		if (audioSetup) {
+-			// The height of the inline audio player is different so need to recalc the list height
+-			this.attachmentList.setStyle({height:'auto'}); // make sure the height below is the full height
+-			this.attachmentListHeight = parseInt(this.attachmentList.getHeight(), 10);
+-		} else {
+-			var imgElem = this.controller.get('picture_'+attachment.id);
+-			if (imgElem) {
+-				Mojo.Log.info("set img src=", newUri);
+-				imgElem.writeAttribute('x-uri', newUri);
+-				// Following uri uses extractfs to scale the image to fit 320x240.
+-				// This fixes problems with extremely large images causing the UI to chug.
+-				Attachments.processFileObject(attachment);
+-				var extension = attachment.extension.toLowerCase();
+-				if (extension === ".jpg" || extension === ".jpeg" || extension === ".png") {
+-					imgElem.src = "file:///var/luna/data/extractfs/"+newUri+":0:0:320:240:3";
+-				} else {
+-					imgElem.src = newUri;
+-				}
+-
+-				var thumbnail = elem.down('.readview-image-thumbnail');
+-				if (thumbnail) {
+-					thumbnail.src = "file:///var/luna/data/extractfs/"+newUri+":0:0:31:31:4";
+-					thumbnail.show();
+-				}
+-			}
+-			this.controller.get('download_icon_' + attachment.id).hide(); // remove the download arrow from the icon
+-			this.controller.get('progress_' + attachment.id).hide(); // ensures the progress bar is no longer shown
+-			this.controller.get('file_size_' + attachment.id).show(); // since progress bar is gone, show the file size		
+-		}
+-	},
+-
+-	attachmentDownloadProgress: function(info) {
+-		// If the object doesn't contain a 'id' property, it isn't valid download progress
+-		if (info.id) {
+-			if (info.status == Message.ATTACHMENT_LOAD_COMPLETED_EVENT) {
+-				Mojo.Log.info("attachmentDownloadProgress complete for id:", info.id);
+-				this.attachmentDLProgress.clearSubscription(info.id);
+-				this.attachmentUpdateProgressbar(info.id, 100);
+-
+-				// Final step to fully download is to get details of this attachment, including the URI.
+-				Message.getAttachmentDetails(this.controller, info.id, this.handleAttachmentDetails.bind(this), this.attachmentError.bind(this, info.id));
+-			}
+-			else if (info.status == Message.ATTACHMENT_LOAD_PROGRESS_EVENT) {
+-				// The transports can be rather aggressive about sending progress notifications so
+-				// defend against that by only updating the UI periodically
+-				var now = new Date().getTime();
+-				if (now < this.attachmentDLProgress.lastUpdate + 200) {
+-					this.attachmentDLProgress.progress[info.id] = info.progress;
+-				} else {
+-					this.attachmentDLProgress.lastUpdate = now;
+-					var that = this;
+-					if (info.progress !== undefined) {
+-						this.attachmentDLProgress.progress[info.id] = info.progress;
+-					}
+-					var progressObj = this.attachmentDLProgress.progress;
+-					Object.keys(progressObj).each(function(id) {
+-						var progress = progressObj[id];
+-						Mojo.Log.info("attachmentDownloadProgress id: ", id, ", progress: ", progress);
+-						that.attachmentUpdateProgressbar(id, progress);
+-					});
+-				}
+-			}
+-		}
+-	},
+-	
+-	attachmentUpdateProgressbar: function(id, percent) {
+-		var progressGroup = this.controller.get('progress_' + id);
+-		if (progressGroup) {
+-			var totalWidth = 2.48; // = 248 / 100%
+-			var progressWidth = Math.round(totalWidth * percent);
+-			progressGroup.down(0).setStyle({width:progressWidth+"px"});
+-			var backgrndWidth = Math.round(totalWidth * (100 - percent));
+-			progressGroup.down(1).setStyle({width:backgrndWidth+"px"});
+-		} else {
+-			Mojo.Log.error("Attachment ID ", id, " is invalid.");
+-		}
+-	},
+-
+-	hideAttachmentList: function(event) {
+-		if (this.attachmentListShown) {
+-			var targetRow = this.controller.get(event.target);
+-			if (!targetRow.hasClassName('email-readview-attachments')) {
+-				targetRow = targetRow.up('div.email-readview-attachments');
+-			}
+-
+-			// Only hide the attachments list if the mousedown target was outside the
+-			// list elements. Otherwise, reset the hide timer
+-			if (targetRow == null) {
+-				this.showHideAttachmentList();
+-			} else if (this.hideTimeout) {
+-				clearTimeout(this.hideTimeout);
+-				this.hideTimeout = setTimeout(this.showHideAttachmentList.bind(this), 15000);
+-			}
+-		}
+-	},
+-
+-	showHideAttachmentList: function() {
+-		if (this.hideTimeout) {
+-			clearTimeout(this.hideTimeout);
+-			this.hideTimeout = null;
+-		}
+-
+-		if (!this.attachmentListShown) {
+-			this.attachmentList.show();
+-			this.attachmentsShowElem.hide();
+-		}
+-		
+-        var options = {reverse:this.attachmentListShown,
+-		               onComplete: this.animationComplete.bind(this),
+-					   curve: 'over-easy',
+-					   from: 46,
+-					   to: this.attachmentListHeight,
+-					   duration: 0.6};
+-		Mojo.Animation.animateStyle(this.attachmentList, 'height', 'bezier', options);
+-	},
+-
+-	animationComplete: function(listElem, cancelled) {
+-		if (!cancelled) {
+-			this.attachmentListShown = !this.attachmentListShown;
+-			if (this.attachmentListShown) {
+-				this.attachmentsShowElem.hide();
+-				this.attachmentList.show();
+-
+-				this.hideTimeout = setTimeout(this.showHideAttachmentList.bind(this), 15000);
+-			} else {
+-				this.attachmentList.hide();
+-				this.attachmentsShowElem.show();
+-			}
+-		}
+-	},
+-
+-	/**
+-	 * User clicked on a hyperlink.
+-	 */
+-	handleLinkClicked: function(event) {
+-		Mojo.Log.info("handleLinkClicked %s", event.url);
+-		this.controller.serviceRequest('palm://com.palm.applicationManager',
+-				{
+-					method: 'open',
+-					parameters: {target: event.url}
+-				});
+-	},
+-
+-	/**
+-	 * WebView widget wants us to create a new page.
+-	 */
+-	handleCreatePage: function(event) {
+-		Mojo.Log.info("handleCreatePage: %s", event.pageIdentifier);
+-		this.controller.serviceRequest('palm://com.palm.applicationManager',
+-				{
+-					method: 'open',
+-					parameters: {
+-						'id': 'com.palm.app.browser',
+-						'params': {scene: 'page', pageIdentifier: event.pageIdentifier}
+-					}
+-				});
+-	},
+-
+-	/**
+-	 * handle a menu command.
+-	 */
+-	handleCommand: function(event) {
+-		if (event.type == Mojo.Event.command) {
+-			try {
+-				switch (event.command) {
+-					case 'reply':
+-						this.reply();
+-						break;
+-
+-					case 'replyAll':
+-						this.replyAll();
+-						break;
+-
+-					case 'forward':
+-						this.forward();
+-						break;
+-
+-					case 'delete':
+-						this.deleteEmail();
+-						break;
+-
+-					case 'move':
+-						this.controller.stageController.pushScene("moveto", this.account);
+-						break;
+-
+-					case 'mark-unread':
+-						var currentLabel = this.markUnreadMenuItem.label;
+-						var markRead = (currentLabel == MessageAssistant.kAppMenuMarkRead);
+-						Email.setRead(this.data.id, markRead);
+-						if (markRead) {
+-							this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkUnread;
+-						} else {
+-							this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkRead;
+-						}
+-						break;
+-
+-					case 'flag':
+-						this.handleToggleFavorites();
+-						break;
+-
+-					case Mojo.Menu.prefsCmd:
+-						MenuController.showPrefs(this.controller.stageController);
+-						break;
+-
+-					case Mojo.Menu.helpCmd:
+-						MenuController.showHelp();
+-						break;
+-				}
+-			}
+-			catch (e) {
+-				Mojo.Log.error("MessageAssistant.handleCommand: "+ e.message +" in "+ e.sourceURL +"("+ e.line +")" );
+-			}
+-		}
+-		// Enable prefs & help menu items
+-		else if (event.type == Mojo.Event.commandEnable && 
+-		         (event.command == Mojo.Menu.prefsCmd || event.command == Mojo.Menu.helpCmd)) {
+-			event.stopPropagation();
+-		}
+-	},
+-	
+-	handleInlineImageSaved: function(event) {
+-		if (event.status) { 
+-			var filepath = this.makeTitleFromUrl(event.filepath);
+-			var message = $L('Saving "#{path}"').interpolate({path: filepath});
+-			Mojo.Controller.appController.showBanner(
+-						{messageText: message},
+-						{banner: 'image', filename: event.filepath});
+-		}
+-	},
+-	
+-	makeTitleFromUrl: function(url) {
+-		if (url) {
+-			var result = url.match(/^.*\/([^\/]+)$/);
+-			if ((result !== null) && (result.length > 1)) {
+-				return result[1];
+-			}
+-		}
+-	
+-		return url;
+-	},
+-	
+-	handleWebViewSingleTap: function(event) {	
+-		try {
+-			var tapPt = Element.viewportOffset(this.webview);
+-			tapPt.left = event.centerX - tapPt.left;
+-			tapPt.top  = event.centerY - tapPt.top;
+-
+-			//Mojo.Log.info("MessageAssistant.handleWebViewSingleTap(): event.altKey=%s, tapPt.left=%d, tapPt.top=%d", event.altKey, tapPt.left, tapPt.top);
+-			if (event.altKey) {
+-				var popupItems = [
+-					{label: $L('Open URL'), command:'openNew'},
+-					{label: $L('Share Link'), command:'shareUrl'},
+-					{label: $L('Copy URL'), command:'copyUrl'},
+-					{label: $L('Copy to Photos'), command:'copyToPhotos'},
+-					{label: $L('Share Image'), command:'shareImage'} //,
+-					//{label: $L('Set Wallpaper'), command:'setWallpaper'}
+-				];
+-
+-				var findItem = function(command) {
+-					var i;
+-					for (i = 0; i < popupItems.length; i++) {
+-						if (popupItems[i].command === command) {
+-							return popupItems[i];
+-						}
+-					}
+-				};
+-
+-				var selectedCommand;
+-				var imageInfo;
+-	
+-				var saveImageCallback = function(succeeded, path) {
+-					if (succeeded) {
+-						switch (selectedCommand) {
+-							case 'shareImage':
+-								this.shareImage(imageInfo, path);
+-								break;
+-							case 'setWallpaper':
+-								this.setWallpaper(path);
+-								break;
+-							case 'copyToPhotos':
+-								this.showOkAlert($L('Image Saved'),
+-									$L('The image was successfully added to your photo album.'));
+-								break;
+-						}
+-					}
+-					else {
+-						this.showOkAlert($L('Error Saving Image'),
+-								$L('There was an error saving the selected image.'));
+-					}
+-				}.bind(this);
+-
+-				var urlInfo = {};
+-				var popupSelectFunc = function(value) {
+-					selectedCommand = value;
+-					
+-					switch (value) {
+-						case 'openNew':
+-							this.newBrowserPage(urlInfo.url);
+-							break;
+-						case 'shareUrl':
+-							this.shareUrl(urlInfo.url, urlInfo.desc);
+-							break;
+-						case 'copyUrl':
+-							this.controller.stageController.setClipboard(urlInfo.url);
+-							break;
+-						case 'copyToPhotos':
+-							this.webview.mojo.saveImageAtPoint(tapPt.left, tapPt.top, "/media/internal", saveImageCallback);
+-							break;
+-						case 'shareImage':
+-							this.webview.mojo.saveImageAtPoint(tapPt.left, tapPt.top, "/tmp", saveImageCallback);
+-							break;
+-						case 'setWallpaper':
+-							this.webview.mojo.saveImageAtPoint(tapPt.left, tapPt.top, "/media/internal", saveImageCallback);
+-							break;
+-					}
+-				}.bind(this);
+-
+-				var imageInfoResponse = function(response) {
+-					imageInfo = response;
+-					var usedItems = [];
+-					
+-					if (urlInfo.url) {
+-						usedItems.push( findItem('openNew') );
+-						usedItems.push( findItem('shareUrl') );
+-						usedItems.push( findItem('copyUrl') );
+-					}
+-				
+-					if (response.src) {
+-						usedItems.push( findItem('shareImage') );
+-					}
+-
+-					if (this.supportedImageType(response.src, response.mimeType)) {
+-						usedItems.push( findItem('copyToPhotos') );
+-						//usedItems.push( findItem('setWallpaper') );
+-					}
+-					
+-					if (usedItems.length) {
+-						this.controller.popupSubmenu({ onChoose: popupSelectFunc, items: usedItems });
+-					}
+-				}.bind(this);
+-
+-				var urlInspectResponse = function(response) {
+-					urlInfo = response || {};
+-					this.webview.mojo.getImageInfoAtPoint(tapPt.left, tapPt.top, imageInfoResponse);
+-				}.bind(this);
+-
+-				this.webview.mojo.inspectUrlAtPoint(tapPt.left, tapPt.top, urlInspectResponse);
+-			}
+-		}
+-		catch (e) {
+-			Mojo.Log.logException(e);
+-		}
+-	},
+-	
+-	supportedImageType:function(url, mimeType) {
+-		switch (this.getImageType(url, mimeType)) {
+-			case 'jpeg':
+-			case 'png':
+-			case 'bmp':	// We only support 24/32 bit BMP's and don't differentiate here
+-				// GIF not yet supported
+-				return true;
+-			default:
+-				return false;
+-		}
+-	},
+-	
+-	getImageType: function(url, mimeType) {
+-		url = url || '';
+-		mimeType = mimeType || '';
+-		var suffix = '';
+-		try {
+-			suffix = this.getResourceExtension(url);
+-			if (suffix === null) {
+-				suffix = '';
+-			}
+-		}
+-		catch (e) {
+-			Mojo.Log.logException(e);
+-		}
+-
+-		suffix = suffix.toLowerCase();
+-		mimeType = mimeType.toLowerCase();
+-
+-		if (suffix === 'jpg' || suffix === 'jpeg' || suffix === 'jpe' || mimeType === 'image/jpeg') {
+-			return 'jpeg';
+-		}
+-		else if (suffix === 'bmp' || mimeType === 'image/bmp') {
+-			return 'bmp';
+-		}
+-		else if (suffix === 'png' || mimeType === 'image/png') {
+-			return 'png';
+-		}
+-		else if (suffix === 'gif' || mimeType === 'image/gif') {
+-			return 'gif';
+-		}
+-		else {
+-			return 'unknown';
+-		}
+-	},
+-	
+-	getResourceExtension: function(url) {
+-		var p = new Poly9.URLParser(url);
+-
+-		var matches = p.getPathname().match(/\.([^\.]*)$/i);
+-		if (matches) {
+-			return matches[1];
+-		}
+-		else {
+-			return null;
+-		}
+-	},
+-	
+-	newBrowserPage: function(url) {
+-		this.controller.serviceRequest('palm://com.palm.applicationManager',
+-			{
+-				method: 'open',
+-				parameters: {target: url}
+-			});
+-	},
+-	
+-	shareUrl: function(url, title) {
+-		if (url === undefined) {
+-			return;
+-		}
+-
+-		if (!title) {
+-			try {
+-				title = $L("page at #{host}").interpolate({host: UrlUtil.getUrlHost(url)});
+-			}
+-			catch (e) {
+-				title = url;
+-			}
+-		}
+-
+-		var text = $L("Here's a website I think you'll like: <a href='#{src}'>#{title}</a>").interpolate(
+-				{src: url, title: title});
+-		var parameters = {
+-			summary: $L('Check out this web page...'),
+-			text: text
+-		};
+-		var email = new Email();
+-		email.evalParams(parameters);
+-		AppAssistant.openComposeStage(email);
+-	},
+-	
+-	shareImage: function(imageInfoObj, pathToImage) {
+-		var title;
+-		if (imageInfoObj.title && imageInfoObj.title.length) {
+-			title = imageInfoObj.title;
+-		}
+-		else if (imageInfoObj.altText && imageInfoObj.altText.length) {
+-			title = imageInfoObj.altText;
+-		}
+-		else {
+-			var p = new Poly9.URLParser(imageInfoObj.src);
+-			title = $L('picture link');
+-			try {
+-				if (imageInfoObj.src !== 'data:') {
+-					title = $L("picture at #{host}").interpolate(
+-							{host: p.getHost()});
+-				}
+-			}
+-			catch (e) {}
+-		}
+-
+-		var text = $L("Here's a picture I think you'll like: <a href='#{src}'>#{title}</a>").interpolate(
+-				{src: imageInfoObj.src, title: title});
+-
+-		var parameters = {
+-			summary: $L('Check out this picture...'),
+-			text: text,
+-			attachments: [{fullPath: pathToImage}]
+-		};
+-		var email = new Email();
+-		email.evalParams(parameters);
+-		AppAssistant.openComposeStage(email);
+-	},
+-	
+-	setWallpaper: function(pathToImage) {
+-		var errorTitle = $L("Error Setting Wallpaper");
+-	
+-		var onSetSuccess = function(response) {
+-			this.showOkAlert($L("Wallpaper has been set"),
+-					$L("The image has been successfully set as your wallpaper."));
+-		}.bind(this);
+-	
+-		var onSetFailure = function(response) {
+-			this.showOkAlert(errorTitle, $L("Cannot set picture as current wallpaper."));
+-		}.bind(this);
+-
+-		var onImportSuccess = function(response) {
+-			this.controller.serviceRequest('palm://com.palm.systemservice/',
+-			{
+-				method : 'setPreferences',
+-				parameters: {wallpaper: response.wallpaper},
+-				onSuccess: onSetSuccess,
+-				onFailure: onSetFailure
+-			});
+-		}.bind(this);
+-	
+-		var onImportFailure = function() {
+-			this.showOkAlert(errorTitle, $L("Cannot import picture into wallpaper database."));
+-		}.bind(this);
+-
+-		this.controller.serviceRequest('palm://com.palm.systemservice/', {
+-				method : 'wallpaper/importWallpaper',
+-				parameters: {
+-					target: encodeURIComponent(pathToImage),
+-					scale: "1.0"
+-				},
+-				onSuccess: onImportSuccess,
+-				onFailure: onImportFailure
+-			});
+-	},
+-	
+-	showOkAlert: function(title, message)
+-	{
+-		this.controller.showAlertDialog({
+-			title: title, message: message,
+-			choices:[{label:$L('OK'), value:'1', type:'dismiss'}]
+-		});
+-	},
+-
+-	handleNextMessagesResponse: function(response) {
+-		this.nextMessages = response;
+-		
+-		var prevEmail = this.controller.get('previous_email');
+-		if (!prevEmail) {
+-			Mojo.Log.error("previous_email element does not yet exist");
+-		} else {
+-			if (response.newer === undefined || response.newer.end) {
+-				// hide 'previous_email' because there's no more emails in that direction
+-				prevEmail.addClassName('disabled');
+-			} else {
+-				prevEmail.removeClassName('disabled');
+-			}
+-		}
+-
+-		var nextEmail = this.controller.get('next_email');
+-		if (!nextEmail) {
+-			Mojo.Log.error("next_email element does not yet exist");
+-		} else {
+-			if (response.older === undefined || response.older.end) {
+-				// hide 'next_email' because there's no more emails in that direction
+-				nextEmail.addClassName('disabled');
+-			} else {
+-				nextEmail.removeClassName('disabled');
+-			}
+-		}
+-	},
+-
+-	gotoNextEmail: function(direction) {
+-		if (this.nextMessages !== undefined && this.nextMessages[direction] !== undefined) {
+-			var details = this.nextMessages[direction];
+-			if (!details.end && details.id > 0) {
+-				if (this.transition !== null) {
+-					this.transition.cleanup();
+-				}
+-				this.transition = this.controller.prepareTransition(Mojo.Transition.crossFade, false);
+-				this.prepareForNewMessage(details);
+-			}
+-		}
+-	},
+-
+-	prepareForNewMessage: function(details) {
+-		this.data = { id: details.id, senderDetails:{} }; // data.id
+-		this.account = {};
+-		this.gotFirstResponse = false;
+-		this.bodyLeftOffset = 0;
+-		// Clear out the old email body by loading a simple empty page
+-		this.webview.mojo.openURL(Mojo.appPath + "emptypage.html");
+-		this.plainTextBody.hide();
+-
+-		// stop listening to all these
+-		this.controller.get('previous_email').stopObserving(Mojo.Event.tap, this.boundGotoNextEmailNewer);
+-		this.controller.get('next_email').stopObserving(Mojo.Event.tap, this.boundGotoNextEmailOlder);
+-		if (this.recipientController) {
+-			this.recipientController.up(".palm-row").stopObserving(Mojo.Event.tap, this.boundShowHideRecipients, true);
+-		}
+-		var elem;
+-		elem = this.controller.get('invite-accept');
+-		if (elem) {
+-			elem.stopObserving(Mojo.Event.tap, this.boundHandleInviteResponseAccept);
+-		}
+-		elem = this.controller.get('invite-tentative');
+-		if (elem) {
+-			elem.stopObserving(Mojo.Event.tap, this.boundHandleInviteResponseTentative);
+-		}
+-		this.controller.get('invite-decline');
+-		if (elem) {
+-			elem.stopObserving(Mojo.Event.tap, this.boundHandleInviteResponseDecline);
+-		}
+-
+-		// reset the horizontal positioning of these two blocks.
+-		this.emailHeaderBlock.setStyle({ 'left': '0px' });
+-		this.emailPicturesBlock.setStyle({ 'left': '0px' });
+-
+-		// Subscribe to the new message
+-		if (this.waitingForMessageBodyTimeout !== undefined) {
+-			clearTimeout(this.waitingForMessageBodyTimeout);
+-			this.waitingForMessageBodyTimeout = undefined;
+-		}
+-		if (this.messageSubscription) {
+-			this.messageSubscription.cancel();
+-		}
+-		this.messageSubscription = new Mojo.Service.Request(Message.identifier, {
+-				method: 'messageDetail',
+-				parameters: { 'message':this.data.id, subscribe:true },
+-				onSuccess: this.messageDetailsUpdated.bind(this),
+-				onFailure: this.waitMessageError.bind(this)
+-			});
+-
+-		Message.getFolderAndAccount(this.controller, this.data.id, this.folderAndAccountDetails.bind(this));
+-	},
+-
+-	/**
+-	 * Called by the webview widget when setup is complete?
+-	 */
+-	ready: function() {
+-	    this.webview.mojo.addUrlRedirect("^file:.*", false, "", 0);
+-	    this.webview.mojo.addUrlRedirect(".*", true, "", 0);
+-	},
+-
+-	setupMessage: function() {
+-		// Setup the WebView for the body text
+-		// TODO autowidth to true?
+-		var emailStageController = Mojo.Controller.appController.getStageController("email");
+-	    var attr = {minFontSize:18,
+-					cacheAdapter:true,
+-					fitWidth: false,
+-					virtualpagewidth: emailStageController.window.innerWidth,
+-					minimumpageheight: 32, // Start out very short in case the message body empty
+-					showClickedLink:true};
+-	    this.controller.setupWidget('email_body_text', attr);
+-		this.controller.setupWidget('email_no_body_spinner', { spinnerSize: Mojo.Widget.spinnerSmall });
+-
+-		this.webview = this.controller.get('email_body_text');
+-		this.webview.addEventListener(Mojo.Event.webViewUrlRedirect, this.boundHandleLinkClicked, false);
+-		this.webview.addEventListener(Mojo.Event.webViewMimeNotSupported, this.boundHandleLinkClicked, false);
+-		this.webview.addEventListener(Mojo.Event.webViewMimeHandoff, this.boundHandleLinkClicked, false);
+-		this.webview.addEventListener(Mojo.Event.webViewImageSaved, this.boundHandleInlineImageSaved, false);
+-		this.webview.addEventListener('singletap', this.boundHandleWebViewSingleTap, true);
+-		
+-		this.waitingForMessageBody = undefined;
+-		// subscribe to the message details because the transport may need to send updates in the case where the
+-		// email body and/or attachments isn't yet downloaded
+-		this.messageSubscription = new Mojo.Service.Request(Message.identifier, {
+-				method: 'messageDetail',
+-				parameters: { 'message':this.data.id, subscribe:true },
+-				onSuccess: this.messageDetailsUpdated.bind(this),
+-				onFailure: this.waitMessageError.bind(this)
+-			});
+-	},
+-
+-	orientationChanged: function(orientation) {
+-		if (orientation === "left" || orientation === "right") {
+-			this.controller.sceneElement.addClassName('landscape');
+-		} else {
+-			this.controller.sceneElement.removeClassName('landscape');
+-		}
+-	},
+-
+-	focusEmailStage: function() {
+-		if (this.focusStageTimer) {
+-			this.focusStageTimer = undefined;
+-			AppAssistant.focusEmailStage();
+-		}			
+-	},
+-
+-	// This is called from accountpreference assistant when the user removes the account
+-	accountDeletedNotification: function(accountId) {
+-		if (accountId === this.account.account) {
+-			Mojo.Log.warn("MessageAssistant is showing a deleted account, setting up for cleanup");
+-			this.popOnActivate = true;
+-		}
+-	},
+-
+-	setup: function() {
+-		this.delayActivate = true;
+-		this.messageTarget = this.controller.get('readview-main');
+-		this.messageTarget.observe('mousedown', this.hideAttachmentList.bind(this), true);
+-		this.setupMessage();
+-
+-		this.emailHeaderBlock = this.controller.get('email_header_block');
+-		this.plainTextBody = this.controller.get('email_text');
+-		this.emailPicturesBlock = this.controller.get('email_pictures_list');
+-
+-		this.controller.get('email-readview-attachments-list').observe(Mojo.Event.tap, this.handleAttachmentTapped.bind(this));
+-		this.attachmentsShowElem = this.controller.get('show-hide-multi-attachments');
+-		this.attachmentsShowElem.observe(Mojo.Event.tap, this.showHideAttachmentList.bind(this));
+-		
+-		this.cmdMenuModel = {
+-				visible:true,
+-				items: [
+-					{label:$L('Reply'),     icon:'reply',     command:'reply'},
+-					{label:$L('Reply all'), icon:'reply-all', command:'replyAll'},
+-					{label:$L('Forward'),   icon:'forward-email', command:'forward'},
+-					{label:$L('Delete'),    icon:'delete',    command:'delete'}
+-				]};
+-		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
+-		
+-		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread,     command:'mark-unread'};
+-		this.markSetFlagMenuItem =    {label:MessageAssistant.kAppMenuSetFlag,        command:'flag'};
+-		this.appMenuModel = {
+-				visible:true,
+-				items: [
+-					this.markUnreadMenuItem,
+-					this.markSetFlagMenuItem,
+-					{label:$L('Move to folder...'),   command:'move'}
+-				]};
+-		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
+-		
+-		Message.getFolderAndAccount(this.controller, this.data.id, this.folderAndAccountDetails.bind(this));
+-
+-		this.recipsDrawer = { openProperty: false };
+-		this.controller.setupWidget('email_recipients_drawer', {unstyled:true, modelProperty:'openProperty'}, this.recipsDrawer);
+-		this.recipsDrawer.element = this.controller.get('email_recipients_drawer');
+-
+-		this.emailPicturesBlock.observe(Mojo.Event.tap, this.handleImageTapped.bind(this));
+-		// stop gesture events on pictures so they don't go to the webview widget
+-		this.emailPicturesBlock.observe('gesturestart', function(event) { event.stop(); }, false);
+-		this.emailPicturesBlock.observe('gesturechange', function(event) { event.stop(); }, false);
+-		this.emailPicturesBlock.observe('gestureend', function(event) { event.stop(); }, false);
+-
+-		this.controller.get('email_from').observe(Mojo.Event.tap, this.handleSenderTap.bind(this));
+-		this.controller.get('email_recipients').observe(Mojo.Event.tap, this.handleRecipientListSelect.bind(this));
+-
+-		this.boundUpdateRecipientStatus = this.updateRecipientStatus.bind(this);
+-		Mojo.Event.listen(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
+-
+-		Mojo.Event.listen(this.controller.getSceneScroller(), Mojo.Event.scrollStarting, this.addAsScrollListener.bind(this));
+-	},
+-
+-	cleanup: function() {
+-		if (this.waitingForMessageBodyTimeout !== undefined) {
+-			clearTimeout(this.waitingForMessageBodyTimeout);
+-			this.waitingForMessageBodyTimeout = undefined;
+-		}
+-
+-		if (this.focusStageTimer !== undefined) {
+-			clearTimeout(this.focusStageTimer);
+-		}
+-
+-		this.webview.removeEventListener(Mojo.Event.webViewUrlRedirect, this.boundHandleLinkClicked, false);
+-		this.webview.removeEventListener(Mojo.Event.webViewMimeNotSupported, this.boundHandleLinkClicked, false);
+-		this.webview.removeEventListener(Mojo.Event.webViewMimeHandoff, this.boundHandleLinkClicked, false);
+-		this.webview.removeEventListener(Mojo.Event.webViewImageSaved, this.boundHandleInlineImageSaved, false);
+-		this.webview.removeEventListener('singletap', this.boundHandleWebViewSingleTap, true);
+-
+-		if (this.messageSubscription) {
+-			this.messageSubscription.cancel();
+-		}
+-		Mojo.Event.stopListening(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
+-		Message.closeMessage(this.controller, this.data.id);
+-	},
+-
+-	aboutToActivate: function(callback) {
+-		if (this.delayActivate === true) {
+-			this.readyToActivateCallback = callback;
+-		} else {
+-			callback();
+-		}
+-	},
+-
+-	activate: function() {
+-  		// If the scene is invalid (usually because the underlying account was deleted), 
+-		// just pop the scene and no more.
+-  		if (this.popOnActivate === true) {
+-			this.controller.stageController.popScene();
+-			return;
+-		}
+-
+-		// save the current scene controller physics parameters
+-		var scroller = this.controller.getSceneScroller();
+-		this.savedFlickSpeed = scroller.mojo.kFlickSpeed;
+-		this.savedFlickRatio = scroller.mojo.kFlickRatio;
+-		scroller.mojo.updatePhysicsParameters({flickSpeed: 0.12, flickRatio: 0.2});
+-
+-		// If the scene is ready to activate and it needs to be focused, do that now.
+-		if (this.focusStageTimer !== undefined) {
+-			clearTimeout(this.focusStageTimer);
+-			this.focusEmailStage();
+-		}
+-
+-		// prerenderData is only set if the data was supplied from the list assistant. If the
+-		// service already send a response, it will not include the prerenderData property.
+- 		if (this.data.prerenderData === true) {
+-			this.prerenderMessage(this.data);
+-		}
+-	},
+-
+-	deactivate: function() {
+-		// restore the current scene controller physics parameters
+-		var scroller = this.controller.getSceneScroller();
+-		scroller.mojo.updatePhysicsParameters({flickSpeed: this.savedFlickSpeed, flickRatio: this.savedFlickRatio});
+-	},
+-
+-	reply: function() {
+-		var email = new Email();
+-		email.createReply(this.data, this.account.login);
+-		MenuController.showComposeView(email);
+-	},
+-
+-	replyAll: function() {
+-		var email = new Email();
+-		email.createReplyAll(this.data, this.account.login);
+-		MenuController.showComposeView(email);
+-	},
+-
+-	forward: function() {
+-		var email = new Email();
+-		email.createForward(this.data, this.account.login);
+-		MenuController.showComposeView(email);
+-	},
+-
+-	deleteEmail: function() {
+-		Email.setDeleted(this.data.id, true);
+-		this.controller.stageController.popScene();
+-	}
+-});
+-
+-MessageAssistant.kAppMenuMarkRead = $L('Mark as read');
+-MessageAssistant.kAppMenuMarkUnread = $L('Mark as unread');
+-MessageAssistant.kAppMenuSetFlag = $L('Set flag');
+-MessageAssistant.kAppMenuClearFlag = $L('Clear flag');
+-
+-
++/* Copyright 2009 Palm, Inc.  All rights reserved. */
++
++var MessageAssistant = Class.create({
++	initialize : function(targetEmail, folderId, focusStage, detailsObj) {
++		this.data = { id: targetEmail, senderDetails:{} }; // data.id
++		// This data is used to pre-render info in case the mailservice isn't able to respond quickly enough
++		if (detailsObj) {
++			this.data.prerenderData = true;
++			this.data.displayName = detailsObj.displayName;
++			this.data.summary = detailsObj.summary;
++			this.data.timeStamp = detailsObj.timeStamp;
++			this.data.flags = detailsObj.flags;
++			this.data.priority = detailsObj.priority;
++		}
++		this.folderId = folderId;
++		this.account = {};
++		this.gotFirstResponse = false;
++		this.bodyLeftOffset = 0;
++		this.transition = null;
++		this.waitingForMessageBodyTimeout = undefined;
++		this.attachmentDLProgress = {
++			lastUpdate:0,
++			progress:{},
++			subs:{},
++			clearSubscription: function(id) {
++				try {
++					this.subs[id].cancel();
++					delete (this.subs[id]);
++					delete (this.progress[id]);
++				} catch (e) {
++					Mojo.Log.logException(e, "clearSubscription");
++				}
++			}
++		};
++		
++		this.boundShowHideRecipients = this.showHideRecipients.bind(this);
++		this.boundGotoNextEmailNewer = this.gotoNextEmail.bind(this, 'newer');
++		this.boundGotoNextEmailOlder = this.gotoNextEmail.bind(this, 'older');
++		this.boundHandleInviteResponseAccept = this.handleInviteResponse.bind(this, 'accept');
++		this.boundHandleInviteResponseTentative = this.handleInviteResponse.bind(this, 'tentative');
++		this.boundHandleInviteResponseDecline = this.handleInviteResponse.bind(this, 'decline');
++		this.boundHandleInviteResponseRemove = this.handleInviteResponse.bind(this, 'remove');
++		this.boundHandleLinkClicked = this.handleLinkClicked.bind(this);
++		this.boundHandleInlineImageSaved = this.handleInlineImageSaved.bind(this);
++		this.boundHandleWebViewSingleTap = this.handleWebViewSingleTap.bind(this);
++		
++		if (focusStage === true) {
++			this.focusStageTimer = this.focusEmailStage.bind(this).delay(0.6);
++		}
++	},
++
++	addAsScrollListener: function(event) {
++		event.scroller.addListener(this);
++	},
++
++	moved: function() {
++		var scrollOffset = this.messageTarget.viewportOffset();
++		if (this.bodyLeftOffset === scrollOffset.left) {
++			return;
++		} else if (this.webview !== undefined) {
++			this.bodyLeftOffset = scrollOffset.left;
++			// Get the width of the browseradapter since that should tell the truth about its width
++			var webviewWidth = this.webview.down().getWidth();
++			//console.log("offsets: ov x=" + scrollOffset.left + ", w=" + this.emailHeaderBlock.getWidth() + ", wh=" + webviewWidth);
++			
++			if (scrollOffset.left > 0) {
++				scrollOffset.left = 0;
++			} else {
++				var rightExtent = (this.emailHeaderBlock.getWidth() - webviewWidth);
++				if (scrollOffset.left < rightExtent) {
++					scrollOffset.left = rightExtent;
++				}
++			}
++			
++			// move the header block & the attached pictures block so they appear to not scroll horizontally
++			var leftOffset = -scrollOffset.left + 'px';
++			this.emailHeaderBlock.setStyle({ 'left': leftOffset });
++			this.emailPicturesBlock.setStyle({ 'left': leftOffset });
++		}
++	},
++
++	displayContactAvatarAndPresence: function(baseId, storageId, resp) {
++		var nameId = baseId + "-name";
++		var avatarId = baseId + "-photo";
++		var presenceId = baseId + "-presence";
++
++		// If this person isn't in contact, give him ID=0. This is done in case the 
++		// contact was deleted, in which case the old settings need to be cleared.
++		if (!resp.record) {
++			resp.record = { id:0 };
++		}
++
++		if (baseId === "email-sender") {
++			this.data.fromID = resp.record.id;
++
++//<Reminder Info>			
++			if (resp.record && resp.record.reminder) {
++				if (this.contactReminder === undefined) {
++ 					this.contactReminder = new ContactReminder();
++				}
++				this.contactReminder.displayReminder(resp);
++			}
++		} else {
++			this.controller.get(storageId).writeAttribute('contactid', resp.record.id);
++		}
++
++		var nameElem = this.controller.get(nameId);
++		if (resp.record.displayText) {
++			nameElem.update(resp.record.displayText);
++		} else if (resp.record.firstName && resp.record.lastName) {
++			nameElem.update(resp.record.firstName + " " + resp.record.lastName);
++		} else if (resp.record.firstName) {
++			nameElem.update(resp.record.firstName);
++		} else if (resp.record.lastName) {
++			nameElem.update(resp.record.lastName);
++		}
++
++		if (resp.record.pictureLocSquare) {
++			Mojo.Log.info("Displaying sender's picture ", resp.record.pictureLocSquare);
++			var imgElem = this.controller.get(avatarId);
++			imgElem.src = "file://" + resp.record.pictureLocSquare;
++			var imgFrame = imgElem.up('.from-photo');
++			if (imgFrame !== undefined) {
++				imgFrame.show();
++			}
++			imgElem.up().up().up().addClassName("has-avatar-icon"); 
++		}
++
++		if (resp.record) {
++			if (resp.record.imAvailability !== undefined &&
++			    resp.record.imAvailability !== null &&
++				resp.record.imAvailability !== IMName.NO_PRESENCE) {
++				Mojo.Log.info("imAvailability = ", resp.record.imAvailability);
++				var imPresence;
++				switch (resp.record.imAvailability) {
++	                case IMName.BUSY:
++	                    imPresence = 'status-busy';
++	                    break;
++	                case IMName.IDLE:
++	                    imPresence = 'status-idle';
++	                    break;
++	                case IMName.ONLINE:
++	                    imPresence = 'status-available';
++	                    break;
++					default:
++	                    imPresence = 'status-offline';
++				}
++				var imgElem = this.controller.get(presenceId);
++				imgElem.addClassName(imPresence);
++				imgElem.show();
++			}
++		}
++	},
++
++	folderAndAccountDetails: function(resp) {
++		// this gives us the following properties folder, account, login, protocol: EAS|IMAP|POP3}
++		this.account = resp;
++		// Add the email id to the account info because it will be used by the moveto scene
++		this.account.emailId = this.data.id;
++		var assistant = Mojo.Controller.getAppController().assistant;
++		assistant.notificationAssistant.clear(resp.account, resp.folder, this.data.id);
++		assistant.clearDebounce('m'+this.data.id);
++	},
++
++	updateRecipientStatus: function() {
++		EmailRecipient.getDetails(this.controller, this.data.senderDetails.address, this.displayContactAvatarAndPresence.bind(this, 'email-sender', null));
++
++		if (this.data.onlyRecipients !== undefined) {
++			var theThis = this;
++			this.data.onlyRecipients.each(function(r) {
++				EmailRecipient.getDetails(theThis.controller, r.address, theThis.displayContactAvatarAndPresence.bind(theThis, 'recip-'+r.id, r.id));
++			});
++		}
++	},
++
++	handleSenderTap: function(event) {
++		this.showSenderContactDetails(event);
++	},
++	
++	showSenderContactDetails: function(event) {
++		if (this.data.fromID) {
++			EmailRecipient.launchContactDetails(this.controller, this.data.fromID);
++		} else {
++			var displayName = this.data.displayName;
++			// if the display name is the email address it isn't really the person's name
++			if (displayName === this.data.senderDetails.address) {
++				displayName = "";
++			}
++			EmailRecipient.addToContacts(this.controller, this.data.senderDetails.address, displayName);
++		}
++	},
++
++	handleRecipientListSelect: function(event) {
++		var targetRow = this.controller.get(event.target);
++		if (!targetRow.hasClassName('email-recipient')) {
++			targetRow = targetRow.up('div.email-recipient');
++		}
++
++		if (targetRow) {
++			var contactId = targetRow.readAttribute('contactid');
++			if (contactId && contactId > 0) {
++				EmailRecipient.launchContactDetails(this.controller, contactId);
++			} else {
++				var address = targetRow.readAttribute('address');
++				var displayName = targetRow.readAttribute('displayname');
++				displayName = displayName.escapeHTML();
++				EmailRecipient.addToContacts(this.controller, address, displayName);
++			}
++		}
++	},
++
++	showHideRecipients: function(event) {
++		this.recipsDrawer.element.mojo.setOpenState(!this.recipsDrawer.element.mojo.getOpenState());
++		this.controller.get('email_recipients_compressed_list').toggle();
++		this.controller.get('email_recipients_compressed_count').toggle();
++	},
++
++	messageDetailsUpdated: function(resp) {
++		if (this.gotFirstResponse === false) {
++			this.gotFirstResponse = true;
++			this.renderMessage(resp);
++		} else {
++			Mojo.Log.info("renderMessage: waiting for message body. isFullyLoaded=", resp.isFullyLoaded);
++			if (resp.isFullyLoaded == "true") {
++				if (this.waitingForMessageBodyTimeout !== undefined) {
++					clearTimeout(this.waitingForMessageBodyTimeout);
++					this.waitingForMessageBodyTimeout = undefined;
++				}
++				// Add the email body to the stored data model
++				this.data.textURI = resp.textURI;
++				this.data.text = resp.text;
++				this.renderMessageBody(resp);
++			}
++
++			// POP doesn't know it has attachments until it has downloaded the full envelope
++			// so use the new attachment list if one there doesn't already exist
++			if ((!this.data.attachments || this.data.attachments.length === 0) &&
++			    resp.attachments && EmailFlags.hasAttachment(resp.flags)) {
++				this.data.attachments = resp.attachments;
++				this.renderMessageAttachments(resp.attachments);
++			}
++		}
++	},
++
++	// This is a special function that is only called when the scene is first launched
++	// and activate() occurs before the mailservice has time to respond with the full
++	// email data.
++	prerenderMessage: function(resp) {
++		this.data.prerenderData = false; // only want to prerender email once
++		Mojo.Log.info("prerenderMessage ", resp.id);
++
++		if ((resp.flags & EmailFlags.flaggedBit) !== 0) {
++			resp.flagged = "starred";
++		}
++
++		//convert the timestamp into a Date
++		var theDate = new Date(parseInt(resp.timeStamp));
++		resp.formattedDate = Mojo.Format.formatDate(theDate, {date:'medium', time:'short'});
++		resp.meridiem = "";
++
++		var content = Mojo.View.render({template: 'message/message_from', object:resp});
++		this.controller.get('email_from').update(content);
++		//subject
++		resp.priority = Email.getPriorityClass(resp.priority);
++		content = Mojo.View.render({template: 'message/message_subject', object: resp});
++		this.controller.get('email_subject').update(content);
++	},
++
++	renderMessage: function(resp) {
++		var content;
++		Mojo.Log.info("renderMessage ", resp.id);
++		this.data = resp;
++
++		// Set the "read" flag if need be
++		/*
++		if (!EmailFlags.isRead(resp.flags)) {
++			Email.setRead(resp.id, true);
++		}
++		*/
++		if (EmailFlags.isRead(resp.flags)) {
++			this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkUnread;
++		} else {
++			this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkRead;
++		}
++
++		// Very first thing to do with recipients is fix them up for the address picker.
++		EmailRecipient.addAddressPickerFields(resp.recipients);
++
++		var attachments = resp.attachments;
++
++		if (resp.displayName) {
++			resp.displayName = resp.displayName.escapeHTML();
++		}
++
++		if (this.data.summary == null || this.data.summary.length === 0) {
++			this.data.summary = $L("Untitled message");
++		} else {
++			resp.summary = resp.summary.escapeHTML();
++		}
++
++		if ((resp.flags & EmailFlags.flaggedBit) !== 0) {
++			resp.flagged = "starred";
++			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuClearFlag;
++		} else {
++			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuSetFlag;
++		}
++
++		//text -- if it is fully loaded then render it (need to check for string "true" since that's what's coming in json).
++		if (this.data.isFullyLoaded == "true") {
++			this.renderMessageBody(this.data);
++		} else {
++			this.waitForMessageBody();
++		}
++
++		//convert the timestamp into a Date
++		//February 15, 2008 - 12:57 PM
++		var theDate = new Date(parseInt(resp.timeStamp));
++		resp.formattedDate = Mojo.Format.formatDate(theDate, {date:'medium', time:'short'});
++		resp.meridiem = ""; //theDate.toString($L('t'));
++
++		content = Mojo.View.render({template: 'message/message_from', object:resp});
++		this.controller.get('email_from').update(content);
++		//subject
++		resp.priority = Email.getPriorityClass(resp.priority);
++		content = Mojo.View.render({template: 'message/message_subject', object: resp});
++		this.controller.get('email_subject').update(content);
++
++		this.controller.get('previous_email').observe(Mojo.Event.tap, this.boundGotoNextEmailNewer);
++		this.controller.get('next_email').observe(Mojo.Event.tap, this.boundGotoNextEmailOlder);
++
++		//recipients
++		this.renderMessageRecipients(resp);
++
++		if (EmailFlags.isMeetingRequest(resp.flags)) {
++			var invite = new Object();
++			if (resp.whenStart) {
++				var startDate = new Date(parseInt(resp.whenStart));
++				var dateFormat = $L('EEE, MMM d');
++				var whenObject = {
++					date:      Mojo.Format.formatDate(startDate, {date:dateFormat}),
++					startTime: Mojo.Format.formatDate(startDate, {time:'short'}),
++					endTime:   Mojo.Format.formatDate(new Date(parseInt(resp.whenEnd)), {time:'short'})
++				};
++				invite.when = $L("#{date}, #{startTime} - #{endTime}").interpolate(whenObject);				
++			} else {
++				// Service used to format the date. That doesn't work for too many reasons
++				invite.when = $L("#{when}").interpolate(resp); //TODO parse this and put in local date format
++			}
++			if (resp.busyStatus === 0) {
++				// Maybe change the style here
++				invite.conflict = $L("Conflicts with another event");
++			}
++			invite.where = $L("#{where}").interpolate(resp).escapeHTML();
++
++			content = Mojo.View.render({template: 'message/meeting_invitation', object: invite});
++			this.controller.get('email-readview-invitations').update(content);
++
++			this.controller.get('invite-accept').observe(Mojo.Event.tap, this.boundHandleInviteResponseAccept);
++			this.controller.get('invite-tentative').observe(Mojo.Event.tap, this.boundHandleInviteResponseTentative);
++			this.controller.get('invite-decline').observe(Mojo.Event.tap, this.boundHandleInviteResponseDecline);
++		}
++		else if (EmailFlags.isMeetingCancel(resp.flags)) {
++			content = Mojo.View.render({template: 'message/meeting_cancellation', object: {}});
++			this.controller.get('email-readview-invitations').update(content);
++			this.controller.get('invite-remove').observe(Mojo.Event.tap, this.boundHandleInviteResponseRemove);
++		}
++		else {
++			this.controller.get('email-readview-invitations').update("");
++		}
++
++		// Attachments - some may be in the HTML body, so only show the attachments area if there
++		// is something in the attachments array
++		if (attachments && EmailFlags.hasAttachment(this.data.flags)) {
++			this.renderMessageAttachments(attachments);
++		} else {
++			// If no attachments, make sure old UI is cleaned out.
++			this.controller.get('email-readview-attachments-block').hide();
++			this.emailPicturesBlock.update("");
++		}
++		
++		// Ensure the whiteness is at least tall enough to fill the screen. 
++		var contentContainer = this.controller.get('email-readview-content-container');
++		var po = contentContainer.positionedOffset();
++		var minHeight = (this.controller.window.innerHeight - po.top) + 'px';
++		contentContainer.setStyle({'min-height':minHeight})
++
++		// Got the message details so say we're ready to render
++		if (this.delayActivate === true) {
++			this.delayActivate = false;
++			if (this.readyToActivateCallback !== undefined) {
++				this.readyToActivateCallback();
++				this.readyToActivateCallback = undefined;
++			}
++		}
++
++		// Get details about the next and previous emails to know where the user can navigate.
++		// NOTE: this needs to be after message_subject is rendered 
++		this.controller.serviceRequest(Email.identifier, {
++			method: 'getNextMessages',
++			parameters: {'message':this.data.id, 'folder': this.folderId },
++			onSuccess: this.handleNextMessagesResponse.bind(this),
++			onFailure: function(response) { Mojo.Log.error("getNextMessages failed "+Object.toJSON(response)); }
++		});
++		
++		if (this.transition !== null) {
++			this.transition.run();
++			this.transition.cleanup();
++			this.transition = null;
++		}
++	},
++
++	renderMessageRecipients: function(resp) {
++		var recips = resp.recipients;
++		this.data.onlyRecipients = [];
++		this.data.senderDetails = {};
++		var content = null;
++		if (recips) {
++			var recipTypes;
++			if (EmailFlags.isMeetingType(resp.flags)) {
++				recipTypes = [ $L("From"), $L("Required"), $L("Optional"), $L("Bcc"), $L("From") ];
++			} else {
++				recipTypes = [ $L("From"), $L("To"), $L("Cc"), $L("Bcc"), $L("From") ];
++			}
++
++			var theThis = this;
++			var prevRecp = {}; // This is used to determine when to display To/Cc/Bcc divider 
++			recips.each(function(r) {
++				if(recipTypes[r.role] !== undefined) {
++					if (r.role === EmailRecipient.roleTo || r.role === EmailRecipient.roleCc || r.role === EmailRecipient.roleBcc) {
++						r.roleStr = recipTypes[r.role];
++						if (r.role != prevRecp.role) {
++							r.rowDisplayRole = "show";
++							r.hasDivider = "has-divider";
++							prevRecp.hideLast = "last";
++						}
++						theThis.data.onlyRecipients.push(r);
++						EmailRecipient.getDetails(theThis.controller, r.address, theThis.displayContactAvatarAndPresence.bind(theThis, 'recip-'+r.id, r.id));
++						prevRecp = r;
++					}
++					// roleReplyTo can overwrite the senderDetails because it takes precidence over roleFrom
++					else if (r.role === EmailRecipient.roleReplyTo) {
++						theThis.data.senderDetails = r;
++					}
++					// roleFrom should not overwrite the senderDetails because roleReplyTo takes precidence
++					else if (r.role === EmailRecipient.roleFrom && theThis.data.senderDetails.address === undefined) {
++						theThis.data.senderDetails = r;
++					}
++				}
++			});
++
++			if (this.data.senderDetails.address !== undefined) {
++				// Get the contact ID for the sender of the email
++				EmailRecipient.getDetails(this.controller, this.data.senderDetails.address, this.displayContactAvatarAndPresence.bind(this, 'email-sender', null));
++			}
++
++			if (this.data.onlyRecipients.length > 0) {
++				var recipElem = this.controller.get('email_recipients');
++				content = Mojo.View.render({
++				    collection: this.data.onlyRecipients,
++				    template: 'message/message_recips'
++				});
++				recipElem.update(content);
++
++				var recipsSummary = { count:0, to:[], cc:[], bcc:[] };
++				this.data.onlyRecipients.each(function(r) {
++					if (r.role === EmailRecipient.roleTo) {
++						recipsSummary.to.push(r.displayName);
++						recipsSummary.count++;
++					} else if (r.role === EmailRecipient.roleCc) {
++						recipsSummary.cc.push(r.displayName);
++						recipsSummary.count++;
++					} else if (r.role === EmailRecipient.roleBcc) {
++						recipsSummary.bcc.push(r.displayName);
++						recipsSummary.count++;
++					}
++				});
++
++				if (recipsSummary.count > 0) {
++					recipsSummary.displayTo = "none";
++					recipsSummary.displayCc = "none";
++					recipsSummary.displayBcc = "none";
++					if (recipsSummary.to.length > 0 && recipsSummary.cc.length > 0) {
++						recipsSummary.displayTo = "inline";
++						recipsSummary.displayCc = "inline";
++						recipsSummary.toList = recipsSummary.to.join(', ');
++						recipsSummary.ccList = recipsSummary.cc.join(', ');
++					} else if (recipsSummary.to.length > 0) {
++						recipsSummary.displayTo = "inline";
++						recipsSummary.toList = recipsSummary.to.join(', ');
++					} else if (recipsSummary.cc.length > 0) {
++						recipsSummary.displayCc = "inline";
++						recipsSummary.ccList = recipsSummary.cc.join(', ');
++					} else if (recipsSummary.bcc.length > 0) {
++						recipsSummary.displayBcc = "inline";
++						recipsSummary.bccList = recipsSummary.bcc.join(', ');
++					}
++
++					if (recipsSummary.count === 1) {
++						recipsSummary.recipientCount = $L("1 recipient");
++					} else {
++						recipsSummary.recipientCount = $L("#{count} recipients").interpolate(recipsSummary);
++					}
++
++					content = Mojo.View.render({template: 'message/message_recips_compressed', object: recipsSummary });
++					this.recipientController = this.controller.get('email_recipients_controller')
++					this.recipientController.update(content);
++					// Observe the row since that is the entire height and width of the tappable area
++					this.recipientController.up(".palm-row").observe(Mojo.Event.tap, this.boundShowHideRecipients, true);
++				}
++			}
++		}
++		
++		// If there were no recipients, then display the default "no recips" 
++		if (content === null) {
++			Mojo.Log.info("displaying 'Only BCC recipients'");
++			var renderParams = {
++				template: 'message/message_recips_compressed',
++				object: {onlyBccRecipient: $L("Only BCC recipients"), displayTo: "none", displayCc: "none", displayBcc: "none" }
++			};
++			this.controller.get('email_recipients_controller').update(Mojo.View.render(renderParams));
++		}
++	},
++
++	processTextProperty: function(data) {
++		// If it is an html email, it starts with "<!DOCTYPE" or "<html" some simple html tag
++		if (!data.isHtml) {
++			//console.log("******* NO MATCH *********")
++			// Plain text needs to replace the carriage returns with html line-break tags
++			data.text = data.text.escapeHTML().gsub("\n","<br>");
++		} else {
++			//console.log("******* MATCH *********")
++			data.text = data.text.stripScripts();
++		}
++	},
++
++	renderMessageBody: function(data) {
++		if (data.isFullyLoaded != "true") {
++			Mojo.Log.error("renderMessageBody aborted because data.isFullyLoaded == ", data.isFullyLoaded)
++			return;
++		}
++
++		this.hideNoBodyUI();
++
++		if (data.textURI && this.webview.mojo.openURL) {
++			this.controller.get('email_text').hide();
++
++			try {
++				Mojo.Log.breadcrumb("rendering URI " + data.textURI);
++				this.webview.mojo.setEnableJavaScript(false);
++				this.webview.mojo.openURL("file://" + data.textURI);
++			} catch (e) {
++				Mojo.Log.logException(e, 'renderMessageBody openUrl');	
++			}
++			
++			// If the service didn't supply the text to use for replying to an email, request it now.
++			if (!data.text) {
++				var processTextProperty = this.processTextProperty;
++				this.controller.serviceRequest(Message.identifier, {
++						method: 'messageFileText',
++						parameters: { 'textURI':data.textURI },
++						onSuccess: function(resp) {
++							data.text = resp.text;
++							processTextProperty(data);
++						},
++						onFailure: function() { Mojo.Log.error("messageFileText failed for textURI", data.textURI) }
++					});
++			} else {
++				// Defer b/c this can be done after the email is rendered
++				this.processTextProperty.defer(data);
++			}
++		} else {
++			Mojo.Log.warn("WARNING: EMAIL using plain text");
++			var adapter = this.controller.get('email_body_text_outer');
++			if (adapter == null) {
++				adapter = this.controller.get('email_body_text');
++			}
++			adapter.hide();
++			var emailBody = this.controller.get('email_text');
++			// Strip out all scripts since they can do dangerous things
++			data.text = data.text.stripScripts();
++			// Since this is plain text, need to replace the carriage returns with html line-break tags
++			data.text = data.text.gsub("\n","<br>");
++			data.styles = "width:"+this.controller.window.innerWidth+"px;";
++			var content = Mojo.View.render({
++				template: 'message/message_text',
++				object: data
++			});
++			emailBody.update(content);
++			emailBody.show();
++		}		
++		
++		this.webview.mojo.focus();
++	},
++
++	renderMessageAttachments: function(attachments) {
++		// Show the div containing the attachments. For multiple attachments, also
++		// show the expand/collapse controller
++		this.controller.get('email-readview-attachments-block').show();
++
++		var picturesList = [];
++		var names = undefined;
++		attachments.each(function(a) {
++			a.displayName = a.displayName.escapeHTML();
++			if (names === undefined) {
++				names = a.displayName.substring(0); // copy of the name 
++			} else {
++				names += ", " + a.displayName;
++			}
++			// Icons
++			Attachments.processFileObject(a);
++			// Picture to be displayed
++			if (a.iconType == "type-image") {
++				var extension = a.extension.toLowerCase();
++				if (extension === ".jpg" || extension === ".jpeg" || extension === ".png") {
++					a.fixeduri = "file:///var/luna/data/extractfs/" + a.uri + ":0:0:320:240:3";
++				} else {
++					a.fixeduri = a.uri;
++				}
++				picturesList.push(a);
++			} else {
++				a.displayImage = "display:none";
++			}
++
++			// Download %
++			if (a.uri) {
++				a.display = "display: none;";
++				a.download = "";
++			} else {
++				a.download = "show-download-icon";
++				a.display = "display: none;";
++			}
++		});
++
++		// Only show the special "this file and N others" if there's more than 1 attachment 
++		if (attachments.length > 1) {
++			// Setup the attachment compressed view
++			var content = Mojo.View.render({
++				object: { displayName:names, count:attachments.length },
++				template: 'message/message_attachments_compressed'
++			});
++			this.attachmentsShowElem.update(content);
++		}
++		
++		content = Mojo.View.render({
++			collection: attachments,
++			template: 'message/message_attachments'
++		});
++		this.controller.get('email-readview-attachments-list').update(content);
++
++		// Attachment pictures
++		if (picturesList.length > 0) {
++			content = Mojo.View.render({
++				collection: picturesList,
++				template: 'message/message_pictures'
++			});
++			this.emailPicturesBlock.update(content);
++		} else {
++			this.emailPicturesBlock.update("");
++		}
++
++		// Convert any downloaded audio attachments to AudioTag controls
++		attachments.each(function(a) {
++			if (a.uri !== undefined) {
++				this.setupAudioTag(a);
++			}
++		}.bind(this));		
++
++		//
++		// Now that the contents of the list are ready, compute heights and setup the "drawer" 
++		// 
++		this.attachmentList = this.controller.get('attachlist-list1');
++		this.attachmentList.setStyle({height:'auto'}); // make sure the height below is the full height
++		this.attachmentListHeight = parseInt(this.attachmentList.getHeight(), 10);
++
++		// If the list contains only 1 item so it isn't considered as "shown"
++		this.attachmentListShown = (attachments.length > 1);
++		if (this.attachmentListShown) {
++			// Initially hide the attachments list
++			this.attachmentListShown = false;
++			this.attachmentList.setStyle({'height':'46px'});
++			this.attachmentList.hide();
++			this.attachmentsShowElem.show();
++		} else {
++			this.attachmentsShowElem.hide();
++			this.attachmentList.show();
++		}
++	},
++
++	setupAudioTag: function(a) {
++		var success = false;
++		if (a.uri !== undefined && a.mimeType.startsWith("audio")) {
++			var audioElement = this.controller.get("progress_" + a.id);
++			try {
++				audioElement.show();
++				var audioTag = AudioTag.extendElement(audioElement, this.controller, a.uri);
++				audioTag.autoplay = false;
++				this.controller.get("adetails_" + a.id).hide();
++				success = true;
++			} catch (e) {
++				audioElement.hide();
++			}
++		}
++		return success;
++	},
++
++	waitForMessageBody: function() {
++		// If the transport can't retrieve the message in a reasonable amount of time, error out
++		this.waitingForMessageBodyTimeout = this.waitMessageError.bind(this).delay(45);		
++		this.showNoBodyUI();
++	},
++
++	waitMessageError: function(resp) {
++		if (this.messageSubscription) {
++			this.messageSubscription.cancel();
++			this.messageSubscription = null;
++		}
++		Mojo.Log.error("waitMessageError", Object.toJSON(resp));
++		
++		// Waiting for message body means the message exists, but the body
++		// isn't yet on device. If the error occured before even waiting for
++		// the body, then popScene out to the previous scene because this
++		// email doesn't even exists anymore.   
++		if (this.waitingForMessageBodyTimeout === undefined) {
++			// This should only occur if the email ID doesn't exist so go back to the previous scene
++			Mojo.Log.error("popping the message scene because message doesn't exists. ID=", this.data.id);
++			this.controller.stageController.popScene(resp);
++		} else {
++			clearTimeout(this.waitingForMessageBodyTimeout);
++			this.waitingForMessageBodyTimeout = undefined;
++			this.hideNoBodyUI();
++
++			// Display error text
++			this.plainTextBody.update(Mojo.View.render({template: 'message/failed_to_download_err', object:{}}));
++			this.plainTextBody.show();
++		}
++	},
++
++	showNoBodyUI: function() {
++		var nobodyDiv = this.controller.get('email_no_body')
++		nobodyDiv.show();
++		this.controller.instantiateChildWidgets(nobodyDiv);
++		this.controller.get('email_no_body_spinner').mojo.start();
++	},
++
++	hideNoBodyUI: function() {
++		this.controller.get('email_no_body_spinner').mojo.stop();
++		this.controller.get('email_no_body').hide();
++	},
++
++	handleToggleFavorites: function(event) {
++		// Flip the flagged bit
++		var value = true;
++		this.data.flags = this.data.flags ^ EmailFlags.flaggedBit;
++		if ((this.data.flags & EmailFlags.flaggedBit) == 0) {
++			this.controller.get('email_favorite').removeClassName("starred");
++			this.data.flagged = "";
++			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuSetFlag;
++			value = false;
++		} else {
++			this.controller.get('email_favorite').addClassName("starred");
++			this.data.flagged = "starred";
++			this.markSetFlagMenuItem.label = MessageAssistant.kAppMenuClearFlag;
++		}
++		//console.log("Setting flagged for " + this.data.id + " to " + value);
++		Email.setFlagged(this.data.id, value);
++	},
++
++	handleAttachmentTapped: function(event) {
++		var targetRow = this.controller.get(event.target);
++		var listDiv = targetRow;
++		if (!listDiv.hasClassName('attachment-info')) {
++			listDiv = listDiv.up('div.attachment-info');
++		}
++
++		if (listDiv) {
++			var attachmentUri = listDiv.getAttribute('x-uri');
++			var attachmentMimeType = listDiv.getAttribute('x-mimetype');
++			if (attachmentUri) {
++				if (attachmentMimeType.startsWith("audio")) {
++					// Do nothing because the AudioTag widget handles taps for audio files
++				} else if (attachmentMimeType.startsWith("image")) {
++					this.controller.stageController.pushScene('imageview', attachmentUri);
++				} else {
++					if (attachmentUri.startsWith("/")) {
++						attachmentUri = "file://" + attachmentUri;
++					}
++					//Message.launchAttachment(this.controller, attachmentUri, this.error.bind(this));
++					Message.getResourceType(this.controller, attachmentUri, attachmentMimeType, this.gotResourceType.bind(this), this.useInternalResourceHandler.bind(this, attachmentMimeType));
++				}
++			} else if (event.target.className === "download-cancel") {
++				this.stopAttachmentDownload(listDiv.id);
++			} else {
++				// Stop the timeout
++				if (this.hideTimeout) {
++					clearTimeout(this.hideTimeout);
++					this.hideTimeout = null;
++				}
++				this.startAttachmentDownload(listDiv.id);
++			}
++		}
++	},
++
++	handleImageTapped: function(event) {
++		var imgElem = this.controller.get(event.target.id);
++		var uri = imgElem.getAttribute('x-uri');
++		this.controller.stageController.pushScene('imageview', uri);
++	},
++
++	/*
++	 * Callback function for getResourceType
++	 */
++	gotResourceType: function(payload) {
++		//Check if this is launchable
++		if(payload.returnValue && payload.appIdByExtension) {
++			Message.launchAttachments(this.controller,payload.uri, payload.appIdByExtension, payload.mimeByExtension);			
++		} else {
++			this.useInternalResourceHandler(payload.mimeByExtension, payload);
++		}
++	},
++
++	useInternalResourceHandler: function(mimeType, response) {
++		var type = Attachments.getIconTypeFromMimeType(mimeType);
++		if (!type) {
++			try {
++				var extensionIndex = response.uri.lastIndexOf('.');
++				if (extensionIndex > 0) {
++					var extension = response.uri.substring(extensionIndex + 1).toLowerCase();
++					type = Attachments.getIconTypeFromExtension(extension);
++				}
++			} catch (e) {
++				Mojo.Log.logException(e, "MessageAssistant.useInternalResourceHandler");
++			}
++		}
++
++		if (type === "type-image") {
++			this.controller.stageController.pushScene('imageview', response.uri);
++		} else {
++			Mojo.Log.error("Email - Attachment can't be opened!");
++			this.controller.showAlertDialog({
++				onChoose: function(value) {},
++				message: $L("Cannot find an application which can open this file."),
++				choices: [
++					{label:$L('OK'), value:'dismiss', type:'alert'}
++				]
++			});
++		}
++	},
++
++	startAttachmentDownload: function(id) {
++		Mojo.Log.info("start attachment download", id);
++		var progressbar = this.controller.get('progress_' + id);
++		if (progressbar.visible()) {
++			Mojo.Log.info("ignoring tap because attachment is already downloading");
++		} else {
++			this.attachmentDLProgress.subs[id] = Message.loadAttachment(id, this.attachmentDownloadProgress.bind(this), this.attachmentError.bind(this, id));
++
++			// This makes the progressbar show up so the user gets immediate feedback. 
++			this.controller.get('file_size_' + id).hide(); // showing the progress bar so hide the file size		
++			this.controller.get('progress_' + id).show(); // ensures the progress bar is shown
++			// Set the initial progress to 0%
++			this.attachmentUpdateProgressbar(id, 0);
++		}
++	},
++
++	stopAttachmentDownload: function(id) {
++		Mojo.Log.info("stop attachment download", id);
++		this.attachmentDLProgress.clearSubscription(id);
++		Message.cancelLoadAttachment(this.controller, id);
++
++		// This makes the progressbar show up so the user gets immediate feedback. 
++		this.controller.get('file_size_' + id).show();		
++		this.controller.get('progress_' + id).hide();
++		// Set the initial progress to 0%		
++		this.attachmentUpdateProgressbar(id, 0);
++	},
++
++	handleInviteResponse: function(response, event) {
++		Mojo.Log.info("handleInviteResponse ", response);
++		var notificationAssistant = Mojo.Controller.getAppController().assistant.notificationAssistant;
++		notificationAssistant.handleNotification({ type:"general", message:$L("Sending invitation response") });
++		Email.inviteResponse(this.data, response);
++		this.controller.stageController.popScene();
++	},
++
++	attachmentError: function(id, err) {
++		Mojo.Log.error("handleError ", err.errorText);
++		this.stopAttachmentDownload(id);
++		var that = this;
++		var errorText;
++		if (err.errorText && err.errorText.length > 0) {
++			errorText = $L("Error downloading file. Server reports: #{errorText}").interpolate(err).escapeHTML();
++		} else {
++			errorText = $L("Error while downloading file.");
++		}
++
++		this.controller.showAlertDialog({
++			onChoose: function(value) {},
++			title: $L("Unable To Download File"),
++			message: errorText,
++			choices: [ {label:$L('OK'), value:'dismiss', type:'alert'} ]
++		});
++	},
++
++	handleAttachmentDetails: function(attachment) {
++		Mojo.Log.info("handleAttachmentDetails ", attachment.id);
++
++		// Update the uri for this attachment now that we got one.
++		this.data.attachments.each(function(a) {
++			if (a.id == attachment.id) {
++				a.uri = attachment.uri;
++				$break;
++			}
++		});
++
++		// For some reason the id needs to be a string so using toString().
++		var elem = this.controller.get((attachment.id).toString());
++		var newUri = attachment.uri;
++		elem.writeAttribute('x-uri', newUri);
++		elem.writeAttribute('x-mimetype', attachment.mimeType);
++
++		var audioSetup = this.setupAudioTag(attachment);
++		if (audioSetup) {
++			// The height of the inline audio player is different so need to recalc the list height
++			this.attachmentList.setStyle({height:'auto'}); // make sure the height below is the full height
++			this.attachmentListHeight = parseInt(this.attachmentList.getHeight(), 10);
++		} else {
++			var imgElem = this.controller.get('picture_'+attachment.id);
++			if (imgElem) {
++				Mojo.Log.info("set img src=", newUri);
++				imgElem.writeAttribute('x-uri', newUri);
++				// Following uri uses extractfs to scale the image to fit 320x240.
++				// This fixes problems with extremely large images causing the UI to chug.
++				Attachments.processFileObject(attachment);
++				var extension = attachment.extension.toLowerCase();
++				if (extension === ".jpg" || extension === ".jpeg" || extension === ".png") {
++					imgElem.src = "file:///var/luna/data/extractfs/"+newUri+":0:0:320:240:3";
++				} else {
++					imgElem.src = newUri;
++				}
++
++				var thumbnail = elem.down('.readview-image-thumbnail');
++				if (thumbnail) {
++					thumbnail.src = "file:///var/luna/data/extractfs/"+newUri+":0:0:31:31:4";
++					thumbnail.show();
++				}
++			}
++			this.controller.get('download_icon_' + attachment.id).hide(); // remove the download arrow from the icon
++			this.controller.get('progress_' + attachment.id).hide(); // ensures the progress bar is no longer shown
++			this.controller.get('file_size_' + attachment.id).show(); // since progress bar is gone, show the file size		
++		}
++	},
++
++	attachmentDownloadProgress: function(info) {
++		// If the object doesn't contain a 'id' property, it isn't valid download progress
++		if (info.id) {
++			if (info.status == Message.ATTACHMENT_LOAD_COMPLETED_EVENT) {
++				Mojo.Log.info("attachmentDownloadProgress complete for id:", info.id);
++				this.attachmentDLProgress.clearSubscription(info.id);
++				this.attachmentUpdateProgressbar(info.id, 100);
++
++				// Final step to fully download is to get details of this attachment, including the URI.
++				Message.getAttachmentDetails(this.controller, info.id, this.handleAttachmentDetails.bind(this), this.attachmentError.bind(this, info.id));
++			}
++			else if (info.status == Message.ATTACHMENT_LOAD_PROGRESS_EVENT) {
++				// The transports can be rather aggressive about sending progress notifications so
++				// defend against that by only updating the UI periodically
++				var now = new Date().getTime();
++				if (now < this.attachmentDLProgress.lastUpdate + 200) {
++					this.attachmentDLProgress.progress[info.id] = info.progress;
++				} else {
++					this.attachmentDLProgress.lastUpdate = now;
++					var that = this;
++					if (info.progress !== undefined) {
++						this.attachmentDLProgress.progress[info.id] = info.progress;
++					}
++					var progressObj = this.attachmentDLProgress.progress;
++					Object.keys(progressObj).each(function(id) {
++						var progress = progressObj[id];
++						Mojo.Log.info("attachmentDownloadProgress id: ", id, ", progress: ", progress);
++						that.attachmentUpdateProgressbar(id, progress);
++					});
++				}
++			}
++		}
++	},
++	
++	attachmentUpdateProgressbar: function(id, percent) {
++		var progressGroup = this.controller.get('progress_' + id);
++		if (progressGroup) {
++			var totalWidth = 2.48; // = 248 / 100%
++			var progressWidth = Math.round(totalWidth * percent);
++			progressGroup.down(0).setStyle({width:progressWidth+"px"});
++			var backgrndWidth = Math.round(totalWidth * (100 - percent));
++			progressGroup.down(1).setStyle({width:backgrndWidth+"px"});
++		} else {
++			Mojo.Log.error("Attachment ID ", id, " is invalid.");
++		}
++	},
++
++	hideAttachmentList: function(event) {
++		if (this.attachmentListShown) {
++			var targetRow = this.controller.get(event.target);
++			if (!targetRow.hasClassName('email-readview-attachments')) {
++				targetRow = targetRow.up('div.email-readview-attachments');
++			}
++
++			// Only hide the attachments list if the mousedown target was outside the
++			// list elements. Otherwise, reset the hide timer
++			if (targetRow == null) {
++				this.showHideAttachmentList();
++			} else if (this.hideTimeout) {
++				clearTimeout(this.hideTimeout);
++				this.hideTimeout = setTimeout(this.showHideAttachmentList.bind(this), 15000);
++			}
++		}
++	},
++
++	showHideAttachmentList: function() {
++		if (this.hideTimeout) {
++			clearTimeout(this.hideTimeout);
++			this.hideTimeout = null;
++		}
++
++		if (!this.attachmentListShown) {
++			this.attachmentList.show();
++			this.attachmentsShowElem.hide();
++		}
++		
++        var options = {reverse:this.attachmentListShown,
++		               onComplete: this.animationComplete.bind(this),
++					   curve: 'over-easy',
++					   from: 46,
++					   to: this.attachmentListHeight,
++					   duration: 0.6};
++		Mojo.Animation.animateStyle(this.attachmentList, 'height', 'bezier', options);
++	},
++
++	animationComplete: function(listElem, cancelled) {
++		if (!cancelled) {
++			this.attachmentListShown = !this.attachmentListShown;
++			if (this.attachmentListShown) {
++				this.attachmentsShowElem.hide();
++				this.attachmentList.show();
++
++				this.hideTimeout = setTimeout(this.showHideAttachmentList.bind(this), 15000);
++			} else {
++				this.attachmentList.hide();
++				this.attachmentsShowElem.show();
++			}
++		}
++	},
++
++	/**
++	 * User clicked on a hyperlink.
++	 */
++	handleLinkClicked: function(event) {
++		Mojo.Log.info("handleLinkClicked %s", event.url);
++		this.controller.serviceRequest('palm://com.palm.applicationManager',
++				{
++					method: 'open',
++					parameters: {target: event.url}
++				});
++	},
++
++	/**
++	 * WebView widget wants us to create a new page.
++	 */
++	handleCreatePage: function(event) {
++		Mojo.Log.info("handleCreatePage: %s", event.pageIdentifier);
++		this.controller.serviceRequest('palm://com.palm.applicationManager',
++				{
++					method: 'open',
++					parameters: {
++						'id': 'com.palm.app.browser',
++						'params': {scene: 'page', pageIdentifier: event.pageIdentifier}
++					}
++				});
++	},
++
++	/**
++	 * handle a menu command.
++	 */
++	handleCommand: function(event) {
++		if (event.type == Mojo.Event.command) {
++			try {
++				switch (event.command) {
++					case 'reply':
++						this.reply();
++						break;
++
++					case 'replyAll':
++						this.replyAll();
++						break;
++
++					case 'forward':
++						this.forward();
++						break;
++
++					case 'delete':
++						this.deleteEmail();
++						break;
++
++					case 'move':
++						this.controller.stageController.pushScene("moveto", this.account);
++						break;
++
++					case 'mark-unread':
++						var currentLabel = this.markUnreadMenuItem.label;
++						var markRead = (currentLabel == MessageAssistant.kAppMenuMarkRead);
++						Email.setRead(this.data.id, markRead);
++						if (markRead) {
++							this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkUnread;
++						} else {
++							this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkRead;
++						}
++						break;
++
++					case 'flag':
++						this.handleToggleFavorites();
++						break;
++
++					case Mojo.Menu.prefsCmd:
++						MenuController.showPrefs(this.controller.stageController);
++						break;
++
++					case Mojo.Menu.helpCmd:
++						MenuController.showHelp();
++						break;
++				}
++			}
++			catch (e) {
++				Mojo.Log.error("MessageAssistant.handleCommand: "+ e.message +" in "+ e.sourceURL +"("+ e.line +")" );
++			}
++		}
++		// Enable prefs & help menu items
++		else if (event.type == Mojo.Event.commandEnable && 
++		         (event.command == Mojo.Menu.prefsCmd || event.command == Mojo.Menu.helpCmd)) {
++			event.stopPropagation();
++		}
++	},
++	
++	handleInlineImageSaved: function(event) {
++		if (event.status) { 
++			var filepath = this.makeTitleFromUrl(event.filepath);
++			var message = $L('Saving "#{path}"').interpolate({path: filepath});
++			Mojo.Controller.appController.showBanner(
++						{messageText: message},
++						{banner: 'image', filename: event.filepath});
++		}
++	},
++	
++	makeTitleFromUrl: function(url) {
++		if (url) {
++			var result = url.match(/^.*\/([^\/]+)$/);
++			if ((result !== null) && (result.length > 1)) {
++				return result[1];
++			}
++		}
++	
++		return url;
++	},
++	
++	handleWebViewSingleTap: function(event) {	
++		try {
++			var tapPt = Element.viewportOffset(this.webview);
++			tapPt.left = event.centerX - tapPt.left;
++			tapPt.top  = event.centerY - tapPt.top;
++
++			//Mojo.Log.info("MessageAssistant.handleWebViewSingleTap(): event.altKey=%s, tapPt.left=%d, tapPt.top=%d", event.altKey, tapPt.left, tapPt.top);
++			if (event.altKey) {
++				var popupItems = [
++					{label: $L('Open URL'), command:'openNew'},
++					{label: $L('Share Link'), command:'shareUrl'},
++					{label: $L('Copy URL'), command:'copyUrl'},
++					{label: $L('Copy to Photos'), command:'copyToPhotos'},
++					{label: $L('Share Image'), command:'shareImage'} //,
++					//{label: $L('Set Wallpaper'), command:'setWallpaper'}
++				];
++
++				var findItem = function(command) {
++					var i;
++					for (i = 0; i < popupItems.length; i++) {
++						if (popupItems[i].command === command) {
++							return popupItems[i];
++						}
++					}
++				};
++
++				var selectedCommand;
++				var imageInfo;
++	
++				var saveImageCallback = function(succeeded, path) {
++					if (succeeded) {
++						switch (selectedCommand) {
++							case 'shareImage':
++								this.shareImage(imageInfo, path);
++								break;
++							case 'setWallpaper':
++								this.setWallpaper(path);
++								break;
++							case 'copyToPhotos':
++								this.showOkAlert($L('Image Saved'),
++									$L('The image was successfully added to your photo album.'));
++								break;
++						}
++					}
++					else {
++						this.showOkAlert($L('Error Saving Image'),
++								$L('There was an error saving the selected image.'));
++					}
++				}.bind(this);
++
++				var urlInfo = {};
++				var popupSelectFunc = function(value) {
++					selectedCommand = value;
++					
++					switch (value) {
++						case 'openNew':
++							this.newBrowserPage(urlInfo.url);
++							break;
++						case 'shareUrl':
++							this.shareUrl(urlInfo.url, urlInfo.desc);
++							break;
++						case 'copyUrl':
++							this.controller.stageController.setClipboard(urlInfo.url);
++							break;
++						case 'copyToPhotos':
++							this.webview.mojo.saveImageAtPoint(tapPt.left, tapPt.top, "/media/internal", saveImageCallback);
++							break;
++						case 'shareImage':
++							this.webview.mojo.saveImageAtPoint(tapPt.left, tapPt.top, "/tmp", saveImageCallback);
++							break;
++						case 'setWallpaper':
++							this.webview.mojo.saveImageAtPoint(tapPt.left, tapPt.top, "/media/internal", saveImageCallback);
++							break;
++					}
++				}.bind(this);
++
++				var imageInfoResponse = function(response) {
++					imageInfo = response;
++					var usedItems = [];
++					
++					if (urlInfo.url) {
++						usedItems.push( findItem('openNew') );
++						usedItems.push( findItem('shareUrl') );
++						usedItems.push( findItem('copyUrl') );
++					}
++				
++					if (response.src) {
++						usedItems.push( findItem('shareImage') );
++					}
++
++					if (this.supportedImageType(response.src, response.mimeType)) {
++						usedItems.push( findItem('copyToPhotos') );
++						//usedItems.push( findItem('setWallpaper') );
++					}
++					
++					if (usedItems.length) {
++						this.controller.popupSubmenu({ onChoose: popupSelectFunc, items: usedItems });
++					}
++				}.bind(this);
++
++				var urlInspectResponse = function(response) {
++					urlInfo = response || {};
++					this.webview.mojo.getImageInfoAtPoint(tapPt.left, tapPt.top, imageInfoResponse);
++				}.bind(this);
++
++				this.webview.mojo.inspectUrlAtPoint(tapPt.left, tapPt.top, urlInspectResponse);
++			}
++		}
++		catch (e) {
++			Mojo.Log.logException(e);
++		}
++	},
++	
++	supportedImageType:function(url, mimeType) {
++		switch (this.getImageType(url, mimeType)) {
++			case 'jpeg':
++			case 'png':
++			case 'bmp':	// We only support 24/32 bit BMP's and don't differentiate here
++				// GIF not yet supported
++				return true;
++			default:
++				return false;
++		}
++	},
++	
++	getImageType: function(url, mimeType) {
++		url = url || '';
++		mimeType = mimeType || '';
++		var suffix = '';
++		try {
++			suffix = this.getResourceExtension(url);
++			if (suffix === null) {
++				suffix = '';
++			}
++		}
++		catch (e) {
++			Mojo.Log.logException(e);
++		}
++
++		suffix = suffix.toLowerCase();
++		mimeType = mimeType.toLowerCase();
++
++		if (suffix === 'jpg' || suffix === 'jpeg' || suffix === 'jpe' || mimeType === 'image/jpeg') {
++			return 'jpeg';
++		}
++		else if (suffix === 'bmp' || mimeType === 'image/bmp') {
++			return 'bmp';
++		}
++		else if (suffix === 'png' || mimeType === 'image/png') {
++			return 'png';
++		}
++		else if (suffix === 'gif' || mimeType === 'image/gif') {
++			return 'gif';
++		}
++		else {
++			return 'unknown';
++		}
++	},
++	
++	getResourceExtension: function(url) {
++		var p = new Poly9.URLParser(url);
++
++		var matches = p.getPathname().match(/\.([^\.]*)$/i);
++		if (matches) {
++			return matches[1];
++		}
++		else {
++			return null;
++		}
++	},
++	
++	newBrowserPage: function(url) {
++		this.controller.serviceRequest('palm://com.palm.applicationManager',
++			{
++				method: 'open',
++				parameters: {target: url}
++			});
++	},
++	
++	shareUrl: function(url, title) {
++		if (url === undefined) {
++			return;
++		}
++
++		if (!title) {
++			try {
++				title = $L("page at #{host}").interpolate({host: UrlUtil.getUrlHost(url)});
++			}
++			catch (e) {
++				title = url;
++			}
++		}
++
++		var text = $L("Here's a website I think you'll like: <a href='#{src}'>#{title}</a>").interpolate(
++				{src: url, title: title});
++		var parameters = {
++			summary: $L('Check out this web page...'),
++			text: text
++		};
++		var email = new Email();
++		email.evalParams(parameters);
++		AppAssistant.openComposeStage(email);
++	},
++	
++	shareImage: function(imageInfoObj, pathToImage) {
++		var title;
++		if (imageInfoObj.title && imageInfoObj.title.length) {
++			title = imageInfoObj.title;
++		}
++		else if (imageInfoObj.altText && imageInfoObj.altText.length) {
++			title = imageInfoObj.altText;
++		}
++		else {
++			var p = new Poly9.URLParser(imageInfoObj.src);
++			title = $L('picture link');
++			try {
++				if (imageInfoObj.src !== 'data:') {
++					title = $L("picture at #{host}").interpolate(
++							{host: p.getHost()});
++				}
++			}
++			catch (e) {}
++		}
++
++		var text = $L("Here's a picture I think you'll like: <a href='#{src}'>#{title}</a>").interpolate(
++				{src: imageInfoObj.src, title: title});
++
++		var parameters = {
++			summary: $L('Check out this picture...'),
++			text: text,
++			attachments: [{fullPath: pathToImage}]
++		};
++		var email = new Email();
++		email.evalParams(parameters);
++		AppAssistant.openComposeStage(email);
++	},
++	
++	setWallpaper: function(pathToImage) {
++		var errorTitle = $L("Error Setting Wallpaper");
++	
++		var onSetSuccess = function(response) {
++			this.showOkAlert($L("Wallpaper has been set"),
++					$L("The image has been successfully set as your wallpaper."));
++		}.bind(this);
++	
++		var onSetFailure = function(response) {
++			this.showOkAlert(errorTitle, $L("Cannot set picture as current wallpaper."));
++		}.bind(this);
++
++		var onImportSuccess = function(response) {
++			this.controller.serviceRequest('palm://com.palm.systemservice/',
++			{
++				method : 'setPreferences',
++				parameters: {wallpaper: response.wallpaper},
++				onSuccess: onSetSuccess,
++				onFailure: onSetFailure
++			});
++		}.bind(this);
++	
++		var onImportFailure = function() {
++			this.showOkAlert(errorTitle, $L("Cannot import picture into wallpaper database."));
++		}.bind(this);
++
++		this.controller.serviceRequest('palm://com.palm.systemservice/', {
++				method : 'wallpaper/importWallpaper',
++				parameters: {
++					target: encodeURIComponent(pathToImage),
++					scale: "1.0"
++				},
++				onSuccess: onImportSuccess,
++				onFailure: onImportFailure
++			});
++	},
++	
++	showOkAlert: function(title, message)
++	{
++		this.controller.showAlertDialog({
++			title: title, message: message,
++			choices:[{label:$L('OK'), value:'1', type:'dismiss'}]
++		});
++	},
++
++	handleNextMessagesResponse: function(response) {
++		this.nextMessages = response;
++		
++		var prevEmail = this.controller.get('previous_email');
++		if (!prevEmail) {
++			Mojo.Log.error("previous_email element does not yet exist");
++		} else {
++			if (response.newer === undefined || response.newer.end) {
++				// hide 'previous_email' because there's no more emails in that direction
++				prevEmail.addClassName('disabled');
++			} else {
++				prevEmail.removeClassName('disabled');
++			}
++		}
++
++		var nextEmail = this.controller.get('next_email');
++		if (!nextEmail) {
++			Mojo.Log.error("next_email element does not yet exist");
++		} else {
++			if (response.older === undefined || response.older.end) {
++				// hide 'next_email' because there's no more emails in that direction
++				nextEmail.addClassName('disabled');
++			} else {
++				nextEmail.removeClassName('disabled');
++			}
++		}
++	},
++
++	gotoNextEmail: function(direction) {
++		if (this.nextMessages !== undefined && this.nextMessages[direction] !== undefined) {
++			var details = this.nextMessages[direction];
++			if (!details.end && details.id > 0) {
++				if (this.transition !== null) {
++					this.transition.cleanup();
++				}
++				this.transition = this.controller.prepareTransition(Mojo.Transition.crossFade, false);
++				this.prepareForNewMessage(details);
++			}
++		}
++	},
++
++	prepareForNewMessage: function(details) {
++		this.data = { id: details.id, senderDetails:{} }; // data.id
++		this.account = {};
++		this.gotFirstResponse = false;
++		this.bodyLeftOffset = 0;
++		// Clear out the old email body by loading a simple empty page
++		this.webview.mojo.openURL(Mojo.appPath + "emptypage.html");
++		this.plainTextBody.hide();
++
++		// stop listening to all these
++		this.controller.get('previous_email').stopObserving(Mojo.Event.tap, this.boundGotoNextEmailNewer);
++		this.controller.get('next_email').stopObserving(Mojo.Event.tap, this.boundGotoNextEmailOlder);
++		if (this.recipientController) {
++			this.recipientController.up(".palm-row").stopObserving(Mojo.Event.tap, this.boundShowHideRecipients, true);
++		}
++		var elem;
++		elem = this.controller.get('invite-accept');
++		if (elem) {
++			elem.stopObserving(Mojo.Event.tap, this.boundHandleInviteResponseAccept);
++		}
++		elem = this.controller.get('invite-tentative');
++		if (elem) {
++			elem.stopObserving(Mojo.Event.tap, this.boundHandleInviteResponseTentative);
++		}
++		this.controller.get('invite-decline');
++		if (elem) {
++			elem.stopObserving(Mojo.Event.tap, this.boundHandleInviteResponseDecline);
++		}
++
++		// reset the horizontal positioning of these two blocks.
++		this.emailHeaderBlock.setStyle({ 'left': '0px' });
++		this.emailPicturesBlock.setStyle({ 'left': '0px' });
++
++		// Subscribe to the new message
++		if (this.waitingForMessageBodyTimeout !== undefined) {
++			clearTimeout(this.waitingForMessageBodyTimeout);
++			this.waitingForMessageBodyTimeout = undefined;
++		}
++		if (this.messageSubscription) {
++			this.messageSubscription.cancel();
++		}
++		this.messageSubscription = new Mojo.Service.Request(Message.identifier, {
++				method: 'messageDetail',
++				parameters: { 'message':this.data.id, subscribe:true },
++				onSuccess: this.messageDetailsUpdated.bind(this),
++				onFailure: this.waitMessageError.bind(this)
++			});
++
++		Message.getFolderAndAccount(this.controller, this.data.id, this.folderAndAccountDetails.bind(this));
++	},
++
++	/**
++	 * Called by the webview widget when setup is complete?
++	 */
++	ready: function() {
++	    this.webview.mojo.addUrlRedirect("^file:.*", false, "", 0);
++	    this.webview.mojo.addUrlRedirect(".*", true, "", 0);
++	},
++
++	setupMessage: function() {
++		// Setup the WebView for the body text
++		// TODO autowidth to true?
++		var emailStageController = Mojo.Controller.appController.getStageController("email");
++	    var attr = {minFontSize:18,
++					cacheAdapter:true,
++					fitWidth: false,
++					virtualpagewidth: emailStageController.window.innerWidth,
++					minimumpageheight: 32, // Start out very short in case the message body empty
++					showClickedLink:true};
++	    this.controller.setupWidget('email_body_text', attr);
++		this.controller.setupWidget('email_no_body_spinner', { spinnerSize: Mojo.Widget.spinnerSmall });
++
++		this.webview = this.controller.get('email_body_text');
++		this.webview.addEventListener(Mojo.Event.webViewUrlRedirect, this.boundHandleLinkClicked, false);
++		this.webview.addEventListener(Mojo.Event.webViewMimeNotSupported, this.boundHandleLinkClicked, false);
++		this.webview.addEventListener(Mojo.Event.webViewMimeHandoff, this.boundHandleLinkClicked, false);
++		this.webview.addEventListener(Mojo.Event.webViewImageSaved, this.boundHandleInlineImageSaved, false);
++		this.webview.addEventListener('singletap', this.boundHandleWebViewSingleTap, true);
++		
++		this.waitingForMessageBody = undefined;
++		// subscribe to the message details because the transport may need to send updates in the case where the
++		// email body and/or attachments isn't yet downloaded
++		this.messageSubscription = new Mojo.Service.Request(Message.identifier, {
++				method: 'messageDetail',
++				parameters: { 'message':this.data.id, subscribe:true },
++				onSuccess: this.messageDetailsUpdated.bind(this),
++				onFailure: this.waitMessageError.bind(this)
++			});
++	},
++
++	orientationChanged: function(orientation) {
++		if (orientation === "left" || orientation === "right") {
++			this.controller.sceneElement.addClassName('landscape');
++		} else {
++			this.controller.sceneElement.removeClassName('landscape');
++		}
++	},
++
++	focusEmailStage: function() {
++		if (this.focusStageTimer) {
++			this.focusStageTimer = undefined;
++			AppAssistant.focusEmailStage();
++		}			
++	},
++
++	// This is called from accountpreference assistant when the user removes the account
++	accountDeletedNotification: function(accountId) {
++		if (accountId === this.account.account) {
++			Mojo.Log.warn("MessageAssistant is showing a deleted account, setting up for cleanup");
++			this.popOnActivate = true;
++		}
++	},
++
++	setup: function() {
++		this.delayActivate = true;
++		this.messageTarget = this.controller.get('readview-main');
++		this.messageTarget.observe('mousedown', this.hideAttachmentList.bind(this), true);
++		this.setupMessage();
++
++		this.emailHeaderBlock = this.controller.get('email_header_block');
++		this.plainTextBody = this.controller.get('email_text');
++		this.emailPicturesBlock = this.controller.get('email_pictures_list');
++
++		this.controller.get('email-readview-attachments-list').observe(Mojo.Event.tap, this.handleAttachmentTapped.bind(this));
++		this.attachmentsShowElem = this.controller.get('show-hide-multi-attachments');
++		this.attachmentsShowElem.observe(Mojo.Event.tap, this.showHideAttachmentList.bind(this));
++		
++		this.cmdMenuModel = {
++				visible:true,
++				items: [
++					{label:$L('Reply'),     icon:'reply',     command:'reply'},
++					{label:$L('Reply all'), icon:'reply-all', command:'replyAll'},
++					{label:$L('Forward'),   icon:'forward-email', command:'forward'},
++					{label:$L('Delete'),    icon:'delete',    command:'delete'}
++				]};
++		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
++		
++		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread,     command:'mark-unread'};
++		this.markSetFlagMenuItem =    {label:MessageAssistant.kAppMenuSetFlag,        command:'flag'};
++		this.appMenuModel = {
++				visible:true,
++				items: [
++					this.markUnreadMenuItem,
++					this.markSetFlagMenuItem,
++					{label:$L('Move to folder...'),   command:'move'}
++				]};
++		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
++		
++		Message.getFolderAndAccount(this.controller, this.data.id, this.folderAndAccountDetails.bind(this));
++
++		this.recipsDrawer = { openProperty: false };
++		this.controller.setupWidget('email_recipients_drawer', {unstyled:true, modelProperty:'openProperty'}, this.recipsDrawer);
++		this.recipsDrawer.element = this.controller.get('email_recipients_drawer');
++
++		this.emailPicturesBlock.observe(Mojo.Event.tap, this.handleImageTapped.bind(this));
++		// stop gesture events on pictures so they don't go to the webview widget
++		this.emailPicturesBlock.observe('gesturestart', function(event) { event.stop(); }, false);
++		this.emailPicturesBlock.observe('gesturechange', function(event) { event.stop(); }, false);
++		this.emailPicturesBlock.observe('gestureend', function(event) { event.stop(); }, false);
++
++		this.controller.get('email_from').observe(Mojo.Event.tap, this.handleSenderTap.bind(this));
++		this.controller.get('email_recipients').observe(Mojo.Event.tap, this.handleRecipientListSelect.bind(this));
++
++		this.boundUpdateRecipientStatus = this.updateRecipientStatus.bind(this);
++		Mojo.Event.listen(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
++
++		Mojo.Event.listen(this.controller.getSceneScroller(), Mojo.Event.scrollStarting, this.addAsScrollListener.bind(this));
++	},
++
++	cleanup: function() {
++		if (this.waitingForMessageBodyTimeout !== undefined) {
++			clearTimeout(this.waitingForMessageBodyTimeout);
++			this.waitingForMessageBodyTimeout = undefined;
++		}
++
++		if (this.focusStageTimer !== undefined) {
++			clearTimeout(this.focusStageTimer);
++		}
++
++		this.webview.removeEventListener(Mojo.Event.webViewUrlRedirect, this.boundHandleLinkClicked, false);
++		this.webview.removeEventListener(Mojo.Event.webViewMimeNotSupported, this.boundHandleLinkClicked, false);
++		this.webview.removeEventListener(Mojo.Event.webViewMimeHandoff, this.boundHandleLinkClicked, false);
++		this.webview.removeEventListener(Mojo.Event.webViewImageSaved, this.boundHandleInlineImageSaved, false);
++		this.webview.removeEventListener('singletap', this.boundHandleWebViewSingleTap, true);
++
++		if (this.messageSubscription) {
++			this.messageSubscription.cancel();
++		}
++		Mojo.Event.stopListening(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
++		Message.closeMessage(this.controller, this.data.id);
++	},
++
++	aboutToActivate: function(callback) {
++		if (this.delayActivate === true) {
++			this.readyToActivateCallback = callback;
++		} else {
++			callback();
++		}
++	},
++
++	activate: function() {
++  		// If the scene is invalid (usually because the underlying account was deleted), 
++		// just pop the scene and no more.
++  		if (this.popOnActivate === true) {
++			this.controller.stageController.popScene();
++			return;
++		}
++
++		// save the current scene controller physics parameters
++		var scroller = this.controller.getSceneScroller();
++		this.savedFlickSpeed = scroller.mojo.kFlickSpeed;
++		this.savedFlickRatio = scroller.mojo.kFlickRatio;
++		scroller.mojo.updatePhysicsParameters({flickSpeed: 0.12, flickRatio: 0.2});
++
++		// If the scene is ready to activate and it needs to be focused, do that now.
++		if (this.focusStageTimer !== undefined) {
++			clearTimeout(this.focusStageTimer);
++			this.focusEmailStage();
++		}
++
++		// prerenderData is only set if the data was supplied from the list assistant. If the
++		// service already send a response, it will not include the prerenderData property.
++ 		if (this.data.prerenderData === true) {
++			this.prerenderMessage(this.data);
++		}
++	},
++
++	deactivate: function() {
++		// restore the current scene controller physics parameters
++		var scroller = this.controller.getSceneScroller();
++		scroller.mojo.updatePhysicsParameters({flickSpeed: this.savedFlickSpeed, flickRatio: this.savedFlickRatio});
++	},
++
++	reply: function() {
++		Email.setRead(this.data.id, true);
++		
++		var email = new Email();
++		email.createReply(this.data, this.account.login);
++		MenuController.showComposeView(email);
++	},
++
++	replyAll: function() {
++		Email.setRead(this.data.id, true);
++		
++		var email = new Email();
++		email.createReplyAll(this.data, this.account.login);
++		MenuController.showComposeView(email);
++	},
++
++	forward: function() {
++		Email.setRead(this.data.id, true);
++		
++		var email = new Email();
++		email.createForward(this.data, this.account.login);
++		MenuController.showComposeView(email);
++	},
++
++	deleteEmail: function() {
++		Email.setRead(this.data.id, true);
++		
++		Email.setDeleted(this.data.id, true);
++		this.controller.stageController.popScene();
++	}
++});
++
++MessageAssistant.kAppMenuMarkRead = $L('Mark as read');
++MessageAssistant.kAppMenuMarkUnread = $L('Mark as unread');
++MessageAssistant.kAppMenuSetFlag = $L('Set flag');
++MessageAssistant.kAppMenuClearFlag = $L('Clear flag');
++
++
