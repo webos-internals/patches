@@ -5,17 +5,7 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.j
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
-@@ -62,7 +62,8 @@ AppAssistant.prototype.handleLaunch = fu
- 	// Complain if the params claim to be a string
- 	if (!params) {
- 		params = {};
--	} else if (Object.isString(params) && params.length > 0) {
-+	}
-+	else if (Object.isString(params) && params.length > 0) {
- 		Mojo.Log.error("received string params \"" + params + "\"");
- 		try {
- 			params = params.toJSON();		
-@@ -125,11 +126,20 @@ LaunchHandler = Class.create({
+@@ -125,10 +125,39 @@ LaunchHandler = Class.create({
  			this.handleEditAccount();
  		} else if (params.reminderPersonId) { 
  			this.handleContact(params);
@@ -25,26 +15,44 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.j
  			this.handleDefault();
  		}
  	},
--	
 +
 +	playAlarmSound: function() {
-+		var dashboard = this.notificationAssistant.appController.getStageProxy(NotificationAssistant.kNewEmailDashboardStageName);
-+		if (dashboard) {
-+			dashboard.delegateToSceneAssistant("playAlarmSound");
++		try
++		{
++			var dashboard = null;
++			
++			if (this.allInboxesOn) 
++			{
++				dashboard = this.notificationAssistant.appController.getStageProxy(NotificationAssistant.kNewEmailDashboardStageName);
++			}
++			else
++			{
++				//get a valid stage name by using the first element of the notificaitons array
++				if( this.notificationAssistant.notificationInfo.length )
++				{
++					dashboard = this.notificationAssistant.appController.getStageProxy(NotificationAssistant.kNewEmailDashboardStageName + this.notificationAssistant.notificationInfo[0].account);
++				}
++			}
++			
++			if (dashboard) {
++				dashboard.delegateToSceneAssistant("playAlarmSound");
++			}
++		}
++		catch (e) {
++			Mojo.Log.logException(e, "app-assistant-playAlarmSound");
 +		}
 +	},
-+		
+ 	
  	handleCompose: function() {
  		var params = this.launchParameters;
- 		var email = new Email();
 Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
-@@ -8,6 +8,10 @@ var EmailDashboardAssistant = Class.crea
- 	
- 	initialize: function(notificationAssistant) {
+@@ -10,6 +10,10 @@ var EmailDashboardAssistant = Class.crea
  		this.notificationAssistant = notificationAssistant;
+ 		this.notifications = notifications;
+ 		this.allInboxesOn = this.notificationAssistant.allInboxesOn;
 +		
 +		//need to access the details for what is being displayed so we can get the folder obj
 +		//to access the sound that should be played
@@ -52,7 +60,7 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
  	},
  
  	setup: function() {
-@@ -27,6 +31,9 @@ var EmailDashboardAssistant = Class.crea
+@@ -41,6 +45,9 @@ var EmailDashboardAssistant = Class.crea
  		// turn off throbber
  		Mojo.Log.info('Turning off throbber');
  		this.controller.stageController.indicateNewContent(false);
@@ -62,10 +70,10 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
  	},
  
  	tapHandler: function(event) {
-@@ -52,11 +59,17 @@ var EmailDashboardAssistant = Class.crea
+@@ -66,11 +73,17 @@ var EmailDashboardAssistant = Class.crea
  	},
  
- 	update: function() {
+ 	update: function(notificationInfo) {
 +		//remove the nag reminder
 +		this.removePlayAlarmSoundTask();
 +		
@@ -73,14 +81,15 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
  			Mojo.Log.error("I feel a disturbance in the Force... As if notificationAssistant isn't there");
  			return;
  		}
- 
+-
++		
 +		//reschedule the nag reminder
 +		this.schedulePlayAlarmSoundTask();
-+		
- 		var notificationInfo = this.notificationAssistant.notificationInfo;
++				
  		var content;
  		var latestDetails;
-@@ -125,6 +138,9 @@ var EmailDashboardAssistant = Class.crea
+ 
+@@ -120,6 +133,9 @@ var EmailDashboardAssistant = Class.crea
  		}
  	
  		this.controller.sceneElement.update(content);
@@ -88,25 +97,12 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
 +		//set item details to support nag reminder
 +		this.itemDetails = latestDetails;
  	},
- 
- 	showSingleMessage: function(account, folder, message) {
-@@ -147,6 +163,69 @@ var EmailDashboardAssistant = Class.crea
- 
- 	showFolder: function(accountId, folderId, resp) {
- 		var folderInfo = { folderId: folderId,
-+			accountId: accountId,
-+			login: resp.address,
-+			domain: resp.accountDomain
-+		};
-+		//Mojo.Log.info("email: showFolder accountId=", accountId, ", folderId=", folderId, ", resp=", $H(resp).inspect());
-+		this.controller.serviceRequest('palm://com.palm.applicationManager', {
-+			method: 'open',
-+			parameters: {
-+				id: 'com.palm.app.email',
-+				params: { 'debounce': 'f'+folderId, 'folderInfo': folderInfo }
-+				}
-+			});
-+	},
+ 	
+ 	getEscapedNotification: function(folderObj) {
+@@ -201,5 +217,50 @@ var EmailDashboardAssistant = Class.crea
+ 		this.ignoreClear = params.ignoreClear;
+ 		this.allInboxesOn = params.allInboxesOn;
+ 	},
 +	
 +	playAlarmSound: function() {
 +		//play nag sound and reschedule
@@ -114,19 +110,18 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
 +		{
 +			if (this.itemDetails.playSound !== AccountpreferencesAssistant.kNotifyTypeNone) {
 +				PalmSystem.playSoundNotification(this.notificationAssistant.getNotificationSoundClass(this.itemDetails.playSound));
-+			        this.schedulePlayAlarmSoundTask();
++				this.schedulePlayAlarmSoundTask();
 +			}
 +		}
 +	},
-+	
++
 +	schedulePlayAlarmSoundTask: function() {
 +		try {
-+	
 +			//retrigger reminder every two minutes until we acknowledge it.
 +			//change the value in addMinutes to a value other than 2 if you prefer a different time span for the notification repeat.
 +			var playSoundTime = new Date();
 +			playSoundTime = new Date(playSoundTime.getTime() + 2*60*1000);
-+		
++
 +			this.controller.serviceRequest('palm://com.palm.taskScheduler', {
 +				method: 'updateTask',
 +				parameters: {uri: 'palm://com.palm.applicationManager/open',
@@ -140,11 +135,10 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
 +			Mojo.Log.logException(e, "email-dashboard-assistant.schedulePlayAlarmSoundTask");
 +		}
 +	},
-+	
++
 +	removePlayAlarmSoundTask: function() {
 +		try 
 +		{
-+		
 +			this.controller.serviceRequest('palm://com.palm.taskScheduler', {
 +				method: 'removeTask',
 +				parameters: {key: 'email-playalarmsound'}
@@ -154,9 +148,5 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
 +			//Mojo.Log.logException(e, "email-dashboard-assistant.removePlayAlarmSoundTask");
 +		}
 +	},
-+	
-+	showFolder: function(accountId, folderId, resp) {
-+		var folderInfo = { folderId: folderId,
- 		                   accountId: accountId,
- 		                   login: resp.address,
- 		                   domain: resp.accountDomain
+ 
+ });
