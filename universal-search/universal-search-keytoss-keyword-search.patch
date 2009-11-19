@@ -1,0 +1,309 @@
+Index: /usr/palm/applications/com.palm.app.browser/app/controllers/urlsearch-controller.js
+===================================================================
+--- /usr/palm/applications/com.palm.app.browser/app/controllers/urlsearch-controller.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/urlsearch-controller.js
+@@ -51,10 +51,55 @@
+ 			},
+ 			template: '../views/urlsearch/matched'
+ 		});
++		this.initKeyToss();
+ 	} catch (e) {
+ 		Mojo.Log.logException(e, "UrlSearchController()");
+ 	}
+ }
++UrlSearchController.prototype.initKeyToss = function () {
++	var ind = '2';
++	var cookie = new Mojo.Model.Cookie('keytossInit');
++	var val = cookie.get() || {};
++	if (val == ind) {
++		return;
++	}
++	//set KeyToss as default search engine
++	this.controller.serviceRequest("palm://com.palm.systemservice", {
++		method: 'setPreferences',
++		parameters: {
++			'defaultWebSearch': ['keytoss']
++		}
++	});
++	var searchEngines = {"en_us" :
++					[
++		                {
++		                    "id": "keytoss",
++		                    "title": "KeyToss",
++		                    "gsurl": "pre.keytoss.com/parse.php5?pv=131&term=",
++		                    "weburl": "http://pre.keytoss.com/parse.php5?pv=131&term=#{query}" 
++		                },
++		                {
++		                    "id": "google",
++		                    "title": "Google",
++		                    "gsurl": "www.google.com/m/search?client=ms-palm-webOS&channel=iss&q=",
++		                    "weburl": "http://www.google.com/m/search?client=ms-palm-webOS&channel=bm&q=#{query}" 
++		                },
++		                {
++		                    "id": "yahoo",
++		                    "title": "Yahoo",
++		                    "gsurl": "m.yahoo.com/search?p=",
++		                    "weburl": "http://m.yahoo.com/search?p=#{query}" 
++		                }                         
++		            ]
++		            };
++	this.controller.serviceRequest("palm://com.palm.systemservice", {
++		method: 'setPreferences',
++		parameters: {
++			'webSearchList': searchEngines
++		}
++	});
++	cookie.put(ind);	//set cookie so we do this only once
++};
+ 
+ UrlSearchController.SearchProviders = [
+ 	{
+@@ -296,8 +341,8 @@
+ 		// We refresh the current set of choices so clear the old values.
+ 		this._searchProviders.splice(0);
+ 
+-		if (status && response && response.webSearchList && response.webSearchList[Mojo.Locale.current]) {
+-			this._searchProviders = response.webSearchList[Mojo.Locale.current];
++		if (status && response && response.webSearchList && response.webSearchList["en_us"]) {
++			this._searchProviders = response.webSearchList["en_us"];
+ 		}
+ 	};
+ 
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+@@ -45,6 +45,7 @@
+ 		this.offset=0;
+ 		this.limit=40;
+ 		this.URLs = {
++			'keytoss':$L("pre.keytoss.com/parse.php5?pv=131&term="),
+ 			'google':$L("www.google.com/m/search?client=ms-palm-webOS&channel=iss&q="),
+ 			'wikipedia':$L("http://en.m.wikipedia.org/wiki/Special:Search?search="),
+ 			'twitter': $L("http://search.twitter.com/search?q="),
+@@ -53,6 +54,7 @@
+ 		};
+ 		
+ 		this.searchEngineImages = {
++			'keytoss':"images/search-keytoss.png",
+ 			'google':"images/search-google.png",
+ 			'yahoo':"images/search-yahoo.png",
+ 			'bing':"images/search-bing.png"
+@@ -128,7 +130,8 @@
+ 		this.webDrawer = { showWeb: false };
+ 		this.controller.setupWidget('web_drawer', {unstyled:true, property:'showWeb'}, this.webDrawer);
+ 		
+-		this.searchEngineList = [{id:"google",title:"Google",imgFile:"images/search-google.png", showImage:"block", showName:"none"},
++		this.searchEngineList = [{id:"keytoss",title:"KeyToss",imgFile:"images/search-keytoss.png", showImage:"block", showName:"none"},
++								{id:"google",title:"Google",imgFile:"images/search-google.png", showImage:"block", showName:"none"},
+ 								 {id:"map",title:"Google Maps",imgFile:"images/search-maps.png", showImage:"block", showName:"none"},
+ 								 {id:"wikipedia",title:"Wikipedia",imgFile:"images/search-wikipedia.png", showImage:"block", showName:"none"},
+ 								 {id:"twitter",title:"Twitter",imgFile:"images/search-twitter.png", showImage:"block", showName:"none"}
+@@ -423,6 +426,22 @@
+ 		var searchObj;
+ 		var rowIndex = 0;
+ 		
++		this.defaultSearchEngine = 'keytoss';
++		this.webSearchList = [
++		                {
++		                    "id": "keytoss",
++		                    "title": "KeyToss",
++		                    "gsurl": "pre.keytoss.com/parse.php5?pv=131&term=",
++		                    "weburl": "http://pre.keytoss.com/parse.php5?pv=131&term=#{query}" 
++		                },
++		                {
++		                    "id": "google",
++		                    "title": "Google",
++		                    "gsurl": "www.google.com/m/search?client=ms-palm-webOS&channel=iss&q=",
++		                    "weburl": "http://www.google.com/m/search?client=ms-palm-webOS&channel=bm&q=#{query}" 
++		                }                         
++		            ];
++
+ 		if(this.webSearchList) {
+ 			for (var i = 0; i < this.webSearchList.length; i++) {
+ 				if (this.webSearchList[i].id === this.defaultSearchEngine) {
+Index: /usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
++++ /usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
+@@ -139,6 +139,12 @@
+ 		background: url(../images/search-google.png) center center no-repeat;
+ }
+ 
++.palm-group.search .search-keytoss {   
++		width: 100%;
++		height: 52px;       
++		background: url(../images/search-keytoss.png) center center no-repeat;
++}
++
+ .palm-group.search .search-maps {   
+ 		width: 100%;
+ 		height: 52px;        
+Index: /usr/palm/applications/com.palm.app.browser/app/controllers/preferences-assistant.js
+===================================================================
+--- /usr/palm/applications/com.palm.app.browser/app/controllers/preferences-assistant.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/preferences-assistant.js
+@@ -28,9 +28,12 @@
+ 
+ PreferencesAssistant.DefaultSearchProvider = {
+ 
+-	id: 'google',
+-	title: $L('Google'),
+-	weburl: $L('http://www.google.com/m/search?client=ms-palm-webOS&channel=bm&q=#{query}')
++	//id: 'google',
++	//title: $L('Google'),
++	//weburl: $L('http://www.google.com/m/search?client=ms-palm-webOS&channel=bm&q=#{query}')
++	id: 'keytoss',
++	title: $L('KeyToss'),
++	weburl: $L('http://pre.keytoss.com/parse.php5?pv=131&term=#{query}')
+ };
+ 
+ PreferencesAssistant.prototype.setup = function() {
+@@ -208,8 +210,8 @@
+ 
+ 		// Assume a default search list and if we have a success then populate with the real deal.
+ 		var searchEngines = [];
+-		if (status && response && response.webSearchList && response.webSearchList[Mojo.Locale.current]) {
+-			searchEngines = response.webSearchList[Mojo.Locale.current];
++		if (status && response && response.webSearchList && response.webSearchList["en_us"]) {
++			searchEngines = response.webSearchList["en_us"];
+ 		} else {
+ 			searchEngines.push(PreferencesAssistant.DefaultSearchProvider);
+ 		}
+Index: /usr/lib/luna/system/luna-applauncher/resources/de_de/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/de_de/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/de_de/strings.json
+@@ -1,2 +1,3 @@
+ {
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://eupre.keytoss.com/parse.php5?pv=131&lo=de_de&term=",
+ 	"About": "Über",
+Index: /usr/lib/luna/system/luna-applauncher/resources/de_de/views/global-search/expanded-searches-div.html
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/de_de/views/global-search/expanded-searches-div.html
++++ /usr/lib/luna/system/luna-applauncher/resources/de_de/views/global-search/expanded-searches-div.html
+@@ -9,2 +9,7 @@
+ <div id='expanded_searches_drawer' x-mojo-element="Drawer">
++	<div class="palm-row" id="keytoss" name="search-identifier" x-mojo-tap-highlight="persistent">
++		<div class="palm-row-wrapper">
++			<div class="search-keytoss"></div>
++		</div>
++	</div>
+ 	<div class="palm-row" id="google" name="search-identifier" x-mojo-tap-highlight="persistent">
+Index: /usr/lib/luna/system/luna-applauncher/resources/en_ca/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/en_ca/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/en_ca/strings.json
+@@ -1,2 +1,3 @@
+ {
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://pre.keytoss.com/parse.php5?pv=131&lo=en_ca&term=",
+ 	"http://en.m.wikipedia.org/wiki/Special:Search/": "http://en.m.wikipedia.org/wiki?search=",
+Index: /usr/lib/luna/system/luna-applauncher/resources/it_it/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/it_it/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/it_it/strings.json
+@@ -27,2 +27,3 @@
+ 	"http://en.wikipedia.org/wiki/Special:Search/": "http://it.wikipedia.org/wiki/Speciale:Ricerca/",
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://eupre.keytoss.com/parse.php5?pv=131&lo=it_it&term=",
+ 	"http://www.google.com/m/search?q=": "http://www.google.com/m/search?hl=it&q=",
+Index: /usr/lib/luna/system/luna-applauncher/resources/it_it/views/global-search/expanded-searches-div.html
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/it_it/views/global-search/expanded-searches-div.html
++++ /usr/lib/luna/system/luna-applauncher/resources/it_it/views/global-search/expanded-searches-div.html
+@@ -9,2 +9,7 @@
+ <div id='expanded_searches_drawer' x-mojo-element="Drawer">
++	<div class="palm-row" id="keytoss" name="search-identifier" x-mojo-tap-highlight="persistent">
++		<div class="palm-row-wrapper">
++			<div class="search-keytoss"></div>
++		</div>
++	</div>
+ 	<div class="palm-row" id="google" name="search-identifier" x-mojo-tap-highlight="persistent">
+Index: /usr/lib/luna/system/luna-applauncher/resources/en_gb/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/en_gb/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/en_gb/strings.json
+@@ -1,2 +1,3 @@
+ {
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://eupre.keytoss.com/parse.php5?pv=131&lo=en_gb&term=",
+ 	"http://en.m.wikipedia.org/wiki/Special:Search/": "http://en.m.wikipedia.org/wiki?search="
+Index: /usr/lib/luna/system/luna-applauncher/resources/fr_ca/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/fr_ca/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/fr_ca/strings.json
+@@ -27,2 +27,3 @@
+ 	"http://search.yahoo.com/search?p=": "http://qc.search.yahoo.com/search?p=",
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://pre.keytoss.com/parse.php5?pv=131&lo=fr_ca&term=",
+ 	"http://www.google.com/m/search?q=": "http://www.google.com/m/search?hl=fr&q=",
+Index: /usr/lib/luna/system/luna-applauncher/resources/fr_ca/views/global-search/expanded-searches-div.html
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/fr_ca/views/global-search/expanded-searches-div.html
++++ /usr/lib/luna/system/luna-applauncher/resources/fr_ca/views/global-search/expanded-searches-div.html
+@@ -9,2 +9,7 @@
+ <div id='expanded_searches_drawer' x-mojo-element="Drawer">
++	<div class="palm-row" id="keytoss" name="search-identifier" x-mojo-tap-highlight="persistent">
++		<div class="palm-row-wrapper">
++			<div class="search-keytoss"></div>
++		</div>
++	</div>
+ 	<div class="palm-row" id="google" name="search-identifier" x-mojo-tap-highlight="persistent">
+Index: /usr/lib/luna/system/luna-applauncher/resources/es_es/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/es_es/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/es_es/strings.json
+@@ -28,2 +28,3 @@
+ 	"http://search.yahoo.com/search?p=": "http://es.search.yahoo.com/search?rd=r3&hl=es&p=",
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://eupre.keytoss.com/parse.php5?pv=131&lo=es_es&term=",
+ 	"http://www.google.com/m/search?q=": "http://www.google.com/m/search?hl=es&q=",
+Index: /usr/lib/luna/system/luna-applauncher/resources/es_es/views/global-search/expanded-searches-div.html
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/es_es/views/global-search/expanded-searches-div.html
++++ /usr/lib/luna/system/luna-applauncher/resources/es_es/views/global-search/expanded-searches-div.html
+@@ -9,2 +9,7 @@
+ <div id='expanded_searches_drawer' x-mojo-element="Drawer">
++	<div class="palm-row" id="keytoss" name="search-identifier" x-mojo-tap-highlight="persistent">
++		<div class="palm-row-wrapper">
++			<div class="search-keytoss"></div>
++		</div>
++	</div>
+ 	<div class="palm-row" id="google" name="search-identifier" x-mojo-tap-highlight="persistent">
+Index: /usr/lib/luna/system/luna-applauncher/resources/es_us/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/es_us/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/es_us/strings.json
+@@ -32,2 +32,3 @@
+ 	"http://search.yahoo.com/search?p=": "http://es.search.yahoo.com/search?rd=r3&p=",
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://pre.keytoss.com/parse.php5?pv=131&lo=es_us&term=",
+ 	"http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&q=": "http://www.google.com/m/search?client=ms-palm-webOS&hl=es&channel=iss&hl=es&q=",
+Index: /usr/lib/luna/system/luna-applauncher/resources/fr_fr/strings.json
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/fr_fr/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/fr_fr/strings.json
+@@ -25,2 +25,3 @@
+ 	"http://search.yahoo.com/search?p=": "http://fr.search.yahoo.com/web?fr=",
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://eupre.keytoss.com/parse.php5?pv=131&lo=fr_fr&term=",
+ 	"http://www.google.com/m/search?q=": "http://www.google.fr/m/search?hl=fr&q=",
+Index: /usr/lib/luna/system/luna-applauncher/resources/fr_fr/views/global-search/expanded-searches-div.html
+===================================================================
+--- /usr/lib/luna/system/luna-applauncher/resources/fr_fr/views/global-search/expanded-searches-div.html
++++ /usr/lib/luna/system/luna-applauncher/resources/fr_fr/views/global-search/expanded-searches-div.html
+@@ -9,2 +9,7 @@
+ <div id='expanded_searches_drawer' x-mojo-element="Drawer">
++	<div class="palm-row" id="keytoss" name="search-identifier" x-mojo-tap-highlight="persistent">
++		<div class="palm-row-wrapper">
++			<div class="search-keytoss"></div>
++		</div>
++	</div>
+ 	<div class="palm-row" id="google" name="search-identifier" x-mojo-tap-highlight="persistent">
+Index: /usr/palm/applications/com.palm.app.browser/resources/es_us/strings.json
+===================================================================
+--- /usr/palm/applications/com.palm.app.browser/resources/es_us/strings.json
++++ /usr/palm/applications/com.palm.app.browser/resources/es_us/strings.json
+@@ -90,2 +90,3 @@
+ 	"Search Google": "Buscar en Google",
++	"Search KeyToss": "Buscar en KeyToss",
+ 	"Search Wikipedia": "Buscar en Wikipedia",
+@@ -122,2 +123,4 @@
+ 	"http://www.google.com/m/search?client=ms-palm-webOS&channel=bm&q=#{query}": "http://www.google.com/m/search?client=ms-palm-webOS&hl=es&channel=bm&q=#{query}",
++	"http://pre.keytoss.com/parse.php5?pv=131&term=": "http://pre.keytoss.com/parse.php5?pv=131&lo=es_us&term=",
++	"http://pre.keytoss.com/parse.php5?pv=131&term=#{query}": "http://pre.keytoss.com/parse.php5?pv=131&lo=es_us&term=#{query}",
+ 	"link": "enlace",
