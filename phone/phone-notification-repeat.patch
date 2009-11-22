@@ -2,30 +2,44 @@ This patch will repeat the missed call notification every 2 minutes until either
 
 11-15-09:
 Updated for 1.3.1
+
+11-20-09:
+Updated to resolve issue if phone is asleep.
 Index: /usr/palm/applications/com.palm.app.phone/app/controllers/app-assistant.js
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/app-assistant.js
-@@ -180,6 +180,8 @@ AppAssistant.prototype.handleLaunch = fu
+@@ -180,6 +180,10 @@ AppAssistant.prototype.handleLaunch = fu
  			this.createLockStage();
  			this.loadSettings();
  			return;
 +		} else if(params.playalarmsound){
 +			this.playAlarmSound();
++		} else if(params.missedTimeOut){
++			this.missedTimeOut();
  		} else {
  			// when in first use, always default to doing nothing for invalid args; 
  			// otherwise default to showing dialpad
-@@ -214,6 +216,13 @@ AppAssistant.prototype.handleLaunch = fu
+@@ -214,6 +218,22 @@ AppAssistant.prototype.handleLaunch = fu
      }
  };
  
++//support for notification repeat
++AppAssistant.prototype.missedTimeOut = function() {
++	var stageController = Mojo.Controller.getAppController().getStageProxy("missed");
++	if (stageController) {
++		stageController.delegateToSceneAssistant("closeWindow");
++	}
++};
++
++//support for notification repeat                                      
 +AppAssistant.prototype.playAlarmSound = function() {
 +	var stageController = Mojo.Controller.getAppController().getStageProxy("misseddash");
 +	if (stageController) {
 +		stageController.delegateToSceneAssistant("playAlarmSound");
 +	}
 +};
-+
++					  					
  // parse URI and dial number in it
  AppAssistant.prototype.launchURI = function(uri){
  	var offset = -1;
@@ -33,46 +47,43 @@ Index: /usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-as
 ===================================================================
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-assistant.js
-@@ -56,11 +56,17 @@ var DashannounceAssistant = Class.create
-   },
+@@ -57,10 +57,15 @@ var DashannounceAssistant = Class.create
    deactivate:function(){
  	this.controller.stopListening(this.controller.document, Mojo.Event.activate, this.onFocus);
--  	
-+  
-+  	//remove the Notification repeat task
-+  	this.removePlayAlarmSoundTask();	
+   	
++ 	//remove the Notification repeat task
++ 	this.removePlayAlarmSoundTask();	
    },
  
    // run callback and close this
    onIconTap: function () {
-+  
-+  	//remove the Notification repeat task
-+  	this.removePlayAlarmSoundTask();
-+  	
++	//remove the Notification repeat task
++	this.removePlayAlarmSoundTask();
++  	  	
  	QDLogger.log( "DashannounceAssistant::onTap", "windowName:" , this.windowName);
  	if (this.iconCallback) {
  		this.iconCallback();
-@@ -70,6 +76,9 @@ var DashannounceAssistant = Class.create
+@@ -70,6 +75,9 @@ var DashannounceAssistant = Class.create
    },
    
    onMessageTap: function () {
-+  	//remove the Notification repeat task
-+  	this.removePlayAlarmSoundTask();
-+  			
++	//remove the Notification repeat task
++	this.removePlayAlarmSoundTask();
++  	  	
  	QDLogger.log( "DashannounceAssistant::onTap", "windowName:" , this.windowName);
  	if (this.messageCallback) {
  		this.messageCallback();
-@@ -79,6 +88,9 @@ var DashannounceAssistant = Class.create
+@@ -79,6 +87,9 @@ var DashannounceAssistant = Class.create
    },
    
    updateMessage: function(header, body, itemcount, timestamp) {
-+  	//remove the Notification repeat task
-+  	this.removePlayAlarmSoundTask();
-+  			
++	//remove the Notification repeat task
++	this.removePlayAlarmSoundTask();
++  	  	
    	QDLogger.log("DashannounceAssistant::updateMessage");
  	if(this.windowName == 'misseddash' && timestamp)
  		this.missedTimeStamp=timestamp;
-@@ -90,9 +102,15 @@ var DashannounceAssistant = Class.create
+@@ -90,9 +101,15 @@ var DashannounceAssistant = Class.create
  	this.itemcount = itemcount;
  	this.updateBadge();
  	this.controller.stageController.indicateNewContent(true);
@@ -82,13 +93,13 @@ Index: /usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-as
    },
    
    updateBadge: function() {
-+  	//remove the Notification repeat task
-+  	this.removePlayAlarmSoundTask();
-+  	
++	//remove the Notification repeat task
++	this.removePlayAlarmSoundTask();
++  	  	
    	   if (this.itemcount > 1) {
  	   		QDLogger.log("DashannounceAssistant::updateBadge", this.itemcount);
  			this.controller.get('notification').removeClassName("single")
-@@ -102,6 +120,49 @@ var DashannounceAssistant = Class.create
+@@ -102,6 +119,49 @@ var DashannounceAssistant = Class.create
  	   		this.controller.get('notification').addClassName("single");
  	   		this.controller.get('itemcount').hide();
  	   }
@@ -98,7 +109,7 @@ Index: /usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-as
 +  },
 +  
 +  playAlarmSound: function() {
-+  	//play nag sound and reschedule
++	//play nag sound and reschedule
 +	PalmSystem.playSoundNotification('alerts');
 +	this.schedulePlayAlarmSoundTask();
 +  },
@@ -138,3 +149,37 @@ Index: /usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-as
    }
    
  });
+Index: /usr/palm/applications/com.palm.app.phone/app/controllers/missedcall-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/missedcall-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/missedcall-assistant.js
+@@ -27,7 +27,28 @@ var MissedcallAssistant = Class.create({
+ 		this.controller.get('cancel_button').addEventListener(Mojo.Event.tap, this.onCancel.bindAsEventListener(this));
+ 		this.renderScene();
+ 		// stay up for 1 minute
+-		this.missedTimeout = window.setTimeout(this.closeWindow.bind(this), MissedcallAssistant.kTimeoutMs);
++//		this.missedTimeout = window.setTimeout(this.closeWindow.bind(this), MissedcallAssistant.kTimeoutMs);
++
++		//Need to use an alarm that will fire even when the phone is asleep.	
++		try
++		{
++			var timeOut = new Date();
++			timeOut = new Date(timeOut.getTime() + MissedcallAssistant.kTimeoutMs);
++
++			this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++				method: 'updateTask',
++				parameters: {uri: 'palm://com.palm.applicationManager/open',
++				arguments: {'id': 'com.palm.app.phone',
++					'params': {'missedTimeOut': true}},
++				key: 'phone-missedTimeOut',
++				start: {date: timeOut.toUTCString()}}
++				});		
++		}
++		catch (e) 
++		{
++			Mojo.Log.logException(e, "******************* missedcall-assistant.setup");
++		}
++		
+ 		this.controller.listen(this.controller.stageController.document, Mojo.Event.deactivate, this.onBlur.bind(this));
+ 		this.controller.get('missed_message').addEventListener(Mojo.Event.tap, this.onContactTap.bindAsEventListener(this));
+ 		this.controller.get('contactPictureContainer').addEventListener(Mojo.Event.tap, this.onContactTap.bindAsEventListener(this));
