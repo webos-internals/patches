@@ -1,0 +1,116 @@
+Index: /usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/FormattedCall.js
+@@ -12,6 +12,22 @@ var FormattedCall =  Class.create({
+ 		else
+ 			this.formatCall(id, lineState);
+ 	},
++
++	getSSStatus: function() {
++		this.getSSStatusReq = AudioService.getRingtoneMsgVolume(this.getSSStatusQuery.bind(this));
++	},
++	
++	getSSStatusQuery: function(payload) {
++                if (!(payload === undefined)) {                                                                                                         
++                	Mojo.Log.error("SVC Initial Value: %j",payload.volume);                                                            
++                        RingVolume = payload.volume;                                                                                        
++                	AudioService.setRingtoneMsgVolume(0,null,null);
++                } else {                                                                                                                    
++                        Mojo.Log.error("SVC No initial volume.  Setting to 50.");                                                             
++                        RingVolume = 50;               
++                        AudioService.setRingtoneMsgVolume(50,null,null);
++              	}	
++	},
+ 	
+ 	// given the line number and the service's list of calls
+ 	// build object whose properties will be Mojo.Rendered into
+@@ -19,6 +35,10 @@ var FormattedCall =  Class.create({
+ 	formatConferenceCall: function(lineNumber, callMsg) {
+ 		QDLogger.log( "formatConferenceCall");
+ 		this.state = this.formatState(callMsg[lineNumber].state);
++        	if (this.state === "Ended" || this.state === "Ending") {
++        		Mojo.Log.error("SVC resetting ringtone volume for conference call");
++        		AudioService.setRingtoneMsgVolume(RingVolume,null,null);
++        	}
+         this.conferenceLabel = this.formatConferenceLabel();
+ 		// TODO: not sure why i didn't have this in the first place
+ 		this.contact = this.conferenceLabel;
+@@ -49,6 +69,24 @@ var FormattedCall =  Class.create({
+ 		this.lineNumber = lineNumber;
+ 		this.id = callMsg[lineNumber].id;
+ 		
++		try {
++			RingVolume=RingVolume/1
++		} catch(err) {
++			RingVolume = 101;
++		}
++		if (this.lineNumber == '0' && this.state == "") {
++			if (RingVolume===101) {
++				Mojo.Log.error("SVC setting ringtone volume to 0");
++				this.getSSStatus();
++			}
++		}
++		if (this.state == "Ended" || this.state == "Ending") {
++			if (RingVolume < 101) {
++				Mojo.Log.error("SVC resetting ringtone volume to %j",RingVolume);
++				AudioService.setRingtoneMsgVolume(RingVolume,null,null);
++				RingVolume = 101;
++			}
++		}
+ 		// ensure empty label is displayed as empty
+ 		this.displayLabel = (callMsg[lineNumber].contact.labelFormatted ? callMsg[lineNumber].contact.labelFormatted : "");
+ 		this.numberCaption = ((callMsg[lineNumber].contact.name !== undefined || callMsg[lineNumber].contact.id !== undefined) ? this.number : " ");
+Index: /usr/palm/applications/com.palm.app.phone/app/models/audio-luna-service.js
+===================================================================
+--- /dev/null
++++ /usr/palm/applications/com.palm.app.phone/app/models/audio-luna-service.js
+@@ -0,0 +1,35 @@
++/* Copyright 2009 Palm, Inc.  All rights reserved. */
++
++var AudioService = Class.create({ 
++	initialize: function() { 
++	}
++});
++    
++AudioService.setRingtoneMsgVolume = function(volume,callback, sceneController) {
++	var request = new Mojo.Service.Request(AudioService.ringtone_identifier, {
++		method: 'setVolume',
++		parameters: {volume:volume },
++		onSuccess: function(response) {
++		if(callback)
++			callback(response);
++		},
++		onFailure: function(response) {
++		if(callback)
++			callback(response);
++		},			
++	});
++	return request;
++}
++
++AudioService.getRingtoneMsgVolume = function(callback, sceneController) {
++   var request = new Mojo.Service.Request(AudioService.ringtone_identifier, {
++         method: 'getVolume',
++         parameters: {"subscribe": false},
++         onSuccess: callback,
++         onFailure: callback
++   });
++   return request;
++}
++         	  	  	      	
++AudioService.ringtone_identifier = 'palm://com.palm.audio/ringtone';
++
+Index: /usr/palm/applications/com.palm.app.phone/sources.json
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.phone/sources.json
++++ /usr/palm/applications/com.palm.app.phone/sources.json
+@@ -1,5 +1,8 @@
+ [
+   {
++    "source": "app\/models\/audio-luna-service.js"
++  },
++  {
+     "source": "app\/models\/QDLogger.js"
+   },
+   {

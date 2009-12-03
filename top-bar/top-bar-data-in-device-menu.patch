@@ -1,0 +1,74 @@
+Name: Data Toggle in Device Menu
+Version: 1.2.1-1
+Author: Jason Robitaille
+Description: Adds a data connection (ex. EVDO/1X) toggle to the device menu  (MIT license)
+
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -122,2 +122,3 @@
+ 		this.controller.get('bt_radio').addEventListener(Mojo.Event.tap, this.toggleBTRadio.bindAsEventListener(this));
++		this.controller.get('dm_data').addEventListener(Mojo.Event.tap, this.toggleData.bindAsEventListener(this));
+ 		this.controller.get('bt_pref').addEventListener(Mojo.Event.tap,this.handleBluetoothLaunch.bindAsEventListener(this));
+@@ -889,6 +890,25 @@
+ 		this.controller.modelChanged(this.spinnerModel);			
+ 	},
+ 	
++	toggleData: function(event) {
++		if(this.dataDisabled=="on") {
++			this.dataDisabled = "off";
++		} else {
++			this.dataDisabled = "on";
++		}
++		this.controller.serviceRequest('palm://com.palm.wan', {
++			method: 'set',
++			parameters: {
++				disablewan: this.dataDisabled
++			}
++		});
++		this.setDataLabel();
++	},
++
++	setDataLabel: function() {
++		if(this.dataDisabled=="off") {this.controller.get('dataStatus').innerText = "on";} else {this.controller.get('dataStatus').innerText = "off";}
++	},
++	
+ 	close: function() {
+ 		
+ 		if (this.btdrawer.mojo.getOpenState()) {
+@@ -941,6 +961,18 @@
+ 			//this.controller.stageController.deactivate();
+ 		}
+ 		else {
++			this.controller.serviceRequest('palm://com.palm.connectionmanager', {
++				method: 'getstatus',
++				parameters: {},
++				onSuccess: function(response) {
++					if(response.wan.state === "disconnected") {
++						this.dataDisabled = "on";
++					} else if(response.wan.state === "connected") {
++						this.dataDisabled = "off";
++					}
++					this.setDataLabel();
++				}.bind(this)
++			});
+ 			this.isVisible = true;
+ 			var date = new Date();		
+ 			this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'});
+--- .orig/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ /usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -89,6 +89,15 @@
+ 					
+ 				</div>	
+ 				
++				<div class="palm-section-divider"></div>
++
++				<div class="palm-row" id="dm_data" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="dataStatus">&nbsp;</div>
++						<span x-mojo-loc=''>Data Connection</span>
++					</div>
++				</div></div>
++
+ 				<div class="palm-section-divider"></div>
+ 				
+ 				<div id="dm_airplanemode" class="palm-row last menu-end" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">

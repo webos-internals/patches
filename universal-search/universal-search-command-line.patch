@@ -1,0 +1,1191 @@
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+@@ -125,6 +125,7 @@
+ 		searchesDiv.update(Mojo.View.render({template: 'global-search/expanded-searches-div' }));
+ 		this.expandedSearchDrawer = { showExpanded: false };
+ 		this.controller.setupWidget('expanded_searches_drawer', {unstyled:true, property:'showExpanded'}, this.expandedSearchDrawer);
++
+ 		this.webDrawer = { showWeb: false };
+ 		this.controller.setupWidget('web_drawer', {unstyled:true, property:'showWeb'}, this.webDrawer);
+ 		
+@@ -160,9 +161,47 @@
+ 		
+ 		this.controller.listen(this.controller.document, 'paste', this.onPaste.bindAsEventListener(this), true);
+ 		
++		this.commandLine = new CommandLine();
++		
++		var searchesDivUSCL = this.controller.get('searches-list-uscl');
++		searchesDivUSCL.update(Mojo.View.render({template: 'global-search/expanded-searches-div-uscl' }));
++		this.expandedSearchDrawerUSCL = { showExpanded: false };
++		this.controller.setupWidget('expanded_searches_drawer_uscl',
++					    { unstyled:true, property:'showExpanded', 
++					      scrollDisabled: true},
++					    this.expandedSearchDrawerUSCL);
++
++		this.commandLineDrawer = { showCommandLine: false };
++		this.controller.setupWidget('command_line_drawer', {unstyled: true, property: 'showCommandLine'}, this.commandLineDrawer);
++
++		this.usclSearchesAttrs = {
++			listTemplate: "global-search/templates/uscl-searches-list",
++			itemTemplate: "global-search/templates/uscl-searches-item",
++			swipeToDelete: false,
++			reorderable: false,
++			renderLimit: 500
++		};
++		this.usclSearchesModel = { 
++			items: this.commandLine.universalSearchList 
++		};
++		this.controller.setupWidget("usclSearches",
++					    this.usclSearchesAttrs,
++					    this.usclSearchesModel);
++
++		this.onTapUSCLHandler = this.onTapUSCL.bindAsEventListener(this);
++		this.controller.listen("usclSearches",
++				       Mojo.Event.listTap,
++				       this.onTapUSCLHandler);
++		
+ 		this.initOnServerStart("com.palm.systemservice");
+ 	},
+   
++	onTapUSCL: function (event) {
++		var entry = this.usclSearchesModel.items[event.index];
++		this.runCommandLine({ entry: entry,
++				      arg: this.currentFilter });
++	},
++  
+ 	ready: function() {
+ 		// try to force our input field to always have focus (there are some exceptions)
+ 		var input = this.searchField.querySelector('[name=searchtermInput]');
+@@ -170,6 +209,21 @@
+ 			input.blur = function() { this.focus();	}
+ 		}
+ 		this.enable(true);
++		this.monkeyPatch1();
++	},
++
++	/* allows one to disable the scrollIntoView behavior of Mojo.Widget.Drawer. */
++	/* WARNING: THIS MONKEY-PATCHES A PRIVATE API */
++	monkeyPatch1: function () {
++		if (this.monkeyPatched) { return; }
++		var monkey = Mojo.Widget.Drawer.prototype.scrollIntoView;
++		if (!monkey) { return; }
++		Mojo.Widget.Drawer.prototype.scrollIntoView = function () {
++			if (this.controller.attributes.scrollDisabled) {
++				return;
++			}
++			monkey.apply(this, arguments);
++		};
+ 	},
+ 	
+ 	isEnabled: function() {
+@@ -1353,6 +1407,66 @@
+ 		ApplicationService.launch('com.palm.app.browser', params);		
+ 	},	
+ 	
++	deactivateWithError: function (message) {
++		this.controller.showAlertDialog({
++			onChoose: (function () { this.deactivate(); }).bind(this),
++			title: "Error",
++			message: message,
++			choices: [ { label: "OK", value: "ok" } ]
++		});
++	},
++
++	runCommandLine: function (o) {
++		if (!this.commandLine) {
++			this.deactivate();
++		}
++		var result;
++		try {
++			if (o instanceof Object) {
++				result = this.commandLine.run(o.entry, o.arg);
++			}
++			else {
++				result = this.commandLine.runString(o);
++			}
++		}
++		catch (e) {
++			if (e instanceof CommandLineError) {
++				this.deactivateWithError(e.message);
++				/* remember, kids, don't deactivate right away! */
++				return;
++			}
++			else {
++				throw e;
++			}
++		}
++		if (!result) {
++			this.deactivate();
++		}
++		else if (result instanceof Function) {
++			this.deactivate();
++			result.apply(this);
++		}
++		else if (result instanceof Object) {
++			this.controller.showAlertDialog({
++				onChoose: (function () { this.deactivate(); }).bind(this),
++				title: result.title,
++				message: result.message,
++				choices: [ { label: "OK", value: "ok" } ]
++			});
++		}
++		else if (result.constructor && result.constructor === String) {
++			this.controller.showAlertDialog({
++			 	onChoose: (function () { this.deactivate(); }).bind(this),
++			 	title: "Result",
++			 	message: result,
++			 	choices: [ { label: "OK", value: "ok" } ]
++			});
++		}
++		else {
++			this.deactivate();
++		}
++	},
++
+ 	toggleSearchListDivs: function() {
+ 		if(!this.enterKeyActionItem){
+ 			this.enterKeyActionItem = 'search'
+@@ -1363,16 +1477,37 @@
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
++				}
++				else if (this.commandLine.isCommandLineString(this.currentFilter)) {
++					$('commandlinetext').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = true;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb =  false ;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				$('find').removeClassName('single');
+ 				$('find').addClassName('first');
+ 				this.searchField.removeClassName('text-hidden');
+ 				this.expandedSearchDrawer.showExpanded = true;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				if (this.commandLine.show) {
++					this.controller.get('searchesDivUSCL').show();
++					this.expandedSearchDrawerUSCL.showExpanded = true;
++				}
++				else {
++					this.controller.get('searchesDivUSCL').hide();
++					this.expandedSearchDrawerUSCL.showExpanded = false;
++				}
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
+ 			} else {//find...
+ 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
+ 					this.searchField.addClassName('text-hidden');
+@@ -1382,6 +1517,11 @@
+ 				}
+ 				this.expandedSearchDrawer.showExpanded = false;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				this.controller.get('searchesDivUSCL').hide();
++				this.expandedSearchDrawerUSCL.showExpanded = false;
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++
+ 				$('find').removeClassName('first');
+ 				$('find').addClassName('single');
+ 			}
+@@ -1396,16 +1536,36 @@
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
++				}
++				else if (this.commandLine.isCommandLineString(this.currentFilter)) {
++					$('commandlinetext').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = true;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb = false;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				$('find').removeClassName('single');
+ 				$('find').addClassName('first');
+ 				this.searchField.removeClassName('text-hidden');
+ 				this.expandedSearchDrawer.showExpanded = true;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++				if (this.commandLine.show) {
++					this.controller.get('searchesDivUSCL').show();
++					this.expandedSearchDrawerUSCL.showExpanded = true;
++				}
++				else {
++					this.controller.get('searchesDivUSCL').hide();
++					this.expandedSearchDrawerUSCL.showExpanded = false;
++				}
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
+ 			} else {//find...
+ 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
+ 					this.searchField.addClassName('text-hidden');
+@@ -1415,6 +1575,11 @@
+ 				}
+ 				this.expandedSearchDrawer.showExpanded = false;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				this.controller.get('searchesDivUSCL').hide();
++				this.expandedSearchDrawerUSCL.showExpanded = false;
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++
+ 				$('find').removeClassName('first');
+ 				$('find').addClassName('single');
+ 			}
+@@ -1434,6 +1599,11 @@
+ 				this.searchExplicitlyExpanded = false;
+ 				this.expandedSearchDrawer.showExpanded = false;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				this.controller.get('searchesDivUSCL').hide();
++				this.expandedSearchDrawerUSCL.showExpanded = false;
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++
+ 				$('find').removeClassName('first');
+ 				$('find').addClassName('single');
+ 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
+@@ -1449,21 +1619,44 @@
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
++				}
++				else if (this.commandLine.isCommandLineString(this.currentFilter)) {
++					$('commandlinetext').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = true;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb = false;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.commandLineDrawer.showCommandLine = false;
++					this.controller.modelChanged(this.commandLineDrawer);
+ 				}
+ 				$('find').removeClassName('single');
+ 				$('find').addClassName('first');
+ 				this.searchField.removeClassName('text-hidden');
+ 				this.expandedSearchDrawer.showExpanded = true;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				if (this.commandLine.show) {
++					this.controller.get('searchesDivUSCL').show();
++					this.expandedSearchDrawerUSCL.showExpanded = true;
++				}
++				else {
++					this.controller.get('searchesDivUSCL').hide();
++					this.expandedSearchDrawerUSCL.showExpanded = false;
++				}
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
+ 			}
+ 		} else {
+ 			var url = target.id;
+ 			if (url == "web")
+ 				this.launchBrowser(this.currentFilter);
++			else if (url == "commandLine")
++				this.runCommandLine(this.currentFilter);
+ 		}
+ 	},
+ 	
+@@ -1716,6 +1909,13 @@
+ 		this.gpsInfo = undefined;
+ 		if(this.highlightTarget != null)
+ 			this.highlightTarget.removeClassName('selected');
++
++ 		this.commandLineDrawer.showCommandLine =  false ;
++ 		this.controller.modelChanged(this.commandLineDrawer);
++ 		this.controller.get('searchesDivUSCL').hide();
++ 		this.expandedSearchDrawerUSCL.showExpanded = false;
++ 		this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++ 		$('commandLine').removeClassName('selected');
+ 	},
+ 	
+   webSiteString: function(s){
+@@ -1815,6 +2015,7 @@
+ 	//clear search':
+ 	$(this.defaultSearchEngine).removeClassName('palm-focus');
+ 	$('web').removeClassName('palm-focus');
++	$('commandLine').removeClassName('palm-focus');
+   },
+   highlightSelection: function() {
+   	
+@@ -1888,6 +2089,24 @@
+ 		$(this.defaultSearchEngine).removeClassName('palm-focus');
+ 		$('web').removeClassName('palm-focus');
+ 	}
++
++	if (this.enterKeyActionItem === "search") {
++		if (this.webDrawer.showWeb == true) {
++			$('commandLine').removeClassName('palm-focus');
++		}
++		else if (this.commandLineDrawer.showCommandLine == true) {
++			$(this.defaultSearchEngine).removeClassName('palm-focus');
++			$('web').removeClassName('palm-focus');
++			this.highlightTarget = $('commandLine');
++			$('commandLine').addClassName('palm-focus');
++		}
++		else if (this.expandedSearchDrawer.showExpanded == true) {
++			$('commandLine').removeClassName('palm-focus');
++		}
++	}
++	else {
++		$('commandLine').removeClassName('palm-focus');
++	}
+   },
+   
+   enterKeyAction: function(){
+@@ -1976,6 +2195,8 @@
+ 			}
+ 			if (this.webDrawer.showWeb == true)
+ 				this.launchBrowser(this.currentFilter);
++			else if (this.commandLineDrawer.showCommandLine == true)
++				this.runCommandLine(this.currentFilter);
+ 			else {
+ 				this.launchBrowser(this.URLs[this.defaultSearchEngine] + encodeURIComponent(this.currentFilter));
+ 			}
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-list.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-list.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-list.js
+@@ -0,0 +1,39 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Mojo */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++function UsclHelpCommandListAssistant (commandLine) {
++	this.commandLine = commandLine;
++}
++
++UsclHelpCommandListAssistant.prototype.setup = function () {
++	this.stageController = this.controller.stageController;
++	this.items = this.commandLine.helpCommandList;
++	this.controller.setupWidget("command-list", {
++		listTemplate: "uscl-help-command-list/templates/list",
++		itemTemplate: "uscl-help-command-list/templates/item",
++		swipeToDelete: false,
++		reorderable: false,
++		renderLimit: this.items.length
++	}, this.itemsModel = {
++		items: this.items
++	});
++
++	this.showCommandHandler = this.showCommand.bindAsEventListener(this);
++	this.controller.listen("command-list", Mojo.Event.listTap,
++			       this.showCommandHandler);
++};
++
++UsclHelpCommandListAssistant.prototype.showCommand = function (event) {
++	this.stageController.pushScene("uscl-help-command-view",
++				       this.items, event.index);
++};
++
++UsclHelpCommandListAssistant.prototype.cleanup = function () {
++	this.controller.stopListening("command-list", Mojo.Event.listTap,
++				      this.showCommandHandler);
++};
++
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-view.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-view.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-view.js
+@@ -0,0 +1,29 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Mojo */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++function UsclHelpCommandViewAssistant (items, index) {
++	this.items = items;
++	this.item = this.items[index];
++}
++
++UsclHelpCommandViewAssistant.prototype.setup = function () {
++	this.stageController = this.controller.stageController;
++	this.controller.get("title").innerHTML =
++		this.item.title;
++	this.controller.get("description").innerHTML =
++		this.item.description;
++	this.controller.get("usage").innerHTML = this.item.usageHTML;
++	if (!this.item.example || this.item.example === "") {
++		this.controller.get("exampleDiv").hide();
++	}
++	else {
++		this.controller.get("example").innerHTML = this.item.exampleHTML;
++	}
++
++	document.body.style.backgroundImage = null;
++};
++
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/uscl.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/uscl.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/uscl.js
+@@ -0,0 +1,527 @@
++/*jslint browser: true, eqeqeq: true, undef: true, evil: true */
++/*global Mojo, Class */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++if (!String.prototype.trim) {
++	String.prototype.trim = function () {
++		return this.replace(/^\s+/, "").replace(/\s+$/, "");
++	};
++}
++
++var CommandLineError = function (message) {
++	Error.apply(this, arguments);
++	this.message = message; // ugh, why on Earth do I have to do this?
++};
++CommandLineError.prototype = new Error();
++CommandLineError.prototype.constructor = CommandLineError;
++CommandLineError.prototype.name = "CommandLineError";
++
++var CommandLine = Class.create({
++	initialize: function (options) {
++		this.build(options);
++		this.show = false;
++		this.loadPreferences();
++	},
++
++	loadPreferences: function () {
++		this.db = new Mojo.Depot({ name: "uscl", replace: false },
++					 this.onLoadDatabase.bind(this),
++					 function () { /* don't care */ });
++	},
++
++	onLoadDatabase: function () {
++		this.db.get("show", 
++			    (function (o) { this.show = o; }).bind(this),
++			    (function () { this.show = false; }).bind(this));
++	},
++
++	setShow: function (flag) {
++		this.show = flag;
++		this.db.add("show", flag, 
++			    function () { /* don't care */ },
++			    function () { /* don't care */ });
++	},
++
++	categories: [
++		{ name: "search", title: "Search" },
++		{ name: "reference", title: "Reference" },
++		{ name: "utilities", title: "Utilities" },
++		{ name: "system", title: "System" }
++	],
++
++	entries: {
++		"calc": {
++			title: "Calculator",
++			usage: "<var>expression</var>",
++			example: "(37 * 1.8) + 32 * Math.sin(Math.PI / 2)",
++			description: "Perform a calculation.  " + 
++				"Can also evaluate other JavaScript expressions.  " + 
++				"More complex calculations (such as unit conversions) " + 
++				"can be sent to Google (see .google).",
++			method: function (s) {
++				// Yes, I'm aware that eval is usually
++				// evil.  The user chooses to use 'calc'
++				// at their own risk.  I'm only using it
++				// here because I'm too lazy at the
++				// moment to write an infix expression
++				// calculator.
++	 			var result;
++				try {
++					result = eval(s);
++				}
++				catch (e) {
++					return {
++						title: "Error",
++						message: e
++					};
++				}
++				return {
++					title: "Calculator",
++					message: s + " \u2192 " + Object.toJSON(result)
++				};
++			},
++			noArguments: {
++				appId: "com.palm.app.calculator"
++			}
++		},
++		"c": "calc",
++		"eval": "calc",
++
++		"imdb": {
++			title: "IMDB.com",
++			usage: "<var>query</var>",
++			example: "the big lebowski",
++			description: "Find something on IMDB.com.",
++			url: "http://www.imdb.com/find?s=all&q=",
++			noArguments: {
++				url: "http://www.imdb.com/"
++			}
++		},
++
++		"dict": {
++			title: "Dictionary.com",
++			usage: "<var>word</var>",
++			example: "ebullient",
++			description: "Find a word on Dictionary.com.",
++			url: "http://m.reference.com/d/search.html?q=",
++			noArguments: {
++				url: "http://m.reference.com/d/"
++			}
++		},
++		"d": "dict",
++
++		"thes": {
++			title: "Thesaurus.com",
++			usage: "<var>word</var>",
++			example: "ebullient",
++			description: "Find a word on Thesaurus.com.",
++			url: "http://m.reference.com/t/search.html?q=",
++			noArguments: {
++				url: "http://m.reference.com/t/"
++			}
++		},
++		"th": "thes",
++
++		"beer": {
++			title: "BeerAdvocate",
++			usage: "<var>beer</var>",
++			example: "leine's sunset wheat",
++			description: "Find a beer on BeerAdvocate.com.",
++			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&q=site:beeradvocate.com%20",
++			noArguments: {
++				url: "http://www.beeradvocate.com/"
++			}
++		},
++		"ba": "beer",
++
++		"ratebeer": {
++			title: "RateBeer",
++			usage: "<var>beer</var>",
++			example: "schlenkerla urbock",
++			description: "Find a beer on RateBeer.com.",
++			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&q=site:ratebeer.com%20",
++			noArguments: {
++				url: "http://www.ratebeer.com/"
++			}
++		},
++		"rb": "ratebeer",
++
++		"ebay": {
++			title: "eBay",
++			usage: "<var>item</var>",
++			example: "mp3 player",
++			description: "Find something on eBay.com.",
++			url: "http://m.ebay.com/Pages/SearchResults.aspx?emvAD=320x320&emvcc=0&sv=",
++			noArguments: {
++				url: "http://m.ebay.com/"
++			}
++		},
++
++		"yahoo": {
++			title: "Yahoo!",
++			usage: "<var>keywords</var>",
++			example: "laptop reviews",
++			description: "Search Yahoo!",
++			url: "http://m.yahoo.com/w/search/oneSearch?p=",
++			noArguments: {
++				url: "http://m.yahoo.com/search"
++			}
++		},
++		"y": "yahoo",
++
++		"gis": {
++			title: "Google Images",
++			usage: "<var>keywords</var>",
++			example: "pirate hat",
++			description: "Search Google Images",
++			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=images&q=",
++			noArguments: {
++				url: "http://images.google.com/m/"
++			}
++		},
++		
++		"shop": {
++			title: "Google Product Search",
++			usage: "<var>keywords</var>",
++			example: "palm pre",
++			description: "Search Google Products",
++			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=products&q=",
++			noArguments: {
++				url: "http://products.google.com/m/"
++			}
++		},
++		"froogle": "shop",
++
++		"news": {
++			title: "Google News Search",
++			usage: "<var>keywords</var>",
++			example: "obama",
++			description: "Search Google News",
++			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=news&q=",
++			noArguments: {
++				url: "http://news.google.com/m/"
++			}
++		},
++		
++		"google": {
++			excludeFromUniversalSearchList: true,
++			title: "Google",
++			usage: "<var>keywords</var>",
++			example: "hummus recipe",
++			description: "Search Google",
++			url: "www.google.com/m/search?client=ms-palm-webOS&channel=iss&q=",
++			noArguments: {
++				url: "http://www.google.com/m/"
++			}
++		},
++		"g": "google",
++
++		"amazon": {
++			title: "Amazon",
++			usage: "<var>keywords</var>",
++			example: "i am america and so can you",
++			description: "Search for products on Amazon.com",
++			url: "http://www.amazon.com/gp/aw/s/ref=is_box_?k=",
++			noArguments: {
++				url: "http://www.amazon.com/gp/aw"
++			}
++		},
++		"az": "amazon",
++
++		"wikipedia": {
++			excludeFromUniversalSearchList: true,
++			title: "Wikipedia",
++			usage: "<var>keywords</var>",
++			example: "isaac newton",
++			description: "Search Wikipedia",
++			url: "http://en.m.wikipedia.org/wiki/Special:Search?search=",
++			noArguments: {
++				url: "http://en.m.wikipedia.org/"
++			}
++		},
++		"wiki": "wikipedia",
++		"w": "wikipedia",
++
++		"note": {
++			title: "New Note",
++			usage: "<var>text</var>",
++			example: "I like pie.",
++			description: "Quickly create a new note.",
++			appId: "com.palm.app.notes",
++			param: "newNoteText",
++			noArguments: {
++				appId: "com.palm.app.notes"
++			}
++		},
++		"memo": "note",
++		"m": "note",
++		"n": "note",
++
++		"restart": {
++			excludeFromUniversalSearchList: true,
++			title: "Restart Luna",
++			usage: "<b>luna</b>",
++			description: "Restarts Luna.",
++			takesMultipleArguments: true,
++			method: function (args) {
++				if (args.length >= 1 && args[0] === "luna") {
++					try {
++						var r = new Mojo.Service.Request(
++							'luna://org.webosinternals.ipkgservice',
++							{ method: 'restartluna' }
++						);
++					}
++					catch (e) {
++						throw new CommandLineError('Error Restarting Luna: ' + e.message);
++					}
++				}
++			}
++		},
++
++		"show": {
++			excludeFromUniversalSearchList: true,
++			argumentsOptional: true,
++			title: "Show Additional Searches",
++			description: "Shows additional searches on the Universal Search screen.",
++			method: function () {
++				this.setShow(true);
++				return {
++					title: "Show Additional Searches",
++					message: "Additional searches will now appear in Universal Search."
++				};
++			}
++		},
++
++		"hide": {
++			excludeFromUniversalSearchList: true,
++			argumentsOptional: true,
++			title: "Hide Additional Searches",
++			description: "Hides additional searches from the Universal Search screen.",
++			method: function () {
++				this.setShow(false);
++				return {
++					title: "Hide Additional Searches",
++					message: "Additional searches will no longer appear in Universal Search."
++				};
++			}
++		},
++
++		"help": {
++			excludeFromUniversalSearchList: true,
++			title: "Help",
++			excludeFromHelp: true,
++			argumentsOptional: true,
++			method: function () {
++				var that = this;
++				var sc = Mojo.Controller.appController.getStageController("uscl-help");
++				if (sc) {
++					var scenes = sc.getScenes();
++					if (!(scenes && scenes.length === 1)) {
++						// doing this if the top scene
++						// is already 'grid' causes an
++						// unwanted transition effect.
++						sc.popScenesTo("uscl-help-command-list");
++					}
++					sc.activate();
++				}
++				else {
++					var stageArguments = {
++						name: "uscl-help",
++						lightweight: true
++					};
++					var pushScene = function (sc) {
++						sc.pushScene("uscl-help-command-list", that);
++					};
++					Mojo.Controller.appController.createStageWithCallback(
++						stageArguments, pushScene, "card");
++				}
++			}
++		}
++	},
++
++	run: function (command, arg) {
++		if (!this.entries) {
++			return;
++		}
++		var entry;
++		if (command instanceof Object) {
++			entry = command;
++		}
++		else {
++			entry = this.entries[command];
++			if (!entry) {
++				throw new CommandLineError("." + command + ": Command not found.");
++			}
++			while (entry.constructor === String) { // handle aliases
++				entry = this.entries[entry];
++			}
++			if (!entry) {
++				throw new CommandLineError("." + command + ": Command not found.");
++			}
++		}
++		if (!/\S/.test(arg) && !entry.argumentsOptional) {
++			throw new CommandLineError("." + command + ": No arguments specified.");
++		}
++		if (entry.method) {
++			var args = [arg];
++			if (entry.takesMultipleArguments) {
++				arg = arg.replace(/^\s+/, "");
++				arg = arg.replace(/\s+$/, "");
++				args = [arg.split(" ")];
++			}
++			var result = entry.method.apply(this, args);
++			return result;
++		}
++		else if (entry.appId) {
++			if (this.commandLineApps && 
++			    !this.commandLineApps[entry.appId + "_default"]) {
++				throw new CommandLineError("." + command + ": The application " + entry.appId +
++							   " is not configured for the Universal Search Command Line.");
++			}
++			var params = {};
++			params[entry.param] = arg;
++			// returns a function, which will be called with this
++			// set to the global search assistant object.
++			return function () {
++				this.controller.serviceRequest(
++					"palm://com.palm.applicationManager", {
++						method: "launch",
++						parameters: {
++							id: entry.appId,
++							params: params
++						}
++					}
++				);
++			};
++		}
++		else if (entry.url) {
++			// returns a function, which will be called with this
++			// set to the global search assistant object.
++			return function () {
++				this.launchBrowser(entry.url + encodeURIComponent(arg.trim()));
++			};
++		}
++		else {
++			throw new CommandLineError("." + command + ": Command not implemented.");
++		}
++	},
++
++	build: function (options) {
++		var command;
++		var entry;
++		var realName;
++		this.aliases = {};
++		this.realCommandList = [];
++		for (command in this.entries) {
++			if (!this.entries.hasOwnProperty(command)) {
++				continue;
++			}
++			entry = this.entries[command];
++			if (entry.constructor === String) {
++				while (entry && entry.constructor === String) {
++					realName = entry;
++					entry = this.entries[entry];
++				}
++				this.aliases[command] = entry;
++				if (!entry.aka) {
++					entry.aka = [];
++				}
++				entry.aka.push(command);
++			}
++			else {
++				entry.commandName = command;
++				this.realCommandList.push(entry);
++			}
++		}
++		this.realCommandList.forEach(function (entry) {
++			if ("aka" in entry) {
++				entry.aka.sort();
++			}
++			if ("usage" in entry) {
++				entry.usageHTML = "." + entry.commandName + " " + entry.usage;
++			}
++			else {
++				entry.usageHTML = "." + entry.commandName;
++			}
++			if (entry.aka && entry.aka.length) {
++				entry.usageHTML =
++					("<span class='aliases'>" +
++					 entry.aka.map(function (s) { return "<span class='alias'>." + s + "</span>|"; }).join("") +
++					 "</span>" + entry.usageHTML);
++			}
++			if ("example" in entry) {
++				entry.exampleHTML = "." + entry.commandName + " " + entry.example;
++			}
++			else {
++				entry.exampleHTML = null;
++			}
++			if ("title" in entry) {
++				entry.titleSort = entry.title.toLowerCase();
++			}
++		});
++		this.buildHelpCommandList();
++		this.buildUniversalSearchList();
++		this.buildSupportingAppList();
++	},
++
++	buildHelpCommandList: function () {
++		this.helpCommandList = this.realCommandList.filter(function (a) {
++			return !a.excludeFromHelp;
++		});
++		this.helpCommandList.sort(function (a, b) {
++			return ((a.titleSort < b.titleSort) ? -1 : 
++				(a.titleSort > b.titleSort) ? 1 : 0);
++		});
++	},
++
++	buildUniversalSearchList: function () {
++		this.universalSearchList = this.realCommandList.filter(function (a) {
++			return !a.excludeFromUniversalSearchList;
++		});
++		this.universalSearchList.sort(function (a, b) {
++			return ((a.titleSort < b.titleSort) ? -1 : 
++				(a.titleSort > b.titleSort) ? 1 : 0);
++		});
++	},
++
++	buildSupportingAppList: function () {
++		// Hopefully this won't take forever.
++		this.commandLineListRequest = 
++			new Mojo.Service.Request("palm://com.palm.applicationManager", {
++				method: 'searchApps',
++				parameters: {'keyword': 'igrokthecommandline'},
++				onSuccess: this.handleSupportingAppResults.bind(this),
++				onFailure: this.handleSupportingAppResults.bind(this)
++			});
++	},
++	
++	handleSupportingAppResults: function (response) {
++		var that = this;
++		var apps = response.apps;
++		if (!apps) {
++			return;
++		}
++		this.commandLineApps = {};
++		apps.forEach(function (app) {
++			var launchPoint = app.launchPoint;
++			that.commandLineApps[launchPoint] = true;
++		});
++	},
++	
++	runString: function (s) {
++		if (!/^\s*\.(\S+)\s*(.*)$/.test(s)) {
++			throw new CommandLineError("No command supplied.");
++		}
++		var command = RegExp.$1;
++		var arg     = RegExp.$2;
++		return this.run(command, arg);
++	},
++	
++	isCommandLineString: function (s) {
++		return (/^\s*\./).test(s);
++	}
++});
++
+Index: /usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div.html
+@@ -17,4 +17,14 @@
+ 			</div>
+ 		</div> 
+ 	</div>  
++	<div id='command_line_drawer' x-mojo-element="Drawer">
++		<div class="palm-row last" id="commandLine" name="search-identifier" x-mojo-tap-highlight="persistent">
++			<div class="palm-row-wrapper">
++				<div class="title search-command-line truncating-text">
++					<span class="prefix">cmd:</span>
++					<kbd id="commandlinetext">#{filterText}</kbd>
++				</div>
++			</div>
++		</div> 
++	</div>
+ </div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div-uscl.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div-uscl.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div-uscl.html
+@@ -0,0 +1,3 @@
++<div id='expanded_searches_drawer_uscl' x-mojo-element="Drawer">
++	<div id="usclSearches" class="palm-list" x-mojo-element="List"></div>
++</div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/global-search/templates/uscl-searches-item.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/global-search/templates/uscl-searches-item.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/global-search/templates/uscl-searches-item.html
+@@ -0,0 +1,5 @@
++<div class="palm-row" name="search-identifier" x-mojo-tap-highlight="momentary">
++	<div class="palm-row-wrapper">
++		<div class="search-uscl">#{title}</div>
++	</div>
++</div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/global-search/templates/uscl-searches-list.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/global-search/templates/uscl-searches-list.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/global-search/templates/uscl-searches-list.html
+@@ -0,0 +1,3 @@
++<div class="palm-list">
++	#{-listElements}
++</div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
+@@ -10,6 +10,10 @@
+ 		
+ 		<div class="palm-group solid" id="launcherIconsDiv"></div>
+ 		
++		<div class="palm-group unlabeled search" id="searchesDivUSCL">
++			<div class="palm-list" id="searches-list-uscl"></div>
++		</div>
++		
+ 		<div id="contactsDiv"></div>
+ 		
+ 		<div class="palm-group search" id="singleContactsDiv"></div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/item.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/item.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/item.html
+@@ -0,0 +1,6 @@
++<div class="palm-row" x-mojo-tap-highlight="momentary">
++	<div class="palm-row-wrapper">
++		<div class="uscl-help-command-name"  id="command-name"><kbd>.#{commandName}</kbd></div>
++		<div class="uscl-help-command-title" id="title"       >#{title}</div>
++	</div>
++</div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/list.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/list.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/list.html
+@@ -0,0 +1,3 @@
++<div class="palm-list">
++	#{-listElements}
++</div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/uscl-help-command-list-scene.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/uscl-help-command-list-scene.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/uscl-help-command-list-scene.html
+@@ -0,0 +1,11 @@
++<div id="uscl-help-command-list" class="uscl-help uscl-help-command-list">
++	<div class="palm-page-header multi-line">
++		<div class="palm-page-header-wrapper">
++			<div class="title left">
++				Universal Search Command Line Help
++			</div>
++		</div>
++	</div>
++	<div id="command-list" x-mojo-element="List">
++	</div>
++</div>
+Index: /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-view/uscl-help-command-view-scene.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-view/uscl-help-command-view-scene.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-view/uscl-help-command-view-scene.html
+@@ -0,0 +1,13 @@
++<div id="uscl-help-command-view" class="uscl-help uscl-help-command-view">
++	<div class="palm-page-header multi-line">
++		<div class="palm-page-header-wrapper">
++			<div class="title left" id="title">
++			</div>
++		</div>
++	</div>
++	<div class="contents">
++		<div class="uscl-help-usage">Usage: <kbd class="usage" id="usage"></kbd></div>
++		<div class="uscl-help-description" id="description"></div>
++		<div class="uscl-help-example" id="exampleDiv">Example: <kbd class="example" id="example"></kbd></div>
++	</div>
++</div>
+Index: /usr/lib/luna/system/luna-applauncher/index.html
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/index.html
++++ /usr/lib/luna/system/luna-applauncher/index.html
+@@ -9,6 +9,7 @@
+ 	
+ 	<link href="stylesheets/launcher.css" media="screen" rel="stylesheet" type="text/css" title="standard" />
+ 	<link href="stylesheets/global-search.css" media="screen" rel="stylesheet" type="text/css" title="standard" />
++	<link href="stylesheets/uscl-help.css" media="screen" rel="stylesheet" type="text/css" title="standard" />
+ </head>
+ <body>
+ </body>
+Index: /usr/lib/luna/system/luna-applauncher/sources.json
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/sources.json
++++ /usr/lib/luna/system/luna-applauncher/sources.json
+@@ -13,6 +13,20 @@
+ 	},
+ 	
+ 	{
++		"source": "app\/controllers\/uscl.js"
++	},
++	
++	{
++		"source": "app\/controllers\/uscl-help-command-list.js",
++		"scenes": "uscl-help-command-list"
++	},
++	
++	{
++		"source": "app\/controllers\/uscl-help-command-view.js",
++		"scenes": "uscl-help-command-view"
++	},
++	
++	{
+ 		"source": "app\/controllers\/app-info-assistant.js"
+ 	},
+ 
+Index: /usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
++++ /usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
+@@ -167,6 +167,19 @@
+ 	text-align: center;
+ }
+     
++.palm-group.search .search-command-line {
++	text-align: left;
++	font-size: smaller;
++}
++.palm-group.search .search-command-line .prefix {
++	color: black;
++	font-weight: bold;
++}
++.palm-group.search .search-uscl {
++	text-align: center;
++	padding-top: 10px;
++}
++    
+ .palm-group.search .palm-group-title {
+ 	max-width: 264px;                   
+ }                       
+Index: /usr/lib/luna/system/luna-applauncher/stylesheets/uscl-help.css
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/stylesheets/uscl-help.css
++++ /usr/lib/luna/system/luna-applauncher/stylesheets/uscl-help.css
+@@ -0,0 +1,41 @@
++#uscl-help-command-list,
++#uscl-help-command-view {
++	color: white;
++}
++
++kbd {
++	font-weight: bold;
++	color: yellow;
++	font-family: inherit;
++}
++kbd .aliases {
++	font-weight: normal;
++	opacity: 0.5;
++}
++kbd var {
++	font-weight: normal;
++	font-style: italic;
++}
++
++#uscl-help-command-list .palm-row-wrapper {
++	padding: 10px 15px 0 15px;
++}
++#uscl-help-command-list .palm-row .uscl-help-command-title {
++}
++#uscl-help-command-list .palm-row .uscl-help-command-name {
++	float: right;
++	text-align: right;
++}
++
++#uscl-help-command-view .contents {
++	padding: 5px 15px;
++}
++#uscl-help-command-view .uscl-help-description {
++	padding-top: .5em;
++	font-size: smaller;
++}
++#uscl-help-command-view .uscl-help-example {
++	padding-top: .5em;
++	font-size: smaller;
++}
++
