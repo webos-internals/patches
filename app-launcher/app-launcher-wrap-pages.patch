@@ -1,5 +1,8 @@
 This patch will wrap the launcher pages. Works both for changing between pages and also moving apps from one page to another.
 
+12-7-09:
+Updated to override the internal page snapping of the scroller to resolve several issue related to scrolling pages.
+
 11-24-09:
 Resolve issue of page indicies not always being correct.
 Updated to minimize page scrolling one to many after going past begin or end.
@@ -14,66 +17,66 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
 ===================================================================
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
 +++ /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-@@ -50,6 +50,7 @@ var LauncherAssistant = Class.create({
- 	},
- 	
- 	initialize: function() {
-+		
- 		this.pagesModel = null;
- 		
- 		this.pageDivs = []; // top level pages
-@@ -88,7 +89,10 @@ var LauncherAssistant = Class.create({
+@@ -88,6 +88,9 @@ var LauncherAssistant = Class.create({
  		
  		this.reorderController = new ReorderController(this, this.onReorderFinished.bind(this));
  		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.onPageChange.bindAsEventListener(this));
--		
-+
++				
 +		this.scrollStartingHandler = this.scrollStarting.bindAsEventListener(this);
 +		Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
-+						
+ 		
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  
- 		// pre-calculate commonly used measurements
-@@ -160,11 +164,44 @@ var LauncherAssistant = Class.create({
+@@ -160,11 +163,55 @@ var LauncherAssistant = Class.create({
  			}
  		}
  	},
--		
 +
 +	scrollStarting: function(event) {
++		this.activePageIndex = Math.abs(Math.floor($('launcher_root').mojo.getScrollPosition().left / this.kPageWidth));
 +		event.scroller.addListener(this);
-+	},	
++	},
 +
 +	moved: function(scrollEnding, position) {
-+		// snap to a valid location
-+		//without the 150 pages get skipped after passing either end, not sure why
-+		//I believe this probably has something to do with internal scroller logic for snaping.
-+		if (Math.abs(position.x) > (this.pageDivs.length-1)*this.kPageWidth + 150) 
++
++		//Overide the snap functionality of the scroller. Just calling sensnap to set the first or last page was just to buggy.
++		//Seemed like we where constantly fighting some internal logic related to snapping that would cause a page to be skipped over
++		//on a subsiquent scroll. Also would fight the scrollers attempt to reset its self when reaching either end of the list.
++		//So simply implement our own snapping logic to eliminate these issues.
++		
++		//if reordering bailout do not do any scrolling as we have already set what page we want to be on in the reordering-assistant.
++		if( !this.reorderController.reordering )
 +		{
-+			$('launcher_root').mojo.setSnapIndex(0, false);
-+		}
-+		else if(position.x - 150 > 0 )
-+		{
-+			$('launcher_root').mojo.setSnapIndex(this.pageDivs.length-1, false);
++			// snap to a valid location
++			if (Math.abs(position.x) > (this.pageDivs.length-1)*this.kPageWidth ) 
++			{
++				$('launcher_root').mojo.scrollTo(0, undefined, false, true);
++			}
++			else if(position.x > 0 )
++			{
++				$('launcher_root').mojo.scrollTo((this.pageDivs.length - 1) * -this.kPageWidth , undefined, false, true);
++			}
++                	else if( this.activePageIndex * -this.kPageWidth > position.x )
++			{
++				$('launcher_root').mojo.scrollTo( (this.activePageIndex + 1) * -this.kPageWidth, undefined, false, true);
++			}
++			else if( this.activePageIndex * -this.kPageWidth < position.x )
++			{
++				$('launcher_root').mojo.scrollTo( (this.activePageIndex - 1) * -this.kPageWidth, undefined, false, true);
++			}
 +		}
 +		
-+		if( scrollEnding )
-+		{
-+			//Use scrollEnding to update page indicators since the onPageChange is getting called twice once 
-+			//for old page and once for new page with an inconsistent order. scrollEnding fires after onPageChange.
-+			//Also use the actual scroller position to determine the page index.
-+			//Note still need to do this in onPageChange to support moving of apps from one page to another.
-+			this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left)/this.kPageWidth;
-+			this.updatePageIndicators();
-+		}
++		//Use the actual scroller position to determine the page index.
++		this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left) / this.kPageWidth;
++		this.updatePageIndicators();
 +	},	
-+
+ 		
  	/* keep track of which page we are on */
  	onPageChange: function(event) {
 -		this.activePageIndex = event.value;
 -		this.updatePageIndicators();
++		
 +		//only do this if we are reordering apps
-+		//see comments in move function above.
 +		if( this.reorderController.reordering )
 +		{
 +			this.activePageIndex = event.value;
@@ -82,6 +85,14 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
  	},
  	
  	/* clean and hide global search */
+@@ -565,7 +612,6 @@ var LauncherAssistant = Class.create({
+ 	
+ 	/* Updates the positions of all page indicators. */
+ 	updatePageIndicators: function() {
+-		
+ 		if (this.indicators.length <= 0) {
+ 			return;
+ 		}
 Index: /usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
 ===================================================================
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
