@@ -1,5 +1,8 @@
 This patch will wrap the launcher pages. Works both for changing between pages and also moving apps from one page to another.
 
+12-8-09:
+Add support for reset page patches.
+
 12-7-09:
 Updated to override the internal page snapping of the scroller to resolve several issue related to scrolling pages.
 
@@ -17,17 +20,28 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
 ===================================================================
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
 +++ /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-@@ -88,6 +88,9 @@ var LauncherAssistant = Class.create({
+@@ -50,6 +50,9 @@ var LauncherAssistant = Class.create({
+ 	},
+ 	
+ 	initialize: function() {
++		//support for reset page patch
++		this.deactivating = false;
++		
+ 		this.pagesModel = null;
+ 		
+ 		this.pageDivs = []; // top level pages
+@@ -88,6 +91,10 @@ var LauncherAssistant = Class.create({
  		
  		this.reorderController = new ReorderController(this, this.onReorderFinished.bind(this));
  		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.onPageChange.bindAsEventListener(this));
 +				
 +		this.scrollStartingHandler = this.scrollStarting.bindAsEventListener(this);
 +		Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
++		Mojo.listen(this.controller.document, Mojo.Event.activate, this.onActivate.bindAsEventListener(this));
  		
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  
-@@ -160,11 +163,55 @@ var LauncherAssistant = Class.create({
+@@ -160,16 +167,68 @@ var LauncherAssistant = Class.create({
  			}
  		}
  	},
@@ -45,7 +59,8 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
 +		//So simply implement our own snapping logic to eliminate these issues.
 +		
 +		//if reordering bailout do not do any scrolling as we have already set what page we want to be on in the reordering-assistant.
-+		if( !this.reorderController.reordering )
++		//this.deactivating is support for reset page patch
++		if( !this.reorderController.reordering && !this.deactivating )
 +		{
 +			// snap to a valid location
 +			if (Math.abs(position.x) > (this.pageDivs.length-1)*this.kPageWidth ) 
@@ -69,6 +84,11 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
 +		//Use the actual scroller position to determine the page index.
 +		this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left) / this.kPageWidth;
 +		this.updatePageIndicators();
++	},
++
++	//support for reset page patch	
++	onActivate: function(event) {
++		this.deactivating = false;
 +	},	
  		
  	/* keep track of which page we are on */
@@ -85,7 +105,14 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
  	},
  	
  	/* clean and hide global search */
-@@ -565,7 +612,6 @@ var LauncherAssistant = Class.create({
+ 	onDeactivate: function(event) {
+ 		
++		this.deactivating = true;
++		
+ 		this.globalSearchAssistant.deactivate();
+ 		
+ 		this.reorderController.cancel();
+@@ -565,7 +624,6 @@ var LauncherAssistant = Class.create({
  	
  	/* Updates the positions of all page indicators. */
  	updatePageIndicators: function() {
