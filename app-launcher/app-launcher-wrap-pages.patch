@@ -1,0 +1,206 @@
+This patch will wrap the launcher pages. Works both for changing between pages and also moving apps from one page to another.
+
+12-8-09:
+Add support for reset page patches.
+
+12-7-09:
+Updated to override the internal page snapping of the scroller to resolve several issue related to scrolling pages.
+
+11-24-09:
+Resolve issue of page indicies not always being correct.
+Updated to minimize page scrolling one to many after going past begin or end.
+
+11-15-09:
+Updated for 1.3.1.
+
+11-12-09:
+Updaed to fix issue where page indicators where not always getting updated correctly.
+
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -50,6 +50,9 @@ var LauncherAssistant = Class.create({
+ 	},
+ 	
+ 	initialize: function() {
++		//support for reset page patch
++		this.deactivating = false;
++		
+ 		this.pagesModel = null;
+ 		
+ 		this.pageDivs = []; // top level pages
+@@ -88,6 +91,10 @@ var LauncherAssistant = Class.create({
+ 		
+ 		this.reorderController = new ReorderController(this, this.onReorderFinished.bind(this));
+ 		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.onPageChange.bindAsEventListener(this));
++				
++		this.scrollStartingHandler = this.scrollStarting.bindAsEventListener(this);
++		Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
++		Mojo.listen(this.controller.document, Mojo.Event.activate, this.onActivate.bindAsEventListener(this));
+ 		
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
+ 
+@@ -160,16 +167,68 @@ var LauncherAssistant = Class.create({
+ 			}
+ 		}
+ 	},
++
++	scrollStarting: function(event) {
++		this.activePageIndex = Math.abs(Math.floor($('launcher_root').mojo.getScrollPosition().left / this.kPageWidth));
++		event.scroller.addListener(this);
++	},
++
++	moved: function(scrollEnding, position) {
++
++		//Overide the snap functionality of the scroller. Just calling sensnap to set the first or last page was just to buggy.
++		//Seemed like we where constantly fighting some internal logic related to snapping that would cause a page to be skipped over
++		//on a subsiquent scroll. Also would fight the scrollers attempt to reset its self when reaching either end of the list.
++		//So simply implement our own snapping logic to eliminate these issues.
++		
++		//if reordering bailout do not do any scrolling as we have already set what page we want to be on in the reordering-assistant.
++		//this.deactivating is support for reset page patch
++		if( !this.reorderController.reordering && !this.deactivating )
++		{
++			// snap to a valid location
++			if (Math.abs(position.x) > (this.pageDivs.length-1)*this.kPageWidth ) 
++			{
++				$('launcher_root').mojo.scrollTo(0, undefined, false, true);
++			}
++			else if(position.x > 0 )
++			{
++				$('launcher_root').mojo.scrollTo((this.pageDivs.length - 1) * -this.kPageWidth , undefined, false, true);
++			}
++                	else if( this.activePageIndex * -this.kPageWidth > position.x )
++			{
++				$('launcher_root').mojo.scrollTo( (this.activePageIndex + 1) * -this.kPageWidth, undefined, false, true);
++			}
++			else if( this.activePageIndex * -this.kPageWidth < position.x )
++			{
++				$('launcher_root').mojo.scrollTo( (this.activePageIndex - 1) * -this.kPageWidth, undefined, false, true);
++			}
++		}
++		
++		//Use the actual scroller position to determine the page index.
++		this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left) / this.kPageWidth;
++		this.updatePageIndicators();
++	},
++
++	//support for reset page patch	
++	onActivate: function(event) {
++		this.deactivating = false;
++	},	
+ 		
+ 	/* keep track of which page we are on */
+ 	onPageChange: function(event) {
+-		this.activePageIndex = event.value;
+-		this.updatePageIndicators();
++		
++		//only do this if we are reordering apps
++		if( this.reorderController.reordering )
++		{
++			this.activePageIndex = event.value;
++			this.updatePageIndicators();
++		}
+ 	},
+ 	
+ 	/* clean and hide global search */
+ 	onDeactivate: function(event) {
+ 		
++		this.deactivating = true;
++		
+ 		this.globalSearchAssistant.deactivate();
+ 		
+ 		this.reorderController.cancel();
+@@ -565,7 +624,6 @@ var LauncherAssistant = Class.create({
+ 	
+ 	/* Updates the positions of all page indicators. */
+ 	updatePageIndicators: function() {
+-		
+ 		if (this.indicators.length <= 0) {
+ 			return;
+ 		}
+Index: /usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
+===================================================================
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
+@@ -425,28 +425,71 @@ var ReorderController = Class.create({
+ 	},
+ 	
+ 	_cyclePage: function(direction) {
+-		
+ 		var canPage = false;
+-		if (direction == -1 && this.activePage.previous() !== null) {
++		var useFirst = false;
++		var useLast = false;
++		if (direction == -1 ){//&& this.activePage.previous() !== null) {
+ 			this.previousPage = this.activePage;
+-			this.activePage = this.activePage.previous();
++			
++			if(this.activePage.previous() == null)
++			{
++//not sure why this doesnt work and need to do while loop instead. 			
++//				this.activePage = this.launcherAssistant.pagesModel.getPage(this.launcherAssistant.pagesModel.getNumPages()-1);
++				while(this.activePage.next() !== null)
++				{
++					this.activePage = this.activePage.next();
++				}
++				useLast = true;
++			}
++			else
++			{
++				this.activePage = this.activePage.previous();
++			}
++			
+ 			canPage = true;
+ 		}
+-		else if (direction == 1 && this.activePage.next() !== null) {
++		else if (direction == 1 ){// && this.activePage.next() !== null) {
+ 			this.previousPage = this.activePage;
+-			this.activePage = this.activePage.next();
++			
++			if(this.activePage.next() == null)
++			{
++//not sure why this doesnt work and need to do while loop instead.			
++//				this.activePage = this.launcherAssistant.pagesModel.getPage(0);
++				while(this.activePage.previous() !== null)
++				{
++					this.activePage = this.activePage.previous();
++				}
++				useFirst = true;
++			}
++			else
++			{
++				this.activePage = this.activePage.next();
++			}
++			
+ 			canPage = true;
+ 		}
+-	    
++		
+ 		if (canPage) {
+ 			// disable any more reordering while we transition to a new page
+ 			this._removeDropTargets();
+-			
++		
+ 			// reveal the page we are about to scroll to
+ 			this.activePage.show();
+ 			
+ 			this.pagingAnimating = true;
+-			$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.activePageIndex + direction, true);
++			
++			if(useFirst)
++			{
++				$('launcher_root').mojo.setSnapIndex(0, true);
++			}
++			else if(useLast)
++			{
++				$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.pagesModel.getNumPages()-1, true);
++			}
++			else
++			{
++				$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.activePageIndex + direction, true);
++			}
+ 		}
+ 	},
+ 	
