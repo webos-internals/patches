@@ -1,0 +1,188 @@
+Name: Device Menu Remix
+Version: 1.3.1-1
+Author: Jason Robitaille
+Description: Removes the date, undims the battery level, adds brightness controll, adds GPS toggle, and removes the airplane mode toggle, on the device menu  (MIT license)
+
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -27,8 +27,6 @@
+ 		//Add a touchable row class
+ 		this.controller.get('palm-device-menu').addClassName('palm-touch-rows-'+Mojo.Environment.DeviceInfo.touchableRows);
+ 			
+-		var date = new Date();
+-		this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '}) +  Mojo.Format.formatDate(date,{date:'long'});
+ 		var msg = $L("Battery: #{batlevel}");
+ 		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel())});
+ 						
+@@ -32,6 +30,8 @@
+ 		var msg = $L("Battery: #{batlevel}");
+ 		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel())});
+ 						
++		this.controller.setupWidget('brightSlider', {minValue: 0, maxValue: 100}, this.brightModel = { value: 50});
++
+ 		this.modesModel = {scrollbars: false, mode: "vertical"},
+ 		this.controller.setupWidget('devicescroller', {}, this.modesModel);
+ 		this.menuscroller = this.controller.get('devicescroller');
+@@ -37,6 +37,7 @@
+ 		this.menuscroller = this.controller.get('devicescroller');
+ 		
+ 		this.drawerModel = {myOpenProperty:false};
++		this.controller.setupWidget('brightdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('wifidetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('btdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.wifidrawer = this.controller.get('wifidetails');
+@@ -64,10 +65,10 @@
+ 		//Spinner for Airplande Mode
+ 		//this.controller.setupWidget('apSpinner', this.spinnerAttrs, this.apSpinnerModel);	    	
+ 			
+-		if(this.barAssistant.getAirplaneMode()) 			
+-			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn off Airplane Mode');
+-		else
+-			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn on Airplane Mode');
++		//if(this.barAssistant.getAirplaneMode()) 			
++		//	this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn off Airplane Mode');
++		//else
++		//	this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn on Airplane Mode');
+ 			
+ 		var btstate = this.barAssistant.getCurrentBluetoothState();
+ 		if(btstate === 'Off') {
+@@ -113,7 +114,9 @@
+ 	},
+ 	
+ 	activate: function() {
+-		this.controller.get('dm_airplanemode').addEventListener(Mojo.Event.tap, this.toggleAirplaneMode.bindAsEventListener(this));
++		this.controller.get('brightSlider').addEventListener(Mojo.Event.propertyChange, this.handleBrightSlider.bindAsEventListener(this));
++		this.controller.get('brightRow').addEventListener(Mojo.Event.tap, this.handleBrightTap.bindAsEventListener(this));
++		this.controller.get('dm_gps').addEventListener(Mojo.Event.tap, this.toggleGPS.bindAsEventListener(this));
+ 		this.controller.get('wifilist').addEventListener(Mojo.Event.listTap,this.handleWiFiTap.bindAsEventListener(this));
+ 		this.controller.get('btlist').addEventListener(Mojo.Event.listTap,this.handleBTTap.bindAsEventListener(this));		
+ 		this.controller.get('dm_wifi').addEventListener(Mojo.Event.tap, this.togglewifiList.bindAsEventListener(this));
+@@ -130,6 +133,37 @@
+ 	cleanup: function() {
+ 		Mojo.Log.error("Device Menu - Clean up called");				
+ 	},	
++	
++	handleBrightTap: function(event) {
++		this.controller.get('brightdetails').mojo.setOpenState(!this.controller.get('brightdetails').mojo.getOpenState());
++	},
++
++	handleBrightSlider: function(event) {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'setProperty',
++			parameters:{maximumBrightness:Math.round(event.value)}
++		});
++		this.controller.get('dm_brightness').innerText = "Brightness: " + Math.round(event.value) + "%";
++	},
++	
++	toggleGPS: function(event) {
++		this.gpsEnabled = !this.gpsEnabled;
++		this.controller.serviceRequest('palm://com.palm.location', {
++			method: 'setUseGps',
++			parameters: {
++				useGps: this.gpsEnabled
++			}
++		});
++		this.setGPSLabel();
++	},
++
++	setGPSLabel: function() {
++		if(this.gpsEnabled) {
++			this.controller.get('gpsStatus').innerText = "On";
++		} else {
++			this.controller.get('gpsStatus').innerText = "Off";
++		}
++	},
+ 			
+ 	wifiAPList: [],
+ 	btdeviceList: [],
+@@ -932,6 +966,7 @@
+ 			this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
+ 			this.wifidrawer.mojo.setOpenState(false);
+ 		}		
++		this.controller.get('brightdetails').mojo.setOpenState(false);
+ 		//this.isVisible = false;
+ 		if(this.isVisible){
+ 			this.toggleDeviceMenu();
+@@ -973,8 +1008,28 @@
+ 		}
+ 		else {
+ 			this.isVisible = true;
+-			var date = new Date();		
+-			this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'});
++			this.controller.serviceRequest('palm://com.palm.display/control', {
++				method: 'getProperty',
++				parameters:{properties:['maximumBrightness']},
++				onSuccess: function(response) {
++					if(response.maximumBrightness != undefined) {
++						this.brightModel.value = parseInt(response.maximumBrightness);
++						this.controller.modelChanged(this.brightModel);
++						this.controller.get('dm_brightness').innerText = "Brightness: " + response.maximumBrightness + "%";
++					} else {
++						this.controller.get('dm_brightness').innerText = "Brightness: ??%";
++					}
++				}.bind(this)
++			});
++			this.controller.serviceRequest('palm://com.palm.location', {
++				method: 'getUseGps',
++				parameters: {},
++				onSuccess: function(response) {
++					this.gpsEnabled = response.useGps;
++					this.setGPSLabel();
++				}.bind(this)
++			});
++			
+ 			this.controller.stageController.activate();
+ 			
+ 			var animateDialog = function(){
+--- .orig/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ /usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -14,17 +14,23 @@
+ 		<div id="devicescroller" class="palm-popup-content" x-mojo-element="Scroller">       
+ 			<div class="palm-list">          
+ 				
+-				<div class="palm-row first"><div class="palm-row-wrapper">
+-					<div id="dm_date" class="title dim"></div>
+-				</div></div>
+-				
+-				<div class="palm-section-divider">
+-				</div> 
+-				
+ 				<div class="palm-row"><div class="palm-row-wrapper">
+-					<div id="dm_battery" class="title dim"></div>
++					<div id="dm_battery" class="title"></div>
+ 				</div></div> 
+ 				
++								<div class="palm-section-divider">
++				</div>
++
++				<div class="palm-row" id="brightRow" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div id="dm_brightness" class="title"></div>
++				</div></div>
++
++				<div id="brightdetails" x-mojo-element="Drawer">
++					<div class="palm-row first"><div class="palm-row-wrapper">
++						<div x-mojo-element="Slider" id="brightSlider" style="padding-top: 30px; height: 50px;"></div>
++					</div></div>
++				</div>
++				
+ 				<div class="palm-section-divider">
+ 				</div>               
+ 				
+@@ -95,11 +101,12 @@
+ 				<div class="palm-section-divider"></div>
+ 				
+-				<div id="dm_airplanemode" class="palm-row last menu-end" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
+-					<div id="dm_airplanemode_status" class="title truncating-text">
+-					 </div>
+-					 <!--<div id='apSpinner' class='label' x-mojo-element="Spinner"></div>-->
+-				</div></div>   
++				<div class="palm-row last menu-end" id="dm_gps" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="gpsStatus">&nbsp;</div>
++						<span x-mojo-loc=''>GPS</span>
++					</div>
++				</div></div>
+ 				
+ 				</div>       
+ 			</div>
+ 		</div>

@@ -1,0 +1,84 @@
+Name: No Auto-Off While Charging
+Version: 1.3.1-1
+Author: Sakasune, Jason Robitaille
+Description: Prevents the screen from turning off while the device is charging  (MIT license)
+
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -27,6 +27,14 @@
+ 		$('callforward').hide();
+ 						
+ 		// Initialize the Battery Power Nofication and get the initial value
++		this.previousTimeout = 60;
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'getProperty',
++			parameters:{properties:['timeout']},
++			onSuccess: function(response) {
++				this.previousTimeout = response.timeout;
++			}.bind(this)
++		});
+ 		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
+ 		
+ 		// Initialize System Services once the service is running
+@@ -1546,7 +1554,18 @@
+ 						messageText: batteryalert,
+ 						icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-charging.png",
+ 						soundClass: soundClassName
+ 					},null, 'chargingAlert'); 				
++				this.controller.serviceRequest('palm://com.palm.display/control', {
++					method: 'getProperty',
++					parameters:{properties:['timeout']},
++					onSuccess: function(response) {
++						this.previousTimeout = response.timeout;
++						this.controller.serviceRequest('palm://com.palm.display/control', {
++							method: 'setProperty', 
++							parameters:{timeout:86400}	
++						});
++					}.bind(this)
++				});
+ 			}
+ 			this.chargingBannerShown = true;			
+ 		}
+@@ -1551,6 +1570,12 @@
+ 			this.chargingBannerShown = true;			
+ 		}
+ 		else {
++			if(this.chargingBannerShown) {
++				this.controller.serviceRequest('palm://com.palm.display/control', {
++					method: 'setProperty',
++					parameters:{timeout:parseInt(this.previousTimeout)}
++				});
++			}
+ 			this.chargingBannerShown = false;			
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+ 			$('power').className = 'battery-' + this.lastBatteryLevel;	
+@@ -2017,7 +2042,18 @@
+         return;
+    
+     if (payload["mode-avail"]) {
++    		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'getProperty',
++			parameters:{properties:['timeout']},
++			onSuccess: function(response) {
++				this.previousTimeout = response.timeout;
++				this.controller.serviceRequest('palm://com.palm.display/control', {
++					method: 'setProperty', 
++					parameters:{timeout:86400}	
++				});
++			}.bind(this)
++		});
+ 		this.isUSBConnected = true;
+ 	 	if (!this.onActiveCall) {
+ 			if (this.updateAvailable) 
+ 				this.createUSBDashboard();
+@@ -2026,6 +2062,10 @@
+ 		}
+ 	}
+     else {
++    		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'setProperty',
++			parameters:{timeout:parseInt(this.previousTimeout)}
++		});
+ 		this.isUSBConnected = false;
+ 		this.disableiMasqButton = false;
+     	this.msmTurnOnHiddServices();
