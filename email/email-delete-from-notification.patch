@@ -1,39 +1,25 @@
-This patch adds the capability to delete email from the new email notification bar.
-
-11-23-09:
-Handle deletes better - now clear stage after every delete
-Fix single-email-template for line that was to long aparently.
-
-11-05-09:
-Updated for 1.3.1
-Moved trash can icon to right side
-Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
-+++ /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
-@@ -46,9 +46,17 @@ var EmailDashboardAssistant = Class.crea
- 	tapHandler: function(event) {
- 		// Ignore additional taps in case the user is impatient
- 		var target = event.target;
-+
- 		if (!target.hasClassName('email-dashboard-tap-target')) {
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
+index 4431398..a1e3ca6 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard-assistant.js
+@@ -50,6 +50,13 @@ var EmailDashboardAssistant = Class.create({
  			target = target.up('div.email-dashboard-tap-target');
  		}
-+	
+ 
 +		var tDelete = false;
 +			
 +		//check to see if the trash icon was tapped
 +		if ( target.hasClassName('email-dashboard-tap-target-delete')) {
 +			tDelete = true;
 +		}
- 
++
  		if (target) {
- 			var accountId = target.readAttribute('accountid');
-@@ -56,9 +64,17 @@ var EmailDashboardAssistant = Class.crea
+ 			// disable the tap event to prevent keep handling user's multiple taps
+ 			if (!this.allInboxesOn) 
+@@ -60,7 +67,15 @@ var EmailDashboardAssistant = Class.create({
  			if (accountId == "single") {
  				var folderId = target.readAttribute('folderid');
  				var messageId = target.readAttribute('messageid');
--				this.showSingleMessage(accountId, folderId, messageId);
 +	
 +				if(tDelete)
 +				{
@@ -41,19 +27,15 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
 +				}
 +				else
 +				{
-+					this.showSingleMessage(accountId, folderId, messageId);
+ 				this.showSingleMessage(accountId, folderId, messageId);
 +				}
  			} else if (accountId == "all") {
--				this.showAccount(); // just display the account scene
-+					this.showAccount(); // just display the account scene
+ 				this.showAccount(); // just display the account scene
  			} else {
- 				this.showAccount(accountId);
- 			}
-@@ -162,6 +178,47 @@ var EmailDashboardAssistant = Class.crea
+@@ -170,6 +185,52 @@ var EmailDashboardAssistant = Class.create({
  	                });
  	},
  
-+	 
 +	deleteSuccess: function(account, folder, message) {
 +		//try to sync so that we get notified of the delete and the notification gets updated
 +		Folder.syncFolder(folder, true);
@@ -65,7 +47,13 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
 +		//set the ignoreClear flag so that the new email timestamp doesnt get set
 +		//this will allow for us to close the stage but when the next update comes through we will still have all the unread emails to work with
 +		this.ignoreClear = true;
-+		this.notificationAssistant.closeEmailDashboard(this.notifications[0]);
++		if (this.notificationAssistant.allInboxesOn) {
++			this.notificationAssistant.closeEmailDashboard();
++		}
++		else
++		{
++			this.notificationAssistant.closeEmailDashboard(this.notifications[0]);
++		}
 +	
 +		//try to sync the folder to get any updates
 +		Folder.syncFolder(folder, true);	
@@ -95,18 +83,61 @@ Index: /usr/palm/applications/com.palm.app.email/app/controllers/email-dashboard
 +	},
 +	
  	showFolder: function(accountId, folderId, resp) {
- 		var folderInfo = { folderId: folderId,
- 		                   accountId: accountId,
-Index: /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
-+++ /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
-@@ -5,7 +5,11 @@
-     </div>
+ 		this.notificationAssistant.setFolderViewedTimestamp(folderId, new Date().getTime());
+ 		this.notificationAssistant.clearAccount(accountId, folderId);
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
+index 7f52bdd..8f1cd02 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
+@@ -20,7 +20,7 @@ var NotificationAssistant = Class.create({
+ 		// sending broadcast and dashboard updates when the user would see it because of the
+ 		// scene he's in.
+ 		this.filter = {};
+-		this.newMailDeferralTimeout = 7;
++		this.newMailDeferralTimeout = 0;//7;
+   	},
+ 
+ 	windowBlurFocusHandler: function(event) {
+@@ -234,8 +234,10 @@ var NotificationAssistant = Class.create({
+ 
+ 			var folderObj;
+ 			var listIndex;
++			
+ 			for (listIndex = 0; listIndex < resp.list.length; ++listIndex) {
+ 				folderObj = resp.list[listIndex];
++				
+ 				if (this.shouldDoNotification(folderObj)) {
+ 					// Add to the UI model only if notify is set and the count shows there's items to add
+ 					if (folderObj.notify === true && folderObj.count > 0) {
+@@ -245,6 +247,7 @@ var NotificationAssistant = Class.create({
+ 					// Logic for sound: AccountpreferencesAssistant.kNotifyTypeAudio is highest
+ 					// priority and trumps all other sound types.
+ 					if (folderObj.hasNew === true && 
++
+ 					    folderObj.playSound !== AccountpreferencesAssistant.kNotifyTypeNone &&
+ 					    playSound !== AccountpreferencesAssistant.kNotifyTypeAudio) {
+ 
+@@ -640,10 +643,10 @@ var NotificationAssistant = Class.create({
+ 			// displayActive and displayDimmed
+ 			if (data.event == 'displayOff') {
+ 				this.displayOff = true;
+-				this.newMailDeferralTimeout = 0.5;
++				this.newMailDeferralTimeout = 0;//0.5;
+ 			} else if (data.event == 'displayOn') {
+ 				this.displayOff = false;
+-				this.newMailDeferralTimeout = 7;
++				this.newMailDeferralTimeout = 0;//7;
+ 			}
+ 
+ 			Mojo.Log.info("displayUpdate displayOff", this.displayOff, "event", data.event);
+diff --git a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html b/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
+index 38c8b71..21889dd 100644
+--- a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
++++ b/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
+@@ -6,6 +6,10 @@
       <div class="palm-dashboard-icon email">
       </div>
--  </div>   
-+  </div> 
+   </div>   
 +  <div class="palm-dashboard-icon-container email-dashboard-tap-target email-dashboard-tap-target-delete" style="float: right; margin-left: 4px;" accountid="single" folderid="#{folder}" messageid="#{message}">
 +	<div class="palm-dashboard-icon delete">
 +	</div>
@@ -114,25 +145,25 @@ Index: /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multi
    <div class="palm-dashboard-text-container email-dashboard-tap-target" accountid="single" folderid="#{folder}" messageid="#{message}">
       <div class="dashboard-title">
        #{from}
-Index: /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-account-template.html
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-account-template.html
-+++ /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-account-template.html
-@@ -5,6 +5,10 @@
-     </div>
+diff --git a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-account-template.html b/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-account-template.html
+index 31a4683..24e0858 100644
+--- a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-account-template.html
++++ b/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-account-template.html
+@@ -6,6 +6,10 @@
       <div class="palm-dashboard-icon #{accountDomain}">
       </div>
-+  </div> 
+   </div>   
 +  <div class="palm-dashboard-icon-container email-dashboard-tap-target email-dashboard-tap-target-delete" style="float: right; margin-left: 4px;" accountid="single" folderid="#{folder}" messageid="#{message}">
 +	<div class="palm-dashboard-icon delete">
 +        </div>
-   </div>   
++  </div>   
    <div class="palm-dashboard-text-container email-dashboard-tap-target" accountid="single" folderid="#{folder}" messageid="#{message}">
       <div class="dashboard-title">
-Index: /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-email-template.html
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-email-template.html
-+++ /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-email-template.html
+       #{from}
+diff --git a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-email-template.html b/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-email-template.html
+index 0eca342..a474aee 100644
+--- a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-email-template.html
++++ b/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/single-email-template.html
 @@ -1,8 +1,13 @@
 -<div class="dashboard-notification-module single">
 +<div class="dashboard-notification-module">
@@ -148,11 +179,11 @@ Index: /usr/palm/applications/com.palm.app.email/app/views/email-dashboard/singl
    <div class="palm-dashboard-text-container email-dashboard-tap-target" accountid="single" folderid="#{folder}" messageid="#{message}">
       <div class="dashboard-title">
        #{from}
-Index: /usr/palm/applications/com.palm.app.email/stylesheets/notifications.css
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.email/stylesheets/notifications.css
-+++ /usr/palm/applications/com.palm.app.email/stylesheets/notifications.css
-@@ -78,3 +78,9 @@ Copyright 2009 Palm, Inc.  All rights re
+diff --git a/usr/palm/applications/com.palm.app.email/stylesheets/notifications.css b/usr/palm/applications/com.palm.app.email/stylesheets/notifications.css
+index 5ba21eb..ecc6aef 100644
+--- a/usr/palm/applications/com.palm.app.email/stylesheets/notifications.css
++++ b/usr/palm/applications/com.palm.app.email/stylesheets/notifications.css
+@@ -78,3 +78,9 @@ Copyright 2009 Palm, Inc.  All rights reserved.
  .palm-dashboard-icon.gmail			{ background: url(../images/notification-large-gmail.png) center left no-repeat; }
  .palm-dashboard-icon.yahoo			{ background: url(../images/notification-large-yahoo.png) center left no-repeat; }
  .palm-dashboard-icon.aol			{ background: url(../images/notification-large-aol.png) center left no-repeat; }
@@ -162,48 +193,3 @@ Index: /usr/palm/applications/com.palm.app.email/stylesheets/notifications.css
 +
 +.email-dashboard-tap-target-delete {
 +}
-Index: /usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
-+++ /usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
-@@ -20,7 +20,7 @@ var NotificationAssistant = Class.create
- 		// sending broadcast and dashboard updates when the user would see it because of the
- 		// scene he's in.
- 		this.filter = {};
--		this.newMailDeferralTimeout = 7;
-+		this.newMailDeferralTimeout = 0;//7;
-   	},
- 
- 	windowBlurFocusHandler: function(event) {
-@@ -157,8 +157,10 @@ var NotificationAssistant = Class.create
- 
- 			var folderObj;
- 			var listIndex;
-+			
- 			for (listIndex = 0; listIndex < resp.list.length; ++listIndex) {
- 				folderObj = resp.list[listIndex];
-+				
- 				if (this.shouldDoNotification(folderObj)) {
- 					// Add to the UI model only if notify is set and the count shows there's items to add
- 					if (folderObj.notify === true && folderObj.count > 0) {
-@@ -168,6 +170,7 @@ var NotificationAssistant = Class.create
- 					// Logic for sound: AccountpreferencesAssistant.kNotifyTypeAudio is highest
- 					// priority and trumps all other sound types.
- 					if (folderObj.hasNew === true && 
-+
- 					    folderObj.playSound !== AccountpreferencesAssistant.kNotifyTypeNone &&
- 					    playSound !== AccountpreferencesAssistant.kNotifyTypeAudio) {
- 
-@@ -636,10 +639,10 @@ var NotificationAssistant = Class.create
- 			// displayActive and displayDimmed
- 			if (data.event == 'displayOff') {
- 				this.displayOff = true;
--				this.newMailDeferralTimeout = 0.5;
-+				this.newMailDeferralTimeout = 0;//0.5;
- 			} else if (data.event == 'displayOn') {
- 				this.displayOff = false;
--				this.newMailDeferralTimeout = 7;
-+				this.newMailDeferralTimeout = 0;//7;
- 			}
- 
- 			Mojo.Log.info("displayUpdate displayOff", this.displayOff, "event", data.event);
