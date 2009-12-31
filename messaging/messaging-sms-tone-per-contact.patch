@@ -1,11 +1,258 @@
-diff --git a/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js b/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
-index 276995f..695a2c1 100644
---- a/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
-+++ b/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
-@@ -57,6 +57,55 @@ var FilepickerBehaviors = {
+Updated for 1.2
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+@@ -52,9 +52,27 @@
+ 	                </div>
+ 	            </div>
+             </div>
++	    <div id='currentalertrow' class="palm-row" x-mojo-tap-highlight="momentary">
++		<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Alert</div>
++			<div id='currentalert' class="title"></div> 
++		</div>
++	    </div>
++	    <div id='currentnotificationrow' class="palm-row" x-mojo-tap-highlight="momentary">
++			<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Notification</div>
++			<div id='currentnotification' class="title"></div>  
++		</div>
++	    </div>
++	    <div id='currentmessagerow' class="palm-row" x-mojo-tap-highlight="momentary">
++			<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Messages</div>
++			<div id='currentmessage' class="title"></div>     
++		</div>
++	    </div>            
+ 			<div class="palm-row last">
+ 				<div class="palm-row-wrapper">
+-					<div class="title" x-mojo-loc=''>Volume</div>
++					<div class="title" x-mojo-loc=''>System Volume</div>
+ 					<div x-mojo-element="Slider" id='systemvolume' class="palm-slider"></div>
+ 	            </div>
+             </div>
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+@@ -28,6 +28,60 @@ SystemService.getRingtone = function(cal
+ 	return request;
+ }
  
++SystemService.getAlerts = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["alerttone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setAlerts = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"alerttone":value}, 
++	});
++	return request;
++}
++
++SystemService.getNotifications = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["notificationtone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setNotifications = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"notificationtone":value}, 
++	});
++	return request;
++}
++
++SystemService.getMessages = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["messagetone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setMessages = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"messagetone":value}, 
++	});
++	return request;
++}
++
+ SystemService.getSystemUISounds = function(callback) {
+ 	var request = new Mojo.Service.Request(SystemService.identifier, {
+ 			method: 'getPreferences',
+Index: /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+@@ -96,9 +96,15 @@ var SoundsalertsconfigAssistant = Class.
+ 		$('system_ui_sounds').observe('mojo-property-change', this.toggleSystemUISounds.bindAsEventListener(this));
+ 		
+ 		$('currentringtonerow').observe(Mojo.Event.tap, this.showAudioFilePicker.bindAsEventListener(this));
++		$('currentalertrow').observe(Mojo.Event.tap, this.showAlertFilePicker.bindAsEventListener(this));
++		$('currentnotificationrow').observe(Mojo.Event.tap, this.showNotificationFilePicker.bindAsEventListener(this));
++		$('currentmessagerow').observe(Mojo.Event.tap, this.showMessageFilePicker.bindAsEventListener(this));
+ 				
+ 		this.getCurrentVolumes();
+ 		this.getCurrentRingtone();
++		this.getCurrentAlert();
++		this.getCurrentNotification();
++		this.getCurrentMessage();
+ 		this.getVibrateSettings();	
+ 		this.getOtherSettings();
+ 		
+@@ -270,6 +276,84 @@ var SoundsalertsconfigAssistant = Class.
+ 		$('currentringtone').innerHTML = file.name;
  	},
  	
++	// Alert Picking
++	getCurrentAlert: function() {
++	this.getCurrentAlertReq = SystemService.getAlerts(this.getCurrentAlertQuery.bind(this));
++	},
++	
++	getCurrentAlertQuery: function(payload) {
++	if (payload.alerttone) {
++	$('currentalert').innerHTML = payload.alerttone.name;
++	this.currAlertPath = payload.alerttone.fullPath;
++	}
++	else 
++	$('currentalert').innerHTML = $L("Pick an alert");
++	
++	},
++	
++	showAlertFilePicker: function(event) {
++	var params = {"kinds": ["ringtone"],"filePath":this.currAlertPath,"onSelect":this.selectedAlertFile.bind(this),actionType:"attach",actionName: $L("Done")};
++	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	},
++	
++	selectedAlertFile: function(file) {
++	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
++	this.setAlertReq = SystemService.setAlerts(file);
++	$('currentalert').innerHTML = file.name;
++	},
++	
++	// Notification Picking
++	getCurrentNotification: function() {
++	this.getCurrentNotificationReq = SystemService.getNotifications(this.getCurrentNotificationQuery.bind(this));
++	},
++	
++	getCurrentNotificationQuery: function(payload) {
++	if (payload.notificationtone) {
++	$('currentnotification').innerHTML = payload.notificationtone.name;
++	this.currNotificationPath = payload.notificationtone.fullPath;
++	}
++	else 
++	$('currentnotification').innerHTML = $L("Pick a notification");
++	
++	},
++	
++	showNotificationFilePicker: function(event) {
++	var params = {"kinds": ["ringtone"],"filePath":this.currNotificationPath,"onSelect":this.selectedNotificationFile.bind(this),actionType:"attach",actionName: $L("Done")};
++	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	},
++	
++	selectedNotificationFile: function(file) {
++	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
++	this.setNotificationReq = SystemService.setNotifications(file);
++	$('currentnotification').innerHTML = file.name;
++	},
++	
++	// Message Picking
++	getCurrentMessage: function() {
++		this.getCurrentMessageReq = SystemService.getMessages(this.getCurrentMessageQuery.bind(this));
++	},
++	
++	getCurrentMessageQuery: function(payload) {
++		if (payload.messagetone) {
++			$('currentmessage').innerHTML = payload.messagetone.name;
++			this.currMessagePath = payload.messagetone.fullPath;
++		}
++		else 
++		$('currentmessage').innerHTML = $L("Pick an message");
++	
++	},
++	
++	showMessageFilePicker: function(event) {
++		var params = {"kinds": ["ringtone"],"filePath":this.currMessagePath,"onSelect":this.selectedMessageFile.bind(this),actionType:"attach",actionName: $L("Done")};
++		Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	},
++	
++	selectedMessageFile: function(file) {
++		//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
++		this.setMessageReq = SystemService.setMessages(file);
++		$('currentmessage').innerHTML = file.name;
++	},
++	
+ 	getVibrateSettings: function() {
+ 		this.getVibrateSettingsReq = AudioService.getVibrateSettings(this.vibrateSettingsCB.bind(this),this);
+ 	},
+Index: /usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
++++ /usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
+@@ -64,6 +64,17 @@ EditAssistant = Class.create({
+ 			template: "edit/ringtones"
+ 		}));
+ 		
++		if(this.person.messagingRingtoneName){
++			this.person.MsgtoneDisplay = this.person.messagingRingtoneName;
++			this.person.MsgtoneSet = "msgtone-set";
++		} else {
++			this.person.MsgtoneDisplay = $L("Set a message tone");
++			this.person.MsgtoneSet = "";
++		}
++		this.controller.get("MsgtoneBox").update(Mojo.View.render({
++			object: this.person,
++			template: "edit/msgtones"
++		}));		
+ 		
+ 		var that = this;
+ 		
+@@ -278,6 +289,11 @@ EditAssistant = Class.create({
+ 					object: {ringtoneDisplay:ringtoneName},
+ 					template: "edit/ringtones"
+ 				}));
++				var messagingRingtoneName = this.person.messagingRingtoneName || $L("Set a message tone");
++				this.controller.get("MsgtoneBox").update(Mojo.View.render({
++					object: {MsgtoneDisplay:messagingRingtoneName},
++					template: "edit/msgtones"
++				}));
+ 				
+ 			}
+ 		}
+@@ -543,6 +559,7 @@ EditAssistant = Class.create({
+ 		this.controller.listen("NameSyncPickerWrapper", Mojo.Event.tap, this.popupContactChooser.bind(this));
+ 		this.controller.get("edit-photo").observe(Mojo.Event.tap, this.attachFilePicker.bind(this));
+ 		this.controller.get("RingtoneBox").observe(Mojo.Event.tap, this.attachRingtonePicker.bind(this));
++		this.controller.get("MsgtoneBox").observe(Mojo.Event.tap, this.attachMsgtonePicker.bind(this));
+ 		this.renderLabels();
+ 		this.setupContact();
+ 		if (this.contact.readOnly) {
+Index: /usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
++++ /usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
+@@ -56,6 +56,55 @@ var FilepickerBehaviors = {
+ 			Mojo.FilePicker.pickFile(params, this.controller.stageController);
+ 
+ 	},
++
 +	attachMsgtonePicker: function(event){
 +		if(this.person.messagingRingtoneLoc){
 +			this.controller.popupSubmenu( {
@@ -54,10 +301,9 @@ index 276995f..695a2c1 100644
 +			Mojo.FilePicker.pickFile(params, this.controller.stageController);
 +
 +	},
-+	
+ 	
  	attachFilePicker: function(event){
  		if(this.contact.readOnly){
- 			return;
 @@ -153,6 +202,20 @@ var FilepickerBehaviors = {
  		        template:"edit/ringtones"
  		      }));
@@ -79,10 +325,10 @@ index 276995f..695a2c1 100644
  	}
  }
  
-diff --git a/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html b/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
-index 306b79a..6238034 100644
---- a/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
-+++ b/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
+Index: /usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
++++ /usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
 @@ -32,6 +32,20 @@
          </div>
      </div>
@@ -125,10 +371,23 @@ Index: /usr/palm/applications/com.palm.app.contacts/app/views/edit/msgtones.html
 +    </div>
 +  </div>
 +</div>
-diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-index aa6a2b7..13fc64e 100644
---- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-+++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+@@ -436,7 +436,7 @@ var ListviewAssistant = Class.create(App
+ 		// if we are in the history view and the screen is on, do not display a banner + dashboard, just play a notification sound
+ 		if (this.isScreenOn) { 
+ 			if (data.notificationType == this.Messaging.notificationTypes.newMessage && this.currentListView == this.Messaging.Views.HISTORY) {
+-				data = {playSoundOnly:true};
++				Object.extend(data, {playSoundOnly:true});
+ 			}
+ 		}
+ 		return data;
+Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 @@ -354,7 +354,7 @@ var ChatviewAssistant = Class.create({
  		if (this.isScreenOn && data.chatThreadId == this.chatThreadId) {
  			Mojo.Log.info("[CV] ****** chatview considerForNotification --- screen is on!");
@@ -138,158 +397,16 @@ index aa6a2b7..13fc64e 100644
  			} else if (data.notificationType == this.Messaging.notificationTypes.sendFailure) {
  				data = {}; // wipe out the notification because we are in the chat
  			}
-diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
-index 5058e58..248d5e7 100644
---- a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
-+++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
-@@ -436,7 +436,7 @@ var ListviewAssistant = Class.create(App.Scene, {
- 		// if we are in the history view and the screen is on, do not display a banner + dashboard, just play a notification sound
- 		if (this.isScreenOn) {
- 			if (data.notificationType == this.Messaging.notificationTypes.newMessage && this.currentListView == this.Messaging.Views.HISTORY) {
--				data = {playSoundOnly:true};
-+				Object.extend(data, {playSoundOnly:true});
- 			}
- 		}
- 		return data;
-diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
-index b84216d..64aab55 100644
---- a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
-+++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
-@@ -27,6 +27,8 @@ function NotificationAssistant(controller){
- 	};
- }
- 
-+var contact = {};
-+
- NotificationAssistant.prototype.subscribeToNotifications = function(){
- 	this.messageNotificationRequest = MessagingMojoService.registerForIncomingMessages({onSuccess: this.sendNotification.bind(this, this.Messaging.notificationTypes.newMessage)});
- 	this.sendErrorNotificationRequest = MessagingMojoService.registerForSendFailures(this.sendNotification.bind(this, this.Messaging.notificationTypes.sendFailure));
-@@ -35,6 +37,37 @@ NotificationAssistant.prototype.subscribeToNotifications = function(){
- 	this.airplaneModeNotificationRequest = MessagingMojoService.registerForAirplaneModeNotifications(this.sendAirplaneModeNotification.bind(this));
- };
- 
-+NotificationAssistant.prototype.doBanner = function(bannerParams,bannerLaunchParams,bannerType,payload) {
-+	if (payload.messagetone.fullPath)
-+		bannerParams.soundFile = payload.messagetone.fullPath;
-+	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
-+};
-+
-+NotificationAssistant.prototype.playMessagetone = function(payload){
-+	if (payload.messagetone.fullPath)
-+		this.controller.playSoundNotification('alerts',payload.messagetone.fullPath);
-+	else
-+		this.controller.playSoundNotification('alerts','');
-+};
-+
-+NotificationAssistant.prototype.doB = function(bannerParams,bannerLaunchParams,bannerType,contact) {
-+        Mojo.Log.error("Banner Ringtone: %j",contact.ringtoneLoc);                                                                                                                          
-+	if (contact.ringtoneLoc) {
-+		bannerParams.soundFile = contact.ringtoneLoc;
-+		this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
-+	} else {
-+		MessagingMojoService.getMessagetone(this.doBanner.bind(this,bannerParams,bannerLaunchParams,'chat'));
-+	}
-+};
-+
-+NotificationAssistant.prototype.playmsgtone = function(contact){
-+	Mojo.Log.error("Playmsgtone Ringtone: %j",contact.ringtoneLoc);
-+	if (contact.ringtoneLoc)
-+		this.controller.playSoundNotification('alerts',contact.ringtoneLoc);
-+	else
-+		MessagingMojoService.getMessagetone(this.playMessagetone.bind(this));
-+};
-+
- NotificationAssistant.prototype.sendNotification = function(notificationType, resp){
- 	if (window.PalmSystem && !resp.returnValue) {
- 		try {
-@@ -154,9 +187,8 @@ NotificationAssistant.prototype.considerForNotification = function(notificationD
- 	
- 	// check if we should only play a sound (when you are already in a chat & a new message comes in)
- 	if(notificationData.playSoundOnly && this.Messaging.messagingPrefs.enableNotificationSound) {
--		var notifParams = {};
--		this.setNotificationSound(notifParams);
--		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
-+		var smsid = notificationData.address;
-+		MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this),this.playmsgtone.bind(this));
- 		return; // don't display any visual notification
- 	}	
- 	
-@@ -191,10 +223,11 @@ NotificationAssistant.prototype.sendClass0PopupAlert = function(notificationData
- 
- 	notificationData.carrierName = carrierName;
- 	this.class0AlertData.list.push(notificationData);
--	this.renderClass0PopupAlert(true);
-+	var smsid = notificationData.address;;
-+	MessagingMojoService.getMessagetone(this.renderClass0PopupAlert.bind(this,true));
- };
- 
--NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound) {
-+NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound,messageTone) {
- 	var class0Stage = this.controller.getStageController(Class0AlertStageName);
- 
- 	if(class0Stage) {
-@@ -206,6 +239,8 @@ NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound) {
- 		var soundClass = 'none';
- 		if(playSound) {
- 			soundClass = 'alerts';
-+			if(messageTone)
-+				soundFile = messageTone;
- 		}		
- 		
- 		var pushClass0AlertScene = function(stageController) {
-@@ -216,7 +251,8 @@ NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound) {
- 			name: Class0AlertStageName,
- 			lightweight: true,
- 			height: Math.floor(Mojo.Environment.DeviceInfo.screenHeight * 0.50),
--			soundclass: soundClass
-+			soundclass: soundClass,
-+			soundfile: soundFile
- 		}, pushClass0AlertScene, 'popupalert');		
- 	}
- 
-@@ -292,10 +328,17 @@ NotificationAssistant.prototype.sendNewMessageNotificationAndUpdateDashboard = f
- 	
- 	if (this.Messaging.DisplayState.isDisplayOn()) {
- 		Mojo.Log.info("notificationAssistant - executing full banner notification");	
-+		if (this.Messaging.messagingPrefs.enableNotificationSound) {
-+        		var smsid = notificationData.address;                                                  
-+			bannerParams.soundClass = "alerts";
-+			MessagingMojoService.rLookup(smsid,contact,this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'),this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'));
-+		} else {
-+			Mojo.Log.error("Setting banner params");	
- 		this.controller.showBanner(bannerParams, bannerLaunchParams, 'chat');		
-+		}	
- 	} else if (this.Messaging.messagingPrefs.enableNotificationSound) {
--		Mojo.Log.info("notificationAssistant - playing sound notification only");
--		this.controller.playSoundNotification(bannerParams.soundClass, bannerParams.soundFile);
-+        	var smsid = notificationData.address;                                                  
-+		MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this),this.playmsgtone.bind(this));
- 	}
- 	
- 	// Store the data so it can be used in the dashboard
-@@ -354,14 +397,10 @@ NotificationAssistant.prototype.sendNewMessageNotificationAndUpdateDashboard = f
- 		// delay creating the dashboard window for the case where the banner is clicked on
- 		// to take you to the chat view.  This will likely result in the dashboard data
- 		// being cleared.  If the dashboard data is empty, we do not need to create the dashboard.		
--		if (this.Messaging.DisplayState.isDisplayOn()) {
- 			if (!this.isNewMessageDashboardPending) {
- 				this.isNewMessageDashboardPending = true; 
- 				createDashboard.delay(5);
- 			}
--		} else {
--			createDashboard(); // if the screen is off, create the dashboard right away
--		}
- 	}
- };
- 
-diff --git a/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js b/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
-index 119950a..34b55b3 100644
---- a/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
-+++ b/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
-@@ -1003,6 +1003,169 @@ var MessagingMojoService = {
+Index: /usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
++++ /usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
+@@ -1002,5 +1002,168 @@ var MessagingMojoService = {
+ 		  method: 'setSMSCAddressAndEmailGateway',
+ 		  parameters: {smscAddr:address, emailGateway: gateway}
  	  });
- 	},
-   
++	},
++	
 +		isNumberValid: function(number) {
 +		return !(number === undefined
 +			|| number == null
@@ -431,7 +548,7 @@ index 119950a..34b55b3 100644
 +			this.lastRequest.cancel();
 +			this.lastRequest = undefined;
 +		}
-+
++		
 +		// clear timeout
 +		this.lookupTimeout = undefined;
 +		
@@ -450,254 +567,162 @@ index 119950a..34b55b3 100644
 +  			onSuccess: callback,
 +  			onFailure: callback
 +  		});
-+  		return request;	  
-+	},
-+  
- 	setSMSCAddressAndEmailGateway: function(address, gateway, sceneController) {
- 		var url = MessagingMojoService.identifier + '/sms' ;
- 	  	return sceneController.serviceRequest(url, {
-diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
-index 638958f..71bd161 100644
---- a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
-+++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
-@@ -96,9 +96,15 @@ var SoundsalertsconfigAssistant = Class.create({
- 		$('system_ui_sounds').observe('mojo-property-change', this.toggleSystemUISounds.bindAsEventListener(this));
- 		
- 		$('currentringtonerow').observe(Mojo.Event.tap, this.showAudioFilePicker.bindAsEventListener(this));
-+		$('currentalertrow').observe(Mojo.Event.tap, this.showAlertFilePicker.bindAsEventListener(this));
-+		$('currentnotificationrow').observe(Mojo.Event.tap, this.showNotificationFilePicker.bindAsEventListener(this));
-+		$('currentmessagerow').observe(Mojo.Event.tap, this.showMessageFilePicker.bindAsEventListener(this));
- 				
- 		this.getCurrentVolumes();
- 		this.getCurrentRingtone();
-+		this.getCurrentAlert();
-+		this.getCurrentNotification();
-+		this.getCurrentMessage();
- 		this.getVibrateSettings();	
- 		this.getOtherSettings();
- 		
-@@ -272,6 +278,84 @@ var SoundsalertsconfigAssistant = Class.create({
- 		$('currentringtone').innerHTML = file.name;
- 	},
- 	
-+	// Alert Picking
-+	getCurrentAlert: function() {
-+	this.getCurrentAlertReq = SystemService.getAlerts(this.getCurrentAlertQuery.bind(this));
-+	},
-+	
-+	getCurrentAlertQuery: function(payload) {
-+	if (payload.alerttone) {
-+	$('currentalert').innerHTML = payload.alerttone.name;
-+	this.currAlertPath = payload.alerttone.fullPath;
-+	}
-+	else 
-+	$('currentalert').innerHTML = $L("Pick an alert");
-+	
-+	},
-+	
-+	showAlertFilePicker: function(event) {
-+	var params = {"kinds": ["ringtone"],"filePath":this.currAlertPath,"onSelect":this.selectedAlertFile.bind(this),actionType:"attach",actionName: $L("Done")};
-+	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
-+	},
-+	
-+	selectedAlertFile: function(file) {
-+	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
-+	this.setAlertReq = SystemService.setAlerts(file);
-+	$('currentalert').innerHTML = file.name;
-+	},
-+	
-+	// Notification Picking
-+	getCurrentNotification: function() {
-+	this.getCurrentNotificationReq = SystemService.getNotifications(this.getCurrentNotificationQuery.bind(this));
-+	},
-+	
-+	getCurrentNotificationQuery: function(payload) {
-+	if (payload.notificationtone) {
-+	$('currentnotification').innerHTML = payload.notificationtone.name;
-+	this.currNotificationPath = payload.notificationtone.fullPath;
-+	}
-+	else 
-+	$('currentnotification').innerHTML = $L("Pick a notification");
-+	
-+	},
-+	
-+	showNotificationFilePicker: function(event) {
-+	var params = {"kinds": ["ringtone"],"filePath":this.currNotificationPath,"onSelect":this.selectedNotificationFile.bind(this),actionType:"attach",actionName: $L("Done")};
-+	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
-+	},
-+	
-+	selectedNotificationFile: function(file) {
-+	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
-+	this.setNotificationReq = SystemService.setNotifications(file);
-+	$('currentnotification').innerHTML = file.name;
-+	},
-+	
-+	// Message Picking
-+	getCurrentMessage: function() {
-+		this.getCurrentMessageReq = SystemService.getMessages(this.getCurrentMessageQuery.bind(this));
-+	},
-+	
-+	getCurrentMessageQuery: function(payload) {
-+		if (payload.messagetone) {
-+			$('currentmessage').innerHTML = payload.messagetone.name;
-+			this.currMessagePath = payload.messagetone.fullPath;
-+		}
-+		else 
-+		$('currentmessage').innerHTML = $L("Pick an message");
-+	
-+	},
-+	
-+	showMessageFilePicker: function(event) {
-+		var params = {"kinds": ["ringtone"],"filePath":this.currMessagePath,"onSelect":this.selectedMessageFile.bind(this),actionType:"attach",actionName: $L("Done")};
-+		Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
-+	},
-+	
-+	selectedMessageFile: function(file) {
-+		//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
-+		this.setMessageReq = SystemService.setMessages(file);
-+		$('currentmessage').innerHTML = file.name;
-+	},
-+	
- 	getVibrateSettings: function() {
- 		this.getVibrateSettingsReq = AudioService.getVibrateSettings(this.vibrateSettingsCB.bind(this),this);
- 	},
-diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js b/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
-index c5babe5..ea32bde 100644
---- a/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
-+++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
-@@ -28,6 +28,60 @@ SystemService.getRingtone = function(callback) {
- 	return request;
++  		return request;
+ 	}
+ };
+\ No newline at end of file
+Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+@@ -27,6 +27,8 @@
+ 	};
  }
  
-+SystemService.getAlerts = function(callback) {
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+		method: 'getPreferences',
-+		parameters: {"keys":["alerttone"]}, 
-+		onSuccess: callback,
-+		onFailure: callback
-+	});
-+	return request;
-+}
++var contact = {};
 +
-+SystemService.setAlerts = function(value){
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+		method: 'setPreferences',
-+		parameters: {"alerttone":value}, 
-+	});
-+	return request;
-+}
+ NotificationAssistant.prototype.subscribeToNotifications = function(){
+ 	this.messageNotificationRequest = MessagingMojoService.registerForIncomingMessages({onSuccess: this.sendNotification.bind(this, this.Messaging.notificationTypes.newMessage)});
+ 	this.sendErrorNotificationRequest = MessagingMojoService.registerForSendFailures(this.sendNotification.bind(this, this.Messaging.notificationTypes.sendFailure));
+@@ -35,6 +35,37 @@
+ 	this.airplaneModeNotificationRequest = MessagingMojoService.registerForAirplaneModeNotifications(this.sendAirplaneModeNotification.bind(this));
+ };
+ 
++NotificationAssistant.prototype.doBanner = function(bannerParams,bannerLaunchParams,bannerType,payload) {
++	if (payload.messagetone.fullPath)
++		bannerParams.soundFile = payload.messagetone.fullPath;
++	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
++};
 +
-+SystemService.getNotifications = function(callback) {
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+		method: 'getPreferences',
-+		parameters: {"keys":["notificationtone"]}, 
-+		onSuccess: callback,
-+		onFailure: callback
-+	});
-+	return request;
-+}
++NotificationAssistant.prototype.playMessagetone = function(payload){
++	if (payload.messagetone.fullPath)
++		this.controller.playSoundNotification('alerts',payload.messagetone.fullPath);
++	else
++		this.controller.playSoundNotification('alerts','');
++};
 +
-+SystemService.setNotifications = function(value){
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+		method: 'setPreferences',
-+		parameters: {"notificationtone":value}, 
-+	});
-+	return request;
-+}
++NotificationAssistant.prototype.doB = function(bannerParams,bannerLaunchParams,bannerType,contact) {
++        Mojo.Log.error("Banner Ringtone: %j",contact.ringtoneLoc);                                                                                                                          
++	if (contact.ringtoneLoc) {
++		bannerParams.soundFile = contact.ringtoneLoc;
++		this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
++	} else {
++		MessagingMojoService.getMessagetone(this.doBanner.bind(this,bannerParams,bannerLaunchParams,'chat'));
++	}
++};
 +
-+SystemService.getMessages = function(callback) {
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+		method: 'getPreferences',
-+		parameters: {"keys":["messagetone"]}, 
-+		onSuccess: callback,
-+		onFailure: callback
-+	});
-+	return request;
-+}
++NotificationAssistant.prototype.playmsgtone = function(contact){
++	Mojo.Log.error("Playmsgtone Ringtone: %j",contact.ringtoneLoc);
++	if (contact.ringtoneLoc)
++		this.controller.playSoundNotification('alerts',contact.ringtoneLoc);
++	else
++		MessagingMojoService.getMessagetone(this.playMessagetone.bind(this));
++};
 +
-+SystemService.setMessages = function(value){
-+	var request = new Mojo.Service.Request(SystemService.identifier, {
-+		method: 'setPreferences',
-+		parameters: {"messagetone":value}, 
-+	});
-+	return request;
-+}
-+
- SystemService.getSystemUISounds = function(callback) {
- 	var request = new Mojo.Service.Request(SystemService.identifier, {
- 			method: 'getPreferences',
-diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html b/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
-index f59d208..f807386 100644
---- a/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
-+++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
-@@ -52,9 +52,27 @@
- 	                </div>
- 	            </div>
-             </div>
-+	    <div id='currentalertrow' class="palm-row" x-mojo-tap-highlight="momentary">
-+		<div class="palm-row-wrapper">
-+				<div class="label" x-mojo-loc=''>Alert</div>
-+			<div id='currentalert' class="title"></div> 
-+		</div>
-+	    </div>
-+	    <div id='currentnotificationrow' class="palm-row" x-mojo-tap-highlight="momentary">
-+		<div class="palm-row-wrapper">
-+				<div class="label" x-mojo-loc=''>Notification</div>
-+			<div id='currentnotification' class="title"></div>
-+		</div>
-+	    </div>
-+	    <div id='currentmessagerow' class="palm-row" x-mojo-tap-highlight="momentary">
-+		<div class="palm-row-wrapper">
-+				<div class="label" x-mojo-loc=''>Messages</div>
-+			<div id='currentmessage' class="title"></div>     
-+		</div>
-+	    </div>            
- 			<div class="palm-row last">
- 				<div class="palm-row-wrapper">
--					<div class="title" x-mojo-loc=''>Volume</div>
-+					<div class="title" x-mojo-loc=''>System Volume</div>
- 					<div x-mojo-element="Slider" id='systemvolume' class="palm-slider"></div>
- 	            </div>
-             </div>
-Index: /usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
-+++ /usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
-@@ -64,6 +64,17 @@ EditAssistant = Class.create({
- 			template: "edit/ringtones"
- 		}));
- 		
-+		if(this.person.messagingRingtoneName){
-+			this.person.MsgtoneDisplay = this.person.messagingRingtoneName;
-+			this.person.MsgtoneSet = "msgtone-set";
-+		} else {
-+			this.person.MsgtoneDisplay = $L("Set a message tone");
-+			this.person.MsgtoneSet = "";
-+		}
-+		this.controller.get("MsgtoneBox").update(Mojo.View.render({
-+			object: this.person,
-+			template: "edit/msgtones"
-+		}));		
- 		
- 		var that = this;
- 		
-@@ -278,6 +289,11 @@ EditAssistant = Class.create({
- 					object: {ringtoneDisplay:ringtoneName},
- 					template: "edit/ringtones"
- 				}));
-+				var messagingRingtoneName = this.person.messagingRingtoneName || $L("Set a message tone");
-+				this.controller.get("MsgtoneBox").update(Mojo.View.render({
-+					object: {MsgtoneDisplay:messagingRingtoneName},
-+					template: "edit/msgtones"
-+				}));
- 				
- 			}
+ NotificationAssistant.prototype.sendNotification = function(notificationType, resp){
+ 	if (window.PalmSystem && !resp.returnValue) {
+ 		try {
+@@ -149,9 +149,8 @@
+ 	
+ 	// check if we should only play a sound (when you are already in a chat & a new message comes in)
+ 	if(notificationData.playSoundOnly && this.Messaging.messagingPrefs.enableNotificationSound) {
+-		var notifParams = {};
+-		this.setNotificationSound(notifParams);
+-		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++		var smsid = notificationData.address;
++		MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this),this.playmsgtone.bind(this));
+ 		return; // don't display any visual notification
+ 	}	
+ 	
+@@ -186,7 +186,8 @@
+ 
+ 	notificationData.carrierName = carrierName;
+ 	this.class0AlertData.list.push(notificationData);
+-	this.renderClass0PopupAlert(true);
++	var smsid = notificationData.address;
++	MessagingMojoService.getMessagetone(this.renderClass0PopupAlert.bind(this,true));
+ };
+ 
+ NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound) {
+@@ -189,7 +189,7 @@
+ 	this.renderClass0PopupAlert(true);
+ };
+ 
+-NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound) {
++NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound,messageTone) {
+ 	var class0Stage = this.controller.getStageController(Class0AlertStageName);
+ 
+ 	if(class0Stage) {
+@@ -195,7 +195,7 @@
+ 	if(class0Stage) {
+ 		class0Stage.swapScene('class0Alert', this.class0AlertData);
+ 		if (playSound){
+-			this.controller.playSoundNotification('alerts','');
++			this.controller.playSoundNotification('alerts',contact.ringtoneLoc);
  		}
-@@ -543,6 +559,7 @@ EditAssistant = Class.create({
- 		this.controller.listen("NameSyncPickerWrapper", Mojo.Event.tap, this.popupContactChooser.bind(this));
- 		this.controller.get("edit-photo").observe(Mojo.Event.tap, this.attachFilePicker.bind(this));
- 		this.controller.get("RingtoneBox").observe(Mojo.Event.tap, this.attachRingtonePicker.bind(this));
-+		this.controller.get("MsgtoneBox").observe(Mojo.Event.tap, this.attachMsgtonePicker.bind(this));
- 		this.renderLabels();
- 		this.setupContact();
- 		if (this.contact.readOnly) {
+ 	} else {
+ 		var soundClass = 'none';
+@@ -201,6 +201,9 @@
+ 		var soundClass = 'none';
+ 		if(playSound) {
+ 			soundClass = 'alerts';
++			if(messageTone) {
++				soundFile = messageTone;
++			}
+ 		}		
+ 		
+ 		var pushClass0AlertScene = function(stageController) {
+@@ -211,7 +211,8 @@
+ 			name: Class0AlertStageName,
+ 			lightweight: true,
+ 			height: Math.floor(Mojo.Environment.DeviceInfo.screenHeight * 0.50),
+-			soundclass: soundClass
++			soundclass: soundClass,
++			soundfile: soundFile
+ 		}, pushClass0AlertScene, 'popupalert');		
+ 	}
+ 
+@@ -279,7 +279,7 @@
+ 	var bannerParams = {
+ 		messageText: notificationText
+ 	};
+-	this.setNotificationSound(bannerParams);
++	//this.setNotificationSound(bannerParams);
+ 	var bannerLaunchParams =  {
+ 		chatThreadId: chatThreadId,
+ 		clearBanner: true		
+@@ -284,9 +284,14 @@
+ 		chatThreadId: chatThreadId,
+ 		clearBanner: true		
+ 	};
+-	
+-	this.controller.showBanner(bannerParams, bannerLaunchParams, 'chat');
+-	
++	if (this.Messaging.messagingPrefs.enableNotificationSound) {
++       		var smsid = notificationData.address;                                                  
++		bannerParams.soundClass = "alerts";
++		MessagingMojoService.rLookup(smsid,contact,this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'),this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'));
++	} else {
++		Mojo.Log.error("Setting banner params");	
++		this.controller.showBanner(bannerParams, bannerLaunchParams, 'chat');
++	}	
+ 	// Store the data so it can be used in the dashboard
+ 	var data = {
+ 		chatThreadId: chatThreadId,
+@@ -343,13 +343,9 @@
+ 		// delay creating the dashboard window for the case where the banner is clicked on
+ 		// to take you to the chat view.  This will likely result in the dashboard data
+ 		// being cleared.  If the dashboard data is empty, we do not need to create the dashboard.		
+-		if (this.Messaging.DisplayState.isDisplayOn()) {
+-			if (!this.isNewMessageDashboardPending) {
+-				this.isNewMessageDashboardPending = true; 
+-				createDashboard.delay(5);
+-			}
+-		} else {
+-			createDashboard(); // if the screen is off, create the dashboard right away
++		if (!this.isNewMessageDashboardPending) {
++			this.isNewMessageDashboardPending = true;
++			createDashboard.delay(5); 
+ 		}
+ 	}
+ };
