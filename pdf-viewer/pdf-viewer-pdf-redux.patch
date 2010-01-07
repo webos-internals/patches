@@ -1,0 +1,327 @@
+This patch makes multiple changes to the PDF View app to increase its usability:
+- Remove title bar.
+- Make footer buttons translucent.
+- Make page number transparent except when selected.
+- Add button to rotate view between portrait and landscape.
+- Add a "back" button to jump to previous location in a document.
+- Keep track of rotation of and location in a document for 30 days and restore them when reloading the document.
+Index: /usr/palm/applications/com.palm.app.pdfviewer/app/controllers/document-assistant.js
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/document-assistant.js
++++ /usr/palm/applications/com.palm.app.pdfviewer/app/controllers/document-assistant.js
+@@ -16,13 +16,19 @@ var DocumentAssistant = Class.create({
+     ]},
+ 	
+ 	cmdMenuModel: { visible: false, items: [
++		{ items: [
++			{ icon:'sync', command:'rotate-cmd' }
++		]},
+ 		{},
+ 		{ items: [
+ 			{ icon:'back', command:'prev-cmd' },
+ 			{ template: 'document/command_bar', command: 'edit-cmd' },
+ 			{ icon:'forward', command:'next-cmd' }
+ 		]},
+-		{}
++		{},
++		{ items: [
++			{ icon:'refresh', command:'last-cmd' }
++		]}
+ 	]},
+ 	
+ 	numericMap: {
+@@ -43,6 +49,13 @@ var DocumentAssistant = Class.create({
+ 
+     deactivate: function() {
+         this.findField.mojo.blur();
++	  var time = new Date();
++	  time.setMonth(time.getMonth()+1);
++	  this.cookieModel.put({ 
++	    currentpage: this.currentpage,
++	    lastjumpsource: this.lastjumpsource,
++	    currentOrientation: this.currentOrientation
++	  }, time);
+     },
+ 	
+ 	initialize: function(parameters) {
+@@ -52,6 +65,7 @@ var DocumentAssistant = Class.create({
+ 		this.document_noext = undefined;
+ 		this.saveShowing = false;
+ 		this.currentpage = 1;
++		this.lastjumpsource = 1;
+ 		this.wrongpasscount = -1;
+ 		this.jumptimeout = undefined;
+ 		this.outline_depth = 1;
+@@ -70,6 +84,7 @@ var DocumentAssistant = Class.create({
+ 		this._loadingSpinnerTimeout = null;
+ 		this._spinnerShowTime = 0;
+         this.documentPassword = null;
++		this.currentOrientation = "up";
+ 
+         // Variables need for find / search
+         this.findShowing = false;
+@@ -97,6 +112,14 @@ var DocumentAssistant = Class.create({
+             this.filename = this.filename.substr(7);
+         }
+ 
++		this.cookieModel = new Mojo.Model.Cookie(this.filename); 
++		var cookie = this.cookieModel.get(); 
++		if (cookie) { 
++		  this.currentpage = cookie.currentpage; 
++		  this.lastjumpsource = cookie.lastjumpsource;
++		  this.currentOrientation = cookie.currentOrientation;
++		}
++
+         Mojo.Log.info("Filename = '%s'", this.filename);
+     },
+ 
+@@ -105,13 +128,16 @@ var DocumentAssistant = Class.create({
+ 
+         try {
+ 
++            // Force landscape view.
++            this.controller.stageController.setWindowOrientation(this.currentOrientation);
++
+             this.spinnerRunning = false;
+ 			
+ 			// Set up the view buttons (header)
+-			var viewMenuModel = { visible: false, items: [ { template: 'document/header_bar' } ] };			            
++			/*var viewMenuModel = { visible: false, items: [ { template: 'document/header_bar' } ] };			            
+             this.controller.setupWidget(Mojo.Menu.viewMenu,
+                                         {menuClass:'no-fade'},
+-                                        viewMenuModel);
++                                        viewMenuModel);*/
+ 
+ 			// Set up the command buttons (footer)			
+             this.controller.setupWidget(Mojo.Menu.commandMenu,
+@@ -221,7 +247,7 @@ var DocumentAssistant = Class.create({
+     orientationChanged: function(orientation) {
+ 
+        return;
+-       if (this.currentOrientation === orientation) 
++       if (this.currentOrientation === orientation)
+        {
+            return;
+        }
+@@ -240,6 +266,27 @@ var DocumentAssistant = Class.create({
+ 
+     },
+ 
++    rotateView: function() {
++       var orientation;
++       if (this.currentOrientation === "left") {
++           orientation = "up";
++       } else {
++           orientation = "left";
++       }
++
++       // Replace the adapter with an empty div during the rotate
++       var viewerObject = this.controller.get('viewerObject');
++       var emptyDiv = this.controller.document.createElement('div');
++       emptyDiv.id = 'viewerObject'; 
++       viewerObject.parentNode.replaceChild(emptyDiv, viewerObject); 
++
++       this.currentOrientation = orientation;
++       this.controller.window.PalmSystem.setWindowOrientation(orientation);
++
++       // Re-create the adapter
++       this.dosetup();
++    },
++
+     NeedPassword: function(docid) {
+ 		
+         this.document_id = docid;
+@@ -331,8 +378,8 @@ var DocumentAssistant = Class.create({
+ 		
+ 		if (this.currentpage !== undefined) {
+ 			
+-			this.cmdMenuModel.items[1].items[0].disabled = (this.currentpage == 1);
+-			this.cmdMenuModel.items[1].items[2].disabled = (this.currentpage == this.pagecount);
++			this.cmdMenuModel.items[2].items[0].disabled = (this.currentpage == 1);
++			this.cmdMenuModel.items[2].items[2].disabled = (this.currentpage == this.pagecount);
+ 			this.controller.modelChanged(this.cmdMenuModel);
+ 			
+ 			// rebind key event
+@@ -373,6 +420,13 @@ var DocumentAssistant = Class.create({
+         this.JumpToPage( this.currentpage );
+ 	},
+ 
++	goToLastJumpSource: function () {
++		var target = this.lastjumpsource;
++		this.lastjumpsource = this.currentpage;
++		this.currentpage = target;
++		this.JumpToPage( this.currentpage );
++	},
++
+     forceFootChange: function () {
+ 
+         var goto_page = parseInt(this.controller.get('page_foot_cur_ent').value, 10);
+@@ -460,7 +514,7 @@ var DocumentAssistant = Class.create({
+ 		
+ 		// Set up the command buttons (footer)
+ 		var page_len = (this.pagecount+'').length
+-		this.cmdMenuModel.items[1].items[1].width = 60 + (page_len * 15);
++		this.cmdMenuModel.items[2].items[1].width = 60 + (page_len * 15);
+ 		this.controller.modelChanged(this.cmdMenuModel);		
+         
+ 		this.controller.setMenuVisible(Mojo.Menu.commandMenu, true);
+@@ -565,6 +619,7 @@ var DocumentAssistant = Class.create({
+ 		
+ 		if (e.keyCode == Mojo.Char.enter) {
+ 			var goto_page = parseInt(this.controller.get('page_foot_cur_ent').value, 10);
++			this.lastjumpsource = this.currentpage;
+             this.JumpToPage(goto_page);
+ 			this.showFootPageOf();
+ 		}
+@@ -773,7 +828,7 @@ var DocumentAssistant = Class.create({
+         var splittext = this.filename.split('/');
+         this.document_name = splittext[splittext.length-1];
+         this.document_noext = this.document_name.substr(0, this.document_name.indexOf('.pdf'));
+-        this.controller.get('documentname').innerHTML = this.document_noext;
++        //this.controller.get('documentname').innerHTML = this.document_noext;
+         new_obj.eventListener = this;
+ 
+         this.adapter = new_obj;
+@@ -850,6 +905,14 @@ var DocumentAssistant = Class.create({
+ 						this.showFootPageOf();
+ 						break;
+ 						
++					case 'last-cmd':					
++						this.goToLastJumpSource();
++						break;
++						
++					case 'rotate-cmd':					
++						this.rotateView();
++						break;
++						
+ 					case 'pdf-outline':
+ 
+ 						// Create the PDF outline/bookmarks
+@@ -909,7 +972,7 @@ var DocumentAssistant = Class.create({
+ 			var menuAssistant = this.controller._menu.assistant;
+ 			menuAssistant.viewSpacerHeight = 0;
+ 
+-            this.controller.setMenuVisible(Mojo.Menu.viewMenu, visible);
++            //this.controller.setMenuVisible(Mojo.Menu.viewMenu, visible);
+         }
+     },
+ 
+@@ -1271,7 +1334,7 @@ SaveAsDialogAssistant = Class.create({
+                         this.documentAssistant.document_name = save_input;
+                         this.documentAssistant.document_noext = this.documentAssistant.document_name.substr(0, this.documentAssistant.document_name.indexOf('.pdf'));
+ 
+-                        this.documentAssistant.controller.get('documentname').innerHTML = this.documentAssistant.document_noext;
++                        //this.documentAssistant.controller.get('documentname').innerHTML = this.documentAssistant.document_noext;
+ 
+                     }
+                     catch(e)
+Index: /usr/palm/applications/com.palm.app.pdfviewer/app/views/document/command_bar.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.pdfviewer/app/views/document/command_bar.html
++++ /usr/palm/applications/com.palm.app.pdfviewer/app/views/document/command_bar.html
+@@ -6,7 +6,7 @@
+     </div>
+     <div id="page_foot_ent" class="foot-page" style="display: none;">
+         <input id="page_foot_cur_ent" class="foot-page-ent" />
+-		<span class="foot-page-cnt">&nbsp;/&nbsp;</span>
+-        <span id="page_foot_cnt_ent" class="foot-page-cnt"></span>
++		<span class="foot-page-cnt-inp">&nbsp;/&nbsp;</span>
++        <span id="page_foot_cnt_ent" class="foot-page-cnt-inp"></span>
+     </div>
+ </div>
+Index: /usr/palm/applications/com.palm.app.pdfviewer/app/views/document/document-scene.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.pdfviewer/app/views/document/document-scene.html
++++ /usr/palm/applications/com.palm.app.pdfviewer/app/views/document/document-scene.html
+@@ -1,4 +1,4 @@
+-<div id="header" style="height:56px;">
++<div id="header" style="height:0px;">
+   <div id="findField" name="findField" x-mojo-element="Find"> </div>
+ </div>
+ 
+Index: /usr/palm/applications/com.palm.app.pdfviewer/app/views/document/header_bar.html
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.pdfviewer/app/views/document/header_bar.html
++++ /usr/palm/applications/com.palm.app.pdfviewer/app/views/document/header_bar.html
+@@ -1,4 +1,3 @@
+ <div id="topHead" class="palm-header left">
+     <div id="my_spinner" x-mojo-element="Spinner"> </div>
+-    <div id="documentname" x-mojo-loc="" class="truncating-text"></div>
+ </div>
+Index: /usr/palm/applications/com.palm.app.pdfviewer/stylesheets/pdf-viewer.css
+===================================================================
+--- .orig/usr/palm/applications/com.palm.app.pdfviewer/stylesheets/pdf-viewer.css
++++ /usr/palm/applications/com.palm.app.pdfviewer/stylesheets/pdf-viewer.css
+@@ -166,7 +166,7 @@ div.foot-page
+ 
+ span.foot-page-cur
+ {
+-    color: white;
++    color: transparent;
+     font-size: 14px;
+     font-style: normal;
+     font-weight: bold;
+@@ -193,6 +193,16 @@ input.foot-page-ent
+ 
+ span.foot-page-cnt
+ {
++    color: transparent;
++    font-size: 14px;
++    font-style: normal;
++    font-weight: bold;
++    text-transform: none;
++    text-decoration: none;
++}
++
++span.foot-page-cnt-inp
++{
+     color: white;
+     font-size: 14px;
+     font-style: normal;
+@@ -200,3 +210,46 @@ span.foot-page-cnt
+     text-transform: none;
+     text-decoration: none;
+ }
++
++/* Grouped buttons */
++
++.palm-menu-group .palm-menu-button,
++.palm-menu-group .palm-menu-label,
++.palm-menu-group .palm-menu-text {
++  top: 0px;
++  -webkit-border-image: url(../images/textfield-noshadow.png) 0 20 0 20 stretch stretch;
++}
++
++.palm-menu-group .palm-menu-button:first-child,
++.palm-menu-group .palm-menu-label:first-child,
++.palm-menu-group .palm-menu-text:first-child {
++  -webkit-border-image: url(../images/textfield-noshadow.png) 0 20 0 20 stretch stretch;
++  padding-left: 10px;
++}
++
++.palm-menu-group .palm-menu-button:last-child,
++.palm-menu-group .palm-menu-label:last-child,
++.palm-menu-group .palm-menu-text:last-child {
++  -webkit-border-image: url(../images/textfield-noshadow.png) 0 20 0 20 stretch stretch;
++  padding-right: 10px;
++}
++
++/* Disabled states for menu system buttons. */
++
++.palm-menu-group .palm-menu-text.palm-disabled,
++.palm-menu-group .palm-menu-label.palm-disabled,
++.palm-menu-group .palm-menu-button.palm-disabled {
++  -webkit-border-image: url(../images/textfield-noshadow.png) 0 20 0 20 stretch stretch;
++}
++
++.palm-menu-group .palm-menu-text.palm-disabled:first-child,
++.palm-menu-group .palm-menu-label.palm-disabled:first-child,
++.palm-menu-group .palm-menu-button.palm-disabled:first-child {
++  -webkit-border-image: url(../images/textfield-noshadow.png) 0 20 0 20 stretch stretch;
++}
++
++.palm-menu-group .palm-menu-text.palm-disabled:last-child,
++.palm-menu-group .palm-menu-label.palm-disabled:last-child,
++.palm-menu-group .palm-menu-button.palm-disabled:last-child {
++  -webkit-border-image: url(../images/textfield-noshadow.png) 0 20 0 20 stretch stretch;
++}
