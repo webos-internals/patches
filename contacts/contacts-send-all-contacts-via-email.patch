@@ -1,5 +1,5 @@
---- /usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js.orig	2009-08-19 19:19:40.000000000 -0400
-+++ /usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js	2010-01-08 01:11:12.380734400 -0500
+--- /usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js.orig	Thu Jan 14 13:02:13 2010
++++ /usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js	Thu Jan 14 13:22:18 2010
 @@ -284,6 +284,9 @@
  				items: [Mojo.Menu.editItem,{
  					label:$L("Send All to Car Kit"),
@@ -10,40 +10,41 @@
  				}, prefsItem, {
  					label: $LL('Help'),
  					command: Mojo.Menu.helpCmd
-@@ -463,12 +466,31 @@
+@@ -461,6 +464,8 @@
+ 			});
+ 		}else if (event.type == Mojo.Event.command && event.command === Mojo.Menu.prefsCmd) {
  			this.controller.stageController.pushScene('prefs');
- 		}else if (event.type == Mojo.Event.command && event.command == "sendcontacts") {
- 			this.sendContacts();
 +		}else if (event.type == Mojo.Event.command && event.command == "emailcontacts") {
 +			this.emailContacts();
+ 		}else if (event.type == Mojo.Event.command && event.command == "sendcontacts") {
+ 			this.sendContacts();
  		}
- 		if (event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
- 			// funkay!  this is apparently how you declare you want to activate the prefs menu item
- 			event.stopPropagation();
+@@ -470,6 +475,23 @@
  		}
  	},
-+    
-+    emailContacts:function(){
-+        this.vcardRequest = AppAssistant.contactsService.makeVCardList(this.controller, {
-+                stripPhoneNumbers:false
-+            }, this.gotVCard.bind(this, "email"));
-+        var cancelFn = function(){
-+            this.vcardRequest.cancel();
-+            this.vcardRequest = null;
-+        }.bind(this)
-+        console.log("Setting up a dialog");
-+        this.sendContactsPopupAssistant = new SendContactsPopupAssistant(this.controller, cancelFn);
-+        this.controller.showDialog({
-+            template: 'list/send-contact-popup',
-+            assistant: this.sendContactsPopupAssistant,
-+            preventCancel:true
-+        });
+ 	
++	emailContacts:function(){
++		this.vcardRequest = AppAssistant.contactsService.makeVCardList(this.controller, {
++				stripPhoneNumbers:false
++			}, this.gotVCard.bind(this, "email"));
++		var cancelFn = function(){
++			this.vcardRequest.cancel();
++			this.vcardRequest = null;
++		}.bind(this)
++		console.log("Setting up a dialog");
++		this.sendContactsPopupAssistant = new SendContactsPopupAssistant(this.controller, cancelFn);
++		this.controller.showDialog({
++			template: 'list/send-contact-popup',
++			assistant: this.sendContactsPopupAssistant,
++			preventCancel:true
++		});
 +	},
- 
++	
  	sendContacts:function(){
- 
+ 		
+ 		var params = {"type":"bluetooth", "onSuccess":this.bluetoothResponse.bind(this)}; 
 @@ -479,7 +501,7 @@
- 
+ 	
  	bluetoothResponse:function(response){
  		if (response == "BT-On" || response == "BT-StartingUp") {
 -			this.vcardRequest = AppAssistant.contactsService.makeVCardList(this.controller, {stripPhoneNumbers:true}, this.gotVCard.bind(this));
@@ -54,52 +55,50 @@
 @@ -494,18 +516,39 @@
  		}
  	},
- 
+ 	
 -	gotVCard:function(resp){
 -		var appArgs = {
 -			appId:"com.palm.app.bluetooth",
 -			name:"btopp"
--		}
++	gotVCard:function(type,resp){
++		if (type == "bluetooth") {
++			var appArgs = {
++				appId:"com.palm.app.bluetooth",
++				name:"btopp"
++			}
++			var sceneArgs = {
++				file:resp.file
++			}
++			
++			this.sendContactsPopupAssistant.widget.mojo.close();
++			
++			this.controller.stageController.pushScene(appArgs, sceneArgs)
+ 		}
 -		var sceneArgs = {
 -			file:resp.file
--		}
++		else if (type == "email") {
++			var vcfPath = resp.file;
++			
++			this.sendContactsPopupAssistant.widget.mojo.close();
++			
++			this.controller.serviceRequest('palm://com.palm.applicationManager', {
++				method: 'open',
++				parameters: {
++					id: 'com.palm.app.email',
++					params: {
++						summary: 'Palm Contacts',
++						attachments: [{
++							fullPath:vcfPath,
++							mimeType:'text/x-vcard'
++						}]
++					}
++				}
++			});
+ 		}
 -		
 -		this.sendContactsPopupAssistant.widget.mojo.close();
 -		
 -		this.controller.stageController.pushScene(appArgs, sceneArgs)
-+	gotVCard:function(type, resp){
-+        if (type == "bluetooth") {
-+            var appArgs = {
-+                appId:"com.palm.app.bluetooth",
-+                name:"btopp"
-+            }
-+            var sceneArgs = {
-+                file:resp.file
-+            }
-+            
-+            this.sendContactsPopupAssistant.widget.mojo.close();
-+            
-+            this.controller.stageController.pushScene(appArgs, sceneArgs)
-+        }
-+        else if (type == "email") {
-+            var vcfPath = resp.file;
-+            
-+            this.sendContactsPopupAssistant.widget.mojo.close();
-+            
-+            this.controller.serviceRequest('palm://com.palm.applicationManager', {
-+			    method: 'open',
-+			    parameters: {
-+			        id: 'com.palm.app.email',
-+			        params: {
-+			            summary: 'Palm Contacts',
-+			            attachments: [{
-+			                fullPath:vcfPath,
-+			                mimeType:'text/x-vcard'
-+			            }]
-+			        }
-+			    }
-+			});			
-+        }
  	},
- 
+ 	
  	handleListTap: function(event){
