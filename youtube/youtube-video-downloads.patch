@@ -1,0 +1,80 @@
+Name: YouTube Video Downloads
+Version: 1.3.5-2
+Author: Jason Robitaille
+Description: Adds a download option for videos in the YouTube app  (MIT license)
+
+--- .orig/usr/palm/applications/com.palm.app.youtube/app/controllers/video-assistant.js
++++ /usr/palm/applications/com.palm.app.youtube/app/controllers/video-assistant.js
+@@ -16,6 +16,8 @@
+ 		this.cmdMenuModel = {items: [{label: $L('More'), submenu:'more-menu'}, 
+ 									{label: $L('Share'), submenu:'share-menu'}]};
+ 									
++		this.moreMenuModel.items[2] = {label: $L('Download'), command:'download', disabled:false};
++		this.currProgress = -1;
+ 		this.controller.setupWidget('more-menu', undefined, this.moreMenuModel);
+ 		this.controller.setupWidget('share-menu', undefined, this.shareMenuModel);
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, {menuClass: "no-fade"}, this.cmdMenuModel);
+@@ -53,6 +55,53 @@
+ 				}
+ 				event.stop(event);
+ 			}
++			else if (event.command == 'download') {
++				this.moreMenuModel.items[2] = {label: $L('-Downloading-'), command:'download', disabled:true};
++				this.controller.modelChanged(this.moreMenuModel);
++				var filename = this.video.title;
++				filename = filename.replace(/\s/ig, " ");
++				filename = filename.replace(/[^a-z0-9_-]/ig, "");
++				if(filename.length>30) {
++					filename = filename.substring(0, 29) + "...";
++				}
++				this.dlRequest = this.controller.serviceRequest('palm://com.palm.downloadmanager/', {
++					method: 'download',
++					parameters: {
++						target: this.video.link,
++						mime: "video/mp4",
++						targetFilename: filename + ".mp4",
++						subscribe: true
++					},
++					onSuccess: function(response) {
++						if(response.completed) {
++							this.dlRequest.cancel();
++							this.moreMenuModel.items[2] = {label: $L('Download'), command:'download', disabled:false};
++							this.controller.modelChanged(this.moreMenuModel);
++							this.controller.showBanner("Download finished!", "");
++
++						} else {
++							if(response.amountReceived && response.amountTotal) {
++								var percent = (response.amountReceived / response.amountTotal)*100;
++								percent = Math.round(percent);
++								if(percent!=NaN) {
++									if(this.currProgress != percent) {
++										this.currProgress = percent;
++										this.controller.showBanner("Downloading: " + percent + "%", "");
++									}
++								}
++							}
++						}
++					}.bind(this),
++					onFailure: function(fail) {
++						this.dlRequest.cancel();
++						Mojo.Controller.errorDialog(fail.errorText);
++						this.moreMenuModel.items[2] = {label: $L('Download'), command:'download', disabled:false};
++						this.controller.modelChanged(this.moreMenuModel);
++						this.currProgress = -1;
++					}.bind(this)
++				});
++				event.stop(event);
++			}
+ 			else if (event.command == 'related') {
+ 				if (this.video.related_url && this.video.related_url != "") {
+ 					Mojo.Controller.stageController.pushScene("search", this.video.related_url, "related");
+@@ -86,7 +135,8 @@
+ 	moreMenuModel: {label: $L('More'), 
+ 					items: [
+ 						{label: $L('More from This Author'), command:'more'}, 
+-						{label: $L('Related Videos'), command:'related' }
++						{label: $L('Related Videos'), command:'related' },
++						{label: $L('Download'), command:'download' }
+ 					]},
+ 					
+ 	shareMenuModel: {label: $L('Share'), 

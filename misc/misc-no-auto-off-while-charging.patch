@@ -1,0 +1,79 @@
+Name: No Auto-Off While Charging
+Version: 1.3.5-1
+Author: Sakasune, Jason Robitaille
+Description: Prevents the screen from turning off while the device is charging  (MIT license)
+
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -29,2 +29,3 @@
+ 		// Initialize the Battery Power Nofication and get the initial value
++		this.initTimeout();
+ 		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
+@@ -1624,4 +1625,5 @@
+ 						icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-charging.png",
+ 						soundClass: soundClassName
+ 					},{}, 'chargingAlert'); 				
++				this.disableTimeout();
+ 			}
+@@ -1628,4 +1630,5 @@
+ 			this.chargingBannerShown = true;			
+ 		}
+ 		else {
++			if(this.chargingBannerShown) { this.enableTimeout(); }
+ 			this.chargingBannerShown = false;			
+@@ -2098,6 +2101,7 @@
+         return;
+    
+     if (payload["mode-avail"]) {
++    		this.disableTimeout();
+ 		this.isUSBConnected = true;
+ 	 	if (!this.onActiveCall) {
+ 			if (this.canUSBAlertDisplayed()) 
+@@ -2107,6 +2111,7 @@
+ 		}
+ 	}
+     else {
++    		this.enableTimeout();
+ 		this.isUSBConnected = false;
+ 		this.disableiMasqButton = false;
+     	this.msmTurnOnHiddServices();
+@@ -2340,6 +2345,39 @@
+     }
+ },
+ 
++initTimeout: function() {
++	this.previousTimeout = 60;
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'getProperty',
++		parameters:{properties:['timeout']},
++		onSuccess: function(response) {
++			this.previousTimeout = response.timeout;
++		}.bind(this)
++	});
++},
++
++disableTimeout: function() {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'getProperty',
++		parameters:{properties:['timeout']},
++		onSuccess: function(response) {
++			this.previousTimeout = response.timeout;
++			this.controller.serviceRequest('palm://com.palm.display/control', {
++				method: 'setProperty', 
++				parameters:{timeout:86400}	
++			});
++		}.bind(this)
++	});
++},
++
++enableTimeout: function() {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'setProperty',
++		parameters:{timeout:parseInt(this.previousTimeout)}
++	});
++},
++
++
+ /*
+  * Show Power Off Alert
+  */

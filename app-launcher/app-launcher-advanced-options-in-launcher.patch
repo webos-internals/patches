@@ -1,0 +1,93 @@
+Name: Advanced Options in Launcher
+Version: 1.3.5.1-1
+Author: Jason Robitaille
+Description: Adds additional options to the launcher's menu: turn on/off DevMode, rescan fileindexer, and rescan applications  (MIT license)
+
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -28,6 +28,7 @@
+ 			Mojo.Menu.editItem,
+ 			{ label: $L('List Apps...'), command: 'listapps' },
+ 			{ label: $L('Default Applications'), command: 'defaultapps'},
++			{ label: $L('Advanced Options'), command: 'advanced'},
+ 			Mojo.Menu.helpItem
+ 		]
+     },
+@@ -115,6 +116,77 @@
+ 	handleCommand: function(event) {
+ 		if (event.type == Mojo.Event.command) {
+ 			switch (event.command) {
++				case 'advanced':
++					SystemManagerService.showQuickLaunch(false);
++					this.controller.serviceRequest('palm://com.palm.connectionmanager', {
++				    		method: 'getnovacommode',
++				    		parameters: {},
++						onSuccess: function(response){
++							var choices = [
++								{label:"Toggle DevMode", value:'devmode'}, 
++								{label:"Rescan Fileindexer", value:'fileindexer'},
++								{label:"Rescan Applications", value:'rescanapps'},
++								{label:"Cancel", value:'cancel', type:'secondary'}
++							];
++							this.inDevMode = response.isEnabled;
++							if(this.inDevMode) {
++								choices[0].label = "Turn off DevMode";
++							} else {
++								choices[0].label = "Turn on DevMode";
++							}
++							this.controller.showAlertDialog({
++								onChoose: function(value) {
++									if(value=='devmode') {
++										this.controller.showAlertDialog({
++											onChoose: function(value){
++										        	if(value=='reset') {
++										             		this.controller.serviceRequest('palm://com.palm.connectionmanager', {
++														method: 'setnovacommode',
++				    										parameters: {
++				    											isEnabled:!this.inDevMode
++				    										},
++				    										onSuccess: function() {
++				    											this.controller.serviceRequest('palm://com.palm.power/shutdown', {
++																method: 'machineReboot',
++																parameters: {
++																	reason:"User initiated/DevMode status change"
++																}
++															});
++				    										}.bind(this)
++				    									});
++										    	    	}
++										    	    	SystemManagerService.showQuickLaunch(true);
++										        }.bind(this), 
++										    	title: "Restart Device?",
++										    	message: "Your device needs to restart for this action to happen.",
++										    	choices: [
++										    		{label:"Continue and reset", value:'reset', type:'negative'},
++										    		{label:"Cancel", value:'cancel'}
++										        ]
++    										});
++									} else if(value=='fileindexer') {
++										this.controller.serviceRequest('palm://ca.canucksoftware.filemgr', {
++				    							method: 'rescanFileindexer',
++				    							parameters: {}
++				    						});
++				    						SystemManagerService.showQuickLaunch(true);
++									} else if(value=='rescanapps') {
++										this.controller.serviceRequest('com.palm.applicationManager', {
++											method: 'rescan',
++				    							parameters: {}
++				    						});
++				    						SystemManagerService.showQuickLaunch(true);
++									} else {
++										SystemManagerService.showQuickLaunch(true);
++									}
++								}.bind(this),
++								title: "Advanced Options",
++								message: "",
++								choices: choices
++							});
++				    		}.bind(this)
++        				});
++					break;
+ 				case Mojo.Menu.helpCmd:
+ 					ApplicationService.launch(this.helpInfo.id, this.helpInfo.params);
+ 					break;
