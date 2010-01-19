@@ -1,0 +1,218 @@
+Name: Browser Mega Mix
+Version: 1.3.5-1
+Author: mamouton, Suggestions from chrislo combination of fritos1406's No Icons in browser app, full screen, and no refresh
+Description: Hides All Icons In The Browser shows icon while loading. Fullscreen Browser and No Refresh 
+Description: Adds Enable Disable options in the app menu for the scroll feature using the gesture area in landscape
+Enable Gesture Scroll: Gesture+e
+Disable Gesture Scroll: Gesture+d
+
+Adds shortcut keys to the launcher. Hold onto Gesture+key to execute
+New Card: Gesture+n
+Add Bookmark: Gesture+m
+Add To Launcher: Gesture+l
+Bookmarks: Gesture+b
+History: Gesture+h
+Share Page: Gesture+s
+
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/widget_webview.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/widget_webview.js
+@@ -1542,7 +1542,7 @@
+ 		}
+ 		else {
+ 			if (this._serverConnectTimer === undefined) {
+-				this._serverConnectTimer = this.controller.window.setTimeout(this._connectAdapterToServer, 3000);
++				this._serverConnectTimer = this.controller.window.setTimeout(this._connectAdapterToServer, 60000);
+ 			}
+ 		}
+ 	},
+
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+@@ -299,6 +299,9 @@
+ 		
+ 		this._updateOrientation();
+ 		
++		// FullScreen Browser
++        this.controller.enableFullScreenMode(true);		
++		
+ 		// Update any pending web preferences changes
+ 		AppAssistant.WebPreferences.activate(this._webView.mojo);
+ 
+@@ -1862,7 +1865,7 @@
+ 		if (!this._addressBar.hasFocus()) {
+ 			this._addressBar.hide();
+ 			this.chrome.hide();
+-
++		    this.controller.enableFullScreenMode(true);
+ 			// Only focus this webview widget if this assistant has
+ 			// focus. All page-assisants can receive 'moved' events
+ 			// so we have to be careful when explicitly setting the
+@@ -1885,7 +1888,7 @@
+ 		//Mojo.Log.info("-> TOP > 0 SO SHOWING");
+ 		this._addressBar.show();
+ 		this.chrome.show();
+-
++		this.controller.enableFullScreenMode(false);
+ 	} else {
+ 		//Mojo.Log.info("-> TOP == 0 Do Nothing.");
+ 		// Do nothing.
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
+@@ -98,7 +98,8 @@
+ 			type: 'idle',
+ 			label: MenuData.NavigationMenu.Reload.label,
+ 			icon: MenuData.NavigationMenu.Reload.icon,
+-			command: MenuData.NavigationMenu.Reload.command
++			command: MenuData.NavigationMenu.Reload.command,
++			 
+ 		};
+ 
+ 		if (this._animation) {
+@@ -111,6 +112,7 @@
+ 		// The spacer... right aligns the following button.
+ 		this._model.items.push(idleModel);
+ 		this._controller.modelChanged(this._model);
++		this._controller.setMenuVisible(Mojo.Menu.commandMenu, false);
+ 
+ 		this._currentPageModel = idleModel;
+ 	},
+@@ -141,6 +143,7 @@
+ 			this._model.items.push(progressModel);
+ 			this._controller.modelChanged(this._model);
+ 			this._animation.start(0);
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
+ 
+ 			this._currentPageModel = progressModel;
+ 
+@@ -186,6 +189,7 @@
+ 			this._model.items.push(searchModel);
+ 			this._controller.modelChanged(this._model);
+ 			this._animation.start();
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
+ 
+ 			this._currentPageModel = searchModel;
+
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+@@ -90,7 +90,7 @@
+ 		this._updateOrientation();
+ 
+ 		// Allow override of 'back' gesture in landscape mode.
+-		this.controller.useLandscapePageUpDown(true);
++		this.controller.useLandscapePageUpDown(false);
+ 
+ 		// Create the browser server status control.
+ 		this._browserServerStatus = new BrowserServerStatus(this.controller);
+@@ -787,8 +787,15 @@
+ 		this.appMenuModel = {
+ 			visible: true,
+ 			items: [
+-				MenuData.ApplicationMenu.NewCard,
+-				MenuData.ApplicationMenu.AddBookmark,
++				{
++					label: $L("On/Off Gesture"),
++					items: [
++					    {label:$L('Enable Gesture'),     shortcut:'e', command:'enable-gesture-cmd'},
++                        {label:$L('Disable Gesture'),     shortcut:'d', command:'disable-gesture-cmd'},
++						   ]
++				},	
++				{label:$L('New Card'),     shortcut:'n', command:'new-page-cmd'},
++				{label:$L('Add Bookmark'),     shortcut:'m', command:'add-bookmark-cmd'},
+ 				{
+ 					label: $L("Page"),
+ 					items: [
+@@ -792,8 +792,10 @@
+ 				{
+ 					label: $L("Page"),
+ 					items: [
+-						MenuData.ApplicationMenu.AddToLauncher,
+-						MenuData.ApplicationMenu.SharePage]
++						{label:$L('Add To Launcher'),     shortcut:'l', command:'add-launch-icon-cmd'},
++						{label:$L('Share Page'),     shortcut:'s', command:'share-page-cmd'},
++                       {label:$L('Refresh Page'),     shortcut:'r', command:'refresh'},
++                           ]
+ 				},
+ 				MenuData.ApplicationMenu.ShowBookmarks,
+ 				MenuData.ApplicationMenu.ShowHistory]
+@@ -795,8 +796,9 @@
+ 						MenuData.ApplicationMenu.AddToLauncher,
+ 						MenuData.ApplicationMenu.SharePage]
+ 				},
+-				MenuData.ApplicationMenu.ShowBookmarks,
+-				MenuData.ApplicationMenu.ShowHistory]
++				{label:$L('Bookmarks'),     shortcut:'b', command:'show-bookmarks-cmd'},
++				{label:$L('History'),     shortcut:'h', command:'show-history-cmd'},
++                           ]
+ 		};
+ 
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
+@@ -2077,6 +2084,10 @@
+ 				case MenuData.ApplicationMenu.NewCard.command:
+ 					this._newBrowserPage();
+ 					break;
++					
++				case MenuData.ApplicationMenu.EnableGesture.command:
++					this.controller.useLandscapePageUpDown(true);
++					break;	
+ 
+ 				case MenuData.ApplicationMenu.AddBookmark.command:
+ 					urlReference = new UrlReference(this.currentUrl, this.currentTitle, new Date());
+@@ -2078,6 +2089,10 @@
+ 					this._newBrowserPage();
+ 					break;
+ 
++				case MenuData.ApplicationMenu.DisableGesture.command:
++					this.controller.useLandscapePageUpDown(false);
++					break;
++					
+ 				case MenuData.ApplicationMenu.AddBookmark.command:
+ 					urlReference = new UrlReference(this.currentUrl, this.currentTitle, new Date());
+ 					this._createDefaultBookmarkImages(urlReference);
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
+@@ -11,6 +11,18 @@
+ 		command: 'new-page-cmd'
+ 	},
+ 	
++	EnableGesture: {
++		label: $L('Enable Gesture'),
++		command: 'enable-gesture-cmd',
++		checkEnabled: true
++	},
++	
++	DisableGesture: {
++		label: $L('Disable Gesture'),
++		command: 'disable-gesture-cmd',
++		checkEnabled: true
++	},	
++	
+ 	SharePage: {
+ 		label: $L('Share'),
+ 		command: 'share-page-cmd',
+
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
+@@ -23,7 +23,7 @@
+ 	this._updateOrientation();
+ 
+ 	// Allow override of 'back' gesture in landscape mode.
+-	this.controller.useLandscapePageUpDown(true);
++	this.controller.useLandscapePageUpDown(false);
+ 
+ 	// Listen for scene scope keyboard events.
+ 	this.controller.listen(this.controller.sceneElement, Mojo.Event.keydown, this._onKeyDownEventHandler);
+@@ -42,6 +42,13 @@
+ 	this.appMenuModel = {
+ 		visible: true,
+ 		items: [
++				{
++					label: $L("On/Off Gesture"),
++					items: [
++					    {label:$L('Enable Gesture'),     shortcut:'e', command:'enable-gesture-cmd'},
++                        {label:$L('Disable Gesture'),     shortcut:'d', command:'disable-gesture-cmd'},
++						   ]
++				},			
+ 			MenuData.ApplicationMenu.NewCard,
+ 			MenuData.ApplicationMenu.AddBookmark,
+ 			{
+
