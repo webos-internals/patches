@@ -1,23 +1,116 @@
-Name: Named Pages in App Launcher
-Version: 1.3.5-2
-Author: l.m.orchard@pobox.com
-Description: This patch adds a name to each page in the launcher. Hold the Orange key or gesture area and tap the header to rename a page. Tapping on the name header brings up a submenu for navigating directly to any named page. You can also move an app to another page by using a selector in the app's info dialog, summoned via Orange-tap on an app in the launcher. This patch works better with the "app-launcher-enable-add-delete-pages" and "app-launcher-gesture-tap-for-info-and-delete" patches, and may conflict with the "app-launcher-wrap-pages" patch.
-
-Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-===================================================================
---- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-+++ /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-@@ -62,6 +62,9 @@ var LauncherAssistant = Class.create({
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
+index 6bd2b62..ec958a9 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
+@@ -1,8 +1,9 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+ var AppInfoAssistant = Class.create({
+-	initialize: function(appInfo, sceneController, closeCallback) {
++	initialize: function(appInfo, parent, sceneController, closeCallback) {
+ 		this.sceneController = sceneController;
++        this.parent = parent;
+ 		this.appInfo = appInfo;
+ 		this.isDynamic = this.isDynamicLaunchPoint(this.appInfo);
+ 		this.closeCallback = closeCallback;
+@@ -43,6 +44,29 @@ var AppInfoAssistant = Class.create({
+ 		if (!this.isDynamic) {
+ 			this.appSizeRequest = ApplicationService.getAppSize(this.appInfo.id, this.onGetAppSize.bind(this));
+ 		}
++
++        // Find the page for the app being inspected.
++        var app_page = this.parent.pagesModel
++            .findApplication(this.appInfo.launchPointId);
++
++        // Build the list selector for switching pages.
++        this.sceneController.setupWidget(
++            'page_name', 
++            {
++                label: $L('Page'),
++                choices: this.parent.pageDivs.map(function (alias, idx) {
++                    return { 
++                        value: idx, 
++                        label: this.parent.getPageName(idx)
++                    };
++                }, this)
++            }, 
++            this.page_name_model = { 
++                value: app_page.page, disabled: false 
++            }
++        );
++        this.sceneController.listen('page_name', Mojo.Event.propertyChange,
++            this.onPageNameChanged.bindAsEventListener(this));
+ 	},
+ 	
+ 	insertVersion: function() {
+@@ -149,6 +173,10 @@ var AppInfoAssistant = Class.create({
+ 		}
+ 	},
+ 	
++    onPageNameChanged: function (event) {
++        this.parent.moveAppToPage(this.appInfo.launchPointId, event.value);
++    },
++	
+ 	cleanup: function() {
+ 		if (this.appSizeRequest) {
+ 			this.appSizeRequest.cancel();
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+index e4268cf..651b2a1 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+@@ -246,6 +246,10 @@ GlobalSearchAssistant = Class.create({
+ 	},
+ 	
+ 	onKeyDown: function(event) {
++        if (!this.searchEnabled) {
++            // HACK: The event.stop() below disables text entry in dialogs
++            return;
++        }
+ 		
+ 		this.searchField.mojo.focus();
+ 
+@@ -262,6 +266,10 @@ GlobalSearchAssistant = Class.create({
+ 	},
+ 	
+ 	onKeyUp: function(event) {
++        if (!this.searchEnabled) {
++            // HACK: The event.stop() below disables text entry in dialogs
++            return;
++        }
+ 		
+ 		// block key events from global search
+ 		if (!this.searchEnabled) {
+@@ -279,6 +287,10 @@ GlobalSearchAssistant = Class.create({
+ 	},
+ 	
+ 	onKeyPress: function(event) {
++        if (!this.searchEnabled) {
++            // HACK: The event.stop() below disables text entry in dialogs
++            return;
++        }
+ 
+ 		// block key events from global search and from repeating until the first key has been processed
+ 		if (!this.searchEnabled || 
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+index bebbad2..b789a6a 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -62,6 +62,14 @@ var LauncherAssistant = Class.create({
  		
  		this.dragStartHandler = this.onDragStart.bindAsEventListener(this);
  		this.launchApp = this.launchApp.bind(this);
 +
 +        this.page_names_cookie = new Mojo.Model.Cookie('page_names');
 +        this.page_names = this.page_names_cookie.get() || [];
++
++        // HACK: Doing a splice here rather than defining this item above so
++        // that the patch works with 'Enable Add / Delete' patch.
++        this.appMenuModel.items.splice(1, 0, 
++			{ label: $L('Rename page'), command: 'renamepage' });
  	},
  	
  	setup: function() {
-@@ -77,6 +80,9 @@ var LauncherAssistant = Class.create({
+@@ -77,6 +85,9 @@ var LauncherAssistant = Class.create({
  			}
  		);
  		
@@ -27,32 +120,42 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
  		this.globalSearchAssistant = new GlobalSearchAssistant(this.controller, this);
  		
  		// HACK: The launcher starts out launched and deactive.
-@@ -241,6 +247,12 @@ var LauncherAssistant = Class.create({
- 		}
+@@ -121,6 +132,9 @@ var LauncherAssistant = Class.create({
+ 				case 'listapps':
+ 					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.params);
+ 					break;
++                case 'renamepage':
++                    this.handleRenamePage(event);
++                    break;
+ 				case 'defaultapps':
+ 					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.defaultAppParams);
+ 					break;
+@@ -242,6 +256,12 @@ var LauncherAssistant = Class.create({
  		
  		this.pageDivs = $$('.launcher_page');
-+
+ 		
 +        if (createPage) {
 +            this.page_names.splice(newPageIndex, 0, []);
 +            this.updatePageHeader();
 +            this.savePageNames();
 +        }
- 		
++		
  		// extend the horizontal scrollers internal width
  		pagesContainer.style.width = (this.pageDivs.length*this.kPageWidth)+'px';
-@@ -302,6 +314,11 @@ var LauncherAssistant = Class.create({
  		
+@@ -303,6 +323,11 @@ var LauncherAssistant = Class.create({
  		// remove the pages indicator
  		this.deletePageIndicator();
-+
+ 		
 +        // Splice out the name for this page.
 +        this.page_names.splice(pageIndex, 1);
 +        this.updatePageHeader();
 +        this.savePageNames();
- 		
++		
  		// snap to a valid location
  		if (pageIndex >= this.pageDivs.length) {
-@@ -587,6 +604,7 @@ var LauncherAssistant = Class.create({
+ 			$('launcher_root').mojo.setSnapIndex(this.pageDivs.length-1, true);
+@@ -587,6 +612,7 @@ var LauncherAssistant = Class.create({
  		this.globalSearchAssistant.enable(false);
  		
  		var appInfoAssistant = new AppInfoAssistant(appInfo,
@@ -60,21 +163,20 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
  													this.controller,
  													function() {
  														delete this.appDialog;
-@@ -658,6 +676,9 @@ var LauncherAssistant = Class.create({
- 	
+@@ -659,6 +685,9 @@ var LauncherAssistant = Class.create({
  	/* Updates the positions of all page indicators. */
  	updatePageIndicators: function() {
-+
+ 		
 +        // Ensure that the view menu tabs reflect the active page. (LMO)
 +        this.updatePageHeader();
- 		
++		
  		if (this.indicators.length <= 0) {
  			return;
-@@ -778,6 +799,134 @@ var LauncherAssistant = Class.create({
+ 		}
+@@ -778,6 +807,139 @@ var LauncherAssistant = Class.create({
  	onLaunchCompleted: function(response) {
  		
  		delete this.launchRequest;
--	}
 +    },
 +
 +    /**
@@ -83,24 +185,7 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
 +    handlePageNameTap: function (event) {
 +        if (event.up && event.up.altKey || event.up && event.up.metaKey) {
 +            // Handle alt-tap or meta-tap on page header to rename page.
-+
-+            // Hide the quick launch panel and disable the global search so
-+            // that the dialog is fully visible and usable.
-+            SystemManagerService.showQuickLaunch(false);
-+            this.globalSearchAssistant.enable(false);
-+
-+            // Invoke the page rename dialog.
-+            this.renamePageDialog = this.controller.showDialog({
-+                template: 'launcher/dialogs/rename-page',
-+                assistant: new RenamePageAssistant(
-+                    this, function () {
-+                        delete this.renamePageDialog;
-+                        SystemManagerService.showQuickLaunch(true);
-+                        this.globalSearchAssistant.enable(true);
-+                    }.bind(this)
-+                )
-+            });
-+       
++            this.handleRenamePage(event);
 +        } else {
 +            // Handle tap on page header to invoke page menu.
 +            
@@ -127,6 +212,28 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
 +            });
 +
 +       }
++    },
++
++    /**
++     * Handle request to rename page
++     */
++    handleRenamePage: function (event) {
++        // Hide the quick launch panel and disable the global search so
++        // that the dialog is fully visible and usable.
++        SystemManagerService.showQuickLaunch(false);
++        this.globalSearchAssistant.enable(false);
++
++        // Invoke the page rename dialog.
++        this.renamePageDialog = this.controller.showDialog({
++            template: 'launcher/dialogs/rename-page',
++            assistant: new RenamePageAssistant(
++                this, function () {
++                    delete this.renamePageDialog;
++                    SystemManagerService.showQuickLaunch(true);
++                    this.globalSearchAssistant.enable(true);
++                }.bind(this)
++            )
++        });
 +    },
 +
 +    /**
@@ -203,176 +310,14 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.
 +        this.pagesModel.save();
 +        // Switch to the page to show the change
 +        this.gotoPage(page_idx);
-+    }
+ 	}
  	
  });
-Index: /usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-===================================================================
---- .orig/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-+++ /usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-@@ -59,7 +59,7 @@ body.palm-default
- 	width: 100%;
- 	z-index: 29;
- 	height: 24px;
--	top: 1px;
-+	top: 45px; /* Insert some space for the page selector (LMO) */
- 	background: url(../images/fade-arrow-up.png) center center no-repeat;
- 	-webkit-palm-mouse-target: ignore;
- }
-@@ -106,7 +106,7 @@ body.palm-default
- }
- 
- .page_scroller_container {
--	margin-top: 10px;
-+	margin-top: 55px; /* Insert some space for the page selector (LMO) */
- 	margin-bottom: -20px;
- }
- 
-Index: /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-===================================================================
---- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-+++ /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-@@ -246,6 +246,10 @@ GlobalSearchAssistant = Class.create({  
- 	},
- 	
- 	onKeyDown: function(event) {
-+        if (!this.searchEnabled) {
-+            // HACK: The event.stop() below disables text entry in dialogs
-+            return;
-+        }
- 		
- 		this.searchField.mojo.focus();
- 
-@@ -262,6 +266,10 @@ GlobalSearchAssistant = Class.create({  
- 	},
- 	
- 	onKeyUp: function(event) {
-+        if (!this.searchEnabled) {
-+            // HACK: The event.stop() below disables text entry in dialogs
-+            return;
-+        }
- 		
- 		// block key events from global search
- 		if (!this.searchEnabled) {
-@@ -279,6 +287,10 @@ GlobalSearchAssistant = Class.create({  
- 	},
- 	
- 	onKeyPress: function(event) {
-+        if (!this.searchEnabled) {
-+            // HACK: The event.stop() below disables text entry in dialogs
-+            return;
-+        }
- 
- 		// block key events from global search and from repeating until the first key has been processed
- 		if (!this.searchEnabled || 
-Index: /usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
-===================================================================
---- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
-+++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
-@@ -18,6 +18,7 @@
- 	</div>
- 	
- 	<div id="launcher-main">
-+        <div id="page-category" class="palm-header center" x-mojo-touch-feedback="immediate">...</div>
- 		<div id="launcher_root" x-mojo-element="Scroller">
- 			<div id="pages_container"></div>
- 		</div>
-Index: /usr/lib/luna/system/luna-applauncher/sources.json
-===================================================================
---- .orig/usr/lib/luna/system/luna-applauncher/sources.json
-+++ /usr/lib/luna/system/luna-applauncher/sources.json
-@@ -27,6 +27,10 @@
- 	{
- 		"source": "app\/models\/launcher-pages.js"
- 	},
-+
-+    {
-+        "source": "app\/controllers\/rename-page-assistant.js"
-+    },
- 	
- 	{
- 		"source": "app\/models\/ApplicationService.js"
-Index: /usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
-===================================================================
---- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
-+++ /usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
-@@ -1,8 +1,9 @@
- /* Copyright 2009 Palm, Inc.  All rights reserved. */
- 
- var AppInfoAssistant = Class.create({
--	initialize: function(appInfo, sceneController, closeCallback) {
-+	initialize: function(appInfo, parent, sceneController, closeCallback) {
- 		this.sceneController = sceneController;
-+        this.parent = parent;
- 		this.appInfo = appInfo;
- 		this.isDynamic = this.isDynamicLaunchPoint(this.appInfo);
- 		this.closeCallback = closeCallback;
-@@ -43,6 +44,29 @@ var AppInfoAssistant = Class.create({
- 		if (!this.isDynamic) {
- 			this.appSizeRequest = ApplicationService.getAppSize(this.appInfo.id, this.onGetAppSize.bind(this));
- 		}
-+
-+        // Find the page for the app being inspected.
-+        var app_page = this.parent.pagesModel
-+            .findApplication(this.appInfo.launchPointId);
-+
-+        // Build the list selector for switching pages.
-+        this.sceneController.setupWidget(
-+            'page_name', 
-+            {
-+                label: $L('Page'),
-+                choices: this.parent.pageDivs.map(function (alias, idx) {
-+                    return { 
-+                        value: idx, 
-+                        label: this.parent.getPageName(idx)
-+                    };
-+                }, this)
-+            }, 
-+            this.page_name_model = { 
-+                value: app_page.page, disabled: false 
-+            }
-+        );
-+        this.sceneController.listen('page_name', Mojo.Event.propertyChange,
-+            this.onPageNameChanged.bindAsEventListener(this));
- 	},
- 	
- 	insertVersion: function() {
-@@ -148,6 +172,10 @@ var AppInfoAssistant = Class.create({
- 			this.sceneController.get('app-size').update(sizeInKBytes + $L('K'));
- 		}
- 	},
-+
-+    onPageNameChanged: function (event) {
-+        this.parent.moveAppToPage(this.appInfo.launchPointId, event.value);
-+    },
- 	
- 	cleanup: function() {
- 		if (this.appSizeRequest) {
-Index: /usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
-===================================================================
---- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
-+++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
-@@ -8,6 +8,16 @@
- </div>
- <div class="palm-dialog-separator"></div>
- <div class="palm-dialog-buttons">
-+    <div class="palm-group unlabeled">
-+        <div class="palm-list">
-+            <div class="palm-row single">
-+                <div class="palm-row-wrapper">
-+                    <div x-mojo-element="ListSelector" 
-+                        id="page_name" name="page_name"></div>
-+                </div>
-+            </div>
-+        </div>
-+    </div>
- 	<div id='delete-btn' x-mojo-element="Button"></div>	
- 	<div id='done-btn' x-mojo-element="Button"></div>
- </div>
-Index: /usr/lib/luna/system/luna-applauncher/app/controllers/rename-page-assistant.js
-===================================================================
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/rename-page-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/rename-page-assistant.js
+new file mode 100644
+index 0000000..5777194
 --- /dev/null
-+++ /usr/lib/luna/system/luna-applauncher/app/controllers/rename-page-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/rename-page-assistant.js
 @@ -0,0 +1,76 @@
 +/**
 + * Assistant managing the page rename dialog.
@@ -450,10 +395,32 @@ Index: /usr/lib/luna/system/luna-applauncher/app/controllers/rename-page-assista
 +
 +    EOF:null
 +});
-Index: /usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/rename-page.html
-===================================================================
+diff --git a/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
+index bdf3824..bd0a90a 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
++++ b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
+@@ -8,6 +8,16 @@
+ </div>
+ <div class="palm-dialog-separator"></div>
+ <div class="palm-dialog-buttons">
++    <div class="palm-group unlabeled">
++        <div class="palm-list">
++            <div class="palm-row single">
++                <div class="palm-row-wrapper">
++                    <div x-mojo-element="ListSelector" 
++                        id="page_name" name="page_name"></div>
++                </div>
++            </div>
++        </div>
++    </div>
+ 	<div id='delete-btn' x-mojo-element="Button"></div>	
+ 	<div id='done-btn' x-mojo-element="Button"></div>
+ </div>
+diff --git a/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/rename-page.html b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/rename-page.html
+new file mode 100644
+index 0000000..b26286a
 --- /dev/null
-+++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/rename-page.html
++++ b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/rename-page.html
 @@ -0,0 +1,24 @@
 +<div id="palm-dialog-content" class="palm-dialog-content">
 +    <div class="palm-dialog-title">
@@ -479,3 +446,63 @@ Index: /usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/rename-p
 +        <div class="palm-button-wrapper" x-mojo-loc="">Cancel</div>
 +    </div>
 +</div>
+diff --git a/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html b/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
+index d34a6a5..61c2788 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
++++ b/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
+@@ -18,6 +18,7 @@
+ 	</div>
+ 	
+ 	<div id="launcher-main">
++        <div id="page-category" class="palm-header center" x-mojo-touch-feedback="immediate">...</div>
+ 		<div id="launcher_root" x-mojo-element="Scroller">
+ 			<div id="pages_container"></div>
+ 		</div>
+diff --git a/usr/lib/luna/system/luna-applauncher/sources.json b/usr/lib/luna/system/luna-applauncher/sources.json
+index bb94ae2..79c669d 100644
+--- a/usr/lib/luna/system/luna-applauncher/sources.json
++++ b/usr/lib/luna/system/luna-applauncher/sources.json
+@@ -29,6 +29,10 @@
+ 	},
+ 	
+ 	{
++        "source": "app\/controllers\/rename-page-assistant.js"
++    },
++	
++	{
+ 		"source": "app\/models\/ApplicationService.js"
+ 	},
+ 	
+diff --git a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
+index 545460c..afd9b5e 100644
+--- a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
++++ b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
+@@ -6,6 +6,10 @@ body.palm-default
+ 	background-image:url(../images/scrim.png);
+ }
+ 
++#page-category {
++	opacity: 0.5;
++}
++
+ .root {
+ 	position:relative;
+ 	overflow:hidden;
+@@ -59,7 +63,7 @@ body.palm-default
+ 	width: 100%;
+ 	z-index: 29;
+ 	height: 24px;
+-	top: 1px;
++	top: 45px; /* Insert some space for the page selector (LMO) */
+ 	background: url(../images/fade-arrow-up.png) center center no-repeat;
+ 	-webkit-palm-mouse-target: ignore;
+ }
+@@ -106,7 +110,7 @@ body.palm-default
+ }
+ 
+ .page_scroller_container {
+-	margin-top: 10px;
++	margin-top: 55px; /* Insert some space for the page selector (LMO) */
+ 	margin-bottom: -20px;
+ }
+ 
