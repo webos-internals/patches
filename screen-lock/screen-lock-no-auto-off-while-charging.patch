@@ -1,5 +1,85 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 2888b7c..3a4abb0 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -1527,6 +1527,8 @@ handlePowerNotifications: function(payload) {
+ 				this.isCharging = true;			
+ 		}.bind(this));
+ 						
++		this.setForAutoOff();
++						
+ 		if (this.isCharging) {
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+ 			if(this.batteryLevel == 100)
+@@ -1559,6 +1561,66 @@ handlePowerNotifications: function(payload) {
+ 	}
+ },
+ 
++setForAutoOff: function() {
++	if(this.powerSource['inductive']==true) {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'getProperty',
++			parameters: {
++				properties: ["onWhenConnected"]
++			},
++			onSuccess: function(payload) {
++				if(payload.onWhenConnected) {
++					this.getAutoOffTimeout(
++						function(response) {
++							if(response.timeout!=604800) {
++								this.setAutoOffCookie(response.timeout);
++								this.setAutoOffTimeout(604800);
++							}
++						}.bind(this)
++					);
++				}
++			}.bind(this)
++		});
++	} else {
++		var timeout = this.getAutoOffCookie();
++		if(timeout.seconds != 604800) {
++			this.setAutoOffTimeout(timeout.seconds);
++			this.setAutoOffCookie(604800);
++		}
++	}
++},
++
++getAutoOffCookie: function() {
++	var cookie = new Mojo.Model.Cookie("auto-off");
++	var val = cookie.get();
++	if(!val) {
++		val = {seconds:604800};
++		cookie.put(val);
++	}
++	return val;
++},
++
++setAutoOffCookie: function(value) {
++	var cookie = new Mojo.Model.Cookie("auto-off");
++	cookie.put({seconds:value});
++},
++
++getAutoOffTimeout: function(callback) {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'getProperty',
++		parameters:{properties:['timeout']},
++		onSuccess: callback
++	});
++},
++
++setAutoOffTimeout: function(value) {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'setProperty',
++		parameters:{timeout:value}
++	});
++
++},
++
+ handleCriticalPowerNotifications: function(payload) {
+ 	if(payload.cause) {
+ 		Mojo.Log.error("SystemUI - Battery Level is critical. Shutting down the phone ");
 diff --git a/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js b/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
-index 86eb675..0683764 100644
+index 86eb675..1e1c0a3 100644
 --- a/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
 +++ b/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
 @@ -19,6 +19,10 @@ var SecurityconfigAssistant = Class.create({
@@ -38,14 +118,14 @@ index 86eb675..0683764 100644
 +	toggleautoOffCharging: function(event) {
 +		if(!event)
 +			return;
-+		this.setAutoOffCharging(event.value);
++		this.setAutoOffCharging();
 +	},
 +	
 +	setAutoOffCharging: function(value) {
 +		this.controller.serviceRequest('palm://com.palm.display/control', {
 +			method: 'setProperty',
 +			parameters: {
-+				onWhenConnected: !value
++				onWhenConnected: !this.autoOffChargingtoggleModel.value
 +			}
 +		});	
 +	},
@@ -57,7 +137,7 @@ index 86eb675..0683764 100644
 +				properties: ["onWhenConnected"]
 +			},
 +			onSuccess: function(payload) {
-+				this.autoOffChargingToggleModel.value = !payload.onWhenConnected;
++				this.autoOffChargingtoggleModel.value = !payload.onWhenConnected;
 +				this.controller.modelChanged(this.autoOffChargingtoggleModel);
 +			}.bind(this)
 +		});		
