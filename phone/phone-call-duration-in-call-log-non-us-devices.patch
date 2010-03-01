@@ -1,0 +1,935 @@
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/app/controllers/preflist-assistant.js b/usr/palm/applications/com.palm.app.phoneprefs/app/controllers/preflist-assistant.js
+index f46326e..d207719 100644
+--- a/usr/palm/applications/com.palm.app.phoneprefs/app/controllers/preflist-assistant.js
++++ b/usr/palm/applications/com.palm.app.phoneprefs/app/controllers/preflist-assistant.js
+@@ -95,6 +95,10 @@ var PreflistAssistant = Class.create({
+ 			value: true
+ 		};
+ 		       
++	this.phoneAppHideCallDurationModel = {
++			value: false
++		};
++		       
+         this.callFwdModel = {
+ 			value: false
+ 		};
+@@ -137,6 +141,13 @@ var PreflistAssistant = Class.create({
+         }, this.showContactMatchModel);
+         this.controller.get('showContactMatch').addEventListener(Mojo.Event.propertyChange, this.doPropertyChanged.bindAsEventListener(this, 'showContactMatch'));
+ 
++		this.controller.setupWidget('phoneAppHideCallDuration', {
++	    modelProperty: 'value',
++	    trueLabel: $L('Yes'),
++	    falseLabel: $L('No')
++	}, this.phoneAppHideCallDurationModel);
++	this.controller.get('phoneAppHideCallDuration').addEventListener(Mojo.Event.propertyChange, this.doPropertyChanged.bindAsEventListener(this, 'phoneAppHideCallDuration'));
++
+ 		this.controller.setupWidget('callfwd', {
+             modelProperty: 'value'
+         }, this.callFwdModel);
+@@ -378,6 +389,7 @@ var PreflistAssistant = Class.create({
+ 			['phoneInternationalDialingActive', 'phoneInternationalDialingRegionId'],this.updateInternationalDialingSettings.bind(this));
+ 		this.networkStatusQueryReq = TelephonyService.networkStatusQuery(this.updateNetworkname.bind(this));
+         this.getSystemPreferencesServiceShowcontactmatchReq = SystemService.getSystemPreferencesService('showcontactmatch',this.updateShowcontactmatch.bind(this));
++	this.getSystemPreferencesServicephoneAppHideCallDurationReq = SystemService.getSystemPreferencesService('phoneAppHideCallDuration',this.updatephoneAppHideCallDuration.bind(this));
+ 		this.updateManualDataSettingsReq = SystemService.getManualDataSettings(this.updateManualDataSettings.bind(this));
+ 		this.getVoiceNumberEditableReq = SystemService.getSystemPreferencesService('allowEditVoicemail',this.updateVoicenumberEditableQueryDone.bind(this));
+         this.getSystemPreferencesNetworkSettingReq = SystemService.getSystemPreferencesService(['showUpdateNetworkSettings','showUpdatePRL'],this.updateNetworkSettingDone.bind(this));
+@@ -972,7 +984,14 @@ voiceNumberSetDone: function(payload){
+         
+     },
+ 	
++        //phoneAppHideCallDuration
++    updatephoneAppHideCallDuration: function(payload){
++                if(payload.phoneAppHideCallDuration == undefined)
++                        return;
++        this.phoneAppHideCallDurationModel.value = payload.phoneAppHideCallDuration;
++        this.controller.modelChanged(this.phoneAppHideCallDurationModel);
+ 	
++    },
+ 	
+ 	//DTMF
+     updateDTMF: function(payload){
+@@ -2069,6 +2088,16 @@ break;
+ 			case 'showContactMatch':
+    	            this.setSystemPreferencesServiceReq = SystemService.setSystemPreferencesService('showcontactmatch',value,null);
+ 				break;
++            case 'phoneAppHideCallDuration':
++                this.setSystemPreferencesServiceReq = SystemService.setSystemPreferencesService('phoneAppHideCallDuration',value,null);
++                this.controller.showAlertDialog({
++                        title:          $L('Luna Restart Required'),
++                        preventCancel:  true,
++                        message:        $L('You must restart Luna for this setting to take effect. Restart takes approximately 30 seconds. Restart Now?'),
++                        choices:        [{label:$L('OK'), value:'ok'},{label:$L('Later'), value:'later'}],
++                        onChoose:       this.LunaRestartOK.bindAsEventListener(this)
++                });
++                break;
+             case 'showOutgoingCallerID':
+                 this.clirSetReq = TelephonyService.clirSet(!value, this.handleError.bind(this));
+             	break;            
+@@ -2148,6 +2177,24 @@ break;
+ 				break;
+         }
+     },
++
++    LunaRestartOK: function(payload) {
++        if(payload == 'ok') {
++                this.controller.serviceRequest('palm://org.webosinternals.ipkgservice', {
++                        method: "restartluna",
++                        parameters: {}
++                        });
++        } else {
++                this.controller.showAlertDialog({
++                        title:          $L('Luna Restart Required'),
++                        preventCancel:  true,
++                        message:        $L('Remember, you must restart Luna (or the phone) for this setting to take effect.'),
++                        choices:        [{label:$L('OK'), value:'ok'}],
++                        onChoose:       function(value) { return }
++                });
++        }
++
++    },
+ 	
+ 	handleError: function(payload) {
+ 		
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/app/views/preflist/preflist-scene.html b/usr/palm/applications/com.palm.app.phoneprefs/app/views/preflist/preflist-scene.html
+index 9912c08..2a92355 100644
+--- a/usr/palm/applications/com.palm.app.phoneprefs/app/views/preflist/preflist-scene.html
++++ b/usr/palm/applications/com.palm.app.phoneprefs/app/views/preflist/preflist-scene.html
+@@ -42,6 +42,22 @@
+         </div>
+     </div>
+ 
++  <div class="palm-group">
++        <div x-mojo-loc="" class="palm-group-title">
++            Call Log
++        </div>
++        <div class="palm-list">
++            <div class="palm-row single">
++                                <div class="palm-row-wrapper">
++                        <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
++                        <div class="title capitalize" x-mojo-loc="">
++                            Hide Call Durations
++                        </div>
++                    </div>
++            </div>
++        </div>
++    </div>
++
+     <div class="palm-group" id="calls">
+         <div x-mojo-loc="" class="palm-group-title">
+             Calls
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/de_de/strings.json.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/de_de/strings.json.rej
+new file mode 100644
+index 0000000..a04365f
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/de_de/strings.json.rej
+@@ -0,0 +1,91 @@
++***************
++*** 245,250 ****
++  	"Korea, North": "Korea, Nord-",
++  	"Korea, South": "Korea, Süd-",
++  	"Kyrgyz Republic": "Kirgisistan",
++  	"Latvia": "Lettland",
++  	"Lebanon": "Libanon",
++  	"Libya": "Libyen",
++--- 245,251 ----
++  	"Korea, North": "Korea, Nord-",
++  	"Korea, South": "Korea, Süd-",
++  	"Kyrgyz Republic": "Kirgisistan",
+++ 	"Later": "spaeter",
++  	"Latvia": "Lettland",
++  	"Lebanon": "Libanon",
++  	"Libya": "Libyen",
++***************
++*** 252,257 ****
++  	"Lock SIM card": "SIM-Karte sperren",
++  	"Long": "Lang",
++  	"Looking for networks": "Netzwerksuche läuft",
++  	"Luxembourg": "Luxemburg",
++  	"MMS APN": "MMS-APN",
++  	"MMS APN settings changed": "Einstellungen für MMS-APN geändert",
++--- 253,259 ----
++  	"Lock SIM card": "SIM-Karte sperren",
++  	"Long": "Lang",
++  	"Looking for networks": "Netzwerksuche läuft",
+++ 	"Luna Restart Required": "Neustart von Luna erforderlich",
++  	"Luxembourg": "Luxemburg",
++  	"MMS APN": "MMS-APN",
++  	"MMS APN settings changed": "Einstellungen für MMS-APN geändert",
++***************
++*** 282,287 ****
++  	"New Caledonia (France)": "Neukaledonien (Frankreich)",
++  	"New Zealand": "Neuseeland",
++  	"Nine": "Neun",
++  	"No PRL update available": "Kein PRL-Update verfügbar",
++  	"No answer": "Keine Antwort",
++  	"No networks available": "Kein Netz verfügbar",
++--- 284,290 ----
++  	"New Caledonia (France)": "Neukaledonien (Frankreich)",
++  	"New Zealand": "Neuseeland",
++  	"Nine": "Neun",
+++ 	"No": "Nein",
++  	"No PRL update available": "Kein PRL-Update verfügbar",
++  	"No answer": "Keine Antwort",
++  	"No networks available": "Kein Netz verfügbar",
++***************
++*** 344,349 ****
++  	"Reading from network": "Aus Netz abrufen",
++  	"Reading network list": "Liste der Netze wird gelesen",
++  	"Reading settings...": "Einstellungen lesen...",
++  	"Republic of Macedonia": "Mazedonien",
++  	"Republic of the Congo": "Republik Kongo",
++  	"Request failed to complete before timeout.": "Anforderung wurde nicht innerhalb des Zeitlimits ausgeführt.",
++--- 347,353 ----
++  	"Reading from network": "Aus Netz abrufen",
++  	"Reading network list": "Liste der Netze wird gelesen",
++  	"Reading settings...": "Einstellungen lesen...",
+++ 	"Remember, you must restart Luna (or the phone) for this setting to take effect.": "Bitte beachte, dass du Luna (oder dein Handy) neu starten musst, damit die Einstellung aktiv wird.",
++  	"Republic of Macedonia": "Mazedonien",
++  	"Republic of the Congo": "Republik Kongo",
++  	"Request failed to complete before timeout.": "Anforderung wurde nicht innerhalb des Zeitlimits ausgeführt.",
++***************
++*** 490,495 ****
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Bei Aktivierung fester Rufnummern kann die Rufnummeranzeige nicht verwendet werden.",
++  	"Wired headset": "Headset mit Kabel",
++  	"Yemen": "Jemen",
++  	"You must save changes before continuing.": "Sie müssen die Änderungen speichern, bevor Sie fortfahren.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Sie benötigen eine Netzwerkverbindung zu Ihrem Mobilfunkanbieter, um Ihre Telefoneinstellungen anzuzeigen.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Sie benötigen eine Netzwerkverbindung zu Ihrem Mobilfunkanbieter, um bestimmte Einstellungen anzuzeigen.",
++--- 494,501 ----
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Bei Aktivierung fester Rufnummern kann die Rufnummeranzeige nicht verwendet werden.",
++  	"Wired headset": "Headset mit Kabel",
++  	"Yemen": "Jemen",
+++ 	"Yes": "Ja",
+++ 	"You must restart Luna for this setting to take effect. Restart takes approximately 30 seconds. Restart Now?": "Du musst Luna neu starten, damit die Einstellung aktiv wird. Ein Neustart dauert in der Regel 30 Sekunden. Jetzt neu starten?",
++  	"You must save changes before continuing.": "Sie müssen die Änderungen speichern, bevor Sie fortfahren.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Sie benötigen eine Netzwerkverbindung zu Ihrem Mobilfunkanbieter, um Ihre Telefoneinstellungen anzuzeigen.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Sie benötigen eine Netzwerkverbindung zu Ihrem Mobilfunkanbieter, um bestimmte Einstellungen anzuzeigen.",
++***************
++*** 505,508 ****
++  	"set failed": "-Einstellung fehlgeschlagen",
++  	"set failed.": "-Einstellung fehlgeschlagen.",
++  	"set succeeded": "-Einstellung erfolgreich"
++- }--- 511,514 ----
++  	"set failed": "-Einstellung fehlgeschlagen",
++  	"set failed.": "-Einstellung fehlgeschlagen.",
++  	"set succeeded": "-Einstellung erfolgreich"
+++ }
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/de_de/views/preflist/preflist-scene.html.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/de_de/views/preflist/preflist-scene.html.rej
+new file mode 100644
+index 0000000..463e9ef
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/de_de/views/preflist/preflist-scene.html.rej
+@@ -0,0 +1,31 @@
++***************
++*** 42,47 ****
++          </div>
++      </div>
++  
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Anrufe
++--- 42,63 ----
++          </div>
++      </div>
++  
+++     <div class="palm-group">
+++         <div x-mojo-loc="" class="palm-group-title">
+++             Anruferliste
+++         </div>
+++         <div class="palm-list">
+++             <div class="palm-row single">
+++                                 <div class="palm-row-wrapper">
+++                         <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
+++                         <div class="title capitalize" x-mojo-loc="">
+++                             Anrufdauer verbergen
+++                         </div>
+++                     </div>
+++             </div>
+++         </div>
+++     </div>
+++ 
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Anrufe
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/en_ca/views/preflist/preflist-scene.html.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/en_ca/views/preflist/preflist-scene.html.rej
+new file mode 100644
+index 0000000..bfd3cc0
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/en_ca/views/preflist/preflist-scene.html.rej
+@@ -0,0 +1,31 @@
++***************
++*** 42,47 ****
++          </div>
++      </div>
++  
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Calls
++--- 42,63 ----
++          </div>
++      </div>
++  
+++     <div class="palm-group">
+++         <div x-mojo-loc="" class="palm-group-title">
+++             Call Log
+++         </div>
+++         <div class="palm-list">
+++             <div class="palm-row single">
+++                                 <div class="palm-row-wrapper">
+++                         <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
+++                         <div class="title capitalize" x-mojo-loc="">
+++                             Hide Call Durations
+++                         </div>
+++                     </div>
+++             </div>
+++         </div>
+++     </div>
+++ 
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Calls
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/en_gb/views/preflist/preflist-scene.html.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/en_gb/views/preflist/preflist-scene.html.rej
+new file mode 100644
+index 0000000..bfd3cc0
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/en_gb/views/preflist/preflist-scene.html.rej
+@@ -0,0 +1,31 @@
++***************
++*** 42,47 ****
++          </div>
++      </div>
++  
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Calls
++--- 42,63 ----
++          </div>
++      </div>
++  
+++     <div class="palm-group">
+++         <div x-mojo-loc="" class="palm-group-title">
+++             Call Log
+++         </div>
+++         <div class="palm-list">
+++             <div class="palm-row single">
+++                                 <div class="palm-row-wrapper">
+++                         <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
+++                         <div class="title capitalize" x-mojo-loc="">
+++                             Hide Call Durations
+++                         </div>
+++                     </div>
+++             </div>
+++         </div>
+++     </div>
+++ 
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Calls
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/es_es/strings.json.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_es/strings.json.rej
+new file mode 100644
+index 0000000..907f029
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_es/strings.json.rej
+@@ -0,0 +1,75 @@
++***************
++*** 247,252 ****
++  	"Korea, North": "Corea del Norte",
++  	"Korea, South": "Corea del Sur",
++  	"Kyrgyz Republic": "República Kirguisa",
++  	"Latvia": "Letonia",
++  	"Lebanon": "Líbano",
++  	"Lesotho": "Lesoto",
++--- 247,253 ----
++  	"Korea, North": "Corea del Norte",
++  	"Korea, South": "Corea del Sur",
++  	"Kyrgyz Republic": "República Kirguisa",
+++ 	"Later", "Luego",
++  	"Latvia": "Letonia",
++  	"Lebanon": "Líbano",
++  	"Lesotho": "Lesoto",
++***************
++*** 255,260 ****
++  	"Lock SIM card": "Proteger tarjeta SIM",
++  	"Long": "Largo",
++  	"Looking for networks": "Buscando redes",
++  	"Luxembourg": "Luxemburgo",
++  	"MMS APN": "APN de MMS",
++  	"MMS APN settings changed": "La configuración del APN de MMS ha cambiado",
++--- 256,262 ----
++  	"Lock SIM card": "Proteger tarjeta SIM",
++  	"Long": "Largo",
++  	"Looking for networks": "Buscando redes",
+++ 	"Luna Restart Required": "Re-iniciaci�n de Luna Requerida",
++  	"Luxembourg": "Luxemburgo",
++  	"MMS APN": "APN de MMS",
++  	"MMS APN settings changed": "La configuración del APN de MMS ha cambiado",
++***************
++*** 354,359 ****
++  	"Reading from network": "Lectura de red",
++  	"Reading network list": "Lectura de lista de red",
++  	"Reading settings...": "Leyendo configuración...",
++  	"Republic of Macedonia": "República de Macedonia",
++  	"Republic of the Congo": "República del Congo",
++  	"Request failed to complete before timeout.": "No se pudo completar la solicitud antes de la desconexión.",
++--- 356,362 ----
++  	"Reading from network": "Lectura de red",
++  	"Reading network list": "Lectura de lista de red",
++  	"Reading settings...": "Leyendo configuración...",
+++ 	"Remember, you must restart Luna (or the phone) for this setting to take effect.": "Recuerda, debe re-iniciar Luna o el telefono para que los cambios tomen efecto.",
++  	"Republic of Macedonia": "República de Macedonia",
++  	"Republic of the Congo": "República del Congo",
++  	"Request failed to complete before timeout.": "No se pudo completar la solicitud antes de la desconexión.",
++***************
++*** 505,510 ****
++  	"While fixed dialing is enabled, call waiting cannot be set.": "Si está activada la marcación fija, no se puede configurar llamadas en espera.",
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Si está activada la marcación fija, no se puede configurar ID de llamada.",
++  	"Wired headset": "Auriculares con cable",
++  	"You must save changes before continuing.": "Debes guardar los cambios antes de continuar.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Necesitas una conexión de red a tu proveedor de servicio inalámbrico para ver las preferencias del teléfono.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Necesitas una conexión de red a tu operadora de telefonía móvil para ver algunas configuraciones.",
++--- 508,515 ----
++  	"While fixed dialing is enabled, call waiting cannot be set.": "Si está activada la marcación fija, no se puede configurar llamadas en espera.",
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Si está activada la marcación fija, no se puede configurar ID de llamada.",
++  	"Wired headset": "Auriculares con cable",
+++ 	"Yes": "Sí",
+++ 	"You must restart Luna for this setting to take effect. Restart takes approximately 30 seconds. Restart Now?":, "Debe re-iniciar Luna para estos cambios tomen efecto, Re-iniciaci�n toma aproximadamente 30 segundos. �Re-iniciar ahora?",
++  	"You must save changes before continuing.": "Debes guardar los cambios antes de continuar.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Necesitas una conexión de red a tu proveedor de servicio inalámbrico para ver las preferencias del teléfono.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Necesitas una conexión de red a tu operadora de telefonía móvil para ver algunas configuraciones.",
++***************
++*** 519,522 ****
++  	"set failed": "No se pudo configurar.",
++  	"set failed.": "No se pudo configurar.",
++  	"set succeeded": "configuración correcta"
++- }--- 524,527 ----
++  	"set failed": "No se pudo configurar.",
++  	"set failed.": "No se pudo configurar.",
++  	"set succeeded": "configuración correcta"
+++ }
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/es_es/views/preflist/preflist-scene.html.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_es/views/preflist/preflist-scene.html.rej
+new file mode 100644
+index 0000000..a07e68c
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_es/views/preflist/preflist-scene.html.rej
+@@ -0,0 +1,31 @@
++***************
++*** 42,47 ****
++          </div>
++      </div>
++  
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Llamadas
++--- 42,63 ----
++          </div>
++      </div>
++  
+++     <div class="palm-group">
+++         <div x-mojo-loc="" class="palm-group-title">
+++             Registro de Llamada
+++         </div>
+++         <div class="palm-list">
+++             <div class="palm-row single">
+++                                 <div class="palm-row-wrapper">
+++                         <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
+++                         <div class="title capitalize" x-mojo-loc="">
+++ 			    Esconder Duraci�n de Llamada
+++                         </div>
+++                     </div>
+++             </div>
+++         </div>
+++     </div>
+++ 
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Llamadas
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/es_us/strings.json.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_us/strings.json.rej
+new file mode 100644
+index 0000000..c9ed102
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_us/strings.json.rej
+@@ -0,0 +1,75 @@
++***************
++*** 253,258 ****
++  	"Korea, North": "Corea del Norte",
++  	"Korea, South": "Corea del Sur",
++  	"Kyrgyz Republic": "República Kirguisa",
++  	"Latvia": "Letonia",
++  	"Lebanon": "Líbano",
++  	"Lesotho": "Lesoto",
++--- 253,259 ----
++  	"Korea, North": "Corea del Norte",
++  	"Korea, South": "Corea del Sur",
++  	"Kyrgyz Republic": "República Kirguisa",
+++ 	"Later", "Luego",
++  	"Latvia": "Letonia",
++  	"Lebanon": "Líbano",
++  	"Lesotho": "Lesoto",
++***************
++*** 262,267 ****
++  	"Lock SIM card": "Bloquear tarjeta SIM",
++  	"Long": "Largos",
++  	"Looking for networks": "Buscando redes",
++  	"Luxembourg": "Luxemburgo",
++  	"MMS APN": "APN de MMS",
++  	"MMS APN settings changed": "La configuración del APN de MMS ha cambiado",
++--- 263,269 ----
++  	"Lock SIM card": "Bloquear tarjeta SIM",
++  	"Long": "Largos",
++  	"Looking for networks": "Buscando redes",
+++ 	"Luna Restart Required": "Re-iniciaci�n de Luna Requerida",
++  	"Luxembourg": "Luxemburgo",
++  	"MMS APN": "APN de MMS",
++  	"MMS APN settings changed": "La configuración del APN de MMS ha cambiado",
++***************
++*** 362,367 ****
++  	"Reading from network": "Lectura de red",
++  	"Reading network list": "Lectura de lista de red",
++  	"Reading settings...": "Leyendo configuración...",
++  	"Republic of the Congo": "República del Congo",
++  	"Request failed to complete before timeout.": "No se pudo completar la solicitud antes de la desconexión.",
++  	"Reset Voicemail Count": "Restablecer núm. mensajes voz",
++--- 364,370 ----
++  	"Reading from network": "Lectura de red",
++  	"Reading network list": "Lectura de lista de red",
++  	"Reading settings...": "Leyendo configuración...",
+++ 	"Remember, you must restart Luna (or the phone) for this setting to take effect.": "Recuerda, debe re-iniciar Luna o el telefono para que los cambios tomen efecto.",
++  	"Republic of the Congo": "República del Congo",
++  	"Request failed to complete before timeout.": "No se pudo completar la solicitud antes de la desconexión.",
++  	"Reset Voicemail Count": "Restablecer núm. mensajes voz",
++***************
++*** 513,518 ****
++  	"While fixed dialing is enabled, call waiting cannot be set.": "Si está activado el marcado fijo, no se puede configurar llamadas en espera.",
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Si está activado el marcado fijo, no se puede configurar ID de llamada.",
++  	"Wired headset": "Auriculares con cable",
++  	"You must save changes before continuing.": "Debes guardar los cambios antes de continuar.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Necesitas una conexión de red a tu proveedor de servicio inalámbrico para ver las preferencias del teléfono.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Necesitas una conexión de red a tu proveedor de servicio inalámbrico para ver algunas configuraciones.",
++--- 516,523 ----
++  	"While fixed dialing is enabled, call waiting cannot be set.": "Si está activado el marcado fijo, no se puede configurar llamadas en espera.",
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Si está activado el marcado fijo, no se puede configurar ID de llamada.",
++  	"Wired headset": "Auriculares con cable",
+++ 	"Yes": "Sí",
+++ 	"You must restart Luna for this setting to take effect. Restart takes approximately 30 seconds. Restart Now?":, "Debe re-iniciar Luna para estos cambios tomen efecto, Re-iniciaci�n toma aproximadamente 30 segundos. �Re-iniciar ahora?",
++  	"You must save changes before continuing.": "Debes guardar los cambios antes de continuar.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Necesitas una conexión de red a tu proveedor de servicio inalámbrico para ver las preferencias del teléfono.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Necesitas una conexión de red a tu proveedor de servicio inalámbrico para ver algunas configuraciones.",
++***************
++*** 527,530 ****
++  	"set failed": "error de configuración",
++  	"set failed.": "error de configuración.",
++  	"set succeeded": "configuración correcta"
++- }--- 532,535 ----
++  	"set failed": "error de configuración",
++  	"set failed.": "error de configuración.",
++  	"set succeeded": "configuración correcta"
+++ }
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/es_us/views/preflist/preflist-scene.html b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_us/views/preflist/preflist-scene.html
+index 37045af..c77a165 100644
+--- a/usr/palm/applications/com.palm.app.phoneprefs/resources/es_us/views/preflist/preflist-scene.html
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/es_us/views/preflist/preflist-scene.html
+@@ -42,6 +42,22 @@
+         </div>
+     </div>
+ 
++    <div class="palm-group">
++        <div x-mojo-loc="" class="palm-group-title">
++            Registro de Llamada
++        </div>
++        <div class="palm-list">
++            <div class="palm-row single">
++                                <div class="palm-row-wrapper">
++                        <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
++                        <div class="title capitalize" x-mojo-loc="">
++			    Esconder Duraci�n de Llamada
++                        </div>
++                    </div>
++            </div>
++        </div>
++    </div>
++
+     <div class="palm-group" id="calls">
+         <div class="palm-group-title">
+             Llamadas
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_ca/strings.json.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_ca/strings.json.rej
+new file mode 100644
+index 0000000..e3d8743
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_ca/strings.json.rej
+@@ -0,0 +1,88 @@
++***************
++*** 258,269 ****
++  	"Korea, South": "Corée du Sud",
++  	"Kuwait": "Koweït",
++  	"Kyrgyz Republic": "République du Kirghizistan",
++  	"Latvia": "Lettonie",
++  	"Lebanon": "Liban",
++  	"Libya": "Libye",
++  	"Lithuania": "Lituanie",
++  	"Lock SIM card": "Verrouiller la carte SIM",
++  	"Looking for networks": "Recherche des réseaux",
++  	"MMS APN": "APN MMS",
++  	"MMS APN settings changed": "Les paramètres APN MMS ont changé",
++  	"Macao (PRC)": "Macao (RPC)",
++--- 258,271 ----
++  	"Korea, South": "Corée du Sud",
++  	"Kuwait": "Koweït",
++  	"Kyrgyz Republic": "République du Kirghizistan",
+++ 	"Later", "Plus Tard",
++  	"Latvia": "Lettonie",
++  	"Lebanon": "Liban",
++  	"Libya": "Libye",
++  	"Lithuania": "Lituanie",
++  	"Lock SIM card": "Verrouiller la carte SIM",
++  	"Looking for networks": "Recherche des réseaux",
+++ 	"Luna Restart Required": "Luna Redemarrage Requis",
++  	"MMS APN": "APN MMS",
++  	"MMS APN settings changed": "Les paramètres APN MMS ont changé",
++  	"Macao (PRC)": "Macao (RPC)",
++***************
++*** 293,298 ****
++  	"New Caledonia (France)": "Nouvelle-Calédonie (France)",
++  	"New Zealand": "Nouvelle-Zélande",
++  	"Nine": "Neuf",
++  	"No PRL update available": "Aucune mise à jour de la liste d’itinérance privilégiée disponible",
++  	"No answer": "Pas de réponse",
++  	"No networks available": "Aucun réseau disponible",
++--- 295,301 ----
++  	"New Caledonia (France)": "Nouvelle-Calédonie (France)",
++  	"New Zealand": "Nouvelle-Zélande",
++  	"Nine": "Neuf",
+++ 	"No": "Non",
++  	"No PRL update available": "Aucune mise à jour de la liste d’itinérance privilégiée disponible",
++  	"No answer": "Pas de réponse",
++  	"No networks available": "Aucun réseau disponible",
++***************
++*** 353,358 ****
++  	"Reading from network": "Lecture à partir du réseau",
++  	"Reading network list": "Lecture de la liste des réseaux",
++  	"Reading settings...": "Lecture de la configuration...",
++  	"Republic of Macedonia": "République de Macédoine",
++  	"Republic of the Congo": "République du Congo",
++  	"Request failed to complete before timeout.": "Échec de la demande avant la fin de la temporisation.",
++--- 356,362 ----
++  	"Reading from network": "Lecture à partir du réseau",
++  	"Reading network list": "Lecture de la liste des réseaux",
++  	"Reading settings...": "Lecture de la configuration...",
+++ 	"Remember, you must restart Luna (or the phone) for this setting to take effect.": "N'oubliez pas que devez redemarrer Luna (ou de telephone) pour que ce parametre prenne effet.",
++  	"Republic of Macedonia": "République de Macédoine",
++  	"Republic of the Congo": "République du Congo",
++  	"Request failed to complete before timeout.": "Échec de la demande avant la fin de la temporisation.",
++***************
++*** 502,507 ****
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Tant que la composition fixe est activée, la fonction Numéro d’appelant ne peut pas être définie.",
++  	"Wired headset": "Écouteurs filaires",
++  	"Yemen": "Yémen",
++  	"You must save changes before continuing.": "Vous devez enregistrer les changements avant de continuer.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Vous devez avoir une connexion au réseau de votre fournisseur de service mobile pour voir vos préférences téléphone.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Vous devez avoir une connexion au réseau de votre fournisseur de service mobile pour voir certains paramètres.",
++--- 506,513 ----
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Tant que la composition fixe est activée, la fonction Numéro d’appelant ne peut pas être définie.",
++  	"Wired headset": "Écouteurs filaires",
++  	"Yemen": "Yémen",
+++ 	"Yes": "Oui",
+++ 	"You must restart Luna for this setting to take effect. Restart takes approximately 30 seconds. Restart Now?":, "Vous devez redemarrer Luna pour que ce parametre prenne effet. redemarrez prend environ 30 secondes .. redemarrer maintenant?",
++  	"You must save changes before continuing.": "Vous devez enregistrer les changements avant de continuer.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Vous devez avoir une connexion au réseau de votre fournisseur de service mobile pour voir vos préférences téléphone.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Vous devez avoir une connexion au réseau de votre fournisseur de service mobile pour voir certains paramètres.",
++***************
++*** 516,519 ****
++  	"set failed": "échec de la configuration",
++  	"set failed.": "échec de la configuration.",
++  	"set succeeded": "configuration réussie"
++- }--- 522,525 ----
++  	"set failed": "échec de la configuration",
++  	"set failed.": "échec de la configuration.",
++  	"set succeeded": "configuration réussie"
+++ }
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_ca/views/preflist/preflist-scene.html.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_ca/views/preflist/preflist-scene.html.rej
+new file mode 100644
+index 0000000..2fe1d68
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_ca/views/preflist/preflist-scene.html.rej
+@@ -0,0 +1,31 @@
++***************
++*** 42,47 ****
++          </div>
++      </div>
++  
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Appels
++--- 42,63 ----
++          </div>
++      </div>
++  
+++     <div class="palm-group">
+++         <div x-mojo-loc="" class="palm-group-title">
+++             Journal des Appels
+++         </div>
+++         <div class="palm-list">
+++             <div class="palm-row single">
+++                                 <div class="palm-row-wrapper">
+++                         <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
+++                         <div class="title capitalize" x-mojo-loc="">
+++                             Masquer de Dur�es D'appel
+++                         </div>
+++                     </div>
+++             </div>
+++         </div>
+++     </div>
+++ 
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Appels
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_fr/strings.json.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_fr/strings.json.rej
+new file mode 100644
+index 0000000..f6c97d1
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_fr/strings.json.rej
+@@ -0,0 +1,88 @@
++***************
++*** 257,268 ****
++  	"Korea, South": "Corée du Sud",
++  	"Kuwait": "Koweït",
++  	"Kyrgyz Republic": "République du Kirghizistan",
++  	"Latvia": "Lettonie",
++  	"Lebanon": "Liban",
++  	"Libya": "Libye",
++  	"Lithuania": "Lituanie",
++  	"Lock SIM card": "Verrouiller la carte SIM",
++  	"Looking for networks": "Recherche des réseaux",
++  	"MMS APN": "APN MMS",
++  	"MMS APN settings changed": "Les paramètres APN MMS ont changé",
++  	"Macao (PRC)": "Macao (RPC)",
++--- 257,270 ----
++  	"Korea, South": "Corée du Sud",
++  	"Kuwait": "Koweït",
++  	"Kyrgyz Republic": "République du Kirghizistan",
+++ 	"Later", "Plus Tard",
++  	"Latvia": "Lettonie",
++  	"Lebanon": "Liban",
++  	"Libya": "Libye",
++  	"Lithuania": "Lituanie",
++  	"Lock SIM card": "Verrouiller la carte SIM",
++  	"Looking for networks": "Recherche des réseaux",
+++ 	"Luna Restart Required": "Luna Redemarrage Requis",
++  	"MMS APN": "APN MMS",
++  	"MMS APN settings changed": "Les paramètres APN MMS ont changé",
++  	"Macao (PRC)": "Macao (RPC)",
++***************
++*** 292,297 ****
++  	"New Caledonia (France)": "Nouvelle-Calédonie (France)",
++  	"New Zealand": "Nouvelle-Zélande",
++  	"Nine": "Neuf",
++  	"No PRL update available": "Aucune mise à jour de la liste d’itinérance privilégiée disponible",
++  	"No answer": "Pas de réponse",
++  	"No networks available": "Aucun réseau disponible",
++--- 294,300 ----
++  	"New Caledonia (France)": "Nouvelle-Calédonie (France)",
++  	"New Zealand": "Nouvelle-Zélande",
++  	"Nine": "Neuf",
+++ 	"No": "Non",
++  	"No PRL update available": "Aucune mise à jour de la liste d’itinérance privilégiée disponible",
++  	"No answer": "Pas de réponse",
++  	"No networks available": "Aucun réseau disponible",
++***************
++*** 353,358 ****
++  	"Reading from network": "Lecture à partir du réseau",
++  	"Reading network list": "Lecture de la liste des réseaux",
++  	"Reading settings...": "Lecture de la configuration...",
++  	"Republic of Macedonia": "République de Macédoine",
++  	"Republic of the Congo": "République du Congo",
++  	"Request failed to complete before timeout.": "Échec de la demande avant la fin de la temporisation.",
++--- 356,362 ----
++  	"Reading from network": "Lecture à partir du réseau",
++  	"Reading network list": "Lecture de la liste des réseaux",
++  	"Reading settings...": "Lecture de la configuration...",
+++ 	"Remember, you must restart Luna (or the phone) for this setting to take effect.": "N'oubliez pas que devez redemarrer Luna (ou de telephone) pour que ce parametre prenne effet.",
++  	"Republic of Macedonia": "République de Macédoine",
++  	"Republic of the Congo": "République du Congo",
++  	"Request failed to complete before timeout.": "Échec de la demande avant la fin de la temporisation.",
++***************
++*** 502,507 ****
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Tant que la composition fixe est activée, la fonction Numéro d’appelant ne peut pas être définie.",
++  	"Wired headset": "Écouteurs filaires",
++  	"Yemen": "Yémen",
++  	"You must save changes before continuing.": "Vous devez enregistrer les changements avant de continuer.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Vous devez avoir une connexion au réseau de votre fournisseur de service mobile pour voir vos préférences téléphone.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Vous devez avoir une connexion au réseau de votre fournisseur de télécoms sans fil pour voir certains paramètres.",
++--- 506,513 ----
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Tant que la composition fixe est activée, la fonction Numéro d’appelant ne peut pas être définie.",
++  	"Wired headset": "Écouteurs filaires",
++  	"Yemen": "Yémen",
+++ 	"Yes": "Oui",
+++ 	"You must restart Luna for this setting to take effect. Restart takes approximately 30 seconds. Restart Now?":, "Vous devez redemarrer Luna pour que ce parametre prenne effet. redemarrez prend environ 30 secondes .. redemarrer maintenant?",
++  	"You must save changes before continuing.": "Vous devez enregistrer les changements avant de continuer.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Vous devez avoir une connexion au réseau de votre fournisseur de service mobile pour voir vos préférences téléphone.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Vous devez avoir une connexion au réseau de votre fournisseur de télécoms sans fil pour voir certains paramètres.",
++***************
++*** 516,519 ****
++  	"set failed": "échec de la configuration",
++  	"set failed.": "échec de la configuration.",
++  	"set succeeded": "configuration réussie"
++- }--- 522,525 ----
++  	"set failed": "échec de la configuration",
++  	"set failed.": "échec de la configuration.",
++  	"set succeeded": "configuration réussie"
+++ }
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_fr/views/preflist/preflist-scene.html.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_fr/views/preflist/preflist-scene.html.rej
+new file mode 100644
+index 0000000..2fe1d68
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/fr_fr/views/preflist/preflist-scene.html.rej
+@@ -0,0 +1,31 @@
++***************
++*** 42,47 ****
++          </div>
++      </div>
++  
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Appels
++--- 42,63 ----
++          </div>
++      </div>
++  
+++     <div class="palm-group">
+++         <div x-mojo-loc="" class="palm-group-title">
+++             Journal des Appels
+++         </div>
+++         <div class="palm-list">
+++             <div class="palm-row single">
+++                                 <div class="palm-row-wrapper">
+++                         <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
+++                         <div class="title capitalize" x-mojo-loc="">
+++                             Masquer de Dur�es D'appel
+++                         </div>
+++                     </div>
+++             </div>
+++         </div>
+++     </div>
+++ 
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Appels
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/it_it/strings.json.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/it_it/strings.json.rej
+new file mode 100644
+index 0000000..740f012
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/it_it/strings.json.rej
+@@ -0,0 +1,75 @@
++***************
++*** 231,236 ****
++  	"Korea, North": "Corea del Nord",
++  	"Korea, South": "Corea del Sud",
++  	"Kyrgyz Republic": "Kirghizistan",
++  	"Latvia": "Lettonia",
++  	"Lebanon": "Libano",
++  	"Libya": "Libia",
++--- 231,237 ----
++  	"Korea, North": "Corea del Nord",
++  	"Korea, South": "Corea del Sud",
++  	"Kyrgyz Republic": "Kirghizistan",
+++ 	"Later": "Pi� Tardi",
++  	"Latvia": "Lettonia",
++  	"Lebanon": "Libano",
++  	"Libya": "Libia",
++***************
++*** 238,243 ****
++  	"Lock SIM card": "Blocca carta SIM",
++  	"Long": "Lungo",
++  	"Looking for networks": "Ricerca reti",
++  	"Luxembourg": "Lussemburgo",
++  	"MMS APN": "APN MMS",
++  	"MMS APN settings changed": "Impostazioni APN MMS modificate",
++--- 239,245 ----
++  	"Lock SIM card": "Blocca carta SIM",
++  	"Long": "Lungo",
++  	"Looking for networks": "Ricerca reti",
+++ 	"Luna Restart Required": "Luna Riavvio Richiesto",
++  	"Luxembourg": "Lussemburgo",
++  	"MMS APN": "APN MMS",
++  	"MMS APN settings changed": "Impostazioni APN MMS modificate",
++***************
++*** 329,334 ****
++  	"Reading from network": "Lettura dalla rete in corso",
++  	"Reading network list": "Lettura elenco di rete",
++  	"Reading settings...": "Lettura impostazioni...",
++  	"Republic of Macedonia": "Repubblica di Macedonia",
++  	"Republic of the Congo": "Repubblica del Congo",
++  	"Request failed to complete before timeout.": "Impossibile completare la richiesta prima del timeout.",
++--- 331,337 ----
++  	"Reading from network": "Lettura dalla rete in corso",
++  	"Reading network list": "Lettura elenco di rete",
++  	"Reading settings...": "Lettura impostazioni...",
+++ 	"Remember, you must restart Luna (or the phone) for this setting to take effect.": "Ricordate, e necessario riawiare Luna (o il telefono cellulare) per questa impostazione abbia effetto.",
++  	"Republic of Macedonia": "Repubblica di Macedonia",
++  	"Republic of the Congo": "Repubblica del Congo",
++  	"Request failed to complete before timeout.": "Impossibile completare la richiesta prima del timeout.",
++***************
++*** 467,472 ****
++  	"While fixed dialing is enabled, call waiting cannot be set.": "Quando è attivo l’elenco numero ammessi, non può essere impostato l’avviso di chiamata.",
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Quando è attivo l’elenco numero ammessi, non può essere impostato l’ID chiamante.",
++  	"Wired headset": "Auricolare cablato",
++  	"You must save changes before continuing.": "Salvare le modifiche prima di continuare.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Per visualizzare le preferenze del telefono occorre un collegamento di rete al provider di servizi wireless.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Per visualizzare alcune impostazioni occorre un collegamento di rete al provider di servizi wireless.",
++--- 470,477 ----
++  	"While fixed dialing is enabled, call waiting cannot be set.": "Quando è attivo l’elenco numero ammessi, non può essere impostato l’avviso di chiamata.",
++  	"While fixed dialing is enabled, caller ID cannot be set.": "Quando è attivo l’elenco numero ammessi, non può essere impostato l’ID chiamante.",
++  	"Wired headset": "Auricolare cablato",
+++ 	"Yes": "Sì",
+++ 	"You must restart Luna for this setting to take effect. Restart takes approximately 30 seconds. Restart Now?": "E necessario riawiare Luna per questa impostazione abbia effetto... Riawiare rishiede circa 30 secondi. Riawiare adesso?",
++  	"You must save changes before continuing.": "Salvare le modifiche prima di continuare.",
++  	"You need a network connection to your wireless service provider to see Phone Preferences.": "Per visualizzare le preferenze del telefono occorre un collegamento di rete al provider di servizi wireless.",
++  	"You need a network connection to your wireless service provider to see some settings.": "Per visualizzare alcune impostazioni occorre un collegamento di rete al provider di servizi wireless.",
++***************
++*** 479,482 ****
++  	"set failed": "impostazione non riuscita",
++  	"set failed.": "impostazione non riuscita.",
++  	"set succeeded": "impostazione riuscita"
++- }--- 484,487 ----
++  	"set failed": "impostazione non riuscita",
++  	"set failed.": "impostazione non riuscita.",
++  	"set succeeded": "impostazione riuscita"
+++ }
+diff --git a/usr/palm/applications/com.palm.app.phoneprefs/resources/it_it/views/preflist/preflist-scene.html.rej b/usr/palm/applications/com.palm.app.phoneprefs/resources/it_it/views/preflist/preflist-scene.html.rej
+new file mode 100644
+index 0000000..e7145d2
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.phoneprefs/resources/it_it/views/preflist/preflist-scene.html.rej
+@@ -0,0 +1,31 @@
++***************
++*** 42,47 ****
++          </div>
++      </div>
++  
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Chiamate
++--- 42,63 ----
++          </div>
++      </div>
++  
+++     <div class="palm-group">
+++         <div x-mojo-loc="" class="palm-group-title">
+++             Dettaglio Della Chiamata
+++         </div>
+++         <div class="palm-list">
+++             <div class="palm-row single">
+++                                 <div class="palm-row-wrapper">
+++                         <div id="phoneAppHideCallDuration" x-mojo-element="ToggleButton"></div>
+++                         <div class="title capitalize" x-mojo-loc="">
+++                             Nascondi la Durata Delle Chiamate
+++                         </div>
+++                     </div>
+++             </div>
+++         </div>
+++     </div>
+++ 
++      <div class="palm-group" id="calls">
++          <div class="palm-group-title">
++              Chiamate
