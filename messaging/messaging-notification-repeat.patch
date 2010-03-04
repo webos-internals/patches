@@ -1,0 +1,140 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
+index 5867d78..a39955f 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
+@@ -69,8 +69,10 @@ var AppAssistant = Class.create({
+ 			this.launchChatWithPerson(stageController,launchParams.personId, launchParams.contactPointId, launchParams.address, launchParams.type, launchParams.serviceName);
+  		// Launching composeview with message/attachment/composeAddress
+ 		} else if (launchParams.messageText || launchParams.attachment || launchParams.composeAddress || (launchParams.composeRecipients && launchParams.composeRecipients.length)) {
+-			
+ 			this.launchCompose(stageController,launchParams);
++		// play alarm nag			
++		} else if(launchParams.playalarmsound){
++			this.playAlarmSound();
+ 		// Launch listview - make sure the listview is the current scene, don't just focus the window
+ 		} else if (launchParams.launchListView) {
+ 			this.launchListView(stageController,launchParams.forceListView);
+@@ -88,7 +90,14 @@ var AppAssistant = Class.create({
+ 			this.launchMessaging(stageController);
+ 		}		
+ 	},
+-	
++
++	playAlarmSound: function() {
++		var dashboard = this.appController.notificationAssistant.controller.getStageProxy(DashboardMessageStageName);
++		if (dashboard) {
++			dashboard.delegateToSceneAssistant("playAlarmSound");
++		}
++	},
++			
+ 	launchChatWithId: function(stageController, chatThreadId) {
+ 		if (stageController) {			
+ 			// Don't pop/push if the chat we want is already open
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
+index fe431e5..2228768 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
+@@ -18,9 +18,16 @@ DashboardMessageAssistant.prototype.cleanup = function() {
+ 	// If the dashboard is unloaded then wipe out our data
+ 	this.appController.notificationAssistant.resetNewMessages();
+ 	this.messageInfoElement.removeEventListener(Mojo.Event.tap, this.tapHandler);
++	
++	//remove the Notification repeat task
++	this.removePlayAlarmSoundTask();
+ };
+ 
+ DashboardMessageAssistant.prototype.update = function(isNewContent) {
++
++	//remove the nag reminder
++	this.removePlayAlarmSoundTask();
++
+ 	// TODO close the dashboard if dashboardData is empty?
+ 	if (!this.dashboardData || this.dashboardData.newest == undefined) {
+ 		Mojo.Log.error("DashboardMessageAssistant.update called with empty data.");
+@@ -28,6 +35,9 @@ DashboardMessageAssistant.prototype.update = function(isNewContent) {
+ 		this.closeDashboard();
+ 		return;
+ 	}
++
++	//reschedule the nag reminder
++	this.schedulePlayAlarmSoundTask();
+ 	
+ 	var data = this.dashboardData[this.dashboardData.newest].list;
+ 	var numConversations = Object.keys(this.dashboardData).length - 1; // subtract one because of the 'newest' property
+@@ -142,6 +152,58 @@ DashboardMessageAssistant.prototype.tapHandler = function(event) {
+ 	}
+ };
+ 
++DashboardMessageAssistant.prototype.playAlarmSound =  function() {
++	//play nag sound and reschedule
++	if (this.appController.notificationAssistant.Messaging.messagingPrefs.enableNotificationSound) {
++		//first try to use the SMS Tone Per Contact method if that fails use the default method
++		try
++		{
++			var data = this.dashboardData[this.dashboardData.newest].list;
++			this.appController.notificationAssistant.playMsgToneForSMSId(data[0].address);
++		}
++		catch(e)
++		{
++			this.appController.notificationAssistant.controller.playSoundNotification('alerts','');
++		}
++		
++		this.schedulePlayAlarmSoundTask();
++	}
++};
++
++DashboardMessageAssistant.prototype.schedulePlayAlarmSoundTask = function() {
++	try {
++		//retrigger reminder every two minutes until we acknowledge it.
++		//change the value in addMinutes to a value other than 2 if you prefer a different time span for the notification repeat.
++		var playSoundTime = new Date();
++		playSoundTime = new Date(playSoundTime.getTime() + 2*60*1000);
++
++		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++			method: 'updateTask',
++			parameters: {uri: 'palm://com.palm.applicationManager/open',
++				arguments: {'id': 'com.palm.app.messaging',
++					'params': {'playalarmsound': true}},
++			key: 'msg-playalarmsound',
++			start: {date: playSoundTime.toUTCString()}}
++			});
++	}
++	catch (e) {
++		Mojo.Log.logException(e, "dashboardMessage-assistant.schedulePlayAlarmSoundTask");
++	}
++};
++
++DashboardMessageAssistant.prototype.removePlayAlarmSoundTask =  function() {
++	try 
++	{
++		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++			method: 'removeTask',
++			parameters: {key: 'msg-playalarmsound'}
++			});
++	}
++	catch (e) {
++		Mojo.Log.logException(e, "dashboardMessage-assistant.removePlayAlarmSoundTask");
++	}
++};
++
+ DashboardMessageAssistant.prototype.closeDashboard = function(){
+ 	this.controller.window.close(); 
+ };
+\ No newline at end of file
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+index 8238c68..b732bce 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+@@ -52,6 +52,12 @@ NotificationAssistant.prototype.sendNotification = function(notificationType, re
+ 	}
+ };
+ 
++//Support for using SMS Tone Per Contact from the Notification Repeat Patch
++//placing it here to avoid patch conflicts.
++NotificationAssistant.prototype.playMsgToneForSMSId = function(SMSId){
++	MessagingMojoService.rLookup(SMSId,contact,this.playmsgtone.bind(this),this.playmsgtone.bind(this));
++};
++
+ /*
+  * <ReminderCode>
+  */
