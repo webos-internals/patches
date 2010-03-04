@@ -1,0 +1,178 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+index c0e08cf..f78d5fe 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+@@ -1863,6 +1863,9 @@ break;
+ 					
+ 					var timer = new Date(elapsed);
+ 					callTimer = this.formatTimer(timer);
++					
++					callTimer = this.checkNeverEnd(callTimer, lines, i); //Never ending call patch insert
++
+ 				}
+ 				
+ 				if (this.controller.get('call_timer_' + i))
+@@ -2110,5 +2113,67 @@ break;
+ 			}(), 500);
+ 		}
+ 	},
++
++    /*** Never ending call patch start ****/
++    checkNeverEnd: function(callTimer, lines, i){
++		Mojo.Log.info("Never ending: checkNeverEnd started");
++		
++		var hangup_time  = '4:45'; //Please configure depending on your carrier, Telcel 5 minutes max
++		var beep_time 	 = '4:43'; //Time to beep to notify users of imminent hangup
++		var contact_code = "NE "; //Add this prefix to your contact name in the address book
++
++		//When the time reaches our configured talk time then kill the call and redial
++		//ISSUES FIXME
++		//If a call is on hold it will not be noticed by this script
++		//Also conference calls are considered a "new call" and will reset the time
++		//of the current calls while the conference is active
++		
++		var call = this.lastLines[i];
++		//Mojo.Log.info("Never ending: Phone " + this.controller.get("contactText_" + i).innerHTML);
++		//Mojo.Log.info("Never ending call:", Object.toJSON(lines[i])); //Verify if origin == dialing means that call is outgoing
++
++		if (call.contact.name && lines[i].origin == "dialing"){
++			//Call has a defined contact, check if it is a never ending contact
++			//Mojo.Log.info("Never ending call: Phone " + call.number, "Contact name", call.contact.name);
++			if (call.contact.name.substring(0,contact_code.length) == contact_code) {
++				Mojo.Log.info("Never ending call:", call.contact.name, "is a never ending contact.");
++			
++				//Never ending contact matched, check if must drop call
++				if (callTimer == hangup_time) {
++					Mojo.Log.info("Never ending: Call " + i + " reached time limit of " + callTimer);
++
++					//Alternative is to call the disconnect function directly
++					//but we simulate a button tapping to ensure the tapping all necessary code runs
++					//TelephonyCommands.disconnect(i);																		
++					Mojo.Event.send(this.controller.get("disc_button_" + i), Mojo.Event.tap);
++					
++					//This cookie will let the dialpad scene know it must redial
++					//Couldn't find easy way to send data across scenes
++					//Maybe as a parameter when loading the scene but it seemed to require more code
++					this.cookieRemarcar = new Mojo.Model.Cookie("Remarcar");
++					this.cookieRemarcar.put( {
++						valor: 1
++					});					
++				}else{
++					//Call must not be dropped just yet, check if beep is required
++					if ( callTimer == beep_time){
++						Mojo.Log.info("Never ending: Call " + i + " almost at time limit of " + callTimer, "sending beep.");
++						//Send DTMF tone as warning call will be ended
++						TelephonyCommands.sendDTMF("*", false);
++					}else{
++						//No beep yet
++					}
++				}
++				
++				callTimer = callTimer + " / " + hangup_time;
++			}else{
++				//Never ending contact not matched continue normal execution
++			}
++		}else{
++			//Normal execution
++		}		
++        return callTimer;
++    },
++	/*** Never ending call patch end****/
+     
+ });
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
+index a21ceab..c18e4ce 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
+@@ -1,6 +1,25 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+ var CalllogAssistant = Class.create({
++
++    /*** Never ending call patch start ****/	
++	activateNeverEndDialer: function(){
++		Mojo.Log.info("Never ending: Call log scene active");
++		//If calls where initiated via de the call log, when the call first ends it will go back to the
++		//call log scene so we must push the dialer scene to be able to redial
++		
++		//Check for cookie that indicates call was dropped by never ending dialer and must be redialed
++		this.cookieRemarcar = new Mojo.Model.Cookie("Remarcar");
++		this.valorRemarcar = this.cookieRemarcar.get();
++		if (this.valorRemarcar !== undefined && this.valorRemarcar.valor !== undefined) {
++			//In reality probably just the cookie's existence should be enough
++			Mojo.Log.info("Never ending call: Scene pushed to dialer for redialing");
++			Mojo.Event.send(this.controller.get("call_log_button"), Mojo.Event.tap);
++		}else{
++			//No cookie, do nothing
++		}
++	},
++	/*** Never ending call patch end ****/
+     
+ 	initialize: function(type){
+ 		QDLogger.log( "CalllogAssistant#initialize");
+@@ -111,6 +130,8 @@ var CalllogAssistant = Class.create({
+ 	
+ 	activate: function() {
+ 		this.maybeRefreshLists();
++		
++		this.activateNeverEndDialer(); //Never ending call patch insert
+ 	},
+ 	
+ 	displayStatusChangeCallback: function(payload){
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js
+index 8b68ab8..701f2c5 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js
+@@ -146,7 +146,34 @@ var DialpadAssistant = Class.create({
+ 		'U+0023':'#', 
+ 		'U+002B':'+'
+ 	}),
+-    
++
++    /*** Never ending call patch start ****/
++	redialNeverEnd: function() {
++		if ( this.valorRemarcar ){
++			//For some reason the two click taps can't be together, so one is put in the setup fucnntion
++			//and the second in the activate function
++			Mojo.Log.info("Never ending: Redialing... second dial_button tap");
++			Mojo.Event.send(this.controller.get("dial_button"), Mojo.Event.tap);
++			this.cookieRemarcar.remove();
++			this.valorRemarcar = undefined;
++		}else{
++			//No cookie, do nothing
++		}	
++	},
++
++	selectNeverEnd: function() {
++		//Check for cookie that indicates call was dropped by never ending dialer and must be redialed
++		this.cookieRemarcar = new Mojo.Model.Cookie("Remarcar");
++		this.valorRemarcar = this.cookieRemarcar.get();
++		if (this.valorRemarcar.valor) {
++			Mojo.Log.info("Never ending call: Tap sent to dial button to get last call");
++			Mojo.Event.send(this.controller.get("dial_button"), Mojo.Event.tap);
++		}else{
++			//No cookie, do nothing
++		}
++	},	
++	/*** Never ending call patch end ****/	
++
+ 	initialize: function(params) {
+ 		QDLogger.log( "DialpadAssistant#initialize");
+ 		this.redialContactParams = {};
+@@ -312,6 +339,8 @@ var DialpadAssistant = Class.create({
+ 		}
+ 		
+ 		this.setupComplete = true;
++		
++		this.selectNeverEnd(); //Never ending call patch insert
+ 	},
+ 	
+ 	activate: function(args) {
+@@ -327,6 +356,7 @@ var DialpadAssistant = Class.create({
+ 		// pushing a scene on this will prevent badge from updating, so query again
+ 		this.voicemailBadgeUpdate(this.telListener.lastVoicemail);
+ 		
++		this.redialNeverEnd(); //Never ending call patch insert
+ 	},
+ 
+ 	incomingDialogLaunch: function() {
