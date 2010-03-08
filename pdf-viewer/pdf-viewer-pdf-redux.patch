@@ -1,8 +1,47 @@
+diff --git a/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/app-assistant.js
+index 2ae0e7f..72afed5 100644
+--- a/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/app-assistant.js
+@@ -2,6 +2,12 @@
+ /*global Mojo, Class, $L, Template, WordAssistant, ExcelAssistant, PowerPointAssistant */
+ /*jslint rhino:true, undef:true */
+ 
++PDFVIEW = {};
++PDFVIEW.prefs = {
++    openLastDoc: false,
++    autoRotate: false
++};
++
+ function AppAssistant(appController)
+ {
+ }
+@@ -21,6 +27,13 @@ AppAssistant.prototype.handleLaunch = function(params) {
+ 
+         if (Mojo.Controller.appInfo.noWindow) 
+         {
++	    var cookieModel = new Mojo.Model.Cookie('preferences'); 
++	    var cookie = cookieModel.get(); 
++	    if (cookie) { 
++		PDFVIEW.prefs.openLastDoc = cookie.openLastDoc; 
++		PDFVIEW.prefs.autoRotate = cookie.autoRotate; 
++	    }
++
+             var f = function(stageController) {
+ 
+                 if (launchParams.target) {
 diff --git a/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/document-assistant.js b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/document-assistant.js
-index 708a648..bfb8e84 100644
+index 708a648..9eee05a 100644
 --- a/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/document-assistant.js
 +++ b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/document-assistant.js
-@@ -16,13 +16,19 @@ var DocumentAssistant = Class.create({
+@@ -9,6 +9,7 @@ var DocumentAssistant = Class.create({
+         items: [
+         { label:$L('Open'), command:'file-open-cmd' },
+         { label:$L('Save As...'), command:'file-saveas-cmd' },
++        { label:$L('Preferences'), command:'prefs-cmd' },
+         { label:$L('Share'), command:'share-cmd' },
+         { label:$L('Find'), command:'find-cmd', chosen:false },
+         { label:$L('Bookmarks'), command:'pdf-outline', chosen:false },
+@@ -16,13 +17,19 @@ var DocumentAssistant = Class.create({
      ]},
  
  	cmdMenuModel: { visible: false, items: [
@@ -23,7 +62,7 @@ index 708a648..bfb8e84 100644
  	]},
  
  	numericMap: {
-@@ -43,6 +49,13 @@ var DocumentAssistant = Class.create({
+@@ -43,6 +50,13 @@ var DocumentAssistant = Class.create({
  
      deactivate: function() {
          this.findField.mojo.blur();
@@ -37,7 +76,7 @@ index 708a648..bfb8e84 100644
      },
  
  	initialize: function(parameters) {
-@@ -52,6 +65,7 @@ var DocumentAssistant = Class.create({
+@@ -52,6 +66,7 @@ var DocumentAssistant = Class.create({
  		this.document_noext = undefined;
  		this.saveShowing = false;
  		this.currentpage = 1;
@@ -45,30 +84,40 @@ index 708a648..bfb8e84 100644
  		this.wrongpasscount = -1;
  		this.jumptimeout = undefined;
  		this.outline_depth = 1;
-@@ -70,6 +84,7 @@ var DocumentAssistant = Class.create({
+@@ -70,6 +85,8 @@ var DocumentAssistant = Class.create({
  		this._loadingSpinnerTimeout = null;
  		this._spinnerShowTime = 0;
          this.documentPassword = null;
 +		this.currentOrientation = "up";
++		this.autoRotate = PDFVIEW.prefs.autoRotate;
  
          // Variables need for find / search
          this.findShowing = false;
-@@ -97,6 +112,14 @@ var DocumentAssistant = Class.create({
+@@ -97,6 +114,23 @@ var DocumentAssistant = Class.create({
              this.filename = this.filename.substr(7);
          }
  
++	    var lastDocModel = new Mojo.Model.Cookie('lastdoc');
++	    lastDocModel.put({
++		lastdoc: this.filename
++	    });
++
 +		this.cookieModel = new Mojo.Model.Cookie(this.filename); 
 +		var cookie = this.cookieModel.get(); 
 +		if (cookie) { 
 +		  this.currentpage = cookie.currentpage; 
 +		  this.lastjumpsource = cookie.lastjumpsource;
-+		  this.currentOrientation = cookie.currentOrientation;
++		  if (!this.autoRotate) {
++		    this.currentOrientation = cookie.currentOrientation;
++		  }
 +		}
++
++	    this.cmdMenuModel.items[0].items[0].disabled = this.autoRotate;
 +
          Mojo.Log.info("Filename = '%s'", this.filename);
      },
  
-@@ -105,13 +128,16 @@ var DocumentAssistant = Class.create({
+@@ -105,13 +139,16 @@ var DocumentAssistant = Class.create({
  
          try {
  
@@ -87,10 +136,24 @@ index 708a648..bfb8e84 100644
  
  			// Set up the command buttons (footer)
              this.controller.setupWidget(Mojo.Menu.commandMenu,
-@@ -241,6 +267,27 @@ var DocumentAssistant = Class.create({
- */
-     },
+@@ -220,9 +257,7 @@ var DocumentAssistant = Class.create({
  
+     orientationChanged: function(orientation) {
+ 
+-       return;
+-/*
+-       if (this.currentOrientation === orientation)
++       if (!this.autoRotate || this.currentOrientation === orientation)
+        {
+            return;
+        }
+@@ -238,7 +273,27 @@ var DocumentAssistant = Class.create({
+ 
+        // Re-create the adapter
+        this.dosetup();
+-*/
++    },
++
 +    rotateView: function() {
 +       var orientation;
 +       if (this.currentOrientation === "left") {
@@ -110,12 +173,10 @@ index 708a648..bfb8e84 100644
 +
 +       // Re-create the adapter
 +       this.dosetup();
-+    },
-+
-     NeedPassword: function(docid) {
+     },
  
-         this.document_id = docid;
-@@ -332,8 +379,8 @@ var DocumentAssistant = Class.create({
+     NeedPassword: function(docid) {
+@@ -332,8 +387,8 @@ var DocumentAssistant = Class.create({
  
  		if (this.currentpage !== undefined) {
  
@@ -126,7 +187,7 @@ index 708a648..bfb8e84 100644
  			this.controller.modelChanged(this.cmdMenuModel);
  
  			// rebind key event
-@@ -375,6 +422,13 @@ var DocumentAssistant = Class.create({
+@@ -375,6 +430,13 @@ var DocumentAssistant = Class.create({
          this.JumpToPage( this.currentpage );
  	},
  
@@ -140,7 +201,7 @@ index 708a648..bfb8e84 100644
      forceFootChange: function () {
  
          var goto_page = parseInt(this.controller.get('page_foot_cur_ent').value, 10);
-@@ -462,7 +516,7 @@ var DocumentAssistant = Class.create({
+@@ -462,7 +524,7 @@ var DocumentAssistant = Class.create({
  
  		// Set up the command buttons (footer)
  		var page_len = (this.pagecount+'').length;
@@ -149,7 +210,7 @@ index 708a648..bfb8e84 100644
  		this.controller.modelChanged(this.cmdMenuModel);
  
  		this.controller.setMenuVisible(Mojo.Menu.commandMenu, true);
-@@ -568,6 +622,7 @@ var DocumentAssistant = Class.create({
+@@ -568,6 +630,7 @@ var DocumentAssistant = Class.create({
  
  		if (e.keyCode == Mojo.Char.enter) {
  			var goto_page = parseInt(this.controller.get('page_foot_cur_ent').value, 10);
@@ -157,7 +218,7 @@ index 708a648..bfb8e84 100644
              this.JumpToPage(goto_page);
  			this.showFootPageOf();
  		}
-@@ -783,7 +838,7 @@ var DocumentAssistant = Class.create({
+@@ -783,7 +846,7 @@ var DocumentAssistant = Class.create({
          var splittext = this.filename.split('/');
          this.document_name = splittext[splittext.length-1];
          this.document_noext = this.document_name.substr(0, this.document_name.indexOf('.pdf'));
@@ -166,7 +227,30 @@ index 708a648..bfb8e84 100644
          new_obj.eventListener = this;
  
          this.adapter = new_obj;
-@@ -860,6 +915,14 @@ var DocumentAssistant = Class.create({
+@@ -809,9 +872,10 @@ var DocumentAssistant = Class.create({
+     openFilePicker: function () {
+ 
+         // Right now lets just open a new window and send it to the recent scene
++	var openParams = { disableOpenLast: true };
+         this.controller.serviceRequest('palm://com.palm.applicationManager', {
+             method: 'open',
+-            parameters: { 'id': 'com.palm.app.pdfviewer' }
++            parameters: { 'id': 'com.palm.app.pdfviewer', params: openParams }
+         });
+     },
+ 
+@@ -835,6 +899,10 @@ var DocumentAssistant = Class.create({
+ 						this.saveAsDialog();
+ 						break;
+ 
++					case 'prefs-cmd':
++						this.controller.stageController.pushScene('preferences', this);
++						break;
++
+ 					case 'share-cmd':
+ 						this.shareDocument();
+ 						break;
+@@ -860,6 +928,14 @@ var DocumentAssistant = Class.create({
  						this.showFootPageOf();
  						break;
  
@@ -181,7 +265,7 @@ index 708a648..bfb8e84 100644
  					case 'pdf-outline':
  
  						// Create the PDF outline/bookmarks
-@@ -919,7 +982,7 @@ var DocumentAssistant = Class.create({
+@@ -919,7 +995,7 @@ var DocumentAssistant = Class.create({
  			var menuAssistant = this.controller._menu.assistant;
  			menuAssistant.viewSpacerHeight = 0;
  
@@ -190,7 +274,7 @@ index 708a648..bfb8e84 100644
          }
      },
  
-@@ -1281,7 +1344,7 @@ SaveAsDialogAssistant = Class.create({
+@@ -1281,7 +1357,7 @@ SaveAsDialogAssistant = Class.create({
                          this.documentAssistant.document_name = save_input;
                          this.documentAssistant.document_noext = this.documentAssistant.document_name.substr(0, this.documentAssistant.document_name.indexOf('.pdf'));
  
@@ -199,6 +283,101 @@ index 708a648..bfb8e84 100644
  
                      }
                      catch(e)
+diff --git a/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/preferences-assistant.js b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/preferences-assistant.js
+new file mode 100644
+index 0000000..e8fa320
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/preferences-assistant.js
+@@ -0,0 +1,44 @@
++function PreferencesAssistant() {
++}
++
++PreferencesAssistant.prototype.setup = function() {
++    this.controller.setupWidget('lastDoc',
++				this.lastDocAttributes = {
++				    trueLabel: $L('On'),
++				    falseLabel: $L('Off')
++				},
++				this.lastDocModel = {
++				    value: PDFVIEW.prefs.openLastDoc,
++				    disabled: false			
++				});
++
++    this.controller.setupWidget('autoRotate',
++				this.autoRotateAttributes = {
++				    trueLabel: $L('On'),
++				    falseLabel: $L('Off')
++				},
++				this.autoRotateModel = {
++				    value: PDFVIEW.prefs.autoRotate,
++				    disabled: false			
++				});
++
++    this.prefsappMenuModel = {
++	visible: true,
++	items: [
++	    Mojo.Menu.editItem,
++	    { label: $L("Help") + "...", command: Mojo.Menu.helpCmd, disabled: true }
++	]
++    };
++    this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems: true}, this.prefsappMenuModel);
++    this.controller.setInitialFocusedElement(null);
++}
++
++PreferencesAssistant.prototype.deactivate = function(event) {
++    this.cookieModel = new Mojo.Model.Cookie('preferences');
++    PDFVIEW.prefs.openLastDoc = this.lastDocModel.value;
++    PDFVIEW.prefs.autoRotate = this.autoRotateModel.value;
++    this.cookieModel.put({ 
++	openLastDoc: PDFVIEW.prefs.openLastDoc,
++	autoRotate: PDFVIEW.prefs.autoRotate
++    });
++}
+diff --git a/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/recent-assistant.js b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/recent-assistant.js
+index ad54e64..d1ae625 100644
+--- a/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/recent-assistant.js
++++ b/usr/palm/applications/com.palm.app.pdfviewer/app/controllers/recent-assistant.js
+@@ -56,6 +56,17 @@ var RecentAssistant = Class.create({
+ 	{
+         //Mojo.Log.info("RecentAssistant: activate");
+ 
++	    if (!this.disableOpenLast && PDFVIEW.prefs.openLastDoc && this.lastdoc != null) {
++		this.disableOpenLast = true;
++                // Push the new document scene
++                var args = { name: 'document', disableSceneScroller: true };
++                var params = { hidemode: 'none', filename: this.lastdoc };
++		
++                this.controller.stageController.pushScene(args, params);
++	    } else {
++
++	    this.disableOpenLast = true;;
++
+         var params = {
+             // Only show files
+             kind: 'file',
+@@ -78,10 +89,21 @@ var RecentAssistant = Class.create({
+ 
+         Mojo.FilePicker.pickFile(params, this.controller.stageController);
+ 
++	    }
+     },
+ 
+-    initialize: function() 
++    initialize: function(parameters) 
+ 	{
++	    this.disableOpenLast = false;
++	    this.lastdoc = null;
++	    this.cookieModel = new Mojo.Model.Cookie('lastdoc');
++	    var cookie = this.cookieModel.get();
++	    if (cookie) {
++		this.lastdoc = cookie.lastdoc;
++	    }
++	    if (parameters.launchParams) {
++		this.disableOpenLast = parameters.launchParams.disableOpenLast;
++	    }
+         //Mojo.Log.info("RecentAssistant: initialize");
+     },
+ 
 diff --git a/usr/palm/applications/com.palm.app.pdfviewer/app/views/document/command_bar.html b/usr/palm/applications/com.palm.app.pdfviewer/app/views/document/command_bar.html
 index 8fe00ff..96851f0 100644
 --- a/usr/palm/applications/com.palm.app.pdfviewer/app/views/document/command_bar.html
@@ -232,8 +411,66 @@ index cdb2766..0a5480f 100644
      <div id="my_spinner" x-mojo-element="Spinner"> </div>
 -    <div id="documentname" x-mojo-loc="" class="truncating-text"></div>
  </div>
+diff --git a/usr/palm/applications/com.palm.app.pdfviewer/app/views/preferences/preferences-scene.html b/usr/palm/applications/com.palm.app.pdfviewer/app/views/preferences/preferences-scene.html
+new file mode 100644
+index 0000000..caa5024
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.pdfviewer/app/views/preferences/preferences-scene.html
+@@ -0,0 +1,41 @@
++<div id="prefs_view" class="prefs-main">
++  <div class="palm-page-header">
++    <div class="header-icon pdfview"></div>
++    <div class="header-text">
++		  <span x-mojo-loc=''>Preferences</span>
++    </div>
++  </div>
++
++	 <div class="palm-group">
++		<div class="palm-group-title">
++			<span x-mojo-loc=''>Startup</span>
++		</div>
++		<div class="palm-list">
++			<div class="palm-row single">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="lastDoc"></div>
++					<div class="title capitalize" x-mojo-loc='' id='lastDocLabel'>Load last document on startup</div>
++				</div>
++			</div>
++		</div>
++	</div>
++
++	<div class="palm-group">
++		<div class="palm-group-title">
++			<span x-mojo-loc=''>Rotation</span>
++		</div>
++		<div class="palm-list">
++			<div class="palm-row single">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="autoRotate"></div>
++					<div class="title capitalize" x-mojo-loc=''>Use accelerometer for rotation</div>
++				</div>
++			</div>
++		</div>
++	</div>
++
++	<div class="palm-info-text single" x-mojo-loc=''>
++		Changes will take effect next time a document is opened.
++	</div>
++
++</div>
+diff --git a/usr/palm/applications/com.palm.app.pdfviewer/sources.json b/usr/palm/applications/com.palm.app.pdfviewer/sources.json
+index ef04afe..b213095 100644
+--- a/usr/palm/applications/com.palm.app.pdfviewer/sources.json
++++ b/usr/palm/applications/com.palm.app.pdfviewer/sources.json
+@@ -6,5 +6,6 @@
+   { "source": "app\/controllers\/error-assistant.js" },
+   { "source": "app\/controllers\/pagetext-assistant.js" },
+   { "source": "app\/controllers\/password-assistant.js" },
++  { "source": "app\/controllers\/preferences-assistant.js" },
+   { "source": "javascripts\/widget_find.js" }
+ ]
 diff --git a/usr/palm/applications/com.palm.app.pdfviewer/stylesheets/pdf-viewer.css b/usr/palm/applications/com.palm.app.pdfviewer/stylesheets/pdf-viewer.css
-index 572f564..8872a4d 100644
+index 572f564..76dabb2 100644
 --- a/usr/palm/applications/com.palm.app.pdfviewer/stylesheets/pdf-viewer.css
 +++ b/usr/palm/applications/com.palm.app.pdfviewer/stylesheets/pdf-viewer.css
 @@ -166,7 +166,7 @@ div.foot-page
@@ -262,7 +499,7 @@ index 572f564..8872a4d 100644
      color: white;
      font-size: 14px;
      font-style: normal;
-@@ -200,3 +210,46 @@ span.foot-page-cnt
+@@ -200,3 +210,52 @@ span.foot-page-cnt
      text-transform: none;
      text-decoration: none;
  }
@@ -308,4 +545,10 @@ index 572f564..8872a4d 100644
 +.palm-menu-group .palm-menu-label.palm-disabled:last-child,
 +.palm-menu-group .palm-menu-button.palm-disabled:last-child {
 +  -webkit-border-image: url(../images/textfield-noshadow.png) 0 20 0 20 stretch stretch;
++}
++
++.palm-page-header .header-icon.pdfview {
++		width: 32px;
++		height: 32px;
++		background: url(../images/pdfsmall.png) center center no-repeat;
 +}
