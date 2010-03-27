@@ -31,10 +31,58 @@ index 5867d78..a39955f 100644
  		if (stageController) {			
  			// Don't pop/push if the chat we want is already open
 diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
-index fe431e5..2228768 100644
+index fe431e5..a2f0b6e 100644
 --- a/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
 +++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
-@@ -18,9 +18,16 @@ DashboardMessageAssistant.prototype.cleanup = function() {
+@@ -1,5 +1,7 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
++g_notificationRepeatCount = 0;
++
+ function DashboardMessageAssistant(dashboardData) {
+ 	this.dashboardData = dashboardData; // hold onto a reference to the dashboardData
+ 	this.appController = Mojo.Controller.getAppController();
+@@ -9,6 +11,39 @@ function DashboardMessageAssistant(dashboardData) {
+ }
+ 
+ DashboardMessageAssistant.prototype.setup = function() {
++
++	//load the notification repeat preferences.
++	//get notification repeat interval and max repeat values from cookie
++	this.notificationCookie = new Mojo.Model.Cookie("com.palm.app.messaging.notificationrepeat");
++	
++	if (this.notificationCookie) 
++	{
++		var notificationCookie = this.notificationCookie.get();
++
++		if (notificationCookie) 
++		{			
++			if(notificationCookie.notificationRepeatInterval)
++			{
++				this.notificationRepeatInterval = notificationCookie.notificationRepeatInterval;
++			}
++			else
++			{
++				//set default value to 2 minutes
++				this.notificationRepeatInterval = '2';
++			}
++			
++			if(notificationCookie.notificationMaxRepeat)
++			{
++				this.notificationMaxRepeat = notificationCookie.notificationMaxRepeat;
++			}
++			else
++			{
++				//set default value to unlimited
++				this.notificationMaxRepeat = '99999';
++			}
++		}
++	}
++	
+ 	this.update(true);
+ 	this.messageInfoElement = this.controller.get('message_info');
+ 	this.messageInfoElement.addEventListener(Mojo.Event.tap, this.tapHandler);
+@@ -18,9 +53,16 @@ DashboardMessageAssistant.prototype.cleanup = function() {
  	// If the dashboard is unloaded then wipe out our data
  	this.appController.notificationAssistant.resetNewMessages();
  	this.messageInfoElement.removeEventListener(Mojo.Event.tap, this.tapHandler);
@@ -51,7 +99,7 @@ index fe431e5..2228768 100644
  	// TODO close the dashboard if dashboardData is empty?
  	if (!this.dashboardData || this.dashboardData.newest == undefined) {
  		Mojo.Log.error("DashboardMessageAssistant.update called with empty data.");
-@@ -28,6 +35,9 @@ DashboardMessageAssistant.prototype.update = function(isNewContent) {
+@@ -28,6 +70,9 @@ DashboardMessageAssistant.prototype.update = function(isNewContent) {
  		this.closeDashboard();
  		return;
  	}
@@ -61,7 +109,7 @@ index fe431e5..2228768 100644
  	
  	var data = this.dashboardData[this.dashboardData.newest].list;
  	var numConversations = Object.keys(this.dashboardData).length - 1; // subtract one because of the 'newest' property
-@@ -142,6 +152,58 @@ DashboardMessageAssistant.prototype.tapHandler = function(event) {
+@@ -142,6 +187,69 @@ DashboardMessageAssistant.prototype.tapHandler = function(event) {
  	}
  };
  
@@ -76,7 +124,9 @@ index fe431e5..2228768 100644
 +		}
 +		catch(e)
 +		{
-+			this.appController.notificationAssistant.controller.playSoundNotification('alerts','');
++			var notifParams = {};
++			this.appController.notificationAssistant.setNotificationSound(notifParams);
++			this.appController.notificationAssistant.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
 +		}
 +		
 +		this.schedulePlayAlarmSoundTask();
@@ -85,19 +135,25 @@ index fe431e5..2228768 100644
 +
 +DashboardMessageAssistant.prototype.schedulePlayAlarmSoundTask = function() {
 +	try {
-+		//retrigger reminder every two minutes until we acknowledge it.
-+		//change the value in addMinutes to a value other than 2 if you prefer a different time span for the notification repeat.
-+		var playSoundTime = new Date();
-+		playSoundTime = new Date(playSoundTime.getTime() + 2*60*1000);
++		//retrigger reminder every X minutes until we acknowledge it.
++		//notificationRepeatInterval disables the notification repeat
++		//also check to make sure we have not exceeded the max repeat value
++		if( parseFloat(this.notificationRepeatInterval) != 0 && g_notificationRepeatCount < parseInt(this.notificationMaxRepeat))
++		{
++			g_notificationRepeatCount++;
 +
-+		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
-+			method: 'updateTask',
-+			parameters: {uri: 'palm://com.palm.applicationManager/open',
-+				arguments: {'id': 'com.palm.app.messaging',
-+					'params': {'playalarmsound': true}},
-+			key: 'msg-playalarmsound',
-+			start: {date: playSoundTime.toUTCString()}}
-+			});
++			var playSoundTime = new Date();
++			playSoundTime = new Date(playSoundTime.getTime() + parseFloat(this.notificationRepeatInterval)*60*1000);
++
++			this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++				method: 'updateTask',
++				parameters: {uri: 'palm://com.palm.applicationManager/open',
++					arguments: {'id': 'com.palm.app.messaging',
++						'params': {'playalarmsound': true}},
++				key: 'msg-playalarmsound',
++				start: {date: playSoundTime.toUTCString()}}
++				});
++		}
 +	}
 +	catch (e) {
 +		Mojo.Log.logException(e, "dashboardMessage-assistant.schedulePlayAlarmSoundTask");
@@ -107,6 +163,9 @@ index fe431e5..2228768 100644
 +DashboardMessageAssistant.prototype.removePlayAlarmSoundTask =  function() {
 +	try 
 +	{
++		//reset the notification repeat counter
++		g_notificationRepeatCount = 0;
++			
 +		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
 +			method: 'removeTask',
 +			parameters: {key: 'msg-playalarmsound'}
@@ -138,3 +197,240 @@ index 8238c68..b732bce 100644
  /*
   * <ReminderCode>
   */
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+index 50c8e26..039d784 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+@@ -16,6 +16,39 @@ var PrefsAccountSummaryAssistant = Class.create({
+     },
+  
+     setup: function(){
++		//get notification repeat interval and max repeat values from cookie
++		this.notificationCookie = new Mojo.Model.Cookie("com.palm.app.messaging.notificationrepeat");
++
++		if (this.notificationCookie) 
++		{
++			var notificationCookie = this.notificationCookie.get();
++
++			if (notificationCookie) 
++			{			
++				if(notificationCookie.notificationRepeatInterval)
++				{
++					this.notificationRepeatInterval = notificationCookie.notificationRepeatInterval;
++				}
++				else
++				{
++					//set default value to 2 minutes
++					this.notificationRepeatInterval = '2';
++				}
++				
++				if(notificationCookie.notificationMaxRepeat)
++				{
++					this.notificationMaxRepeat = notificationCookie.notificationMaxRepeat;
++				}
++				else
++				{
++					//set default value to unlimited
++					this.notificationMaxRepeat = '99999';
++				}
++			}
++		}
++		
++		this.renderNotificationRepeatValues(this.getCurrentNotificationRepeatIntervalString(), this.getCurrentNotificationMaxRepeatString());
++		
+       this.preferencesAccountsModel = {items: []};
+ 	  this.controller.setupWidget('preferences-accounts', {itemTemplate:'prefsAccountSummary/accountsRow'}, this.preferencesAccountsModel);
+ 
+@@ -35,9 +68,25 @@ var PrefsAccountSummaryAssistant = Class.create({
+       this.controller.listen('addAccountButton',Mojo.Event.tap, this.handleAddAccountTap);   
+    
+       this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);
++	  
++		//repeat notification handlers
++		this.notificationRepeatIntervalClickHandler = this.handleNotificationRepeatIntervalClick.bindAsEventListener(this);
++		this.controller.get('pv_notification_repeat_interval').observe('mojo-tap', this.notificationRepeatIntervalClickHandler);
++		this.notificationMaxRepeatClickHandler = this.handleNotificationMaxRepeatClick.bindAsEventListener(this);
++		this.controller.get('pv_notification_max_repeat').observe('mojo-tap', this.notificationMaxRepeatClickHandler);
+     },
+ 	
+ 	cleanup: function() {
++		
++		//save notification repeat preferences
++		if (this.notificationCookie)
++		{
++			this.notificationCookie.put({
++										notificationRepeatInterval: this.notificationRepeatInterval,
++										notificationMaxRepeat: this.notificationMaxRepeat
++										});
++		}
++		
+ 		this.controller.stopListening('preferences-accounts',Mojo.Event.listTap, this.handleAccountListTap);
+ 		this.controller.stopListening('addAccountButton',Mojo.Event.tap, this.handleAddAccountTap);
+ 		if (this.saveSMSPrefs) {
+@@ -46,6 +95,12 @@ var PrefsAccountSummaryAssistant = Class.create({
+       this.controller.stopListening('notificationToggle',Mojo.Event.propertyChange,this.notificationToggleChanged);
+       this.controller.stopListening('notificationSoundSelector',Mojo.Event.propertyChange,this.notificationSoundToggleChanged);		
+       this.controller.stopListening('autoDownloadToggle',Mojo.Event.propertyChange,this.autoDownloadToggleChanged);
++	  
++		//stop observing notification repeat controls
++		this.controller.get('pv_notification_repeat_interval').stopObserving('mojo-tap', this.notificationRepeatIntervalClickHandler);
++		this.notificationRepeatIntervalClickHandler = undefined;
++		this.controller.get('pv_notification_max_repeat').stopObserving('mojo-tap', this.notificationMaxRepeatClickHandler);
++		this.notificationMaxRepeatClickHandler = undefined;
+ 	},
+ 
+ 	handleAccountListTap: function(e) {
+@@ -342,5 +397,120 @@ var PrefsAccountSummaryAssistant = Class.create({
+ 	  Object.extend(newParams,this.params);
+       Object.extend(newParams,inputHash);
+       this.controller.stageController.pushScene('prefsSetupAccount',newParams);
+-    }
++    },
++	
++	//notification repat settings section
++	renderNotificationRepeatValues: function(notificationRepeatIntervalStr, notificationMaxRepeatStr) {
++		//Mojo.Log.info('prefs-assistant: renderNotificationRepeatValues');
++		var obj = {};
++		
++		// Notification Repeat Interval
++		this.controller.get('pv_notification_repeat_interval_value').update(notificationRepeatIntervalStr);
++		
++		// Notification Max Repeat
++		this.controller.get('pv_notification_max_repeat_value').update(notificationMaxRepeatStr);
++	},
++	
++	getCurrentNotificationRepeatIntervalString: function() {
++		var index = 0;
++		for (index = 0; index < this.notificationRepeatIntervals.size(); index++) {
++			if (this.notificationRepeatIntervals[index].command == this.notificationRepeatInterval)
++				return this.notificationRepeatIntervals[index].label;
++		}
++	},
++	
++	getCurrentNotificationMaxRepeatString: function() {
++		var index = 0;
++		for (index = 0; index < this.notificationMaxRepeats.size(); index++) {
++			if (this.notificationMaxRepeats[index].command == this.notificationMaxRepeat)
++				return this.notificationMaxRepeats[index].label;
++		}
++	},
++	
++	notificationRepeatIntervalChoose: function(value) {
++		//Mojo.Log.info('prefs-assistant: defaultNotificationRepeatIntervalChoose');
++		
++		if (value != undefined && value != this.notificationRepeatInterval) {
++			this.notificationRepeatInterval = value;
++			this.renderNotificationRepeatValues(this.getCurrentNotificationRepeatIntervalString(), this.getCurrentNotificationMaxRepeatString());
++			this.dirty = true;
++		}
++	},
++	
++	handleNotificationRepeatIntervalClick: function(event) {
++		//Mojo.Log.info('prefs-assistant: handleNotificationRepeatIntervalClick');
++
++		Event.stop(event);
++		this.controller.popupSubmenu({
++				onChoose: this.notificationRepeatIntervalChoose.bind(this),
++				toggleCmd: this.notificationRepeatInterval,
++				items: this.notificationRepeatIntervals
++			});
++	},
++	
++	notificationMaxRepeatChoose: function(value) {
++		//Mojo.Log.info('prefs-assistant: notificationMaxRepeatChoose');
++		
++		if (value != undefined && value != this.notificationMaxRepeat) {
++			this.notificationMaxRepeat = value;
++			this.renderNotificationRepeatValues(this.getCurrentNotificationRepeatIntervalString(), this.getCurrentNotificationMaxRepeatString());
++			this.dirty = true;
++		}
++	},
++	
++	handleNotificationMaxRepeatClick: function(event) {
++		//Mojo.Log.info('prefs-assistant: handleNotificationMaxRepeatClick');
++
++		Event.stop(event);
++		this.controller.popupSubmenu({
++				onChoose: this.notificationMaxRepeatChoose.bind(this),
++				toggleCmd: this.notificationMaxRepeat,
++				items: this.notificationMaxRepeats
++			});
++	},
++	
++	notificationRepeatIntervals: [
++		{label:$L('Disabled'), command:'0'},
++		{label:$L('5 Seconds'), command:'.083'},
++		{label:$L('10 Seconds'), command:'.167'},
++		{label:$L('15 Seconds'), command:'.25'},
++		{label:$L('20 Seconds'), command:'.333'},
++		{label:$L('25 Seconds'), command:'.417'},
++		{label:$L('30 Seconds'), command:'.5'},
++		{label:$L('1 Minutes'), command:'1'},
++		{label:$L('2 Minutes'), command:'2'},
++		{label:$L('3 Minutes'), command:'3'},
++		{label:$L('4 Minutes'), command:'4'},
++		{label:$L('5 Minutes'), command:'5'},
++		{label:$L('10 Minutes'), command:'10'},
++		{label:$L('15 Minutes'), command:'15'}
++	],
++	
++	notificationMaxRepeats: [
++		{label:$L('Unlimited'), command:'99999'}, //this should be a large enough value to be conisdered unlimited for our purpose.
++		{label:$L('1'), command:'1'},
++		{label:$L('2'), command:'2'},
++		{label:$L('3'), command:'3'},
++		{label:$L('4'), command:'4'},
++		{label:$L('5'), command:'5'},
++		{label:$L('10'), command:'10'},
++		{label:$L('15'), command:'15'},
++		{label:$L('20'), command:'20'},
++		{label:$L('25'), command:'25'},
++		{label:$L('30'), command:'30'},
++		{label:$L('35'), command:'35'},
++		{label:$L('40'), command:'40'},
++		{label:$L('45'), command:'45'},
++		{label:$L('50'), command:'50'},
++		{label:$L('55'), command:'55'},
++		{label:$L('60'), command:'60'},
++		{label:$L('65'), command:'65'},
++		{label:$L('70'), command:'70'},
++		{label:$L('75'), command:'75'},
++		{label:$L('80'), command:'80'},
++		{label:$L('85'), command:'85'},
++		{label:$L('90'), command:'90'},
++		{label:$L('95'), command:'95'},
++		{label:$L('100'), command:'100'}
++	]
+ });
+\ No newline at end of file
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+index 03d2b66..6b5a28a 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -44,6 +44,26 @@
+ 	
+ 		</div>
+ 	</div>
++	
++	<div id='pv_notificationrepeat_div' class="palm-group">
++		<div class="palm-group-title" x-mojo-loc="">Notification Repeat</div>
++	 	<div class="palm-list">
++			<div id="pv_notification_repeat_interval" class="palm-row">
++				<div class="palm-row-wrapper">
++		 			<div class="label" x-mojo-loc="">Repeat Interval</div>
++		 			<div id="pv_notification_repeat_interval_value" class="title"></div>
++				</div>
++			</div>
++			
++			<div id="pv_notification_max_repeat" class="palm-row">
++				<div class="palm-row-wrapper">
++		 			<div class="label" x-mojo-loc="">Max Repeats</div>
++		 			<div id="pv_notification_max_repeat_value" class="title"></div>
++				</div>
++			</div>
++		</div>
++	</div>
++	
+ 	<div class="palm-group">
+ 		<div class="palm-group-title" x-mojo-loc=''>Accounts</div>      
+ 	    <div class="palm-list">                              
