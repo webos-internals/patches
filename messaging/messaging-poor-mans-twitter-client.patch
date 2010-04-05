@@ -1,8 +1,8 @@
-Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-===================================================================
---- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-+++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-@@ -1669,9 +1669,210 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 98ab9b2..275a4f9 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -1669,9 +1669,245 @@ var ChatviewAssistant = Class.create({
  			this.addTextToClipboard(text);
  		} else if (value == 'delete-cmd') {
  			this.handleMessageDeleteFromContextMenu(messageId, index);
@@ -15,9 +15,20 @@ Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-as
 +		} else if (value === "twitter-leave-user-cmd") {
 +			Mojo.Log.info("twitter-leave-user-cmd");
 +			this.twitterLeaveUser(text);
- 		}
- 	},
- 	
++		} else if (/^twitter-user:/.test(value)) {
++			var username = RegExp.rightContext;
++			var url = "http://twitter.com/" + username;
++			var params = {
++				scene: "page",
++				target: url
++			};
++			var request = new Mojo.Service.Request("palm://com.palm.applicationManager", {
++				method: 'launch',
++				parameters: {'id': "com.palm.app.browser", 'params': params}
++			});
++		}
++	},
++
 +	twitterSkipChain: function (body) {
 +		var originally_from, chainlink, result;
 +		var modified = false;
@@ -56,7 +67,19 @@ Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-as
 +	},
 +
 +	twitterParseMessage: function (text) {
-+		var from, originally_from, body, chain, result;
++		var from, originally_from, body, chain, result, match;
++		var mentioned = {};
++		var theMentioned = [];
++		var addMention = function (username) {
++			Mojo.Log.info("ADDMENTION: %s", username);
++			var usernameLower = username.toLowerCase();
++			Mojo.Log.info("ADDMENTION: %s", usernameLower);
++			if (!(usernameLower in mentioned)) {
++				Mojo.Log.info(":)");
++				mentioned[usernameLower] = true;
++				theMentioned.push(username);
++			}
++		};
 +		Mojo.Log.info("twitterParseMessage(%j)", text);
 +		if (/^Direct from (\S+):\s*(.*)/i.test(text)) {
 +			from = RegExp.$1;
@@ -64,8 +87,10 @@ Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-as
 +			result = {
 +				direct: true,
 +				from: from,
-+				body: body
++				body: body,
++				mentioned: theMentioned
 +			};
++			addMention(from);
 +		}
 +		else if (/^(\S+):\s*(.*)/.test(text)) {
 +			from = RegExp.$1;
@@ -82,9 +107,19 @@ Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-as
 +				direct: false, 
 +				from: from,
 +				originally_from: originally_from,
-+				body: body
++				body: body,
++				mentioned: theMentioned
 +			};
++			addMention(from);
++			addMention(originally_from);
 +		}
++
++		var match;
++		var rx_user = /\@([_A-Za-z0-9]+)/g;
++		while ((match = rx_user.exec(text)) !== null) {
++			addMention(match[1]);
++		}
++
 +		Mojo.Log.info("twitterParseMessage: returning %j", result);
 +		return result;
 +	},
@@ -181,9 +216,9 @@ Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-as
 +		}
 +		else {
 +			Mojo.Log.info("twitterReply: is not an actionable tweet.");
-+		}
-+	},
-+	
+ 		}
+ 	},
+ 	
 +	twitterLeaveUser: function (text) {
 +		Mojo.Log.info("twitterLeaveUser(%j)", text);
 +		var tweet = this.twitterParseMessage(text);
@@ -213,40 +248,70 @@ Index: /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-as
  	/**
  	 * context menu handler for tap on MMS in chat list
  	 * 
-@@ -1794,14 +1995,31 @@
- 			
- 			var composeParams;
- 			if ((messageType == "SMS") || (messageType == "IM")) {
--				this.controller.popupSubmenu({
--					onChoose: this.handleContextMenuSelectSmsIm.bind(this, event.item.textForCopying, messageId, event.index),
--					placeNear: eventTarget.target,
--					items: [
-+				var menuItems = [
- 						{label: $L('Forward'), command: 'forward-cmd'},
- 						{label: $L('Copy Text'), command: 'copy-cmd'},
- 						{label: $L('Delete'), command: 'delete-cmd'}
--					]
-+				];
-+				var lcDisplayName = this.chatDisplayName.toLowerCase();
-+				if (lcDisplayName === "twitter" ||
-+				    lcDisplayName === "40404") {
-+					var text = event.item.textForCopying;
-+					var tweet = this.twitterParseMessage(text);
-+					if (tweet) {
-+						if (!tweet.direct) {
-+							menuItems.push({ label: $L('Retweet'),
-+									 command: 'twitter-retweet-cmd' });
-+						}
-+						menuItems.push({ label: $L('Reply'),
-+								 command: 'twitter-reply-cmd' });
-+						menuItems.push({ label: $L('Leave User'),
-+								 command: 'twitter-leave-user-cmd' });
-+					}
-+				}
-+				this.controller.popupSubmenu({
-+					onChoose: this.handleContextMenuSelectSmsIm.bind(this, event.item.textForCopying, messageId, event.index),
-+					placeNear: eventTarget.target,
-+					items: menuItems
- 				});
- 
- 			} else if (messageType == "MMS") {
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js.rej b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js.rej
+new file mode 100644
+index 0000000..ae38b4e
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js.rej
+@@ -0,0 +1,61 @@
++***************
++*** 1807,1821 ****
++  			
++  			var composeParams;
++  			if ((messageType === "SMS") || (messageType === "IM")) {
++  				this.controller.popupSubmenu({
++  					onChoose: this.handleContextMenuSelectSmsIm.bind(this, event.item.textForCopying, messageId, event.index),
++  					placeNear: eventTarget.target,
++- 					items: [
++- 						{label: $L('Forward'), command: 'forward-cmd'},
++- 						{label: $L('Forward Via Email'), command: 'forward-as-email-cmd'},
++- 						{label: $L('Copy Text'), command: 'copy-cmd'},
++- 						{label: $L('Delete'), command: 'delete-cmd'}
++- 					]
++  				});
++  
++  			} else if (messageType === "MMS") {
++--- 2043,2085 ----
++  			
++  			var composeParams;
++  			if ((messageType === "SMS") || (messageType === "IM")) {
+++ 				var menuItems = [
+++ 					{label: $L('Forward'), command: 'forward-cmd'},
+++ 					{label: $L('Forward Via Email'), command: 'forward-as-email-cmd'},
+++ 					{label: $L('Copy Text'), command: 'copy-cmd'},
+++ 					{label: $L('Delete'), command: 'delete-cmd'}
+++ 				];
+++ 				var lcDisplayName = this.chatDisplayName.toLowerCase();
+++ 				if (lcDisplayName === "twitter" ||
+++ 				    lcDisplayName === "40404") {
+++ 					var text = event.item.textForCopying;
+++ 					Mojo.Log.info("MOO");
+++ 					var tweet = this.twitterParseMessage(text);
+++ 					if (tweet) {
+++ 						if (tweet.direct) {
+++ 							menuItems.push({ label: $L('DM Reply'),
+++ 									 command: 'twitter-reply-cmd' });
+++ 						}
+++ 						else {
+++ 							menuItems.push({ label: $L('Retweet'),
+++ 									 command: 'twitter-retweet-cmd' });
+++ 							menuItems.push({ label: $L('Tweet Reply'),
+++ 									 command: 'twitter-reply-cmd' });
+++ 						}
+++ 						menuItems.push({ label: $L('Leave User'),
+++ 								 command: 'twitter-leave-user-cmd' });
+++ 						tweet.mentioned.forEach(function (username) {
+++ 							menuItems.push({
+++ 								label: "@" + username,
+++ 								command: 'twitter-user:' + username
+++ 							});
+++ 						});
+++ 					}
+++ 				}
++  				this.controller.popupSubmenu({
++  					onChoose: this.handleContextMenuSelectSmsIm.bind(this, event.item.textForCopying, messageId, event.index),
++  					placeNear: eventTarget.target,
+++ 					items: menuItems
++  				});
++  
++  			} else if (messageType === "MMS") {
