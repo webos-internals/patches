@@ -1,0 +1,140 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 484cd45..f8d1f47 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -41,6 +41,7 @@ var ChatviewAssistant = Class.create({
+ 		this.selectedTransport = {};
+ 		this.IMAddressSubscriptions = [];
+ 		this.attachment;
++		this.msgSignature = "";
+ 		this.messageTextElement;
+ 		this.hasLoadedChatList = false;
+ 		this.attemptedToFixChatWithBadPersonId = false;
+@@ -2486,10 +2487,19 @@ var ChatviewAssistant = Class.create({
+ 			}
+ 		}
+ 		
++		this.cookie = new Mojo.Model.Cookie("com.palm.app.messaging.messagesignature");
++		if (this.cookie) {
++			var cookie = this.cookie.get();
++			if (cookie) {			
++				if(cookie.messageSignature) {
++					this.msgSignature = cookie.messageSignature;
++				}
++			}
++		}
+ 		var params = {
+ 			chatThreadId: this.chatThreadId,
+ 			recipient: recipient,
+-			messageText: message
++			messageText: message + this.msgSignature
+ 		};
+ 		if (this.selectedTransport.contactPointId) 
+ 			params.contactPointId = this.selectedTransport.contactPointId;
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+index 3183de4..e665681 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+@@ -5,6 +5,7 @@ var ComposeAssistant = Class.create({
+ 		this.appController = Mojo.Controller.getAppController();
+ 		this.Messaging = this.appController.Messaging;
+ 		this.attachment;
++		this.msgSignature = "";
+ 		this.messageTextElement;
+ 		this.prePopulatedRecipients = [];
+ 		this.sendMessageCount = 0;	// keep a count of how many times we call send so we know when the last callback is hit
+@@ -273,9 +274,18 @@ var ComposeAssistant = Class.create({
+ 		if(!this.handleSentMessageResponse) {
+ 			this.handleSentMessageResponse = this._handleSentMessageResponse.bind(this);
+ 		}
++		this.cookie = new Mojo.Model.Cookie("com.palm.app.messaging.messagesignature");
++		if (this.cookie) {
++			var cookie = this.cookie.get();
++			if (cookie) {			
++				if(cookie.messageSignature) {
++					this.msgSignature = cookie.messageSignature;
++				}
++			}
++		}
+ 		var params = {
+ 			recipientJSONArray: recipientsArray,
+-     		messageText: message,
++     		messageText: message + this.msgSignature,
+       		onSuccess: this.handleSentMessageResponse
+ 		};
+ 		if (this.attachment) { // sending an attachment
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+index 50c8e26..b1e537b 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+@@ -35,6 +35,16 @@ var PrefsAccountSummaryAssistant = Class.create({
+       this.controller.listen('addAccountButton',Mojo.Event.tap, this.handleAddAccountTap);   
+    
+       this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);
++      this.signatureModel = {
++        'msgSignature': '',
++		'listTitle':$L('Signature')
++      };
++      this.controller.setupWidget('msgSignature', {
++        modelProperty: "msgSignature",
++        maxLength: 30
++      }, this.signatureModel);
++      this.controller.get('msgSignature').observe(Mojo.Event.propertyChanged, this.msgSignatureChanged.bindAsEventListener(this));
++	  this.currentSignature();
+     },
+ 	
+ 	cleanup: function() {
+@@ -193,6 +203,27 @@ var PrefsAccountSummaryAssistant = Class.create({
+       this.requests.push(MessagingMojoService.getMMSSettings(this.renderEditMMSSettings.bind(this), this.controller)); 
+     },
+     
++    msgSignatureChanged: function(event){
++		this.msgSignature = event.value;
++		this.cookie.put({messageSignature: this.msgSignature});
++    },
++	
++    currentSignature: function() {
++		this.cookie = new Mojo.Model.Cookie("com.palm.app.messaging.messagesignature");
++		if (this.cookie) {
++			var cookie = this.cookie.get();
++			if (cookie) {			
++				if(cookie.messageSignature) {
++					this.msgSignature = cookie.messageSignature;
++				}
++			}
++		} else {
++			this.msgSignature = "";
++		}
++		this.signatureModel.msgSignature = this.msgSignature;
++       this.controller.modelChanged(this.signatureModel);
++	},
++	
+     prefsNotification: function() {
+       // The notification prefs were loaded on headless app boot
+       var messagingPrefs = this.Messaging.messagingPrefs;
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+index 03d2b66..37f3849 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -6,6 +6,21 @@
+     </div>
+   </div>
+ 
++    <div class="palm-group">
++        <div class="palm-group-title">
++            <span x-mojo-loc="">Outgoing signature (30 chars)</span>
++        </div>
++        <div class="palm-list">
++            <div class='palm-row single'>
++                <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
++                    <div class="title">
++                        <div id="msgSignature" name="msgSignature" x-mojo-element="TextField">
++                        </div>
++                    </div>
++                </div>
++            </div>
++        </div>
++    </div>
+ 	<div class="palm-group">
+ 		<div class="palm-group-title" x-mojo-loc=''>
+ 			New message
