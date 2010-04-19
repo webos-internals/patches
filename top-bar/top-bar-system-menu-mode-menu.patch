@@ -1,0 +1,167 @@
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -3,6 +3,9 @@
+ var BarAssistant = Class.create({
+ 	
+ 	setup: function() {
++		this.modeSwitcher = false;
++		this.modesConfig = null;
++		this.currentMode = null;
+ 						
+ 		this.showMSMWarning = false;
+ 		this.showMediaWarning = false;	
+@@ -488,19 +491,19 @@
+ },
+ 
+ showStatusMenu: function() {
+-//	var stageController = Mojo.Controller.getAppController().getStageProxy("StatusMenu");
+-//	if (stageController) {
+-//		this.hideSystemMenus("status");
+-//		stageController.delegateToSceneAssistant("toggleStatusMenu");			
+-//	} else {
+-//		this.statusMenuCreatedHandler = this.statusMenuCreated.bind(this);
+-//		Mojo.Controller.getAppController().createStageWithCallback({name:"StatusMenu",lightweight: true}, 
+-//			this.statusMenuCreatedHandler, "menu");
+-//	}
++	var stageController = Mojo.Controller.getAppController().getStageProxy("StatusMenu");
++	if (stageController) {
++		this.hideSystemMenus("status");
++		stageController.delegateToSceneAssistant("toggleStatusMenu");			
++	} else {
++		this.statusMenuCreatedHandler = this.statusMenuCreated.bind(this);
++		Mojo.Controller.getAppController().createStageWithCallback({name:"StatusMenu",lightweight: true}, 
++			this.statusMenuCreatedHandler, "menu");
++	}
+ },
+ 
+ statusMenuCreated: function(stageController) {
+-//	stageController.pushScene('statusmenu',this);
++	stageController.pushScene('statusmenu',this);
+ },
+ 
+ // Today menu
+@@ -621,6 +624,9 @@
+ 	
+ 	this.getRoamingPreference();
+ 		
++	//Subscribe to Mode Switcher configuration
++	this.initModeSwitcher();
++
+ 	//Get the Airplane Mode initial values
+ 	this.isAirplaneModeEnabled();
+ 						
+@@ -2801,7 +2807,7 @@
+ 		this.airplaneMode = false;
+ 	
+ 	if(this.airplaneModeInitialQueryDone) {
+-		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");	
++		var stageController = Mojo.Controller.getAppController().getStageProxy("StatusMenu");	
+ 		if (stageController) {
+ 			stageController.delegateToSceneAssistant("updateAirplaneModeProgress");
+ 		}	
+@@ -2812,7 +2818,7 @@
+ 		}
+ 	}
+ 	else {
+-		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");	
++		var stageController = Mojo.Controller.getAppController().getStageProxy("StatusMenu");	
+ 		if (stageController) {
+ 			stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
+ 		}	
+@@ -2977,10 +2983,10 @@
+ 	this.apModeRadioStatus.set(radioName, true);
+ 	
+ 	var apModeDone = this.apModeRadioStatus.get('phone') & this.apModeRadioStatus.get('bluetooth') & this.apModeRadioStatus.get('wifi');
+-	var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++	var stageController = Mojo.Controller.getAppController().getStageProxy("StatusMenu");
+ 		
+ 	if (apModeDone && stageController) {
+-		Mojo.Log.info("SystemUI - Enable / Disable Airplane Mode complete - Updating Device Menu");
++		Mojo.Log.info("SystemUI - Enable / Disable Airplane Mode complete - Updating Status Menu");
+ 		this.airplaneModeTriggered = false;
+ 		stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
+ 	}	
+@@ -4593,6 +4599,71 @@
+ 	Mojo.Log.info("SystemUI-App Restore Reading from the Cookie " + this.appRestoreNeeded);
+ },
+ 
++// Mode Switcher Support
++
++initModeSwitcher: function() {
++	this.modesConfigRequest = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++		method: 'getPreferences', 
++		parameters: {"subscribe":true,"keys":["modeSwitcher", "modesConfig", "currentMode"]},
++		onSuccess: this.handleModeSwitcherUpdate.bind(this) });	
++},
++
++handleModeSwitcherUpdate: function(payload) {
++	if(payload.modeSwitcher != undefined) {
++		if (payload.modeSwitcher.activated == 1)
++			this.modeSwitcher = true;
++		else
++			this.modeSwitcher = false;
++	}
++		
++	if(payload.modesConfig != undefined) {
++		if(payload.modesConfig != "none")
++			this.modesConfig = payload.modesConfig;
++		else
++			this.modesConfig = new Array();
++	}
++
++	if(payload.currentMode != undefined) {
++	 	if(payload.currentMode != "none") {
++			this.currentMode = payload.currentMode;
++			
++			if(this.currentMode.type == "default") {
++				this.statusText = null;
++				$('carrier').innerHTML = this.carrierText;
++			}
++			else {
++				this.statusText = this.currentMode.name;
++				$('carrier').innerHTML = this.statusText;
++			}
++		}
++		else {
++			this.currentMode = null;
++			
++			this.statusText = null;
++			$('carrier').innerHTML = this.carrierText;
++		}
++	}
++},
++
++//Returns the Modes config. Called by Mode Menu.
++getModesConfig: function() {	
++	return this.modesConfig;
++},
++
++//Returns the Current Mode. Called by Mode Menu.
++getCurrentMode: function() {	
++	return this.currentMode;
++},
++
++//Changes the Current Mode. Called by Mode Menu.
++changeCurrentMode: function(modeidx) {
++	var appControl = Mojo.Controller.getAppController();
++	
++	if(modeidx != null)
++		appControl.launch("com.palm.org.e-lnx.wee.apps.modeswitcher", {"action": "execute", "event": "start", "name": this.modesConfig[modeidx].name}, null, null);
++	else
++		appControl.launch("com.palm.org.e-lnx.wee.apps.modeswitcher", {"action": "execute", "event": "close", "name": this.currentMode.name}, null, null);
++},
+ 
+ //  Main Variables
+ 	timeAMPM: true,
+--- .orig/usr/lib/luna/system/luna-systemui/sources.json
++++ /usr/lib/luna/system/luna-systemui/sources.json
+@@ -6,6 +6,9 @@
+     "source": "app\/controllers\/bar-assistant.js"
+   },  
+   {
++    "source": "app\/controllers\/statusmenu-assistant.js"
++  },  
++  {
+     "source": "app\/controllers\/devicemenu-assistant.js"
+   },  
+   {
