@@ -95,7 +95,7 @@ index 0000000..4c07986
 +        }
 +});
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-index 09c898f..8c50fb0 100644
+index 09c898f..5057c82 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 @@ -627,6 +627,7 @@ PageAssistant.prototype._onWebViewSingleTap = function(event) {
@@ -155,20 +155,7 @@ index 09c898f..8c50fb0 100644
  	// Only a few select applications can be
  	var crossAppScene = {
  		'com.palm.app.videoplayer': 'nowplaying',
-@@ -1221,11 +1250,9 @@ PageAssistant.prototype._streamResource = function(uri, appid, mimeType){
- 	};
- 	var params = {target: uri, mimeType: mimeType};
- 	if (crossAppScene[appid]) {
--
- 		var args = { appId: appid, name: crossAppScene[appid] };
- 		this.controller.stageController.pushScene(args, params);
--	}
--	else {
-+			} else {
- 		this.controller.serviceRequest('palm://com.palm.applicationManager', {
- 			method: 'open',
- 			parameters: {
-@@ -1234,6 +1261,9 @@ PageAssistant.prototype._streamResource = function(uri, appid, mimeType){
+@@ -1234,6 +1263,9 @@ PageAssistant.prototype._streamResource = function(uri, appid, mimeType){
  			}
  		});
  	}
@@ -178,37 +165,73 @@ index 09c898f..8c50fb0 100644
  };
  
  /**
-@@ -2304,6 +2334,28 @@ PageAssistant.prototype._onKeyDownEvent = function(event) {
+@@ -2304,10 +2336,64 @@ PageAssistant.prototype._onKeyDownEvent = function(event) {
  		// allowed to trigger the bar.
  		if (this._addressBar.isAGotoAddressBarEvent(event.originalEvent)) {
  			this._gotoUrlBar();
 +		} else {
-+	       	var key = event.originalEvent.keyCode;
-+	       	var scroller = this.controller.getSceneScroller();
-+	       	var pageHeight = scroller.mojo.scrollerSize().height;
-+	       	if (pageHeight > 50) pageHeight = pageHeight - 50;
-+	       	if (key == Mojo.Char.spaceBar) {
-+		       	scroller.mojo.adjustBy(0, -1*pageHeight);
-+		       	this._addressBar.hide();
-+	       	} else if (key == Mojo.Char.period) {
-+		       	scroller.mojo.adjustBy(0, pageHeight);
-+			} else if (key == Mojo.Char.sym) {
-+				scroller.mojo.adjustBy(0, -25);
-+				this._addressBar.hide();
-+	       	} else if (key == Mojo.Char.backspace) {
-+		       	scroller.mojo.revealTop(0);
-+				this._addressBar.show();
-+	       	} else if (key == Mojo.Char.enter) {
-+		       	scroller.mojo.revealBottom(0);
-+		       	this._addressBar.hide();
-+	       	} else {
-+		       	Mojo.Log.error("Ignoring keyCode", key);
-+		   	}
++			this.kbNav(event.originalEvent.keyCode);
  		}
  	}
  };
+ 
++PageAssistant.prototype.kbNav = function(key) {
++	var scroller = this.controller.getSceneScroller();
++	var pageHeight = scroller.mojo.scrollerSize().height;
++	if (pageHeight > 50) pageHeight = pageHeight - 50;
++	
++	if (key == Mojo.Char.spaceBar) {
++		if (this._orientation === 'right') { // pgup
++			scroller.mojo.adjustBy(0, pageHeight);
++			this.moved();
++		} else { // pgdown
++			scroller.mojo.adjustBy(0, -1*pageHeight);
++			this._addressBar.hide();
++			this.moved();
++		}
++	} else if (key == Mojo.Char.zero) {
++		if (this._orientation === 'right') { // line up
++			scroller.mojo.adjustBy(0, +25);
++			this.moved();
++		} else { // line down
++			scroller.mojo.adjustBy(0, -25);
++			this._addressBar.hide();
++			this.moved();
++		}
++	} else if (key == Mojo.Char.period) {
++		if (this._orientation === 'right') { // pgdown
++			scroller.mojo.adjustBy(0, -1*pageHeight);
++			this._addressBar.hide();
++			this.moved();
++		} else { // pgup
++			scroller.mojo.adjustBy(0, pageHeight);
++			this.moved();
++		}
++	} else if (key == Mojo.Char.sym) {
++		if (this._orientation === 'right') { // line down
++			scroller.mojo.adjustBy(0, -25);
++			this._addressBar.hide();
++			this.moved();
++		} else { // line up
++			scroller.mojo.adjustBy(0, +25);
++			this.moved();
++		}
++	} else if (key == Mojo.Char.backspace) { // go to top
++		scroller.mojo.revealTop(0);
++		this._addressBar.show();
++	} else if (key == Mojo.Char.enter) { // go to bottom
++		scroller.mojo.revealBottom(0);
++		this._addressBar.hide();
++	} else {
++		Mojo.Log.error("Ignoring keyCode", key);
++	}	
++};
++
+ /**
+  * keyup events are now ignored. 
+  * @param {Object} event
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js b/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
-index e3f9765..b079216 100644
+index e3f9765..60aeb38 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/urlbar.js
 @@ -36,7 +36,7 @@ UrlBar.Menu = {
@@ -216,7 +239,7 @@ index e3f9765..b079216 100644
  };
  
 -UrlBar.prototype.validGotoUrlBarChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$-_.+!*'(),{}|\\^~[]`<>#%\";/?:@&=";
-+UrlBar.prototype.validGotoUrlBarChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$-_+!*'(),{}|\\^~[]`<>#%\";/?:@&=";
++UrlBar.prototype.validGotoUrlBarChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$-_+!*'(),{}|\\^~[]`<>#%\";/?:&=";
  
  UrlBar.prototype.isAGotoUrlBarKey = function(keycode) {
  
@@ -321,10 +344,18 @@ index baf23e2..609dbd3 100644
  
  .search-results-container .search.first {
 diff --git a/usr/palm/frameworks/mojo/builtins/palmInitFramework338.js b/usr/palm/frameworks/mojo/builtins/palmInitFramework338.js
-index 2db731c..5c1fbfd 100644
+index 2db731c..52e9eb5 100644
 --- a/usr/palm/frameworks/mojo/builtins/palmInitFramework338.js
 +++ b/usr/palm/frameworks/mojo/builtins/palmInitFramework338.js
-@@ -15685,6 +15685,10 @@ if(keyCode>=127&&keyCode<=160){
+@@ -15681,10 +15681,18 @@ if(keyCode>=0&&keyCode<=firstMax){
+ return false;
+ }
+ 
++if(keyCode==48){
++return false;
++}
++
+ if(keyCode>=127&&keyCode<=160){
  return false;
  }
  
