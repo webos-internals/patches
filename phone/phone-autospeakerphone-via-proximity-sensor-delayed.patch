@@ -1,0 +1,137 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+index bab675d..a9841eb 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+@@ -52,6 +52,9 @@ var ActivecallAssistant = Class.create({
+ 		
+ 		this.puckConnected = this.eventListener.puckConnected;
+ 		this.puckSubscription = TelephonyCommands.puckStatusSubscribe(this.onPuckEvent.bind(this));
++		this.displayChanged = undefined;
++		this.stopChangeAudioRoute = undefined;
++		this.audioDelayTimer = undefined;
+ 		
+ 		this.onBlur = this.onBlur.bind(this);
+ 		this.onFocus = this.onFocus.bind(this);
+@@ -129,6 +132,7 @@ var ActivecallAssistant = Class.create({
+ 			return;
+ 		}
+ 		this.updateCalls(initialCallState);
++		this.proxAudio();
+ 		
+ 		//start the timer
+ 		this.timerInterval = this.controller.window.setInterval(this.updateDisplayTimer.bind(this), 1000);
+@@ -496,6 +500,72 @@ break;
+ 
+     },
+ 	
++	proxAudio: function() {
++		this.onAudioRouteChangeClick("phone_back_speaker");
++		this.disableScreenTimeout();
++		this.displayChanged = this.controller.serviceRequest('palm://com.palm.display/control', {
++			method:'status',
++			parameters:{subscribe:true},
++			onSuccess: this.handleDisplayChange.bind(this)
++		});
++	},
++	
++	handleDisplayChange:function(payload) {
++		this.stopChangeAudioRoute = false;
++		if (this.audioActiveProfile == "phone_front_speaker") {
++			if(this.audioDelayTimer) {
++				this.controller.window.clearTimeout(this.audioDelayTimer);
++				this.audioDelayTimer = undefined;
++			}
++			this.audioDelayTimer = this.controller.window.setTimeout(this.changeAudioRoute.bind(this, payload), 2250);
++		} else {
++			this.changeAudioRoute(payload);
++		}
++	},
++	
++	changeAudioRoute: function(payload) {
++		if (this.eventListener.proxEnabled && (this.audioActiveProfile == "phone_back_speaker" || this.audioActiveProfile == "phone_front_speaker")) {
++			if(payload && payload.event) {
++				if (payload.event == "displayOn" && this.stopChangeAudioRoute == false) {
++					this.onAudioRouteChangeClick("phone_back_speaker");
++				} else if (payload.event == "displayOff") {
++					this.stopChangeAudioRoute = true;
++					this.onAudioRouteChangeClick("phone_front_speaker");
++				} else {
++					// Do nothing.
++				}
++			}
++		}
++	},
++	
++	disableScreenTimeout: function() {
++		var parameters = {};
++			parameters.requestBlock = true;
++			parameters.client = "phoneapp";
++			parameters.subscribe = true;
++		
++		this.timeoutBlockReq = new Mojo.Service.Request('palm://com.palm.display/control', {
++			method: 'setProperty',
++			parameters: parameters
++		});
++	},
++	
++	enableScreenTimeout: function() {
++		if (this.timeoutBlockReq){
++			this.timeoutBlockReq.cancel();
++			this.timeoutBlockReq = undefined;
++		}
++		
++		var parameters = {};
++			parameters.requestBlock = false;
++			parameters.client = "phoneapp";
++		
++		this.timeoutCancelReq = new Mojo.Service.Request('palm://com.palm.display/control', {
++			method: 'setProperty',
++			parameters: parameters
++		});
++	},
++	
+ 	// sets up pause/wait digit handling 
+ 	handlePauseWaitDigits: function(callStateMessage) {
+ 		var lineState = callStateMessage.lines;
+@@ -1411,6 +1481,8 @@ break;
+ 		
+ 		// clear out a transition if we had it
+ 		this.crossfadeCancel();
++		this.enableScreenTimeout();
++		this.controller.window.clearTimeout(this.audioDelayTimer);
+ 		
+ 		// close banner if open
+ 		this.bannerClose();
+@@ -1481,6 +1553,8 @@ break;
+ 		// drop puck subscription
+ 		this.puckSubscription.cancel();
+ 		delete this.puckSubscription;
++		this.displayChanged.cancel();
++		delete this.displayChanged;
+ 		
+ 		Mojo.View.removeDOMReferences(this);
+ 		
+diff --git a/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js b/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
+index c7190b5..9334e1f 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
++++ b/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
+@@ -493,6 +493,10 @@ var TelephonyEventListener = Class.create({
+ 					&& Object.keys(profiles).length == 2 				
+ 					&& profiles["phone_front_speaker"] == true) {
+ 					scenario = "phone_front_speaker";
++				} else if (!this.puckConnected
++					&& Object.keys(profiles).length == 2 				
++					&& profiles["phone_back_speaker"] == true) {
++					scenario = "phone_back_speaker";
+ 				} else {
+ 					return;
+ 				}
+@@ -500,7 +504,7 @@ var TelephonyEventListener = Class.create({
+ 		}
+ 		
+ 		if (this.isPendingOrActive()) {
+-			if (scenario == "phone_front_speaker") {
++			if (scenario == "phone_front_speaker" || scenario == "phone_back_speaker") {
+ 				this.proxOn();
+ 			} else {
+ 				QDLogger.log( "TEL#enableProxOnCallAndAudio", "not enabled: " , scenario);
