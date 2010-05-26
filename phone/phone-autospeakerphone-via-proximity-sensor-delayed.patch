@@ -1,0 +1,176 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+index 2443f5b..be70567 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+@@ -52,6 +52,9 @@ var ActivecallAssistant = Class.create({
+ 		
+ 		this.puckConnected = this.eventListener.puckConnected;
+ 		this.puckSubscription = TelephonyCommands.puckStatusSubscribe(this.onPuckEvent.bind(this));
++		this.displaySubscription = TelephonyCommands.displayStatusSubscribe(this.onDisplayEvent.bind(this));
++		this.stopChangeAudioRoute = undefined;
++		this.audioDelayTimer = undefined;
+ 		
+ 		this.onBlur = this.onBlur.bind(this);
+ 		this.onFocus = this.onFocus.bind(this);
+@@ -496,6 +499,48 @@ break;
+ 
+     },
+ 	
++	onDisplayEvent: function(payload) {
++		if (this.eventListener.proxEnabled) {
++			var callStateMessage = this.eventListener.getCallState();
++			var lineState = callStateMessage.lines;
++			if (lineState.length === 1 && lineState[0].origin !== TelephonyCallState.DIALING
++				&& this.eventListener.incomingDiplayStatus != undefined) {
++				if (this.eventListener.incomingDiplayStatus == true && this.audioActiveProfile !== "phone_back_speaker") {
++					this.onAudioRouteChangeClick("phone_back_speaker");
++				} else if (this.eventListener.incomingDiplayStatus == false && this.audioActiveProfile !== "phone_front_speaker") {
++					this.onAudioRouteChangeClick("phone_front_speaker");
++				}
++				this.eventListener.incomingDiplayStatus = undefined;
++			} else {
++				var scenarios = this.eventListener.getAvailableAudioScenarios();
++				if (payload && (payload.event || payload.state)) {
++					if (payload.event == "displayOn" || payload.state == "on") {
++						if ((Object.keys(scenarios).length == 2 && this.audioActiveProfile !== "phone_back_speaker")
++							|| (Object.keys(scenarios).length == 3 && this.audioActiveProfile == "phone_front_speaker")) {
++							this.stopChangeAudioRoute = false;
++							this.audioDelayTimer = this.controller.window.setTimeout(this.changeAudioRoute.bind(this), 2000);
++						}
++					} else if (payload.event == "displayOff" || payload.state == "off") {
++						if ((Object.keys(scenarios).length == 2 && this.audioActiveProfile !== "phone_front_speaker")
++							|| (Object.keys(scenarios).length == 3 && this.audioActiveProfile == "phone_back_speaker")) {
++							this.onAudioRouteChangeClick("phone_front_speaker");
++						}
++					} else {
++						// Do nothing.
++					}
++				}
++			}
++		}
++	},
++	
++	changeAudioRoute: function() {
++		if (this.stopChangeAudioRoute == false) {
++			this.onAudioRouteChangeClick("phone_back_speaker");
++		}
++		this.controller.window.clearTimeout(this.audioDelayTimer);
++		this.audioDelayTimer = undefined;
++	},
++	
+ 	// sets up pause/wait digit handling 
+ 	handlePauseWaitDigits: function(callStateMessage) {
+ 		var lineState = callStateMessage.lines;
+@@ -1477,6 +1522,11 @@ break;
+ 		// drop puck subscription
+ 		this.puckSubscription.cancel();
+ 		delete this.puckSubscription;
++		if (this.audioDelayTimer){
++			this.controller.window.clearTimeout(this.audioDelayTimer);
++		}
++		this.displaySubscription.cancel();
++		delete this.displaySubscription;
+ 		
+ 		Mojo.View.removeDOMReferences(this);
+ 		
+@@ -1684,7 +1734,7 @@ break;
+ 			
+                 if (response.connected === false &&
+                 this.puckConnected === true) {
+-				this.onAudioRouteChangeClick("phone_front_speaker");
++				//this.onAudioRouteChangeClick("phone_front_speaker");
+                 } else if (response.connected === true &&
+                 this.puckConnected == false) {
+ 				this.onAudioRouteChangeClick("phone_back_speaker");
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
+index 6b6ea1a..615e91a 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
+@@ -28,6 +28,7 @@ var IncomingcallAssistant = Class.create({
+ 		this.screenLocked = false;
+ 		this.muted = false;
+ 		this.exitStatus = "";
++		this.displaySubscriptionTimer = undefined;
+ 		this.dialogSceneController = dialogSceneController;
+ 		if (this.dialogSceneController) {
+ 			QDLogger.log( "IncomingcallAssistant#initialize", "i has a dialog");
+@@ -437,9 +438,30 @@ var IncomingcallAssistant = Class.create({
+         QDLogger.log( "IncomingcallAssistant#answerCall", this.callId);
+         this.mute();
+ 		TelephonyCommands.answer(this.callId);
++		this.displaySubscription = TelephonyCommands.displayStatusSubscribe(this.onDisplayEvent.bind(this));
++		this.displaySubscriptionTimer = this.controller.window.setTimeout(this.cancelDisplaySubscription.bind(this), 1000);
+         this.onAnswered();
+     },
+     
++	onDisplayEvent: function(payload) {
++		if (this.telListener.proxEnabled) {
++			if(payload && (payload.event || payload.state)) {
++				if (payload.event == "displayOn" || payload.state == "on") {
++					this.telListener.incomingDiplayStatus = true;
++				} else if (payload.event == "displayOff" || payload.state == "off") {
++					this.telListener.incomingDiplayStatus = false;
++				} else {
++					// Do nothing.
++				}
++			}
++		}
++	},
++	
++	cancelDisplaySubscription: function() {
++		this.displaySubscription.cancel();
++		delete this.displaySubscription;
++	},
++	
+ 	// hide alert and instruct blur handler to disconnect call & show ignored UI
+ 	rejectCall: function(event){
+         if (this.blockIgnore) {
+diff --git a/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js b/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
+index 09edc4a..7287e0a 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
++++ b/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
+@@ -59,6 +59,7 @@ var TelephonyEventListener = Class.create({
+ 		this.onProxOn = this.onProxOn.bind(this);
+ 		
+ 		this.proxEnabled = false;
++		this.incomingDiplayStatus = undefined;
+ 		
+ 		this.resetCallAbortState();
+ 		
+@@ -493,6 +494,9 @@ var TelephonyEventListener = Class.create({
+ 					&& Object.keys(profiles).length == 2 				
+ 					&& profiles["phone_front_speaker"] == true) {
+ 					scenario = "phone_front_speaker";
++				} else if (!this.puckConnected && Object.keys(profiles).length == 2
++					&& profiles["phone_back_speaker"] == true) {
++					scenario = "phone_back_speaker";
+ 				} else {
+ 					return;
+ 				}
+@@ -500,7 +504,7 @@ var TelephonyEventListener = Class.create({
+ 		}
+ 		
+ 		if (this.isPendingOrActive()) {
+-			if (scenario == "phone_front_speaker") {
++			if (scenario == "phone_front_speaker" || scenario == "phone_back_speaker") {
+ 				this.proxOn();
+ 			} else {
+ 				QDLogger.log( "TEL#enableProxOnCallAndAudio", "not enabled: " , scenario);
+@@ -514,6 +518,7 @@ var TelephonyEventListener = Class.create({
+ 	proxOn: function() {
+ 		if (!(this.proxSubscription)) {
+ 			this.proxSubscription = TelephonyCommands.proxSet(true, this.onProxOn);
++			this.diplayBlockReq = TelephonyCommands.displayDNAST(true, undefined);
+ 		} else {
+ 			QDLogger.log( "TEL#proxOn", "already on");
+ 		}
+@@ -524,6 +529,9 @@ var TelephonyEventListener = Class.create({
+ 		if (this.proxSubscription) {
+ 			this.proxSubscription.cancel();
+ 			delete this.proxSubscription;
++			this.diplayBlockReq = TelephonyCommands.displayDNAST(false, undefined);
++			this.diplayBlockReq.cancel();
++			delete this.diplayBlockReq;
+ 		}
+ 	},
+ 	
