@@ -1,0 +1,1219 @@
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
+index 6b3e351..85032f1 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
+@@ -7,7 +7,10 @@ var AppInfoAssistant = Class.create({
+ 		this.isDynamic = this.isDynamicLaunchPoint(this.appInfo);
+ 		this.closeCallback = closeCallback;
+ 
+-		this.onDone = this.onDone.bind(this);
++		this.action = "";
++
++		this.onMove = this.onDone.bind(this, "move");
++		this.onDone = this.onDone.bind(this, "done");
+ 	},
+ 	
+ 	setup: function(widget) {
+@@ -86,6 +89,7 @@ var AppInfoAssistant = Class.create({
+ 	
+ 	setupButtons: function() {
+ 		
++		var moveModel = {buttonLabel: $L('Move')}		
+ 		var doneModel = {buttonLabel: $L('Done')}
+ 		
+ 		if (this.appInfo.removable) {
+@@ -100,6 +104,9 @@ var AppInfoAssistant = Class.create({
+ 			this.sceneController.setupWidget('delete-btn', {type: Mojo.Widget.activityButton}, this.deleteModel);
+ 			this.sceneController.listen('delete-btn', Mojo.Event.tap, this.onDelete.bindAsEventListener(this));
+ 			this.sceneController.get('delete-btn').show();
++
++			// mode button
++			moveModel.buttonClass = 'dismiss';
+ 			
+ 			// done button
+ 			doneModel.buttonClass = 'dismiss';
+@@ -108,6 +115,9 @@ var AppInfoAssistant = Class.create({
+ 			this.sceneController.get('delete-btn').hide();
+ 		}
+ 		
++		this.sceneController.setupWidget('move-btn', undefined, moveModel);
++		this.sceneController.listen('move-btn', Mojo.Event.tap, this.onMove);
++
+ 		this.sceneController.setupWidget('done-btn', undefined, doneModel);
+ 		this.sceneController.listen('done-btn', Mojo.Event.tap, this.onDone);
+ 	},
+@@ -136,7 +146,9 @@ var AppInfoAssistant = Class.create({
+ 		}
+ 	},
+ 
+-	onDone: function() {
++	onDone: function(action) {
++		this.action = action;
++		
+ 		var deleteBtn = this.sceneController.get('delete-btn');
+ 		if (deleteBtn && deleteBtn.mojo && deleteBtn.mojo.deactivate) {
+ 			deleteBtn.mojo.deactivate();
+@@ -163,6 +175,6 @@ var AppInfoAssistant = Class.create({
+ 			this.appSizeRequest.cancel();
+ 			this.appSizeRequest = undefined;
+ 		}
+-		this.closeCallback();
++		this.closeCallback(this.action);
+ 	}
+ });
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+index 6f3368e..12efcb8 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+@@ -247,9 +247,6 @@ GlobalSearchAssistant = Class.create({
+ 			SystemManagerService.showLauncher(false);
+ 			this.launcherHiddenAtFirstKeydown = false;
+ 		}
+-		else {
+-			SystemManagerService.showQuickLaunch(true);
+-		}
+ 		
+ 		this.galInit();
+ 	},
+@@ -263,15 +260,13 @@ GlobalSearchAssistant = Class.create({
+ 	},
+ 	
+ 	onKeyDown: function(event) {
+-		
+-		this.searchField.mojo.focus();
+ 
+ 		// block key events from global search
+-		if (!this.searchEnabled) {
+-			event.stop();
++		if (!this.searchEnabled)
+ 			return;
+-		}
+ 		
++		this.searchField.mojo.focus();
++
+ 		// track whether we should hide the launcher when exiting global search
+ 		if (this.searchTerm.length === 0 && !Mojo.Controller.stageController.isActiveAndHasScenes()) {			
+ 			this.launcherHiddenAtFirstKeydown = true;
+@@ -281,10 +276,8 @@ GlobalSearchAssistant = Class.create({
+ 	onKeyUp: function(event) {
+ 		
+ 		// block key events from global search
+-		if (!this.searchEnabled) {
+-			event.stop();
++		if (!this.searchEnabled)
+ 			return;
+-		}
+ 	
+ 		// first key no longer being held
+ 		this.searchPressHoldTerm = "";
+@@ -297,6 +290,10 @@ GlobalSearchAssistant = Class.create({
+ 	
+ 	onKeyPress: function(event) {
+ 		
++		// block key events from global search
++		if (!this.searchEnabled)
++			return;
++				
+ 		if(this.searchPressHoldTerm && this.searchPressHoldTerm.length > 0 && event.keyCode != this.searchPressHoldTerm.charCodeAt(0)) {
+         	// first key no longer being held
+             this.searchPressHoldTerm = "";
+@@ -308,8 +305,7 @@ GlobalSearchAssistant = Class.create({
+         } 
+ 
+ 		// block key events from global search and from repeating until the first key has been processed
+-		if (!this.searchEnabled || 
+-			this.searchPressHoldTerm.length !== 0 ||
++		if (this.searchPressHoldTerm.length !== 0 ||
+ 			(event.keyCode === Mojo.Char.spaceBar && !this.searchActive)) {
+ 			
+ 			event.stop();
+@@ -339,6 +335,10 @@ GlobalSearchAssistant = Class.create({
+ 	
+ 	onSearchTermChanged: function(event) {
+ 		
++		// block key events from global search
++		if (!this.searchEnabled)
++			return;
++		
+ 		if (event.originalEvent && event.originalEvent.keyCode === Mojo.Char.enter) {
+ 			if (this.currentFilter.length > 0) {
+ 				// i'm feeling lucky
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+index 9057138..3c64702 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -8,7 +8,7 @@ var LauncherAssistant = Class.create({
+ 	 * hardcoding the quick launch height until we can find a better way. 
+ 	 * This value = ql graphic height - the offset from the top (small fade area)
+ 	 */
+-	kQuickLaunchHeight: 67,
++	kQuickLaunchHeight: 0,
+ 	
+ 	kPageIndicatorSpacing: 6, 	/* spacing between each page indicator */
+ 	kPageMargin: 10, /* 10 pixel margin on each side of a page */
+@@ -23,11 +23,25 @@ var LauncherAssistant = Class.create({
+ 		visible: true,
+ 		label: $L('Launcher'),
+         items: [
+-			/*{ label: $L('New page'), command: 'newpage' },
+-			{ label: $L('Delete page'), command: 'deletepage' },*/
+ 			Mojo.Menu.editItem,
+-			{ label: $L('List Apps...'), command: 'listapps' },
+-			{ label: $L('Default Applications'), command: 'defaultapps'},
++			{ label: $L('App Launcher'),
++				items: [
++					{ label: $L('Enter Edit Mode'), command: 'toggleedit' },
++					{ label: $L('Show Page Names'), command: 'togglenames' },
++					{ label: $L('Set As Default Page'), command: 'togglepage' },
++					{ label: $L('Enable Position Reset'), command: 'togglereset' },
++					{ label: $L('Enable Page Wrapping'), command: 'togglewrap' }
++				]
++			},
++			{ label: $L('Quick Launch Bar'), 
++				items: [
++					{ label: $L('Always Visible'), command: 'qlvisible', disabled: false },
++					{ label: $L('Always Hidden'), command: 'qlhidden', disabled: false },
++					{ label: $L('Hide in Launcher'), command: 'qlmixed', disabled: false }
++				]
++			},
++			{ label: $L('List All Applications'), command: 'listapps' },
++			{ label: $L('Default Applications'), command: 'defaultapps' },
+ 			Mojo.Menu.helpItem
+ 		]
+     },
+@@ -59,10 +73,44 @@ var LauncherAssistant = Class.create({
+ 		
+ 		this.dragStartHandler = this.onDragStart.bindAsEventListener(this);
+ 		this.launchApp = this.launchApp.bind(this);
++
++		this.pageText = "";
++
++		this.activePageIndex = 0;
++		
++		this.pagingAnimating = false;
++		
++		this.appLauncherCfg = {header: false, reset: false, wrap: false, page: "default", pages: []};
++		
++		this.quickLaunchCfg = {mode: "visible"};
+ 	},
+ 	
+ 	setup: function() {
+ 		
++		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'getPreferences', parameters: {subscribe: false, keys: ['appLauncherCfg', 'quickLaunchCfg']},
++			onSuccess: this.handlePreferences.bind(this) });
++
++		this.viewMenuModel = {visible: false,
++			items: [ 
++				{items: [
++					{ icon: "new", command: "addnewpage"},
++					{ icon: 'delete', command: 'deletepage'}
++				]},
++				{ label: "Rename", command: "renamepage"},
++				{items: [
++					{ icon: "back", command: "movepageleft"},
++					{ icon: 'forward', command: 'movepageright'}
++				]}
++			]
++		};
++
++		this.controller.setupWidget(Mojo.Menu.commandMenu, {spacerHeight: 0, menuClass: 'no-fade'},
++			this.viewMenuModel);
++
++		Mojo.listen($('page_header'), Mojo.Event.tap, this.handleHeaderTap.bindAsEventListener(this));
++		
++		Mojo.listen(this.controller.document, Mojo.Event.activate, this.onActivate.bindAsEventListener(this));
+ 		Mojo.listen(this.controller.document, Mojo.Event.deactivate, this.onDeactivate.bindAsEventListener(this));
+ 		Mojo.listen(this.controller.window, 'resize', this.onResize.bindAsEventListener(this));
+ 		
+@@ -83,11 +131,21 @@ var LauncherAssistant = Class.create({
+ 		
+ 		this.controller.setupWidget('launcher_root', undefined, this.launcherRootModel);
+ 		
++		this.controller.listen('page_text', Mojo.Event.propertyChange, this.handlePageRename.bindAsEventListener(this));
++		
+ 		this.reorderController = new ReorderController(this, this.onReorderFinished.bind(this));
+-		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.onPageChange.bindAsEventListener(this));
+ 		
+-		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
++		this.pageChangeHandler = this.onPageChange.bindAsEventListener(this);
++		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.pageChangeHandler);
++		
++		this.scrollStartingHandler = this.scrollStarting.bindAsEventListener(this);
+ 
++		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
++		
++		this.pageNameModel = { value: this.pageText };
++		
++		this.controller.setupWidget('page_text', {disabled: false, autoFocus: false}, this.pageNameModel);
++		
+ 		// pre-calculate commonly used measurements
+ 		this.kPageWidth = $('launcher_root').getWidth();
+ 		this.kPageWidthNoMargin = (this.kPageWidth - this.kPageMargin * 2);
+@@ -121,21 +179,49 @@ var LauncherAssistant = Class.create({
+ 				case 'defaultapps':
+ 					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.defaultAppParams);
+ 					break;
+-				/*
+-				case 'newpage':
+-					if (this.pageDivs.length < 10) {
+-						this.insertPage(this.activePageIndex, true);
++				case 'qlvisible':
++					this.setupQuickLaunch("visible");
++					break;
++				case 'qlhidden':
++					this.setupQuickLaunch("hidden");
++					break;
++				case 'qlmixed':
++					this.setupQuickLaunch("mixed");
++					break;
++				case 'addnewpage':
++					if (this.pageDivs.length < 12) {
++						this.insertPage(this.pageDivs.length, true);
+ 					}
+ 					break;
+ 				case 'deletepage':
+ 					if (this.pageDivs.length > 1) {
+-						this.deletePage(this.activePageIndex);
+-						if (this.activePageIndex >= this.pageDivs.length) {
+-							this.activePageIndex = this.pageDivs.length - 1;
+-						}
++						this.confirmDelete();
+ 					}
+ 					break;
+-				*/
++				case 'renamepage':
++					this.startPageRename();
++					break;
++				case 'movepageleft':
++					this.movePage("left");
++					break;
++				case 'movepageright':
++					this.movePage("right");
++					break;					
++				case 'toggleedit':
++					this.setupAppLauncher(event, "edit");
++					break;
++				case 'togglenames':
++					this.setupAppLauncher(event, "names");
++					break;
++				case 'togglepage':
++					this.setupAppLauncher(event, "page");
++					break;
++				case 'togglewrap':
++					this.setupAppLauncher(event, "wrap");
++					break;
++				case 'togglereset':
++					this.setupAppLauncher(event, "reset");
++					break;
+ 			}
+ 		}
+ 		else if (event.type === Mojo.Event.commandEnable) {
+@@ -157,11 +243,486 @@ var LauncherAssistant = Class.create({
+ 			}
+ 		}
+ 	},
++	
++	handlePreferences: function(payload) {
++		if(payload != undefined) {
++			if(payload.appLauncherCfg != undefined)
++				this.appLauncherCfg = payload.appLauncherCfg;
++			
++			if(payload.quickLaunchCfg != undefined)
++				this.quickLaunchCfg = payload.quickLaunchCfg;
++		}
++		
++		this.updateAppLauncher(true);
++		this.updateQuickLaunch(true);
++	},
++
++	setupAppLauncher: function(event, option) {
++		if(option == "edit") {
++			var chooseCallback = this.selectPage.bind(this);
++		
++			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++		}
++		else {
++			if(option == "names") {
++				if(this.appLauncherCfg.header)
++					this.appLauncherCfg.header = false;
++				else
++					this.appLauncherCfg.header = true;
++			}
++			else if(option == "page") {
++				if(this.appLauncherCfg.page == "default")
++					this.appLauncherCfg.page = this.activePageIndex;
++				else
++					this.appLauncherCfg.page = "default";
++			}
++			else if(option == "reset") {
++				if(this.appLauncherCfg.reset)
++					this.appLauncherCfg.reset = false;
++				else
++					this.appLauncherCfg.reset = true;
++			}
++			else if(option == "wrap") {
++				if(this.appLauncherCfg.wrap)
++					this.appLauncherCfg.wrap = false;
++				else
++					this.appLauncherCfg.wrap = true;
++			}
++
++			this.updateAppLauncher();
++		
++			if(this.setPreferencesRequest)
++				this.setPreferencesRequest.cancel();
++		
++			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++		}
++	},
++	
++	setupQuickLaunch: function(mode) {
++		this.quickLaunchCfg.mode = mode;
++
++		this.updateQuickLaunch(false);
++		
++		if(this.setPreferencesRequest)
++			this.setPreferencesRequest.cancel();
++			
++		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'setPreferences', parameters: {'quickLaunchCfg': this.quickLaunchCfg} });
++	},
++
++	updateAppLauncher: function(init) {
++		if(this.appLauncherCfg.header) {
++			this.appMenuModel.items[1].items[1].label = "Hide Page Names";
++			this.controller.get('page_header').style.display = "block";
++			this.controller.get('page_name').style.display = "block";
++			
++			this.updatePageHeader();
++		}
++		else {
++			this.appMenuModel.items[1].items[1].label = "Show Page Names";
++			this.controller.get('page_header').style.display = "none";
++			this.controller.get('page_name').style.display = "none";
++		}
++
++		if(this.appLauncherCfg.page != "default")
++			this.appMenuModel.items[1].items[2].label = "Unset Default Page";
++		else 
++			this.appMenuModel.items[1].items[2].label = "Set As Default Page";
++
++		if(this.appLauncherCfg.reset)
++			this.appMenuModel.items[1].items[3].label = "Disable Position Reset";
++		else 
++			this.appMenuModel.items[1].items[3].label = "Enable Position Reset";
++
++		if(this.appLauncherCfg.wrap) {
++			this.appMenuModel.items[1].items[4].label = "Disable Page Wrapping";
++			
++			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
++		}
++		else {
++			this.appMenuModel.items[1].items[4].label = "Enable Page Wrapping";
++			
++			Mojo.stopListening($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
++		}
++
++		for(var i = 0; i < this.pageDivs.length; i++)
++			this.updatePageLayout(i, 0);
++	},
++
++	updateQuickLaunch: function(init) {
++		this.appMenuModel.items[2].items[0].disabled = false;
++		this.appMenuModel.items[2].items[1].disabled = false;
++		this.appMenuModel.items[2].items[2].disabled = false;
++
++		if(this.quickLaunchCfg.mode == "visible") {
++			this.appMenuModel.items[2].items[0].disabled = true;
++			SystemManagerService.showQuickLaunch(true);
++			this.kQuickLaunchHeight = 67;
++		}	
++		else if(this.quickLaunchCfg.mode == "hidden") {
++			this.appMenuModel.items[2].items[1].disabled = true;
++			SystemManagerService.showQuickLaunch(false);
++			this.kQuickLaunchHeight = 0;
++		}	
++		else if(this.quickLaunchCfg.mode == "mixed") {
++			this.appMenuModel.items[2].items[2].disabled = true;
++			SystemManagerService.showQuickLaunch(init);
++			this.kQuickLaunchHeight = 0;
++		}
++
++		this.adjustLayout();
++	},
++
++	updatePageHeader: function() {
++		if(this.appLauncherCfg.header) {
++			var pageName = this.getPageName(this.activePageIndex);
++			
++			this.controller.get('page_name').update(pageName);
++
++			this.controller.get('page_text').style.display = "none";
++			this.controller.get('page_name').style.display = "block";
++		}
++	},
++	
++	handleHeaderTap: function(event) {
++		if((event.up) && ( event.up.altKey || event.up.metaKey )) {
++			var chooseCallback = this.selectPage.bind(this);
++
++			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++		}
++		else {
++			var chooseCallback = this.jumpToPage.bind(this);
++
++			this.showPageMenus(false, "Jump to Page:", chooseCallback);
++		}
++	},
++	
++	startPageRename: function() {
++		this.pageNameModel.value = this.getPageName(this.activePageIndex);
++		this.controller.modelChanged(this.pageNameModel);
++
++		var curPos = this.pageNameModel.value.length;
++
++		this.controller.get('page_name').style.display = "none";
++		this.controller.get('page_text').style.display = "block";
++
++		this.controller.get('page_text').mojo.setCursorPosition(curPos, curPos);
++		this.controller.get('page_text').mojo.focus();
++	},
++	
++	handlePageRename: function(event) {
++		var chooseCallback = this.selectPage.bind(this);
++
++		this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++
++		this.setPageName(this.activePageIndex, this.pageNameModel.value);
++
++		if(this.setPreferencesRequest)
++			this.setPreferencesRequest.cancel();
++	
++		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++	},
++
++	selectPage: function(index) {
++		if(index == undefined) {
++			this.hidePageMenus();
++		}
++		else {
++			this.changePage(index, true);
++			
++			var chooseCallback = this.selectPage.bind(this);
++
++			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++		}
++	},
++
++	jumpToPage: function(index) {
++		if(index == undefined) {
++			this.hidePageMenus();
++		}
++		else {
++			this.changePage(index, true);
++			
++			this.hidePageMenus();		
++		}
++	},
++	
++	movePage: function(direction) {
++		if(direction == "left") {
++			var newIndex = parseInt(this.activePageIndex) - 1;
++			
++			if(newIndex < 0)
++				return;
++		}
++		else if(direction == "right") {
++			var newIndex = parseInt(this.activePageIndex) + 1;
++
++			if(newIndex == this.pageDivs.length)
++				return;
++		}
++	
++		if(this.appLauncherCfg.page != "default") {
++			if(this.appLauncherCfg.page == this.activePageIndex)
++				this.appLauncherCfg.page = newIndex;			
++		}
+ 		
++		var oldIndex = parseInt(this.activePageIndex);
++
++		var tmp = this.appLauncherCfg.pages.splice(oldIndex,1);
++
++		this.appLauncherCfg.pages.splice(newIndex,0,tmp[0]);
++
++		this.pagesModel.switchPages(oldIndex, newIndex);
++
++		this.pagesModel.save();
++						
++		var apps1 = this.getAppContainer(oldIndex).select('.app');
++		var apps2 = this.getAppContainer(newIndex).select('.app');
++
++		var container1 = this.getAppContainer(oldIndex);
++		var container2 = this.getAppContainer(newIndex);
++
++		apps1.each(function(app) {
++			container1.removeChild(app);
++			container2.appendChild(app);
++		}.bind(this));
++
++		apps2.each(function(app) {
++			container2.removeChild(app);
++			container1.appendChild(app);
++		}.bind(this));
++
++		if (apps1.length > 0)
++			this.updatePageLayout(oldIndex, apps1.length);
++
++		if (apps2.length > 0)
++			this.updatePageLayout(newIndex, apps2.length);
++
++		this.selectPage(newIndex);
++		
++		if(this.setPreferencesRequest)
++			this.setPreferencesRequest.cancel();
++		
++		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++	},
++	
++	movePageApp: function(appInfo, index) {
++		if(index == undefined) {
++			this.hidePageMenus();
++			return;
++		}
++
++		if(this.pageDivs[index] != undefined) {
++			var from = this.pagesModel.findApplication(appInfo.launchPointId);
++			var to = {page: parseInt(index), position: -1};
++
++			this.moveApp(appInfo.launchPointId, to);
++			this.pagesModel.moveApplication(from, to);
++
++			this.pagesModel.save();
++		}
++
++		this.hidePageMenus();
++	},
++
++	changePage: function(index, animate) {
++		if(this.appLauncherCfg.reset) {
++			var scroller = this.getPageScroller(this.activePageIndex);
++			
++			if (scroller && scroller.mojo) { scroller.mojo.revealTop(); }
++		}
++
++		if(this.activePageIndex != index) {
++			this.activePageIndex = index;
++			
++			if(this.appLauncherCfg.wrap)
++				$('launcher_root').mojo.scrollTo((index) * -this.kPageWidth, undefined, false, true);
++			else 
++				$('launcher_root').mojo.setSnapIndex(parseInt(index), animate);
++		}
++	},
++
++	showPageMenus: function(viewMenu, menuTitle, chooseCallback) {
++		Mojo.stopListening($('launcher_root'), Mojo.Event.propertyChange, this.pageChangeHandler);
++		
++		this.globalSearchAssistant.enable(false);
++
++		this.controller.get('page_text').style.display = "none";
++		this.controller.get('page_name').style.display = "block";
++
++		if(!this.appLauncherCfg.header) {
++			this.controller.get('page_header').style.display = "block";
++			this.controller.get('page_name').style.display = "block";
++		}
++		
++		var pageItems = [];
++
++		for(var i = 0; i < this.pageDivs.length; i++) {
++			var pageName = this.getPageName(i);
++			
++			pageItems.push({command: i, label: pageName, chosen: (i == this.activePageIndex)});
++		}
++
++		if(viewMenu)
++			var menuClass = "pageMenu";
++		else
++			var menuClass = "jumpMenu";
++
++		this.controller.popupSubmenu({
++			popupClass: menuClass,
++			scrimClass: "pageMenuScrim",
++			manualPlacement: true,
++
++			items: pageItems,
++
++			onChoose: chooseCallback
++		});
++
++		this.controller.get('page_name').update(menuTitle);
++
++		if(this.quickLaunchCfg.mode == "visible") {
++			SystemManagerService.showQuickLaunch(false);
++			this.kQuickLaunchHeight = 0;
++			this.adjustLayout();
++		}
++
++		if(viewMenu) {
++			this.viewMenuModel.visible = true;
++			this.controller.modelChanged(this.viewMenuModel);
++		}
++	},
++	
++	hidePageMenus: function() {
++		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.pageChangeHandler);
++
++		this.globalSearchAssistant.enable(true);
++		
++		if(!this.appLauncherCfg.header) {
++			this.controller.get('page_header').style.display = "none";
++			this.controller.get('page_name').style.display = "none";
++		}
++
++		this.updatePageHeader();
++		this.updatePageIndicators();
++		
++		this.viewMenuModel.visible = false;
++		this.controller.modelChanged(this.viewMenuModel);
++		
++		if(this.quickLaunchCfg.mode == "visible") {
++			SystemManagerService.showQuickLaunch(true);
++			this.kQuickLaunchHeight = 67;
++			this.adjustLayout();
++		}
++	},
++
++	getPageName: function(index) {
++		if(this.appLauncherCfg.pages[parseInt(index)] == undefined)
++			this.appLauncherCfg.pages[parseInt(index)] = "Launcher Page " + (parseInt(index) + 1);
++
++		return this.appLauncherCfg.pages[parseInt(index)];
++	},
++
++	setPageName: function(index, pageName) {
++		if((pageName.length > 0) && (pageName.split(' ').join('').length > 0))
++			this.appLauncherCfg.pages[parseInt(index)] = this.pageNameModel.value;
++		else
++			this.appLauncherCfg.pages[parseInt(index)] = "Launcher Page " + (parseInt(index) + 1);
++	},
++
++	confirmDelete: function() {
++		var apps = this.getAppContainer(this.activePageIndex).select('.app');
++	
++		if(apps.length == 0)
++			this.deletePage(this.activePageIndex);
++		else {
++		    this.controller.showAlertDialog({
++				title: "Delete Launcher Page",
++				message: "Are you sure that you want to delete the current launcher page?",
++				choices:[
++					{label:'Cancel', value:"cancel", type:'default'},
++					{label:'Delete', value:"delete", type:'negative'}],
++				preventCancel: false,
++				allowHTMLMessage: false,
++				onChoose: function(value) {
++					if(value == "delete")
++						this.deletePage(this.activePageIndex);
++
++					var chooseCallback = this.selectPage.bind(this);
++
++					this.showPageMenus(true, "Edit Launcher Page:", chooseCallback);
++				}.bind(this)});
++		}
++	},
++
++	scrollStarting: function(event) {
++//		this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left) / this.kPageWidth;
++	
++		event.scroller.addListener(this);
++	},
++	
++	moved: function(scrollEnded, position) {
++		if(scrollEnded) {
++			this.pagingAnimating = false;
++		}
++		else {
++			this.pagingAnimating = true;
++			
++			if(this.appLauncherCfg.reset) {
++				var scroller = this.getPageScroller(this.activePageIndex);
++
++				if(scroller && scroller.mojo) { scroller.mojo.revealTop(); }
++			}
++
++			if(Math.abs(position.x) > ((this.pageDivs.length - 1) * this.kPageWidth))
++				$('launcher_root').mojo.scrollTo(0, undefined, false, true);
++			else if(position.x > 0 )
++				$('launcher_root').mojo.scrollTo((this.pageDivs.length - 1) * -this.kPageWidth , undefined, false, true);
++			else if( this.activePageIndex * -this.kPageWidth > position.x )
++				$('launcher_root').mojo.scrollTo( (this.activePageIndex + 1) * -this.kPageWidth, undefined, false, true);
++			else if( this.activePageIndex * -this.kPageWidth < position.x )
++				$('launcher_root').mojo.scrollTo( (this.activePageIndex - 1) * -this.kPageWidth, undefined, false, true);
++		}
++		
++		this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left) / this.kPageWidth;
++			
++		this.updatePageHeader();
++		this.updatePageIndicators();
++	},	
++
+ 	/* keep track of which page we are on */
+ 	onPageChange: function(event) {
+-		this.activePageIndex = event.value;
+-		this.updatePageIndicators();
++		if(this.appLauncherCfg.reset) {
++			var scroller = this.getPageScroller(this.activePageIndex);
++
++			if (scroller && scroller.mojo) { scroller.mojo.revealTop(); }
++		}
++
++		if((!this.appLauncherCfg.wrap) || (this.reorderController.reordering)) {
++			this.activePageIndex = event.value;
++					
++			this.updatePageHeader();
++			this.updatePageIndicators();
++		}
++	},
++
++	/* hide quick launch */
++	onActivate: function(event) {
++
++		if(this.appLauncherCfg.page != "default") {
++			this.changePage(this.appLauncherCfg.page, false);
++
++			this.updatePageHeader();
++			this.updatePageIndicators();
++		}
++		
++		if(this.quickLaunchCfg.mode != "visible") {
++			SystemManagerService.showQuickLaunch(false);
++			this.kQuickLaunchHeight = 0;
++			this.adjustLayout();
++		}
+ 	},
+ 	
+ 	/* clean and hide global search */
+@@ -175,7 +736,17 @@ var LauncherAssistant = Class.create({
+ 			this.appDialog.mojo.close();
+ 		}
+ 		
+-		SystemManagerService.showQuickLaunch(true);
++		if(this.appLauncherCfg.page != "default")
++			this.changePage(this.appLauncherCfg.page, false);
++		
++		this.updatePageHeader();
++		this.updatePageIndicators();
++		
++		if(this.quickLaunchCfg.mode != "hidden") {
++			SystemManagerService.showQuickLaunch(true);
++			this.kQuickLaunchHeight = 67;
++			this.adjustLayout();
++		}
+ 		
+ 		this.launchRequest = undefined;
+ 	},
+@@ -202,12 +773,12 @@ var LauncherAssistant = Class.create({
+ 	
+ 	/* helper to consolidate all the places accessing these types of elements */
+ 	getAppContainer: function(pageIndex) {
+-		Mojo.assert(this.pageDivs.length > pageIndex, "Attempting to access invalid page #{page}", {page: pageIndex});
++		Mojo.assert(this.pageDivs.length >= pageIndex, "Attempting to access invalid page #{page}", {page: pageIndex});
+ 		return this.pageDivs[pageIndex].down('.page_scroller_container');
+ 	},
+ 	
+ 	getPageScroller: function(pageIndex) {
+-		Mojo.assert(this.pageDivs.length > pageIndex, "Attempting to access invalid page #{page}", {page: pageIndex});
++		Mojo.assert(this.pageDivs.length >= pageIndex, "Attempting to access invalid page #{page}", {page: pageIndex});
+ 		return this.pageDivs[pageIndex].down('.page_scroller');
+ 	},
+ 	
+@@ -255,15 +826,51 @@ var LauncherAssistant = Class.create({
+ 		
+ 		// tell our scroller widget that it has a new page element to snap
+ 		this.updatePageSnappingPoints();
++
++		if(createPage) {
++			this.appLauncherCfg.pages.splice(newPageIndex, 0, "Lancher Page " + (parseInt(newPageIndex) + 1));
++
++			this.changePage(newPageIndex, true);
++			
++			var chooseCallback = this.selectPage.bind(this);
++
++			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++			
++			if(this.setPreferencesRequest)
++				this.setPreferencesRequest.cancel();
++		
++			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++		}
+ 	},
+ 	
+ 	deletePage: function(pageIndex) {
++
+ 		// move all apps still on page[pageIndex] to the previous/next page  
+ 		var moveIndex = (pageIndex == 0 ? 1 : pageIndex-1);
+ 		if (!this.pagesModel.removePage(pageIndex, moveIndex)) {
+ 			return false;
+ 		}
+ 		
++		// snap to a valid location
++		if (pageIndex >= this.pageDivs.length - 1)
++			this.changePage(this.pageDivs.length - 2, true);
++		else
++			this.changePage(pageIndex, true);
++
++		if(this.appLauncherCfg.page != "default") {
++			if(this.appLauncherCfg.page == pageIndex)
++				this.setupAppLauncher(null, "page");
++		}
++
++		this.appLauncherCfg.pages.splice(pageIndex,1);
++
++		if(this.setPreferencesRequest)
++			this.setPreferencesRequest.cancel();
++		
++		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++
+ 		// move appDivs over to their new home
+ 		var apps = this.getAppContainer(pageIndex).select('.app');
+ 		var startIndex = apps.length;
+@@ -284,7 +891,7 @@ var LauncherAssistant = Class.create({
+ 		if (scroller) {
+ 			this.controller.setupWidget(scroller.id, undefined, undefined);
+ 		}
+-		
++				
+ 		// remove the page div
+ 		this.pageDivs[pageIndex].remove();
+ 		this.pageDivs = $$('.launcher_page');
+@@ -294,17 +901,13 @@ var LauncherAssistant = Class.create({
+ 		for (var i=pageIndex; i<this.pageDivs.length; i++) {
+ 			this.pageDivs[i].style.left = (this.kPageWidth*i)+'px';
+ 		}
+-		
++
+ 		// remove the pages indicator
+ 		this.deletePageIndicator();
+ 		
+-		// snap to a valid location
+-		if (pageIndex >= this.pageDivs.length) {
+-			$('launcher_root').mojo.setSnapIndex(this.pageDivs.length-1, true);
+-		}
+-		else {
+-			$('launcher_root').mojo.setSnapIndex(pageIndex, true);
+-		}
++		var chooseCallback = this.selectPage.bind(this);
++
++		this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
+ 		
+ 		this.updatePageSnappingPoints();
+ 	},
+@@ -514,6 +1117,10 @@ var LauncherAssistant = Class.create({
+ 		for (var i=offset, len = children.length; i<len; i++) {
+ 			var item = children[i];
+ 			var appPos = this.calculateAppPosition(i);
++			
++			if(this.appLauncherCfg.header)
++				appPos.top = appPos.top + 50;
++			
+ 			if (animate) {
+ 				LauncherAnimation.animateApp(item, appPos);
+ 			} else {
+@@ -577,17 +1184,32 @@ var LauncherAssistant = Class.create({
+ 				return;
+ 			}
+ 		}
++
++		if(this.quickLaunchCfg.mode == "visible") {
++			SystemManagerService.showQuickLaunch(false);
++			this.kQuickLaunchHeight = 0;
++			this.adjustLayout();
++		}
+ 		
+-		SystemManagerService.showQuickLaunch(false);
+ 		this.globalSearchAssistant.enable(false);
+ 		
+ 		var appInfoAssistant = new AppInfoAssistant(appInfo,
+ 													this.controller,
+-													function() {
++													function(appInfo, action) {
+ 														this.appDialog = undefined;
+-														SystemManagerService.showQuickLaunch(true);
+-														this.globalSearchAssistant.enable(true);
+-													}.bind(this));
++														if(this.quickLaunchCfg.mode == "visible") {
++															SystemManagerService.showQuickLaunch(true);
++															this.kQuickLaunchHeight = 67;
++															this.adjustLayout();
++														}
++														if(action == "move") { 
++															var chooseCallback = this.movePageApp.bind(this, appInfo);
++															
++															this.showPageMenus(false, "Move Application:", chooseCallback);
++														}
++														else
++															this.globalSearchAssistant.enable(true);
++													}.bind(this, appInfo));
+ 
+ 		this.appDialog = this.controller.showDialog({
+ 							template: 'launcher/dialogs/app-info',
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js b/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
+index 232582b..71c9f0c 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
+@@ -239,6 +239,10 @@ var ReorderController = Class.create({
+ 		for (var i = 0, len = this.appDivs.length; i < len; ++i) {
+ 			
+ 			var pos = this.launcherAssistant.calculateAppPosition(i);
++			
++			if(this.launcherAssistant.appLauncherCfg.header)
++				pos.top = pos.top + 50;
++			
+ 			var item = new Element('div', {'class': 'droppable'});
+ 			item.style.left = pos.left+'px';
+ 			item.style.top = pos.top+'px';
+@@ -314,7 +318,10 @@ var ReorderController = Class.create({
+ 	
+ 	_startCyclePage: function(direction) {
+ 		if (!this.pagingTimer && !this.pagingAnimating) {
+-			this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
++			if(this.launcherAssistant.appLauncherCfg.wrap)
++				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout * 2);
++			else
++				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
+ 			
+ 			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollerListenerHandler);
+ 		}
+@@ -427,15 +434,37 @@ var ReorderController = Class.create({
+ 	_cyclePage: function(direction) {
+ 		
+ 		var canPage = false;
++		var snapIndex = 0;
++
+ 		if (direction == -1 && this.activePage.previous() !== null) {
+ 			this.previousPage = this.activePage;
+ 			this.activePage = this.activePage.previous();
+ 			canPage = true;
++			snapIndex = this.launcherAssistant.activePageIndex + direction;
++		}
++		else if (direction == -1 && this.activePage.previous() == null) {
++			if(this.launcherAssistant.appLauncherCfg.wrap) {
++				this.previousPage = this.activePage;
++				while(this.activePage.next() !== null)
++					this.activePage = this.activePage.next();
++				canPage = true;
++				snapIndex = this.launcherAssistant.pagesModel.getNumPages() - 1;
++			}
+ 		}
+ 		else if (direction == 1 && this.activePage.next() !== null) {
+ 			this.previousPage = this.activePage;
+ 			this.activePage = this.activePage.next();
+ 			canPage = true;
++			snapIndex = this.launcherAssistant.activePageIndex + direction;
++		}
++		else if (direction == 1 && this.activePage.next() == null) {
++			if(this.launcherAssistant.appLauncherCfg.wrap) {
++				this.previousPage = this.activePage;
++				while(this.activePage.previous() !== null)
++					this.activePage = this.activePage.previous();
++				canPage = true;
++				snapIndex = 0;
++			}
+ 		}
+ 	    
+ 		if (canPage) {
+@@ -446,7 +475,16 @@ var ReorderController = Class.create({
+ 			this.activePage.show();
+ 			
+ 			this.pagingAnimating = true;
+-			$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.activePageIndex + direction, true);
++			
++			this.launcherAssistant.changePage(snapIndex, true);
++			
++			if(this.launcherAssistant.appLauncherCfg.wrap) {
++				this.launcherAssistant.onPageChange({value: snapIndex});
++				
++				this.pagingAnimating = false;
++				var previousPageIndex = this.launcherAssistant.getPageIndex(this.previousPage);
++				this._pagingComplete(previousPageIndex, this.launcherAssistant.activePageIndex);
++			}
+ 		}
+ 	},
+ 	
+diff --git a/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js b/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
+index 062bddd..a6704b8 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
++++ b/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
+@@ -240,6 +240,12 @@ var LauncherPages = Class.create({
+ 		return true;
+ 	},
+ 	
++	switchPages: function(firstIndex, secondIndex) {
++		var page = this._storedPages.splice(firstIndex, 1);
++
++		this._storedPages.splice(secondIndex, 0, page[0]);
++	},
++	
+ 	getNumPages: function() {
+ 		return this._storedPages.length;
+ 	},
+diff --git a/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
+index bdf3824..b9fbfc2 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
++++ b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
+@@ -9,5 +9,6 @@
+ <div class="palm-dialog-separator"></div>
+ <div class="palm-dialog-buttons">
+ 	<div id='delete-btn' x-mojo-element="Button"></div>	
++	<div id='move-btn' x-mojo-element="Button"></div>
+ 	<div id='done-btn' x-mojo-element="Button"></div>
+ </div>
+diff --git a/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html b/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
+index d34a6a5..294420f 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
++++ b/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
+@@ -17,7 +17,11 @@
+ 		<div class="palm-header-spacer strut"></div>
+ 	</div>
+ 	
+-	<div id="launcher-main">
++	<div id="launcher-main">
++		<div id="page_header" style="display: none;" class="palm-header center" x-mojo-touch-feedback="immediate">
++			<div id="page_name" style="display: block;">Launcher Page</div>
++			<div id="page_text" style="display: none;" x-mojo-element="TextField"></div>
++		</div>
+ 		<div id="launcher_root" x-mojo-element="Scroller">
+ 			<div id="pages_container"></div>
+ 		</div>
+diff --git a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
+index 45b6546..c14a69d 100644
+--- a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
++++ b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
+@@ -342,3 +342,87 @@ body.palm-default
+ 	text-overflow: ellipsis;
+ 	white-space: nowrap;
+ }
++
++/* page names element */
++
++#page_text {
++	min-width: 100%;
++	width: 100%;
++}
++                                                                                                               
++#page_text input {
++	min-width: 100%;
++	font-weight: bold;
++	height: 46px;
++	outline: none;
++	background: none;
++	border-width: 0 0 0 0;
++	font-size: 16px;
++	line-height: 22px;
++	color: white;
++	margin: 0 16px 0 0px;
++	padding: 0;
++	text-align: center;
++}
++
++.jumpMenu {
++	position: fixed;
++	top: 28px;
++	width:300px;
++	left: 10px;
++	z-index: 32;
++}
++
++.pageMenu {
++	position: fixed;
++	top: 28px;
++	width:300px;
++	left: 10px;
++	z-index: 32;
++	max-height: 340px;
++}
++
++.pageMenu .palm-popup-content .palm-list {
++	max-height: 340px;
++}
++
++.jumpMenu .palm-popup-content,
++.pageMenu .palm-popup-content {
++	margin: 12px 8px 10px 8px;
++}
++
++.jumpMenu .palm-popup-content .palm-list .chosen .title,
++.pageMenu .palm-popup-content .palm-list .chosen .title {
++
++	font-weight: bold;
++}
++
++.jumpMenu .palm-popup-content .palm-list .title,
++.pageMenu .palm-popup-content .palm-list .title {
++	line-height: 42px;
++	min-height: 46px;
++	font-size: 18px;
++	text-align: center;
++	margin:0px;
++	padding:0px;
++}
++
++.jumpMenu .palm-popup-content .chosen .popup-item-checkmark,
++.pageMenu .palm-popup-content .chosen .popup-item-checkmark {
++  display: none;
++}
++
++.jumpMenu .palm-popup-content .palm-list .palm-row,
++.pageMenu .palm-popup-content .palm-list .palm-row {
++	line-height: 42px;
++	min-height: 46px;
++	max-height: 46px;
++	margin:0px;
++	padding:0px;
++}
++
++.pageMenuScrim {
++	background: transparent;
++	z-index: 30;
++}
++
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index a4a150e..308ba78 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -30,6 +30,16 @@ var BarAssistant = Class.create({
+ 		
+ 		this.getBuildName();
+ 						
++		// Subscribe to the Quick Launch Bar prererences
++		this.quickLaunchMode = "visible";
++
++		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
++			method: 'getPreferences', parameters: {"keys":["quickLaunchMode"],"subscribe": true},
++			onSuccess: function(payload) {
++				if((payload != undefined) && (payload.quickLaunchMode != undefined))
++					this.quickLaunchMode = payload.quickLaunchMode;
++				}.bind(this) });
++		
+ 		// Initialize the Battery Power Nofication and get the initial value
+ 		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
+ 		
+@@ -294,6 +304,11 @@ updateAppMenuTitle: function(payload) {
+ 		$('carrier').show();
+ 		this.foregroundAppID=null;
+ 	}
++
++	if(this.quickLaunchMode == "hidden") {
++		this.controller.serviceRequest('palm://com.palm.systemmanager', {
++			method: 'systemUi', parameters: {"quicklaunch": false} });
++	}
+ },
+ 
+ updatePhoneAppName: function(){
