@@ -1,0 +1,190 @@
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
+index 9030f4d..cfadec6 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
+@@ -10,7 +10,19 @@ MenuData.ApplicationMenu = {
+ 		label: $L('New Card'),
+ 		command: 'new-page-cmd'
+ 	},
++
++	EnableGesture: {
++		label: $L('Enable Gesture'),
++		command: 'enable-gesture-cmd',
++		checkEnabled: true
++	},
+ 	
++	DisableGesture: {
++		label: $L('Disable Gesture'),
++		command: 'disable-gesture-cmd',
++		checkEnabled: true
++	},	
++		
+ 	SharePage: {
+ 		label: $L('Share'),
+ 		command: 'share-page-cmd',
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+index 09c898f..ec6f7a3 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+@@ -92,7 +92,7 @@ PageAssistant.prototype.setup = function() {
+ 		this._updateOrientation();
+ 
+ 		// Allow override of 'back' gesture in landscape mode.
+-		this.controller.useLandscapePageUpDown(true);
++		this.controller.useLandscapePageUpDown(false);
+ 
+ 		// Create the browser server status control.
+ 		this._browserServerStatus = new BrowserServerStatus(this.controller);
+@@ -300,6 +300,9 @@ PageAssistant.prototype.activate = function(message) {
+ 		
+ 		this._updateOrientation();
+ 		
++		// FullScreen Browser
++        this.controller.enableFullScreenMode(true);		
++		
+ 		// Update any pending web preferences changes
+ 		AppAssistant.WebPreferences.activate(this._webView.mojo);
+ 
+@@ -786,16 +789,26 @@ PageAssistant.prototype._setupMenus = function() {
+ 		this.appMenuModel = {
+ 			visible: true,
+ 			items: [
+-				MenuData.ApplicationMenu.NewCard,
+-				MenuData.ApplicationMenu.AddBookmark,
++				{
++					label: $L("On/Off Gesture"),
++					items: [
++					    {label:$L('Enable Gesture'),     shortcut:'e', command:'enable-gesture-cmd'},
++                        {label:$L('Disable Gesture'),     shortcut:'d', command:'disable-gesture-cmd'},
++						   ]
++				},	
++				{label:$L('New Card'),     shortcut:'n', command:'new-page-cmd'},
++				{label:$L('Add Bookmark'),     shortcut:'m', command:'add-bookmark-cmd'},
+ 				{
+ 					label: $L("Page"),
+ 					items: [
+-						MenuData.ApplicationMenu.AddToLauncher,
+-						MenuData.ApplicationMenu.SharePage]
++						{label:$L('Add To Launcher'),     shortcut:'l', command:'add-launch-icon-cmd'},
++						{label:$L('Share Page'),     shortcut:'s', command:'share-page-cmd'},
++                       {label:$L('Refresh Page'),     shortcut:'r', command:'refresh'},
++                           ]
+ 				},
+-				MenuData.ApplicationMenu.ShowBookmarks,
+-				MenuData.ApplicationMenu.ShowHistory]
++				{label:$L('Bookmarks'),     shortcut:'b', command:'show-bookmarks-cmd'},
++				{label:$L('History'),     shortcut:'h', command:'show-history-cmd'},
++                           ]
+ 		};
+ 
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
+@@ -1893,6 +1906,7 @@ PageAssistant.prototype.moved = function() {
+ 			this._addressBar.hide();
+ 			this.chrome.hide();
+ 
++		this.controller.enableFullScreenMode(true);
+ 			// Only focus this webview widget if this assistant has
+ 			// focus. All page-assisants can receive 'moved' events
+ 			// so we have to be careful when explicitly setting the
+@@ -1917,6 +1931,7 @@ PageAssistant.prototype.moved = function() {
+ 		this._addressBar.show();
+ 		this.chrome.show();
+ 
++		this.controller.enableFullScreenMode(false);
+ 	} else {
+ 		//Mojo.Log.info("-> TOP == 0 Do Nothing.");
+ 		// Do nothing.
+@@ -2106,7 +2121,15 @@ PageAssistant.prototype.handleCommand = function(event) {
+ 				case MenuData.ApplicationMenu.NewCard.command:
+ 					this._newBrowserPage();
+ 					break;
++					
++				case MenuData.ApplicationMenu.EnableGesture.command:
++					this.controller.useLandscapePageUpDown(true);
++					break;	
+ 
++				case MenuData.ApplicationMenu.DisableGesture.command:
++					this.controller.useLandscapePageUpDown(false);
++					break;
++					
+ 				case MenuData.ApplicationMenu.AddBookmark.command:
+ 					urlReference = new UrlReference(this.currentUrl, this.currentTitle, new Date());
+ 					this._createDefaultBookmarkImages(urlReference);
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
+index 965e167..ad50838 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
+@@ -98,7 +98,8 @@ PageControls = Class.create({
+ 			type: 'idle',
+ 			label: MenuData.NavigationMenu.Reload.label,
+ 			icon: MenuData.NavigationMenu.Reload.icon,
+-			command: MenuData.NavigationMenu.Reload.command
++			command: MenuData.NavigationMenu.Reload.command,
++
+ 		};
+ 
+ 		if (this._animation) {
+@@ -111,6 +112,7 @@ PageControls = Class.create({
+ 		// The spacer... right aligns the following button.
+ 		this._model.items.push(idleModel);
+ 		this._controller.modelChanged(this._model);
++		this._controller.setMenuVisible(Mojo.Menu.commandMenu, false);
+ 
+ 		this._currentPageModel = idleModel;
+ 	},
+@@ -141,6 +143,7 @@ PageControls = Class.create({
+ 			this._model.items.push(progressModel);
+ 			this._controller.modelChanged(this._model);
+ 			this._animation.start(0);
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
+ 
+ 			this._currentPageModel = progressModel;
+ 
+@@ -186,6 +189,7 @@ PageControls = Class.create({
+ 			this._model.items.push(searchModel);
+ 			this._controller.modelChanged(this._model);
+ 			this._animation.start();
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
+ 
+ 			this._currentPageModel = searchModel;
+ 
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
+index 1d890db..8dc6ecf 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
+@@ -23,7 +23,7 @@ StartpageAssistant.prototype.setup = function() {
+ 	this._updateOrientation();
+ 
+ 	// Allow override of 'back' gesture in landscape mode.
+-	this.controller.useLandscapePageUpDown(true);
++	this.controller.useLandscapePageUpDown(false);
+ 
+ 	// Listen for scene scope keyboard events.
+ 	this.controller.listen(this.controller.sceneElement, Mojo.Event.keydown, this._onKeyDownEventHandler);
+@@ -42,6 +42,13 @@ StartpageAssistant.prototype.setup = function() {
+ 	this.appMenuModel = {
+ 		visible: true,
+ 		items: [
++				{
++					label: $L("On/Off Gesture"),
++					items: [
++					    {label:$L('Enable Gesture'),     shortcut:'e', command:'enable-gesture-cmd'},
++                        {label:$L('Disable Gesture'),     shortcut:'d', command:'disable-gesture-cmd'},
++						   ]
++				},	
+ 			MenuData.ApplicationMenu.NewCard,
+ 			MenuData.ApplicationMenu.AddBookmark,
+ 			{
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/widget_webview.js b/usr/palm/applications/com.palm.app.browser/app/controllers/widget_webview.js
+index 6f1811c..301d890 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/widget_webview.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/widget_webview.js
+@@ -537,7 +537,7 @@ Mojo.Widget.WebView = Class.create({
+ 			// This browser page was purged when the application was not in the foreground.
+ 			// Now that we're active again let's reconnect and reload the page.
+ 			Mojo.Log.info("Reconnecting adapter to server.");
+-			this._connectAdapterToServer();
++			this._connectAdapterToServer(false);
+ 		}
+ 	},
+ 

@@ -1,0 +1,187 @@
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+index 9057138..7c98cc9 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -17,6 +17,7 @@ var LauncherAssistant = Class.create({
+ 	kAppsPerRow: NaN,
+ 	kAppHeight: NaN,
+ 	kAppWidth: NaN,
++    kMaxPageSelectorTabs: 5,
+ 	/* constant end */
+ 	
+ 	appMenuModel: {
+@@ -73,6 +74,18 @@ var LauncherAssistant = Class.create({
+ 				onAppUpdated: this.onAppUpdated.bind(this)
+ 			}
+ 		);
++
++        // Set up an initial blank view menu widget for page selection. (LMO)
++        this.viewMenuModel = {
++            label: $L('Launcher pages'), items: [
++                { items: [] },
++                { label: $L('Pages'), items: [] },
++                { items: [] }
++            ]
++        };
++        this.controller.setupWidget(
++            Mojo.Menu.viewMenu, { menuClass: 'no-fade' }, this.viewMenuModel
++        );
+ 		
+ 		this.globalSearchAssistant = new GlobalSearchAssistant(this.controller, this);
+ 		
+@@ -111,6 +124,14 @@ var LauncherAssistant = Class.create({
+ 	
+ 	handleCommand: function(event) {
+ 		if (event.type == Mojo.Event.command) {
++
++            // Check for pageselect_{number} commands to switch pages. (LMO)
++            var m; 
++            if (m = (/^pageselect_(\d+)$/.exec(event.command))) {
++                // Note: parseInt() needed here so scroller math doesn't break
++                return this.gotoPage(parseInt(m[1]));
++            }
++
+ 			switch (event.command) {
+ 				case Mojo.Menu.helpCmd:
+ 					ApplicationService.launch(this.helpInfo.id, this.helpInfo.params);
+@@ -255,6 +276,7 @@ var LauncherAssistant = Class.create({
+ 		
+ 		// tell our scroller widget that it has a new page element to snap
+ 		this.updatePageSnappingPoints();
++        this.rebuildPageSelector(); // (LMO)
+ 	},
+ 	
+ 	deletePage: function(pageIndex) {
+@@ -307,6 +329,7 @@ var LauncherAssistant = Class.create({
+ 		}
+ 		
+ 		this.updatePageSnappingPoints();
++        this.rebuildPageSelector(); // (LMO)
+ 	},
+ 	
+ 	/* creates and appends a new application div in the provided page container */
+@@ -655,6 +678,9 @@ var LauncherAssistant = Class.create({
+ 	
+ 	/* Updates the positions of all page indicators. */
+ 	updatePageIndicators: function() {
++
++        // Ensure that the view menu tabs reflect the active page. (LMO)
++        this.setPageSelectorState(this.activePageIndex);
+ 		
+ 		if (this.indicators.length <= 0) {
+ 			return;
+@@ -763,6 +789,91 @@ var LauncherAssistant = Class.create({
+ 	onLaunchCompleted: function(response) {
+ 		
+ 		this.launchRequest = undefined;
+-	}
++    },
++
++    /**
++     * Rebuild the page selector tabs and possible overflow submenu. (LMO)
++     */
++    rebuildPageSelector: function () {
++
++        var items = [], 
++            submenu_items = [];
++
++        for (var i=0,l=this.pageDivs.length; i<l; i++) {
++        
++            // Build a new page selection item.
++            var new_item = { label: '#'+(i+1), command: 'pageselect_' + i };
++
++            // If there are exactly 5 items, or this is item 4 or less,
++            // drop it into the top-level items list.
++            if (l<=this.kMaxPageSelectorTabs || i<(this.kMaxPageSelectorTabs-1)) { 
++                items.push(new_item); 
++            }
++
++            // If there are more than 5 items, the fifth top-level item
++            // invokes a sub-menu containing the rest of the items.
++            if (l>this.kMaxPageSelectorTabs) {
++                if (i==(this.kMaxPageSelectorTabs-1)) {
++                    // Create the overflow submenu button.
++                    items.push({ label: '...', command: 'pageselect_more_pages',
++                        submenu: 'pageselect_more_pages' });
++                }
++                if (i>=(this.kMaxPageSelectorTabs-1)) { 
++                    // Add the current item to the overflow submenu.
++                    submenu_items.push(new_item); 
++                }
++            }
++            
++        }
++
++        // Update the view menu model for page selection.
++        this.viewMenuModel.items[1].items = items;
++
++        // If there was a submenu of items built, rebuild the submenu itself.
++        if (submenu_items.length) {
++            this.controller.setupWidget('pageselect_more_pages', undefined, 
++                this.pageselectSubmenuModel = {
++                    label: $('More pages'), items: submenu_items
++                }
++            );	
++        }
++
++        // Make the widget refresh with the new data, ensure state matches
++        // active page state.
++        this.controller.modelChanged(this.viewMenuModel);
++        this.setPageSelectorState(this.activePageIndex);
++    },
++
++    /**
++     * Update the view menu tabs to reflect a given page index. (LMO)
++     *
++     * @param {int} idx Page index.
++     */
++    setPageSelectorState: function (idx) {
++        if (idx >= (this.kMaxPageSelectorTabs-1) && this.pageDivs.length > this.kMaxPageSelectorTabs) {
++            // Tab selected belongs to the overflow submenu, so set a checkmark
++            this.viewMenuModel.items[1].toggleCmd = 'pageselect_more_pages';
++            this.pageselectSubmenuModel.toggleCmd = 'pageselect_' + idx;
++        } else {
++            // Tab belongs to the visible tabs, so toggle one on.
++            this.viewMenuModel.items[1].toggleCmd = 'pageselect_' + idx;
++            if (this.pageselectSubmenuModel) {
++                // If there happens to be a submenu, clear the checkmark.
++                this.pageselectSubmenuModel.toggleCmd = '';
++            }
++        }
++        this.controller.modelChanged(this.viewMenuModel);
++    },
++
++    /**
++     * Switch directly to a page. (LMO)
++     *
++     * @param {int} idx Page index.
++     */
++    gotoPage: function (idx) {
++        $('launcher_root').mojo.setSnapIndex(idx, true);
++        this.activePageIndex = idx;
++        this.updatePageIndicators();
++    }
+ 	
+ });
+diff --git a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
+index 45b6546..fe30375 100644
+--- a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
++++ b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
+@@ -59,7 +59,7 @@ body.palm-default
+ 	width: 100%;
+ 	z-index: 29;
+ 	height: 24px;
+-	top: 1px;
++	top: 45px; /* Insert some space for the page selector (LMO) */
+ 	background: url(../images/fade-arrow-up.png) center center no-repeat;
+ 	-webkit-palm-mouse-target: ignore;
+ }
+@@ -106,7 +106,7 @@ body.palm-default
+ }
+ 
+ .page_scroller_container {
+-	margin-top: 10px;
++	margin-top: 55px; /* Insert some space for the page selector (LMO) */
+ 	margin-bottom: -20px;
+ }
+ 

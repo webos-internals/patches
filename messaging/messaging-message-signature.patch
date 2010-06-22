@@ -1,0 +1,215 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 484cd45..5c8d1e4 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -41,6 +41,8 @@ var ChatviewAssistant = Class.create({
+ 		this.selectedTransport = {};
+ 		this.IMAddressSubscriptions = [];
+ 		this.attachment;
++		this.msgGreeting = "";
++		this.msgSignature = "";
+ 		this.messageTextElement;
+ 		this.hasLoadedChatList = false;
+ 		this.attemptedToFixChatWithBadPersonId = false;
+@@ -2486,10 +2488,28 @@ var ChatviewAssistant = Class.create({
+ 			}
+ 		}
+ 		
++		this.cookieGreet = new Mojo.Model.Cookie("com.palm.app.messaging.messagegreeting");
++		if (this.cookieGreet) {
++			var cookieGreet = this.cookieGreet.get();
++			if (cookieGreet) {			
++				if(cookieGreet.messageGreeting) {
++					this.msgGreeting = cookieGreet.messageGreeting;
++				}
++			}
++		}
++		this.cookieSign = new Mojo.Model.Cookie("com.palm.app.messaging.messagesignature");
++		if (this.cookieSign) {
++			var cookieSign = this.cookieSign.get();
++			if (cookieSign) {			
++				if(cookieSign.messageSignature) {
++					this.msgSignature = cookieSign.messageSignature;
++				}
++			}
++		}
+ 		var params = {
+ 			chatThreadId: this.chatThreadId,
+ 			recipient: recipient,
+-			messageText: message
++			messageText: this.msgGreeting + message + this.msgSignature
+ 		};
+ 		if (this.selectedTransport.contactPointId) 
+ 			params.contactPointId = this.selectedTransport.contactPointId;
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+index 3183de4..89d45f1 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+@@ -5,6 +5,8 @@ var ComposeAssistant = Class.create({
+ 		this.appController = Mojo.Controller.getAppController();
+ 		this.Messaging = this.appController.Messaging;
+ 		this.attachment;
++		this.msgGreeting = "";
++		this.msgSignature = "";
+ 		this.messageTextElement;
+ 		this.prePopulatedRecipients = [];
+ 		this.sendMessageCount = 0;	// keep a count of how many times we call send so we know when the last callback is hit
+@@ -273,9 +275,27 @@ var ComposeAssistant = Class.create({
+ 		if(!this.handleSentMessageResponse) {
+ 			this.handleSentMessageResponse = this._handleSentMessageResponse.bind(this);
+ 		}
++		this.cookieGreet = new Mojo.Model.Cookie("com.palm.app.messaging.messagegreeting");
++		if (this.cookieGreet) {
++			var cookieGreet = this.cookieGreet.get();
++			if (cookieGreet) {			
++				if(cookieGreet.messageGreeting) {
++					this.msgGreeting = cookieGreet.messageGreeting;
++				}
++			}
++		}
++		this.cookieSign = new Mojo.Model.Cookie("com.palm.app.messaging.messagesignature");
++		if (this.cookieSign) {
++			var cookieSign = this.cookieSign.get();
++			if (cookieSign) {			
++				if(cookieSign.messageSignature) {
++					this.msgSignature = cookieSign.messageSignature;
++				}
++			}
++		}
+ 		var params = {
+ 			recipientJSONArray: recipientsArray,
+-     		messageText: message,
++     		messageText: this.msgGreeting + message + this.msgSignature,
+       		onSuccess: this.handleSentMessageResponse
+ 		};
+ 		if (this.attachment) { // sending an attachment
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+index 50c8e26..20fe639 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+@@ -31,6 +31,26 @@ var PrefsAccountSummaryAssistant = Class.create({
+         this.controller.get('phoneNumber').update(MessagingUtils.formatPhoneNumber(MessagingUtils.handleGetOwnPhoneNumber(data.phoneNumber)));
+       }).bind(this));  
+    
++      this.greetingModel = {
++        'msgGreeting': ''
++      };
++      this.controller.setupWidget('msgGreeting', {
++        modelProperty: "msgGreeting",
++        maxLength: 30
++      }, this.greetingModel);
++	  this.currentGreeting();
++
++      this.signatureModel = {
++        'msgSignature': ''
++      };
++      this.controller.setupWidget('msgSignature', {
++        modelProperty: "msgSignature",
++        maxLength: 30
++      }, this.signatureModel);
++	  this.currentSignature();
++
++      this.controller.get('msgGreeting').observe(Mojo.Event.propertyChanged, this.msgGreetingChanged.bindAsEventListener(this));
++      this.controller.get('msgSignature').observe(Mojo.Event.propertyChanged, this.msgSignatureChanged.bindAsEventListener(this));
+       this.controller.listen('preferences-accounts',Mojo.Event.listTap, this.handleAccountListTap);      
+       this.controller.listen('addAccountButton',Mojo.Event.tap, this.handleAddAccountTap);   
+    
+@@ -43,6 +63,8 @@ var PrefsAccountSummaryAssistant = Class.create({
+ 		if (this.saveSMSPrefs) {
+ 			this.controller.stopListening('savePrefs', Mojo.Event.tap, this.saveSMSPrefs);
+ 		}
++      this.controller.get('msgGreeting').stopObserving(Mojo.Event.propertyChanged, this.msgGreetingChanged.bindAsEventListener(this));
++      this.controller.get('msgSignature').stopObserving(Mojo.Event.propertyChanged, this.msgSignatureChanged.bindAsEventListener(this));
+       this.controller.stopListening('notificationToggle',Mojo.Event.propertyChange,this.notificationToggleChanged);
+       this.controller.stopListening('notificationSoundSelector',Mojo.Event.propertyChange,this.notificationSoundToggleChanged);		
+       this.controller.stopListening('autoDownloadToggle',Mojo.Event.propertyChange,this.autoDownloadToggleChanged);
+@@ -193,6 +215,48 @@ var PrefsAccountSummaryAssistant = Class.create({
+       this.requests.push(MessagingMojoService.getMMSSettings(this.renderEditMMSSettings.bind(this), this.controller)); 
+     },
+     
++    currentGreeting: function() {
++		this.cookieGreet = new Mojo.Model.Cookie("com.palm.app.messaging.messagegreeting");
++		if (this.cookieGreet) {
++			var cookieGreet = this.cookieGreet.get();
++			if (cookieGreet) {			
++				if(cookieGreet.messageGreeting) {
++					this.msgGreeting = cookieGreet.messageGreeting;
++				}
++			}
++		} else {
++			this.msgGreeting = "";
++		}
++		this.greetingModel.msgGreeting = this.msgGreeting;
++        this.controller.modelChanged(this.greetingModel);            
++	},
++	
++    currentSignature: function() {
++		this.cookieSign = new Mojo.Model.Cookie("com.palm.app.messaging.messagesignature");
++		if (this.cookieSign) {
++			var cookieSign = this.cookieSign.get();
++			if (cookieSign) {			
++				if(cookieSign.messageSignature) {
++					this.msgSignature = cookieSign.messageSignature;
++				}
++			}
++		} else {
++			this.msgSignature = "";
++		}
++		this.signatureModel.msgSignature = this.msgSignature;
++        this.controller.modelChanged(this.signatureModel);            
++	},
++	
++    msgGreetingChanged: function(event){
++		this.msgGreeting = event.value;
++		this.cookieGreet.put({messageGreeting: this.msgGreeting});
++    },
++	
++    msgSignatureChanged: function(event){
++		this.msgSignature = event.value;
++		this.cookieSign.put({messageSignature: this.msgSignature});
++    },
++	
+     prefsNotification: function() {
+       // The notification prefs were loaded on headless app boot
+       var messagingPrefs = this.Messaging.messagingPrefs;
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+index 03d2b66..be09c77 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -6,6 +6,36 @@
+     </div>
+   </div>
+ 
++    <div class="palm-group">
++        <div class="palm-group-title">
++            <span x-mojo-loc="">Outgoing greeting (30 chars)</span>
++        </div>
++        <div class="palm-list">
++            <div class='palm-row single'>
++                <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
++                    <div class="title">
++                        <div id="msgGreeting" name="msgGreeting" x-mojo-element="TextField">
++                        </div>
++                    </div>
++                </div>
++            </div>
++        </div>
++    </div>
++    <div class="palm-group">
++        <div class="palm-group-title">
++            <span x-mojo-loc="">Outgoing signature (30 chars)</span>
++        </div>
++        <div class="palm-list">
++            <div class='palm-row single'>
++                <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
++                    <div class="title">
++                        <div id="msgSignature" name="msgSignature" x-mojo-element="TextField">
++                        </div>
++                    </div>
++                </div>
++            </div>
++        </div>
++    </div>
+ 	<div class="palm-group">
+ 		<div class="palm-group-title" x-mojo-loc=''>
+ 			New message

@@ -1,0 +1,208 @@
+diff --git a/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js b/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
+index fbb9529..8d02c9e 100644
+--- a/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
++++ b/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
+@@ -306,6 +306,9 @@ ListAssistant = Class.create(App.Scene,{
+ 			renderLimit: 200,
+ 			scrollThreshold: 4800,
+ 			
++			swipeToDelete:true,
++			autoconfirmDelete:false,
++			
+ 			dividerTemplate: 'list/group_separator',
+ 			dividerFunction: this.getDivider,
+ 			emptyTemplate: 'list/empty'
+@@ -318,6 +321,7 @@ ListAssistant = Class.create(App.Scene,{
+ 		this.controller.listen(this.listDiv, Mojo.Event.filter, this.handleFilter.bindAsEventListener(this), true);
+ 		this.controller.listen(this.listDiv, Mojo.Event.filterImmediate, this.handleFilterImmediate.bindAsEventListener(this));
+ 		this.controller.listen(this.listDiv, Mojo.Event.listTap, this.handleListTap.bindAsEventListener(this));
++		this.controller.listen(this.listDiv, Mojo.Event.listDelete, this.handleListDelete.bindAsEventListener(this));
+ 		this.emptyHolder = this.controller.get('emptyHolder');
+ 
+ 		if (this.mode != "picker") {
+@@ -420,6 +424,7 @@ ListAssistant = Class.create(App.Scene,{
+ 		if (this.mode != "picker") {
+ 			AppAssistant.listResetCallback = undefined;
+ 		}
++		this.controller.stopListening(this.listDiv, Mojo.Event.listDelete, this.handleListDelete);
+ 	},
+ 	
+ 	scrollStarting: function(event) {
+@@ -538,6 +543,177 @@ ListAssistant = Class.create(App.Scene,{
+ 		}
+ 	},
+ 	
++	handleListDelete: function(event) {
++		this.targetId = event.item.id;
++		this.linkedRequest = AppAssistant.contactsService.getLinkedContacts(this.targetId, this.getLinkedContactsCallback.bind(this), this.controller, this.serviceForDeleteFailed.bind(this));
++	},
++	
++	doDelete: function() {
++		var deleteName = this.person.fullName ||
++		$L({
++			value: "Person",
++			key: "default_value_for_deletion_when_no_name"
++		});
++		var choices;
++		
++		var deleteContactChoice = {
++			label: $L('Delete All Profiles'),
++			value: 'DELETE_ALL',
++			type: 'negative'
++		}
++		var deleteOtherContactsChoice = {
++			label: $L('Delete other profiles'),
++			value: 'DELETE_OTHERS',
++			type: 'negative'
++		}
++		var cancelChoice = {
++			label: $L('Cancel'),
++			value: 'CANCEL',
++		}
++		choices = [];
++		var hasReadOnlyContact = false;
++		var hasWritableContact = false;
++		var readOnlyType = "";
++		this.linkedContacts.each(function(contact){
++			if (contact.readOnly) {
++				readOnlyType = contact.accountName;
++				hasReadOnlyContact = true;
++			} else {
++				hasWritableContact = true;
++			}
++		});
++		
++		var messageTemplate;
++		var extraPromptRequired = true;
++		if (hasReadOnlyContact && hasWritableContact) {
++			messageTemplate = new Template($L('#{type} profiles cannot be deleted.  Delete all other profiles?'));
++			choices.push(deleteOtherContactsChoice);
++			choices.push(cancelChoice);
++		} else if (hasReadOnlyContact && !hasWritableContact) {
++			messageTemplate = new Template($L('#{type} profiles can not be deleted'));
++			choices.push(cancelChoice);
++		} else {
++			extraPromptRequired = false;
++		}
++		
++		if (extraPromptRequired === true) {	
++			var message = messageTemplate.evaluate({
++				deleteName: deleteName,
++				type:readOnlyType
++			});
++			this.controller.showAlertDialog({
++				onChoose: function(value){
++					if (value == 'DELETE_ALL' || value == 'DELETE_OTHERS') {
++						var that = this;
++						this.linkedContacts.each(function(c){
++							if (!c.readOnly) {
++								AppAssistant.contactsService.doAsyncDelete(c.id);
++							}
++						})
++						if (AppAssistant.listResetCallback) 
++							AppAssistant.listResetCallback();
++						if (value == 'DELETE_ALL') {
++							if(this.person.launcherId){
++								new Mojo.Service.Request("palm://com.palm.applicationManager/removeLaunchPoint", {
++									parameters: {
++										launchPointId:this.person.launcherId,
++										id:"com.palm.app.contacts"
++									}
++								})
++							}
++						}
++					} else {
++						if (AppAssistant.listResetCallback) 
++							AppAssistant.listResetCallback();
++					}
++				}.bind(this),
++				message: message,
++				choices: choices
++			});
++		} else {
++			if(this.person.launcherId){
++				new Mojo.Service.Request("palm://com.palm.applicationManager/removeLaunchPoint", {
++					parameters: {
++						launchPointId:this.person.launcherId,
++						id:"com.palm.app.contacts"
++					}
++				});
++			}
++			this.linkedContacts.each(function(c){
++				if (!c.readOnly) {
++					AppAssistant.contactsService.doAsyncDelete(c.id);
++				}
++			});
++		}
++	},
++	
++	getLinkedContactsCallback: function(resp){
++		resp.list.each(function(c){
++			c.iconClass = AppAssistant.getIconClass(c.accountId)
++			c.iconPath = Utilities.iconJSONToIconPath(c.accountIcons)
++		})
++		this.linkedContactsWithAccountIDs = resp.list;
++		if (this.linkedContacts) 
++			this.giveContactsAccountIds();
++		this.detailRequest = AppAssistant.contactsService.details(this.targetId, this.renderContactForDelete.bind(this), this.controller, {
++			collapse: false
++		}, this.serviceForDeleteFailed.bind(this));
++		this.isFirstLinking = false;
++	},
++	
++	giveContactsAccountIds: function(){
++		//Go through each contact, attatch its id to the matching contact in this.linkedContacts
++		for (var i = 0; i < this.linkedContactsWithAccountIDs.length; i++) {
++			var linkedC = this.linkedContactsWithAccountIDs[i];
++			for (var j = 0; j < this.linkedContacts.length; j++) {
++				var c = this.linkedContacts[j];
++				if (c.id == linkedC.id) {
++					if (linkedC.readOnly) {
++						c.disabled = true;
++					}
++					//TODO We need a better way to specify the diff between google contacts, and gtalk contacts
++					///We should be putting better class names in the accounts.xml
++					if (linkedC.accountName == "Google") {
++						linkedC.accountDomain = "google";
++					}
++					c.accountDomain = linkedC.accountDomain;
++					
++					c.command = "c," + c.id + "," + linkedC.accountDomain;
++					c.label = c.getFullName() || $L("No name available");
++					c.accountName = linkedC.accountName;
++					c.readOnly = linkedC.readOnly;
++					c.iconPath = linkedC.iconPath;
++				}
++			}
++		}
++	},
++	
++	renderContactForDelete: function(response){
++		if(response.list.length < 1){
++			Mojo.Log.info("No actual linked contacts, you must have deleted the last one.")
++			if (AppAssistant.listResetCallback) 
++				AppAssistant.listResetCallback();
++			return;
++		}
++		response.list.each(function(c){
++			//This might be a little costly, but we need the contact to be the same object that is in the linkedContacts arrays
++			Object.extend(c, new Contact(c));
++		});
++		this.linkedContacts = response.list;
++		if (this.linkedContactsWithAccountIDs) 
++			this.giveContactsAccountIds();
++		this.person = new Contact(response.person);
++		this.doDelete();
++	},
++	
++	serviceForDeleteFailed: function(resp){
++		this.linkedRequest.cancel();
++		this.detailRequest.cancel();
++		Mojo.Log.error("Getting contact details failed for id " + this.targetId + ". Response: %j", resp);
++		if (AppAssistant.listResetCallback) 
++			AppAssistant.listResetCallback();
++	},
++	
+ 	peoplePickerDetailCallbackFailure:function(resp){
+ 		this.controller.stageController.popScene(resp);
+ 	},

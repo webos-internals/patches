@@ -1,0 +1,217 @@
+diff --git a/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js b/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
+index fbb9529..4051e85 100644
+--- a/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
++++ b/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
+@@ -287,6 +287,12 @@ ListAssistant = Class.create(App.Scene,{
+ 				items: [Mojo.Menu.editItem,{
+ 					label:$L("Send All to Car Kit"),
+ 					command:"sendcontacts"
++				}, {
++					label: $L('Create Birthday Events'),
++					command: "birthdayevent"
++				}, {
++					label: $L('Remove Birthday Events'),
++					command: "removeevents"
+ 				}, prefsItem, {
+ 					label: $LL('Help'),
+ 					command: Mojo.Menu.helpCmd
+@@ -466,6 +472,199 @@ ListAssistant = Class.create(App.Scene,{
+ 			this.controller.stageController.pushScene('prefs');
+ 		}else if (event.type == Mojo.Event.command && event.command == "sendcontacts") {
+ 			this.sendContacts();
++		}else if (event.type == Mojo.Event.command && event.command == "removeevents") {
++			AppAssistant.contactsService.getDefaultAccount(
++				function(account) {
++					var accountId = account.defaultAccountId;
++					this.controller.serviceRequest('palm://com.palm.calendar', {      
++						method: 'getCalendarsForSyncAccount',
++						parameters: {id: accountId},
++						onSuccess: function(calList) {
++							try {
++							//Mojo.Log.error(Object.toJSON(calList.calendars));
++							if (calList.calendars.length > 0) {
++								var calendarId = calList.calendars[0].id;
++								this.controller.serviceRequest('palm://com.palm.calendar', {      
++									method: 'getEvents',
++									parameters: {calendarId: calendarId, startDate: 1262304000000, endDate: 1293839999999, subscribe: false},
++									onSuccess: function(eventList) {
++										for (var i=0; i<eventList.days.length; i++) 
++										{
++											var day = eventList.days[i];
++											for (var k=0; k<day.allDayEvents.length; k++) 
++											{
++												var evnt = day.allDayEvents[k];
++												var eventId = evnt.id;
++												var subject = evnt.subject;
++												if (evnt.note.indexOf("Created by birthday reminder patch from MetaViewSoft") > -1)
++												{
++											    	Mojo.Controller.getAppController().showBanner("Delete event " + subject, "", "");
++													this.controller.serviceRequest('palm://com.palm.calendar', {      
++														method: 'deleteEvent',
++														parameters: {id: eventId, series: true, date: null},
++														onSuccess: function(eventList) {
++															Mojo.Log.error("deleted");
++														}.bind(this),
++														onFailure: function(error) {
++															Mojo.Log.error(subject, "* error:", error.errorText);
++														}.bind(this)
++													});
++												}
++											}
++										}
++									}.bind(this)
++								});
++							}
++						} catch (e) {Mojo.Log.error(Object.toJSON(e));}
++						}.bind(this)
++					});
++				}.bind(this),
++				this.controller
++			);
++		}else if (event.type == Mojo.Event.command && event.command == "birthdayevent") {
++			AppAssistant.contactsService.getDefaultAccount(
++				function(account) {
++					var accountId = account.defaultAccountId;
++					this.controller.serviceRequest('palm://com.palm.calendar', {      
++						method: 'getCalendarsForSyncAccount',
++						parameters: {id: accountId},
++						onSuccess: function(calList) {
++							//Mojo.Log.error(Object.toJSON(calList.calendars));
++							if (calList.calendars.length > 0) {
++								var calendarId = calList.calendars[0].id;
++								AppAssistant.contactsService.count(this.controller, "",
++									function(event) {
++										//Mojo.Log.error(Object.toJSON(event));
++										//AppAssistant.contactsService.list(
++										this.controller.serviceRequest('palm://com.palm.contacts', {
++											method: 'list',
++											parameters: {"offset": 0, "limit": event.count, "subscribe": false},
++											onSuccess: function(event) {
++												var cntAllContacts = event.list.length;
++												var cntCurContacts = 0;
++												var sumBirthDayEvents = 0;
++												var sumBirthDayCreated = 0;
++												var sumBirthDayUpdated = 0;
++												var sumBirthDayFailed = 0;
++										    	Mojo.Controller.getAppController().showBanner("Browsing " + event.list.length + " contact records", "", "");
++												for (var i=0; i<event.list.length; i++) {
++													var contactId = event.list[i].id;
++													AppAssistant.contactsService.details(contactId,
++														function(returnParams) {
++															cntCurContacts++;
++															if (returnParams.record.birthday !== undefined) {
++																for (var k=0; k<returnParams.record.birthday.length; k++) {
++																	var birthdate = new Date();
++																	birthdate.setFullYear(returnParams.record.birthday[0].substr(0, 4));
++																	birthdate.setMonth(returnParams.record.birthday[0].substr(4, 2) - 1);
++																	birthdate.setDate(returnParams.record.birthday[0].substr(6, 2));
++																	birthdate.setHours(0);
++																	birthdate.setMinutes(0);
++																	birthdate.setSeconds(0);
++															    	Mojo.Controller.getAppController().showBanner("Birthday event for " + returnParams.record.firstName + " " + returnParams.record.lastName, "", "");
++																	var birthday = {
++																						"startTimestamp": birthdate.getTime(),
++																						"endTimestamp": birthdate.getTime() + (24*60*60*1000) - 1000,
++																						"allDay": true,
++																						"subject": returnParams.record.firstName + " " + returnParams.record.lastName + "'s Birthday (" + Mojo.Format.formatDate(birthdate, {"date": "short"}) + ")",
++																						"location": "",
++																						"note": "Created by birthday reminder patch from MetaViewSoft. ICON=birthday;",
++																						"timeZoneId": "",
++																						"rrule": "RRULE:FREQ=YEARLY;INTERVAL=1",
++																						"endValidity": "Long.MAX_VALUE",
++																						"alarm": "-pt36h",
++																						//"alldayReservedStartTimestamp": birthdate.getTime(),
++																						//"alldayReservedEndTimestamp": birthdate.getTime() + (24*60*60*1000) - 1,
++																						"calendarId": calendarId,
++																						"parentId": 0,
++																		            	"externalId": "birthday_" + returnParams.record.id + "_" + k,
++																						"rruleModel": {"count": -1, "interval": 1, "bymonthday": [], "frequency": "YEARLY", "bymonth": [], "until": "", "byhour": [], "byweekno": [], "bysetpos": [], "byyearday": [], "byday": [], "byminute": [], "bysecond": []},
++																						"dirty": true,
++																						"isRecurringForever": true
++																					};
++																	sumBirthDayEvents++;
++																	// try to get event and update it or create a new one
++																	Mojo.Log.error("accountId", accountId);
++																	Mojo.Log.error("birthday.externalId", birthday.externalId);
++																	this.controller.serviceRequest('palm://com.palm.calendar', {
++																	    method: 'getEvent',
++																	    parameters: {
++																	    	accountId: accountId,
++																	        externalId: birthday.externalId,
++																	        subscribe: false
++																	    },
++																	    onSuccess: function(event) {
++																	    	// copy EventId and try to update
++																	    	birthday.eventId = event.eventId;
++																			this.controller.serviceRequest('palm://com.palm.calendar', {
++																			    method: 'updateEvent',
++																			    parameters: {
++																			    	event: birthday,
++																			        subscribe: false
++																			    },
++																			    onSuccess: function() {
++																			    	Mojo.Log.error("Birthday event successfully updated.");
++																			    	sumBirthDayUpdated++;
++																			    	if ((cntCurContacts == cntAllContacts) && (sumBirthDayEvents == (sumBirthDayUpdated + sumBirthDayCreated + sumBirthDayFailed))) {
++																				    	Mojo.Controller.getAppController().showBanner("Updated: " + sumBirthDayUpdated + " Created: " + sumBirthDayCreated + " Failed: " + sumBirthDayFailed, "", "");
++																			    	}
++																			    },
++																			    onFailure: function(error) {
++																			    	Mojo.Log.error("Update fails, giving up:", error.errorText);
++																			    	sumBirthDayFailed++;
++																			    	if ((cntCurContacts == cntAllContacts) && (sumBirthDayEvents == (sumBirthDayUpdated + sumBirthDayCreated + sumBirthDayFailed))) {
++																				    	Mojo.Controller.getAppController().showBanner("Updated: " + sumBirthDayUpdated + " Created: " + sumBirthDayCreated + " Failed: " + sumBirthDayFailed, "", "");
++																			    	}
++																			    }
++																			});
++																	    }.bind(this),
++																	    onFailure: function(error) {
++																	    	// event wasn't found, try to create it
++																	    	Mojo.Log.error("GetEvent fails, try create:", error.errorText);
++																	    	// try to create a new event
++																			this.controller.serviceRequest('palm://com.palm.calendar', {
++																			    method: 'setEvent',
++																			    parameters: birthday,
++																			    onSuccess: function() {
++																			    	Mojo.Log.error("Birthday event successfully created.");
++																			    	sumBirthDayCreated++;
++																			    	if ((cntCurContacts == cntAllContacts) && (sumBirthDayEvents == (sumBirthDayUpdated + sumBirthDayCreated + sumBirthDayFailed))) {
++																				    	Mojo.Controller.getAppController().showBanner("Updated: " + sumBirthDayUpdated + " Created: " + sumBirthDayCreated + " Failed: " + sumBirthDayFailed, "", "");
++																			    	}
++																			    },
++																			    onFailure: function(error) {
++																			    	Mojo.Log.error("Error on create, giving up:", error.errorText);
++																			    	sumBirthDayFailed++;
++																			    	if ((cntCurContacts == cntAllContacts) && (sumBirthDayEvents == (sumBirthDayUpdated + sumBirthDayCreated + sumBirthDayFailed))) {
++																				    	Mojo.Controller.getAppController().showBanner("Updated: " + sumBirthDayUpdated + " Created: " + sumBirthDayCreated + " Failed: " + sumBirthDayFailed, "", "");
++																			    	}
++																			    }
++																			});
++																    	}.bind(this)
++																	});
++																}
++															}
++													    	if ((cntCurContacts == cntAllContacts) && (sumBirthDayEvents == (sumBirthDayUpdated + sumBirthDayCreated + sumBirthDayFailed))) {
++														    	Mojo.Controller.getAppController().showBanner("Updated: " + sumBirthDayUpdated + " Created: " + sumBirthDayCreated + " Failed: " + sumBirthDayFailed, "", "");
++													    	}
++															//Mojo.Log.error(Object.toJSON(returnParams));
++														}.bind(this),
++														this.controller, null, function() {}
++													);
++												}
++											}.bind(this)
++										});
++									}.bind(this)
++								);
++							}
++						}.bind(this),
++					    onFailure: function(error) {
++							Mojo.Log.error("Calendarlist failed", error.errorText);
++					    }.bind(this)
++					});
++				}.bind(this),
++				this.controller
++			);
+ 		}
+ 		if (event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
+ 			// funkay!  this is apparently how you declare you want to activate the prefs menu item

@@ -1,0 +1,81 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index d4ae043..faf27e8 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -33,6 +33,7 @@ var BarAssistant = Class.create({
+ 		this.getBuildName();
+ 						
+ 		// Initialize the Battery Power Nofication and get the initial value
++		this.initTimeout();
+ 		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
+ 		
+ 		// Initialize System Services once the service is running
+@@ -1888,10 +1889,12 @@ handlePowerNotifications: function(payload) {
+ 						icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-charging.png",
+ 						soundClass: soundClassName
+ 					},{}, 'chargingAlert'); 				
++				this.disableTimeout();
+ 			}
+ 			this.chargingBannerShown = true;			
+ 		}
+ 		else {
++			if(this.chargingBannerShown) { this.enableTimeout(); }
+ 			this.chargingBannerShown = false;			
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+ 			$('power').className = 'battery-' + this.lastBatteryLevel;	
+@@ -2382,6 +2385,7 @@ storageHandleNotifications: function(payload) {
+         return;
+    
+     if (payload["mode-avail"]) {
++    		this.disableTimeout();
+ 		this.isUSBConnected = true;
+ 		if(payload["canIMasquerade"])
+ 			this.disableImasq = false;
+@@ -2395,6 +2399,7 @@ storageHandleNotifications: function(payload) {
+ 		}
+ 	}
+     else {
++    		this.enableTimeout();
+ 		this.isUSBConnected = false;
+     	this.msmTurnOnHiddServices();
+ 		this.msmStartOtherRadios();
+@@ -2620,6 +2625,39 @@ powerOffHandleNotifications: function(payload) {
+     }
+ },
+ 
++initTimeout: function() {
++	this.previousTimeout = 60;
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'getProperty',
++		parameters:{properties:['timeout']},
++		onSuccess: function(response) {
++			this.previousTimeout = response.timeout;
++		}.bind(this)
++	});
++},
++
++disableTimeout: function() {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'getProperty',
++		parameters:{properties:['timeout']},
++		onSuccess: function(response) {
++			this.previousTimeout = response.timeout;
++			this.controller.serviceRequest('palm://com.palm.display/control', {
++				method: 'setProperty', 
++				parameters:{timeout:86400}	
++			});
++		}.bind(this)
++	});
++},
++
++enableTimeout: function() {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'setProperty',
++		parameters:{timeout:parseInt(this.previousTimeout)}
++	});
++},
++
++
+ /*
+  * Show Power Off Alert
+  */

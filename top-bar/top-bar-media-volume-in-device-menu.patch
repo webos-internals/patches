@@ -1,0 +1,100 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+index 335a73c..0a80db1 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -40,12 +40,14 @@ var DevicemenuAssistant = Class.create({
+ 		this.modesModel = {scrollbars: false, mode: "vertical"},
+ 		this.controller.setupWidget('devicescroller', {}, this.modesModel);
+ 		this.menuscroller = this.controller.get('devicescroller');
++		this.controller.setupWidget('mvolSlider', {minValue: 0, maxValue: 100}, this.mvolModel = { value: 50});
+ 		
+ 		this.drawerModel = {myOpenProperty:false};
+ 		this.controller.setupWidget('wifidetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('btdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.wifidrawer = this.controller.get('wifidetails');
+ 		this.btdrawer = this.controller.get('btdetails');
++		this.controller.setupWidget('mvoldetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		
+ 		this.wifiListModel = {
+ 			items: this.wifiAPList
+@@ -124,6 +126,8 @@ var DevicemenuAssistant = Class.create({
+ 		this.controller.get('dm_airplanemode').addEventListener(Mojo.Event.tap, this.toggleAirplaneMode.bindAsEventListener(this));
+ 		this.controller.get('wifilist').addEventListener(Mojo.Event.listTap,this.handleWiFiTap.bindAsEventListener(this));
+ 		this.controller.get('btlist').addEventListener(Mojo.Event.listTap,this.handleBTTap.bindAsEventListener(this));		
++		this.controller.get('mvolSlider').addEventListener(Mojo.Event.propertyChange, this.handleMvolSlider.bindAsEventListener(this));
++		this.controller.get('mvolRow').addEventListener(Mojo.Event.tap, this.handleMvolTap.bindAsEventListener(this));
+ 		this.controller.get('dm_wifi').addEventListener(Mojo.Event.tap, this.togglewifiList.bindAsEventListener(this));
+ 		this.controller.get('dm_bluetooth').addEventListener(Mojo.Event.tap, this.togglebluetoothList.bindAsEventListener(this));
+ 		this.controller.get('wifi_radio').addEventListener(Mojo.Event.tap, this.toggleWifiRadio.bindAsEventListener(this));
+@@ -138,6 +142,18 @@ var DevicemenuAssistant = Class.create({
+ 	cleanup: function() {
+ 		Mojo.Log.error("Device Menu - Clean up called");				
+ 	},	
++	
++	handleMvolTap: function(event) {
++		this.controller.get('mvoldetails').mojo.setOpenState(!this.controller.get('mvoldetails').mojo.getOpenState());
++	},
++	
++	handleMvolSlider: function(event) {
++		this.controller.serviceRequest('palm://com.palm.audio/media', {
++			method: 'setVolume',
++			parameters:{volume:Math.round(event.value)}
++		});
++		this.controller.get('dm_mvol').innerText = "Media Volume = " + Math.round(event.value);
++	},
+ 			
+ 	wifiAPList: [],
+ 	btdeviceList: [],
+@@ -1032,6 +1048,7 @@ var DevicemenuAssistant = Class.create({
+ 		if(this.isVisible){
+ 			this.toggleDeviceMenu();
+ 		}
++		this.controller.get('mvoldetails').mojo.setOpenState(false);
+ 		this.menuscroller.mojo.revealTop(0);
+ 	},
+ 	
+@@ -1071,6 +1088,19 @@ var DevicemenuAssistant = Class.create({
+ 		}
+ 		else {
+ 			this.isVisible = true;
++			this.controller.serviceRequest('palm://com.palm.audio/media', {
++				method: 'getVolume',
++				parameters:{},
++				onSuccess: function(response) {
++					if(response.volume != undefined) {
++						this.mvolModel.value = parseInt(response.volume);
++						this.controller.modelChanged(this.mvolModel);
++						this.controller.get('dm_mvol').innerText = "Media Volume = " + response.volume;
++					} else {
++						this.controller.get('dm_mvol').innerText = "Media Volume = unknown";
++					}
++				}.bind(this)
++			});
+ 			var date = new Date();		
+ 			this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'});
+ 			
+diff --git a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+index d153a8d..ab4139c 100644
+--- a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -26,6 +26,20 @@
+ 				</div></div> 
+ 				
+ 				<div class="palm-section-divider">
++				</div> 
++
++				<div class="palm-row first" id="mvolRow" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div id="dm_mvol" class="title">&nbsp;
++					</div>
++				</div></div>
++
++				<div id="mvoldetails" x-mojo-element="Drawer">
++					<div class="palm-row first"><div class="palm-row-wrapper">
++						<div x-mojo-element="Slider" id="mvolSlider" style="padding-top: 30px; height: 50px;"></div>
++					</div></div>
++				</div>
++
++				<div class="palm-section-divider">
+ 				</div>               
+ 				
+ 				<div class="palm-row" id="dm_wifi" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">

@@ -1,0 +1,143 @@
+diff --git a/usr/palm/applications/com.palm.app.notes/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.notes/app/controllers/app-assistant.js
+index 410a4ad..ce1055d 100644
+--- a/usr/palm/applications/com.palm.app.notes/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.notes/app/controllers/app-assistant.js
+@@ -12,8 +12,20 @@ var AppAssistant = Class.create
+ 
+     handleLaunch: function(params)
+     {
++                Mojo.Log.info("APP ASSISTANT: handleLaunch: %j", params);
+ 		var name = 'notes';
+ 		var stageController = this.controller.getStageController(name);
++		if (params && ("newNoteText" in params)) {
++			Mojo.Log.info("APP ASSISTANT: newNoteText: %j", params.newNoteText);
++			this.data.newNoteText = params.newNoteText;
++		}
++		else {
++			Mojo.Log.info("APP ASSISTANT: newNoteText: %j", null);
++			this.data.newNoteText = null;
++		}
++	        if (params && ("refresh" in params)) {
++			this.data.refresh = params.refresh;
++		}
+ 		if (stageController) 
+ 		{
+ 			this.launch(false, stageController);
+@@ -32,6 +44,27 @@ var AppAssistant = Class.create
+ 	{
+ 		if (!created) 
+ 		{
++			var scenes = stageController.getScenes();
++			if ("newNoteText" in this.data && this.data.newNoteText !== null) {
++				if (!(scenes && scenes.length === 1)) {
++					// doing this if the top scene
++					// is already 'grid' causes an
++					// unwanted transition effect.
++					stageController.popScenesTo('grid');
++				}
++				else {
++					// In GridAssistant, activate() calls
++					// refreshList() which calls
++					// _createNewNoteFromParams().
++					// Since in this situation activate
++					// isn't called, we do this "manually".
++					stageController.delegateToSceneAssistant('_createNewNoteFromParams');
++				}
++			}
++			else if (this.data.refresh && 
++				 scenes && scenes.length === 1) {
++				stageController.delegateToSceneAssistant('_refreshList');
++			}
+ 			stageController.activate();
+ 		}
+ 		else 
+diff --git a/usr/palm/applications/com.palm.app.notes/app/controllers/grid-assistant.js b/usr/palm/applications/com.palm.app.notes/app/controllers/grid-assistant.js
+index d470fb2..9aff3e9 100644
+--- a/usr/palm/applications/com.palm.app.notes/app/controllers/grid-assistant.js
++++ b/usr/palm/applications/com.palm.app.notes/app/controllers/grid-assistant.js
+@@ -100,7 +100,7 @@ var GridAssistant = Class.create(
+ 		this.controller.getSceneScroller().mojo.revealTop(0);
+     },
+     
+-    _handleNewNote: function()
++    _handleNewNote: function(newNoteText)
+     {
+         // Get top element.  We insert before this one so we need to know its position and its color
+         var top = this.$widget_noteGrid.getItemAt(0, 1); // row-0,col-1 : Skip notepad which is element 0
+@@ -115,6 +115,7 @@ var GridAssistant = Class.create(
+         }
+         this.controller.stageController.pushScene('note', 
+         {
++            newNoteText: newNoteText,
+             model: this.model,
+             color: Note.colors[(Note.colors.indexOf(top.color) + 1) % Note.colors.length],
+             position: this._findInsertPosition('a', top.position),
+@@ -122,6 +123,13 @@ var GridAssistant = Class.create(
+         });
+     },
+     
++    _createNewNoteFromParams: function () {
++        if ("newNoteText" in this.data && this.data.newNoteText !== null) {
++            this._handleNewNote(this.data.newNoteText);
++            this.data.newNoteText = null;
++        }
++    },
++ 
+     _handleEditNote: function(id, color)
+     {
+         this.controller.stageController.pushScene('note', 
+@@ -280,6 +288,7 @@ var GridAssistant = Class.create(
+ 			self._fixMissingInfo(list, 1);
+ 			self.$widget_noteGrid.render(list);
+ 			self._enableDisableFilter(total);
++			self._createNewNoteFromParams();
+ 			done && done();
+ 		});
+     },
+diff --git a/usr/palm/applications/com.palm.app.notes/app/controllers/note-assistant.js b/usr/palm/applications/com.palm.app.notes/app/controllers/note-assistant.js
+index fd50861..9d5de78 100644
+--- a/usr/palm/applications/com.palm.app.notes/app/controllers/note-assistant.js
++++ b/usr/palm/applications/com.palm.app.notes/app/controllers/note-assistant.js
+@@ -57,6 +57,13 @@ var NoteAssistant = Class.create(
+ 			green: {},
+ 			blue: {}
+ 		};
++	        Mojo.Log.info("NOTE ASSISTANT: data.newNoteText: %j", data.newNoteText);
++                if (data.newNoteText) {
++			this.newNoteText = data.newNoteText;
++		}
++                else {
++			this.newNoteText = "";
++		}
+     },
+     
+     setup: function()
+@@ -80,9 +87,16 @@ var NoteAssistant = Class.create(
+         }
+         else 
+         {
++	    var text = data.text;
++	    Mojo.Log.info("NOTE ASSISTANT: this.newNoteText: %j", this.newNoteText);
++	    if (this.newNoteText !== "") {
++		    text = this.newNoteText + "\n\n" +
++			    Mojo.Format.formatDate(new Date(), "short") +
++			    "\n";
++	    }
+             this._onNoteLoaded.bind(this).defer(new Note(
+             {
+-                text: data.text,
++		text: text,
+                 color: data.color,
+                 position: data.position
+             }), true);
+diff --git a/usr/palm/applications/com.palm.app.notes/appinfo.json b/usr/palm/applications/com.palm.app.notes/appinfo.json
+index c25552f..eb9e0f9 100644
+--- a/usr/palm/applications/com.palm.app.notes/appinfo.json
++++ b/usr/palm/applications/com.palm.app.notes/appinfo.json
+@@ -9,5 +9,5 @@
+ 	"splashicon": "icon-256x256.png",
+ 	"splashBackground": "images/splash-screenshot-default.png",
+ 	"noWindow": true,
+-	"keywords": ["Notes", "Stickies", "Notepad"]
++	"keywords": ["Notes", "Stickies", "Notepad", "iGrokTheCommandLine", "iCanBeRefreshed"] 
+ }

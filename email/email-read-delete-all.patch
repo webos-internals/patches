@@ -1,0 +1,112 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
+index e66f292..50b9a54 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
+@@ -49,7 +49,8 @@ var ListAssistant = Class.create(App.Scene, {
+ 			visible:true,
+ 			items: [
+ 				{label:$L('Compose'), icon:'compose', command:'compose'},
+-				{},
++				{label:$L('Delete All'), icon:'delete', command:'deleteall'},
++				{label:$L('All Read'), icon:'priority', command:'readall'},
+ 				{label:$L('Update'), icon:'sync', command:'sync'}
+ 			]};
+ 	this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
+@@ -231,6 +232,14 @@ var ListAssistant = Class.create(App.Scene, {
+   handleCommand: function(event) {
+ 	if (event.type == Mojo.Event.command) {
+ 		switch (event.command) {
++			case 'deleteall':
++				this.handleDeleteAll();
++				break;
++
++			case 'readall':
++				this.handleReadAll();
++				break;
++
+ 			case 'compose':
+ 				this.handleSend();
+ 				break;
+@@ -762,6 +771,82 @@ var ListAssistant = Class.create(App.Scene, {
+ 		}
+ 	},
+ 
++  handleDeleteAll: function (event) {
++     	
++	var totalCount = 0;
++     			
++	totalCount = this.emailListElement.mojo.getLength();
++     					
++	this.controller.showAlertDialog({
++  		onChoose: function(value) {
++			if(value == 'yes') {
++				//Delete all items in this folder
++//				this.deleteAll();
++				Folder.emptyFolder(this.folderObj.folderId);
++			}
++		},
++		title: '<b>' + $L('Delete All') + '</b>',
++		message: $L('Are you sure you want to delete all ') + "<b>" + totalCount + "</b>" + $L(' items in this folder?'),
++		choices: [
++			{label:$L('Yes'), value:'yes', type:'affirmative'},
++			{label:$L('No'), value:'no', type:'alert'}
++			]
++	});
++  },
++  
++  handleReadAllResponse: function (event) {
++  },
++
++  readAll: function(tleft){
++  	var count = this.emailListElement.mojo.getLength();
++	var id;
++	while(tleft > 0) 
++	{	
++		var item = this.emailListElement.mojo.getNodeByIndex((tleft - 1));	
++		if(item !== undefined)
++		{
++		   	id = item.id;
++		   	if(id)
++		   	{
++				this.controller.serviceRequest(Email.identifier, {
++			        	method: 'setRead',
++			                parameters: {'message':id, 'value': true },
++			                onSuccess: this.handleReadAllResponse.bind(this),
++			                onFailure: this.handleReadAllResponse.bind(this)
++	             			});
++	     		}
++	     	
++	     		tleft = tleft - 1;
++		}
++		else
++		{
++			tleft = tleft - 1;
++		}
++	}	
++  },
++  
++
++  handleReadAll: function (event) {
++   		var totalCount = 0;
++		totalCount = this.emailListElement.mojo.getLength();
++		if (totalCount > 0) {
++			this.controller.showAlertDialog({
++        	    onChoose: function(value) {
++  	        		if(value == 'yes') {
++  	        				var tleft = totalCount;
++							this.readAll(tleft);
++	               	}
++				},
++	               	title: '<b>' + $L('All Read') + '</b>',
++                	message: $L('Are you sure you want to mark ') + "<b>" + totalCount + "</b>" + $L(' items in this folder read?'),
++                    choices: [
++                    	{label:$L('Yes'), value:'yes', type:'affirmative'},
++                        {label:$L('No'), value:'no', type:'alert'}
++                    ]
++        		});
++  		}
++  },
++
+   updateFolderStatusModel: function(response) {
+ 	if (!response.folders) {
+ 		Mojo.Log.warn("updateFolderStatusModel got unexpected response ", Object.toJSON(response))

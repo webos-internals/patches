@@ -1,0 +1,152 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+index 335a73c..7d413fd 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -44,8 +44,10 @@ var DevicemenuAssistant = Class.create({
+ 		this.drawerModel = {myOpenProperty:false};
+ 		this.controller.setupWidget('wifidetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('btdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.controller.setupWidget('gsmdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.wifidrawer = this.controller.get('wifidetails');
+ 		this.btdrawer = this.controller.get('btdetails');
++		this.gsmdrawer = this.controller.get('gsmdetails');
+ 		
+ 		this.wifiListModel = {
+ 			items: this.wifiAPList
+@@ -76,6 +78,8 @@ var DevicemenuAssistant = Class.create({
+ 			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn off Airplane Mode');
+ 		else
+ 			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn on Airplane Mode');
++
++		this.controller.get('ratStatus').innerText = "???";
+ 			
+ 		var btstate = this.barAssistant.getCurrentBluetoothState();
+ 		if(btstate === 'Off') {
+@@ -126,10 +130,14 @@ var DevicemenuAssistant = Class.create({
+ 		this.controller.get('btlist').addEventListener(Mojo.Event.listTap,this.handleBTTap.bindAsEventListener(this));		
+ 		this.controller.get('dm_wifi').addEventListener(Mojo.Event.tap, this.togglewifiList.bindAsEventListener(this));
+ 		this.controller.get('dm_bluetooth').addEventListener(Mojo.Event.tap, this.togglebluetoothList.bindAsEventListener(this));
++		this.controller.get('gsm_umts').addEventListener(Mojo.Event.tap, this.togglegsmList.bindAsEventListener(this));
+ 		this.controller.get('wifi_radio').addEventListener(Mojo.Event.tap, this.toggleWifiRadio.bindAsEventListener(this));
+ 		this.controller.get('bt_radio').addEventListener(Mojo.Event.tap, this.toggleBTRadio.bindAsEventListener(this));
+ 		this.controller.get('bt_pref').addEventListener(Mojo.Event.tap,this.handleBluetoothLaunch.bindAsEventListener(this));
+ 		this.controller.get('wifi_pref').addEventListener(Mojo.Event.tap,this.handleWiFiLaunch.bindAsEventListener(this));
++		this.controller.get('gsm_umts_auto').addEventListener(Mojo.Event.tap, this.toggleGSM_Auto.bindAsEventListener(this));
++		this.controller.get('gsm_umts_2g').addEventListener(Mojo.Event.tap, this.toggleGSM_2G.bindAsEventListener(this));
++		this.controller.get('gsm_umts_3g').addEventListener(Mojo.Event.tap, this.toggleGSM_3G.bindAsEventListener(this));
+ 		this.controller.get('scrim').addEventListener(Mojo.Event.tap, this.toggleDeviceMenu.bindAsEventListener(this));
+ 		//Close the App because this is a first launch.
+ 		this.toggleDeviceMenu();						
+@@ -185,6 +193,59 @@ var DevicemenuAssistant = Class.create({
+ 		}
+ 		this.apModeInProgress = false;
+ 	},
++
++	toggleGSM_Auto: function(event) {
++		this.toggleGSM(event, "automatic");
++	},
++	
++	toggleGSM_2G: function(event) {
++		this.toggleGSM(event, "gsm");
++	},
++	
++	toggleGSM_3G: function(event) {
++		this.toggleGSM(event, "umts");
++	},
++	
++	// "automatic", "gsm", "umts"
++	toggleGSM: function(event, rat) {
++		this.currentRat = rat;
++		var request = new Mojo.Service.Request('palm://com.palm.telephony', {
++			method: "ratSet",
++			parameters: {
++				"mode": this.currentRat
++			},
++			onSuccess: function(response) {},
++			onFailure: function(response) {},
++		});
++		if(this.currentRat == "gsm") {
++			this.controller.get('ratStatus').innerText = "2G";
++		} else if(this.currentRat == "umts") {
++			this.controller.get('ratStatus').innerText = "3G";
++		} else if(this.currentRat == "automatic") {
++			this.controller.get('ratStatus').innerText = "Auto";
++		} else {
++			this.controller.get('ratStatus').innerText = "???";
++		}
++		this.toggleDeviceMenu.bind(this).delay(0.2);		
++	},
++
++	/*
++	 * Toggles the Bluetooth List to show and Hide when tapping on the Bluetooth Row.
++	 */	
++	togglegsmList: function(event) {
++		
++		//Ignore the tap event if Airplane Mode is in Progress
++		if(this.apModeInProgress)
++			return;
++				
++		if (this.gsmdrawer.mojo.getOpenState()) {			
++			this.controller.hideWidgetContainer(this.controller.get('gsmdetails'));	
++		}
++		else {
++			this.controller.showWidgetContainer(this.controller.get('gsmdetails'));			
++		}	
++		this.gsmdrawer.mojo.setOpenState(!this.gsmdrawer.mojo.getOpenState());						
++	},
+ 	
+ 	updateAirplaneModeProgress: function() {
+ 		if(this.barAssistant.getAirplaneMode()) {
+@@ -1028,6 +1089,10 @@ var DevicemenuAssistant = Class.create({
+ 			this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
+ 			this.wifidrawer.mojo.setOpenState(false);
+ 		}		
++		if (this.gsmdrawer.mojo.getOpenState()) {
++			this.controller.hideWidgetContainer(this.controller.get('gsmdetails'));
++			this.gsmdrawer.mojo.setOpenState(false);	
++		}		
+ 		//this.isVisible = false;
+ 		if(this.isVisible){
+ 			this.toggleDeviceMenu();
+diff --git a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+index d153a8d..e9dc9c0 100644
+--- a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -97,6 +97,37 @@
+ 				
+ 				<div class="palm-section-divider"></div>
+ 				
++				<div class="palm-row" id="gsm_umts" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="ratStatus">&nbsp;</div>
++						<span>Network Type</span>
++					</div>
++				</div></div>
++				
++				<div id='gsmdetails' x-mojo-element="Drawer">
++					
++					<div id="gsm_umts_auto" class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">   
++						<div class="title truncating-text">
++							<span>Auto</span> 
++						</div>
++					</div></div>  
++
++					<div id="gsm_umts_2g" class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">   
++						<div class="title truncating-text">
++							<span>2G</span> 
++						</div>
++					</div></div>  
++
++					<div id="gsm_umts_3g" class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">   
++						<div class="title truncating-text">
++							<span>3G</span> 
++						</div>
++					</div></div>  
++					
++				</div>                            
++
++				<div class="palm-section-divider"></div>
++				
+ 				<div id="dm_airplanemode" class="palm-row last menu-end" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
+ 					<div id="dm_airplanemode_status" class="title truncating-text">
+ 					 </div>

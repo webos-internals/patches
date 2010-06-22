@@ -1,0 +1,58 @@
+diff --git a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+index 52ad9da..4193ea2 100644
+--- a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
++++ b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+@@ -134,7 +134,7 @@ CaptureAssistant = Class.create({
+ 				this._handleCaptureToggle();
+ 			}.bind(this));
+ 		}
+-		
++		this.volumeKeySubscription = null;
+ 		
+ 		
+ 		this.onKeyPressHandler = this.onKeyPress.bindAsEventListener(this);
+@@ -164,7 +164,16 @@ CaptureAssistant = Class.create({
+ 			AppAssistant.photoRollVideoLoader = AppAssistant.libraries["metascene.videos"];
+ 
+ 		}
+-		
++		// listen to volume key events
++		this.volumeKeySubscription = new Mojo.Service.Request(
++			'palm://com.palm.keys/audio', 
++			{
++				method: 'status',
++				parameters: {'subscribe': true},
++				onFailure: function() { Mojo.Log.error("Could not subscribe to volume key events"); },
++				onSuccess: this.handleVolumeKeys.bind(this), 
++			});
++			
+ 		llog("CaptureAssistant::setup() finished");
+ 	}catch(e){llog("setup threw: "+Object.toJSON(e));}},
+ 	
+@@ -332,6 +341,11 @@ CaptureAssistant = Class.create({
+ 		}
+ 		
+ 		this.cameraControl.closeCamera();
++		
++		// clean up listener for volume keys
++		if(this.volumeKeySubscription) {
++			this.volumeKeySubscription.cancel();
++		}		
+ 	},
+ 	
+ 	handleCommand: function(event){
+@@ -382,6 +396,14 @@ CaptureAssistant = Class.create({
+ 			this.cameraControl.stillCapture();
+ 		}
+ 	},
++	
++	// capture on release of volume keys
++	handleVolumeKeys: function(payload) {
++		// capture when either volume up or down buttons are released
++		if(payload.state === 'up' && (payload.key === 'volume_up' || payload.key === 'volume_down')) {
++ 			this.cameraControl.stillCapture();
++ 		}
++	},
+   
+ 	
+ 	/**

@@ -1,0 +1,130 @@
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/app-assistant.js
+index 2096621..53316a7 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/app-assistant.js
+@@ -50,9 +50,51 @@ AppAssistant.Network = new NetworkMonitor();
+ 
+ AppAssistant.prototype.setup = function() {
+ 
++//BEGIN Slider Orientation Patch block 1 of 3
++	AppAssistant.sliderPos='up';
++	AppAssistant.KTorient='up';
++	AppAssistant.KTstagecount=0;
++	this._initSlider();
++//END Slider Orientation Patch block 1 of 3
+ 	AppAssistant.Network.observe(function(response){Mojo.Log.info("@@@ Listening to network events: online=", response.isInternetConnectionAvailable);});
+ };
+ 
++//BEGIN Slider Orientation Patch block 2 of 3
++AppAssistant.prototype._initSlider = function() {
++  	var request = new Mojo.Service.Request('palm://com.palm.keys/switches', {
++            method: 'status',
++            parameters: {"get" : "slider"},
++			onFailure: function() {
++				},
++			onSuccess: this._onSliderEvent.bind(this)
++    		});
++	this.sliderSubscriptionx = this.sliderSubscribe(this._onSliderEvent.bind(this));
++};
++
++AppAssistant.prototype._onSliderEvent = function(response) {
++	if (!(response && response.key && response.state)) return;
++	
++	if (response.key == "slider") {
++		AppAssistant.sliderPos = response.state;
++		if (AppAssistant.KTstagecount==0) AppAssistant.KTorient = 'up';
++		else AppAssistant.KTorient = Mojo.Controller.appController.getScreenOrientation();
++	};
++};
++
++AppAssistant.prototype.sliderSubscribe = function(callback){
++    var request = new Mojo.Service.Request("palm://com.palm.keys/switches", {
++        method: 'status',
++		parameters: {
++			'subscribe': true
++		},
++		onSuccess: callback,
++		onFailure: function() {
++		}
++    });
++    return request;
++};
++//END Slider Orientation Patch block 2 of 3
++
+ AppAssistant.prototype.getDatabase = function() {
+ 
+ 	return this.database;
+@@ -135,6 +177,9 @@ AppAssistant.prototype.handleLaunch = function(params) {
+ 
+ AppAssistant.prototype.cleanup = function() {
+ 
++//BEGIN Slider Orientation Patch block 3 of 3
++		if (this.sliderSubscriptionx) this.sliderSubscriptionx.cancel();
++//END Slider Orientation Patch block 3 of 3
+ };
+ 
+ AppAssistant.prototype.goToNotifyScene = function(params) {
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+index 09c898f..184cb39 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+@@ -16,6 +16,10 @@ var WebKitErrors = {
+ var BrowserServerStatus;
+ 
+ function PageAssistant(params){
++//BEGIN Slider Orientation Patch block 1 of 5
++	this._initSlider();
++	AppAssistant.KTstagecount++;
++//END Slider Orientation Patch block 1 of 5
+ 
+ 	// Record our launch parameters for later use in adapter setup.
+ 	this.launchParams = params.launchParams;
+@@ -167,6 +171,12 @@ PageAssistant.prototype.cleanup = function() {
+ 
+ 		Mojo.Event.stopListening( this.controller.getSceneScroller(), Mojo.Event.dragStart, this._stopSceneScrolling, true);
+ 
++//BEGIN Slider Orientation Patch block 2 of 5
++		if (this.sliderSubscriptionx) this.sliderSubscriptionx.cancel();
++		AppAssistant.KTstagecount--;
++		if (AppAssistant.KTstagecount==0) AppAssistant.KTorient='up';
++//END Slider Orientation Patch block 2 of 5
++
+ 		// Delete old history
+ 		var now = new Date();
+ 		this.historyStore.deleteHistoryBefore(now.addDays(-this.kMaxHistoryDays));
+@@ -210,12 +220,34 @@ PageAssistant.prototype._updateOrientation = function() {
+ 	
+ 	var targetWindow = this.controller.window;
+ 	if (targetWindow.PalmSystem && targetWindow.PalmSystem.setWindowOrientation) {
+-		this._orientation = Mojo.Controller.appController.getScreenOrientation();
++//BEGIN Slider Orientation Patch block 3 of 5
++		if (AppAssistant.sliderPos=='up') {
++			this._orientation = AppAssistant.KTorient;
++		} else {
++			this._orientation = Mojo.Controller.appController.getScreenOrientation();
++		}
++//BEGIN Slider Orientation Patch block 3 of 5
+ 		targetWindow.PalmSystem.setWindowOrientation(this._orientation);
+ 	}
+ };
+ 
++//BEGIN Slider Orientation Patch block 4 of 5
++PageAssistant.prototype._initSlider = function() {
++	this.sliderSubscriptionx = AppAssistant.prototype.sliderSubscribe(this._onSliderEvent.bind(this));
++};
++
++PageAssistant.prototype._onSliderEvent = function(response) {
++	if (response && response.key && response.state && response.key == "slider" && response.state=='down') {
++		this.orientationChanged(Mojo.Controller.appController.getScreenOrientation());
++	}
++};
++
++//END Slider Orientation Patch block 4 of 5
++
+ PageAssistant.prototype.orientationChanged = function(orientation) {
++//BEGIN Slider Orientation Patch block 5 of 5
++	if (AppAssistant.sliderPos=='up') return;
++//END Slider Orientation Patch block 5 of 5
+ 
+ 	// Switch the orientation of the menu spacer or other components..
+ 	//Mojo.Log.info("ORIENTATIONCHANGED: old: %s, new: %s", this._orientation, orientation);

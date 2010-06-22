@@ -1,0 +1,160 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index d4ae043..1b3bf62 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -772,6 +772,8 @@ handleSignalStrengthQueryNotification: function(payload) {
+ 				}							
+ 			}										
+ 		}
++		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++		stageController.delegateToSceneAssistant("updatePhone");
+ 	}
+ 	this.handleSignalStatus.cancel();
+ },
+@@ -3076,6 +3078,10 @@ getCurrentWiFiState: function() {
+ 	return this.wifiState;
+ },
+ 
++getCurrentPhoneState: function() {
++	return this.phoneRadioState;
++},
++
+ setDeviceMenuAssistant: function(menuassistant) {
+ 	this.deviceMenuAssistant = menuassistant;
+ },
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+index 335a73c..c5bb182 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -1,6 +1,6 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+-var RadioState = new Hash({wifi: undefined, bluetooth: undefined});
++var RadioState = new Hash({wifi: undefined, bluetooth: undefined, phone: undefined});
+ 
+ var DevicemenuAssistant = Class.create({
+ 	
+@@ -44,6 +44,8 @@ var DevicemenuAssistant = Class.create({
+ 		this.drawerModel = {myOpenProperty:false};
+ 		this.controller.setupWidget('wifidetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('btdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.controller.setupWidget('phonedetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.phonedrawer = this.controller.get('phonedetails')
+ 		this.wifidrawer = this.controller.get('wifidetails');
+ 		this.btdrawer = this.controller.get('btdetails');
+ 		
+@@ -103,6 +105,17 @@ var DevicemenuAssistant = Class.create({
+ 			else
+ 				this.controller.get('wifimsg').innerHTML = wifistate.escapeHTML();			
+ 		}		
++		
++		var phonestate = this.barAssistant.getCurrentPhoneState();
++		if(phonestate === 'Off') {
++			this.controller.get('phonemsg').innerHTML = $L('Off');
++			RadioState.set('phone',false);
++		}
++		else {
++			this.controller.get('phonemsg').innerHTML = $L('On');
++			RadioState.set('phone',true);
++		}
++				
+ 		this.controller.listen(this.controller.document, Mojo.Event.deactivate, this.close.bindAsEventListener(this));
+ 		this.isVisible = true;
+ 		
+@@ -126,6 +139,8 @@ var DevicemenuAssistant = Class.create({
+ 		this.controller.get('btlist').addEventListener(Mojo.Event.listTap,this.handleBTTap.bindAsEventListener(this));		
+ 		this.controller.get('dm_wifi').addEventListener(Mojo.Event.tap, this.togglewifiList.bindAsEventListener(this));
+ 		this.controller.get('dm_bluetooth').addEventListener(Mojo.Event.tap, this.togglebluetoothList.bindAsEventListener(this));
++		this.controller.get('dm_phone').addEventListener(Mojo.Event.tap, this.togglePhoneList.bindAsEventListener(this));
++		this.controller.get('phone_radio').addEventListener(Mojo.Event.tap, this.togglePhoneRadio.bindAsEventListener(this));
+ 		this.controller.get('wifi_radio').addEventListener(Mojo.Event.tap, this.toggleWifiRadio.bindAsEventListener(this));
+ 		this.controller.get('bt_radio').addEventListener(Mojo.Event.tap, this.toggleBTRadio.bindAsEventListener(this));
+ 		this.controller.get('bt_pref').addEventListener(Mojo.Event.tap,this.handleBluetoothLaunch.bindAsEventListener(this));
+@@ -185,6 +200,49 @@ var DevicemenuAssistant = Class.create({
+ 		}
+ 		this.apModeInProgress = false;
+ 	},
++
++
++	updatePhone: function() {
++		if(this.barAssistant.getCurrentPhoneState()) {
++			this.controller.get('phonemsg').innerHTML = $L('On');
++			this.controller.get('phone_radio').innerHTML = $L('Turn off Phone');
++			RadioState.set('phone', true);
++		}
++		else {
++			this.controller.get('phonemsg').innerHTML = $L('Off');
++			this.controller.get('phone_radio').innerHTML = $L('Turn on Phone');
++			RadioState.set('phone', false);
++		}
++	},
++ 
++	togglePhoneRadio: function(event) {
++		this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
++			method: 'vibrate', parameters: { 'period': 0,'duration': 250 }
++		});
++		if(RadioState.get('phone'))
++			TelephonyService.tempPowerSet('off',false,null,null);
++		else
++			TelephonyService.tempPowerSet('on',false,null,null);
++		this.toggleDeviceMenu();
++	},
++  
++	togglePhoneList: function(event) {
++		if(this.apModeInProgress)
++			return;
++  
++		if (this.phonedrawer.mojo.getOpenState()) {
++			this.controller.hideWidgetContainer(this.controller.get('phonedetails'));	
++		}
++		else {
++			if(RadioState.get('phone'))
++				this.controller.get('phone_radio').innerHTML = $L('Turn off Phone');
++			else
++			this.controller.get('phone_radio').innerHTML = $L('Turn on Phone');	
++  
++			this.controller.showWidgetContainer(this.controller.get('phonedetails'));
++		}
++		this.phonedrawer.mojo.setOpenState(!this.phonedrawer.mojo.getOpenState());						
++	},
+ 	
+ 	updateAirplaneModeProgress: function() {
+ 		if(this.barAssistant.getAirplaneMode()) {
+@@ -1018,6 +1076,10 @@ var DevicemenuAssistant = Class.create({
+ 	
+ 	close: function() {
+ 		
++		if(this.phonedrawer.mojo.getOpenState()) {
++			this.controller.hideWidgetContainer(this.controller.get('phonedetails'));
++			this.phonedrawer.mojo.setOpenState(false);
++		}
+ 		if (this.btdrawer.mojo.getOpenState()) {
+ 			this.clearBTList();			
+ 			this.controller.hideWidgetContainer(this.controller.get('btdetails'));
+diff --git a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+index d153a8d..b57f857 100644
+--- a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -97,6 +97,22 @@
+ 				
+ 				<div class="palm-section-divider"></div>
+ 				
++				<div class="palm-row" id="dm_phone" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="phonemsg">&nbsp;</div>
++						<span x-mojo-loc=''>Phone</span>
++					</div>
++				</div></div>
++
++				<div id='phonedetails' x-mojo-element="Drawer">
++					<div class="palm-row first" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="phone_radio" class="title truncating-text">
++						</div>
++					</div></div>
++				</div>
++
++				<div class="palm-section-divider"></div>
++				
+ 				<div id="dm_airplanemode" class="palm-row last menu-end" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
+ 					<div id="dm_airplanemode_status" class="title truncating-text">
+ 					 </div>

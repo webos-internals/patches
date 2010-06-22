@@ -1,0 +1,528 @@
+diff --git a/usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
+index 8f8905a..db68f4d 100644
+--- a/usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
++++ b/usr/palm/applications/com.palm.app.contacts/app/controllers/edit-assistant.js
+@@ -66,6 +66,18 @@ EditAssistant = Class.create({
+ 		}));
+ 		
+ 		
++		if(this.person.messagingRingtoneName){
++		        this.person.MsgtoneDisplay = this.person.messagingRingtoneName;
++		        this.person.MsgtoneSet = "msgtone-set";
++		} else {
++		        this.person.MsgtoneDisplay = $L("Set a message tone");
++		        this.person.MsgtoneSet = "";
++		}
++		this.controller.get("MsgtoneBox").update(Mojo.View.render({
++			object: this.person,
++			template: "edit/msgtones"
++		}));
++		
+ 		var that = this;
+ 		
+ 		var notes = [];
+@@ -281,6 +293,11 @@ EditAssistant = Class.create({
+ 					object: {ringtoneDisplay:ringtoneName},
+ 					template: "edit/ringtones"
+ 				}));
++				var messagingRingtoneName = this.person.messagingRingtoneName || $L("Set a message tone");
++				this.controller.get("MsgtoneBox").update(Mojo.View.render({
++					object: {MsgtoneDisplay:messagingRingtoneName},
++					template: "edit/msgtones"
++				}));
+ 				
+ 			}
+ 		}
+@@ -563,6 +580,7 @@ EditAssistant = Class.create({
+ 		this.controller.listen("NameSyncPickerWrapper", Mojo.Event.tap, this.popupContactChooser.bind(this));
+ 		this.controller.get("edit-photo").observe(Mojo.Event.tap, this.attachFilePicker.bind(this));
+ 		this.controller.get("RingtoneBox").observe(Mojo.Event.tap, this.attachRingtonePicker.bind(this));
++		this.controller.get("MsgtoneBox").observe(Mojo.Event.tap, this.attachMsgtonePicker.bind(this));
+ 		this.renderLabels();
+ 		this.setupContact();
+ 		if (this.contact.readOnly) {
+diff --git a/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js b/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
+index 50735d8..9db058c 100644
+--- a/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
++++ b/usr/palm/applications/com.palm.app.contacts/app/controllers/filepicker-behaviors.js
+@@ -57,6 +57,53 @@ var FilepickerBehaviors = {
+ 
+ 	},
+ 	
++	attachMsgtonePicker: function(event){
++		if(this.person.messagingRingtoneLoc){
++			this.controller.popupSubmenu( {
++				onChoose:function(c){
++					if(c == "CHANGE"){
++						this.pushMsgtonePicker();
++					} else if(c == "DELETE"){
++						this.clearMsgtone();
++					}
++				}.bind(this),
++				placeNear:event.target,
++				items:[
++					{label:$L("Change Msgtone"), command:'CHANGE'},
++					{label:$L("Delete Msgtone"), command:'DELETE'}
++				]
++			})
++		} else {
++			this.pushMsgtonePicker();
++		}
++	},
++	
++	clearMsgtone:function(){
++		this.person.messagingRingtoneLoc = "";
++		this.person.messagingRingtoneName = "";
++		this.person.MsgtoneDisplay = $L("Set a message tone");
++		this.person.MsgtoneSet = "";
++		this.person.dirty = true;
++		this.controller.get("MsgtoneBox").update(Mojo.View.render({
++			object:this.person,
++			template:"edit/msgtones"
++		}));
++	},
++	
++	pushMsgtonePicker:function(){
++			var params = {
++				actionType: 'attach',
++				kinds: ['ringtone'],
++				defaultKind: 'ringtone',
++				filePath:this.person.messagingRingtoneLoc,
++				onSelect: function(file){
++					this.attachMsgtone(this.sanitizeSystemPath(file.fullPath), file.name);
++				}.bind(this)
++			};
++			Mojo.FilePicker.pickFile(params, this.controller.stageController);
++			
++	},
++	
+ 	attachFilePicker: function(event){
+ 		if(this.contact.readOnly){
+ 			return;
+@@ -153,6 +200,20 @@ var FilepickerBehaviors = {
+ 		        template:"edit/ringtones"
+ 		      }));
+ 		}
++	},
++	
++	attachMsgtone: function(msgtonePath, name){
++		if (msgtonePath) {
++			this.person.dirty = true;
++			this.person.messagingRingtoneName = name;
++			this.person.MsgtoneDisplay = name;
++			this.person.MsgtoneSet = "msgtone-set";
++			this.person.messagingRingtoneLoc = msgtonePath;
++			this.controller.get("MsgtoneBox").update(Mojo.View.render({
++			object:this.person,
++			template:"edit/msgtones"
++		      }));
++		}
+ 	}
+ }
+ 
+diff --git a/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html b/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
+index 306b79a..505ddb2 100644
+--- a/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
++++ b/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
+@@ -32,6 +32,20 @@
+         </div>
+     </div>
+ </div>
++<div>
++<div id="MsgtoneBox" class="">
++    <div class="palm-group unlabeled">
++        <div class="palm-list">
++            <div class="palm-row single" id="MsgtoneButton" x-mojo-tap-highlight="momentary">
++                <div class="palm-row-wrapper">
++                    <div class="title"  x-mojo-loc="">
++                        Set a message tone
++                    </div>
++                </div>
++            </div>
++        </div>
++    </div>
++</div>
+ </div>
+ <div>
+ <div id="emailList" name="emailList" class="contactPointList" >
+diff --git a/usr/palm/applications/com.palm.app.contacts/app/views/edit/msgtones.html b/usr/palm/applications/com.palm.app.contacts/app/views/edit/msgtones.html
+new file mode 100644
+index 0000000..809d707
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.contacts/app/views/edit/msgtones.html
+@@ -0,0 +1,16 @@
++<div class="palm-group unlabeled">
++  <div class="palm-list">
++    <div class="palm-row single #{MsgtoneSet} msgtone-button" id="MsgtoneButton" x-mojo-tap-highlight="momentary">
++      <div class="palm-row-wrapper">
++        <div class="label right truncating-text" x-mojo-loc=''>
++          Msgtone
++        </div>
++        <div class="title">
++          <div class="truncating-text">
++            #{MsgtoneDisplay}
++          </div>
++        </div>
++      </div>
++    </div>
++  </div>
++</div>
+diff --git a/usr/palm/applications/com.palm.app.contacts/stylesheets/detail-link.css b/usr/palm/applications/com.palm.app.contacts/stylesheets/detail-link.css
+index b3dd346..2f9acdb 100644
+--- a/usr/palm/applications/com.palm.app.contacts/stylesheets/detail-link.css
++++ b/usr/palm/applications/com.palm.app.contacts/stylesheets/detail-link.css
+@@ -304,4 +304,20 @@
+ .ringtone-button .label.right {
+   padding-left: 2px;
+   max-width: 80px;
++
++}.msgtone-button:not(.msgtone-set) .truncating-text {
++  font-weight: normal;
++  font-family: "Prelude-MediumOblique";
++  font-style: italic;
++  color: #000;              
++  -webkit-user-select: none;  
++}
++
++.msgtone-button:not(.msgtone-set) .label.right {
++  display: none;
++}
++
++.msgtone-button .label.right {
++  padding-left: 2px;
++  max-width: 80px;
+ }
+\ No newline at end of file
+diff --git a/usr/palm/applications/com.palm.app.contacts/stylesheets/sandbox-styles.css b/usr/palm/applications/com.palm.app.contacts/stylesheets/sandbox-styles.css
+index a53bb2a..acdc2f6 100644
+--- a/usr/palm/applications/com.palm.app.contacts/stylesheets/sandbox-styles.css
++++ b/usr/palm/applications/com.palm.app.contacts/stylesheets/sandbox-styles.css
+@@ -217,14 +217,26 @@ Copyright 2009 Palm, Inc.  All rights reserved.
+ 	background: url(../images/ringtone-icon.png) center center no-repeat;
+ }
+ 
++.msgtone.icon {
++	background: url(../images/ringtone-icon.png) center center no-repeat;
++}
++
+ .truncating-text.ringtone-text {
+ 	color: #898988;
+ }
+ 
++.truncating-text.msgtone-text {
++	color: #898988;
++}
++
+ .palm-row.selected .ringtone-text {
+ 	color: #FFF;
+ }
+ 
++.palm-row.selected .msgtone-text {
++	color: #FFF;
++}
++
+ .status-icon {
+ 	float: left;
+ 	margin-top: 13px;
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 484cd45..25ad97d 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -363,7 +363,8 @@ var ChatviewAssistant = Class.create({
+ 		if (this.isScreenOn && data.chatThreadId == this.chatThreadId) {
+ 			Mojo.Log.info("[CV] ****** chatview considerForNotification --- screen is on!");
+ 			if (data.notificationType == this.Messaging.notificationTypes.newMessage) {
+-				data = {playSoundOnly:true};
++				data = $H(data);
++				data = data.merge({playSoundOnly:true});
+ 			} else if (data.notificationType == this.Messaging.notificationTypes.sendFailure) {
+ 				data = {}; // wipe out the notification because we are in the chat
+ 			}
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+index c301f25..a3c64c4 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+@@ -426,7 +426,8 @@ var ListviewAssistant = Class.create(App.Scene, {
+ 		// if we are in the history view and the screen is on, do not display a banner + dashboard, just play a notification sound
+ 		if (this.isScreenOn) {
+ 			if (data.notificationType == this.Messaging.notificationTypes.newMessage && this.currentListView == this.Messaging.Views.HISTORY) {
+-				data = {playSoundOnly:true};
++				data = $H(data);
++				data = data.merge({playSoundOnly:true});
+ 			}
+ 		}
+ 		return data;
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+index 8238c68..6a193a5 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+@@ -27,6 +27,8 @@ function NotificationAssistant(controller){
+ 	};
+ }
+ 
++var contact = {};
++
+ NotificationAssistant.prototype.subscribeToNotifications = function(){
+ 	this.messageNotificationRequest = MessagingMojoService.registerForIncomingMessages({onSuccess: this.sendNotification.bind(this, this.Messaging.notificationTypes.newMessage)});
+ 	this.sendErrorNotificationRequest = MessagingMojoService.registerForSendFailures(this.sendNotification.bind(this, this.Messaging.notificationTypes.sendFailure));
+@@ -35,6 +37,23 @@ NotificationAssistant.prototype.subscribeToNotifications = function(){
+ 	this.airplaneModeNotificationRequest = MessagingMojoService.registerForAirplaneModeNotifications(this.sendAirplaneModeNotification.bind(this));
+ };
+ 
++NotificationAssistant.prototype.doB = function(bannerParams,bannerLaunchParams,bannerType,contact) {
++	Mojo.Log.error("Banner Ringtone: %j",contact.ringtoneLoc);
++	if (contact.ringtoneLoc)
++		bannerParams.soundFile = contact.ringtoneLoc;
++	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
++};
++
++NotificationAssistant.prototype.playmsgtone = function(contact){
++	Mojo.Log.error("Playmsgtone Ringtone: %j",contact.ringtoneLoc);
++	var notifParams = {};
++	this.setNotificationSound(notifParams);
++	if (contact.ringtoneLoc)
++		this.controller.playSoundNotification(notifParams.soundClass, contact.ringtoneLoc);
++	else
++		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++};
++
+ NotificationAssistant.prototype.sendNotification = function(notificationType, resp){
+ 	if (window.PalmSystem && !resp.returnValue) {
+ 		try {
+@@ -99,7 +118,7 @@ NotificationAssistant.prototype.sendReminderNotification = function(resp){
+ 		reminderPersonId: resp.personId,
+ 		clearBanner: true		
+ 	};
+-
++	
+ 	this.controller.showBanner(bannerParams,bannerLaunchParams,'reminder');
+ 
+ 	var dashboard = this.controller.getStageController(stageName);
+@@ -151,7 +170,8 @@ NotificationAssistant.prototype.considerForNotification = function(notificationD
+ 	if(notificationData.playSoundOnly && this.Messaging.messagingPrefs.enableNotificationSound) {
+ 		var notifParams = {};
+ 		this.setNotificationSound(notifParams);
+-		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++		var smsid = notificationData.address;
++		MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this),this.playmsgtone.bind(this));
+ 		return; // don't display any visual notification
+ 	}	
+ 	
+@@ -186,6 +206,7 @@ NotificationAssistant.prototype.sendClass0PopupAlert = function(notificationData
+ 
+ 	notificationData.carrierName = carrierName;
+ 	this.class0AlertData.list.push(notificationData);
++	var smsid = notificationData.address;;
+ 	this.renderClass0PopupAlert(true);
+ };
+ 
+@@ -195,7 +216,7 @@ NotificationAssistant.prototype.renderClass0PopupAlert = function(playSound) {
+ 	if(class0Stage) {
+ 		class0Stage.swapScene('class0Alert', this.class0AlertData);
+ 		if (playSound){
+-			this.controller.playSoundNotification('alerts','');
++			MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this),this.playmsgtone.bind(this));
+ 		}
+ 	} else {
+ 		var soundClass = 'none';
+@@ -285,7 +306,15 @@ NotificationAssistant.prototype.sendNewMessageNotificationAndUpdateDashboard = f
+ 		clearBanner: true		
+ 	};
+ 	
+-	this.controller.showBanner(bannerParams, bannerLaunchParams, 'chat');
++//	this.controller.showBanner(bannerParams, bannerLaunchParams, 'chat');
++	if (this.Messaging.messagingPrefs.enableNotificationSound) {
++		var smsid = notificationData.address;
++		bannerParams.soundClass = "alerts";
++		MessagingMojoService.rLookup(smsid,contact,this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'),this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'));
++	} else {
++		Mojo.Log.error("Setting banner params");
++		this.controller.showBanner(bannerParams, bannerLaunchParams, 'chat');
++	}
+ 	
+ 	// Store the data so it can be used in the dashboard
+ 	var data = {
+@@ -343,13 +372,9 @@ NotificationAssistant.prototype.sendNewMessageNotificationAndUpdateDashboard = f
+ 		// delay creating the dashboard window for the case where the banner is clicked on
+ 		// to take you to the chat view.  This will likely result in the dashboard data
+ 		// being cleared.  If the dashboard data is empty, we do not need to create the dashboard.		
+-		if (this.Messaging.DisplayState.isDisplayOn()) {
+-			if (!this.isNewMessageDashboardPending) {
+-				this.isNewMessageDashboardPending = true; 
+-				createDashboard.delay(5);
+-			}
+-		} else {
+-			createDashboard(); // if the screen is off, create the dashboard right away
++		if (!this.isNewMessageDashboardPending) {
++			this.isNewMessageDashboardPending = true; 
++			createDashboard.delay(5);
+ 		}
+ 	}
+ };
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js b/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
+index c4ae318..492539c 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/models/messaging-luna-service.js
+@@ -1000,5 +1000,160 @@ var MessagingMojoService = {
+ 		  method: 'setSMSCAddressAndEmailGateway',
+ 		  parameters: {smscAddr:address, emailGateway: gateway}
+ 	  });
+-	}
++	},
++	
++	isNumberValid: function(number) {
++	return !(number === undefined
++		|| number == null
++		|| number == "" 
++		|| number == "unknown" 
++		|| number == "unknown caller"
++		|| number == "blocked caller") 
++	},
++	
++	// use contacts service and carrier book to perform reverse lookup on number.  stores results in passed contact object.
++	// runs callback when done.
++	// if the number isn't valid, marks contact lookup complete 
++	// if there's already one happening, or one already completed, just fires callback
++	// if there's a lateCallback provided, calls that if the result comes much later
++	rLookup: function(number, contact, callback, lateCallback){
++	
++		//Reset contact to always get the tone
++		contact = {};
++		Mojo.Log.error("Current contact value: %j",contact);
++		Mojo.Log.error("SMS ID: %j",number);
++		
++		// bail if the number is invalid
++		if (!(this.isNumberValid(number))) {
++			this.finishLookup(contact, callback);
++			return;
++		}
++	
++		if (contact.lookupComplete) {
++			callback(contact);
++			return;
++		}
++	
++		if (contact.lookupPending) {
++			callback(contact);
++			return;                                                                 
++			}
++	
++		// use contacts service to perform lookup.
++		// if contact already has an id in it, use person lookup
++		// instead of doing reverse lookup on number
++		contact.lookupPending = true;
++		var method, params;
++		if (contact.initialId) {
++			method = 'basicDetails'
++			params =  {'id' : contact.initialId}
++			delete contact.initialId;
++		/* } else {
++			method = 'reverseLookup'
++			params = {
++				'value': number,
++				'type': "phone"
++			}
++		} */
++		} else {
++			if (number.indexOf("@") == -1) {
++				Mojo.Log.error("Looking up phone number: %j",number);
++				method = 'reverseLookup'
++				params = {
++					'value': number,
++					'type': "phone"
++				}
++			} else {
++				Mojo.Log.error("Looking up email address: %j",number);
++				method = 'reverseLookup'
++				params = {
++					'value': number,
++					'type': "email"
++				}
++			}
++		}
++		this.lastRequest = new Mojo.Service.Request('palm://com.palm.contacts', {
++			'method': method,
++			parameters: params,
++			onSuccess: this.onLookup.bind(this, number, contact, callback, lateCallback),
++			onFailure: function() {
++				// cancel previous lookup, so this doesn't fire on a service crash
++				if (this.lastRequest) {
++					this.lastRequest.cancel();
++					this.lastRequest = undefined;
++				}
++			
++				this.carrierBookLookup(number,contact);
++				this.finishLookup(contact, callback);
++			}.bind(this)
++		});
++	
++		// timeout if lookup hasn't completed in 4 seconds
++		this.lookupTimeout = setTimeout(this.onLookupTimeout.bind(this, contact, callback, lateCallback), 4000);
++	},
++	
++	// when contact lookup returns, check for valid result
++	// if valid result, grab name, ringtone; if there's a picture, start loading and set callback to measure it
++	// if no valid result, look in carrier book
++	// fire callback when done
++	onLookup: function(number, contact, callback, lateCallback, result){
++		Mojo.Log.info( "PhoneApp: Contact::onLookup CALLER ID LOOKUP %s RETURNED %j" , number , result);
++		var statusChange = "";
++		
++		// cancel previous lookup, so this doesn't fire on a service crash
++		if (this.lastRequest) {
++			this.lastRequest.cancel();
++			this.lastRequest = undefined;
++		}
++		
++		if (result.record) {
++			contact.id = result.record.id;
++			contact.ringtoneLoc = result.record.messagingRingtoneLoc;
++			Mojo.Log.error("MSGTone: %j",contact.ringtoneLoc);
++		}
++		
++		this.finishLookup(contact, callback, lateCallback);
++	},
++	
++	// mark complete; cancel timeout; fire callback if it hasn't fired yet
++	finishLookup: function(contact, callback, lateCallback) {
++		contact.lookupPending = false;
++		
++		// cancel lookup timeout
++		clearTimeout(this.lookupTimeout); 
++		this.lookupTimeout = undefined;
++		
++		if (!(contact.lookupComplete)) {
++			contact.lookupComplete = true;
++			callback(contact);
++		// if we have a late return, and we got a contact result, call
++		// the late return update 
++		} else if (lateCallback && contact.doLateCallback && contact.id) {
++			contact.doLateCallback = false;
++			lateCallback.delay(5, contact);
++		} else {
++		}
++	},
++
++	// flag lookup as done; proceed with callback
++	onLookupTimeout: function(contact, callback, lateCallback) {
++	
++		if (lateCallback) {
++			contact.doLateCallback = true;
++		} else if (this.lastRequest && !lateCallback) {
++			// cancel previous lookup, so this doesn't fire on a service crash
++			this.lastRequest.cancel();
++			this.lastRequest = undefined;
++		}
++		
++		// clear timeout
++		this.lookupTimeout = undefined;
++		
++		// flag done; fire callback if it hasn't yet
++		contact.lookupComplete = true;
++		var lookupWasPending = contact.lookupPending;
++		contact.lookupPending = false;
++		if (lookupWasPending) 
++			callback(contact);
++	},
+ };
+\ No newline at end of file
