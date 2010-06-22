@@ -1,0 +1,684 @@
+diff --git a/etc/palm/persistentWindows.conf b/etc/palm/persistentWindows.conf
+index ee01621..d3f342b 100644
+--- a/etc/palm/persistentWindows.conf
++++ b/etc/palm/persistentWindows.conf
+@@ -1,5 +1,7 @@
+ {
+ 		"com.palm.systemui": [
++			"StatusMenu",
++			"TodayMenu",
+ 			"DeviceMenu"
+ 		],
+ 
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index d4ae043..89a78bb 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -12,6 +12,7 @@ var BarAssistant = Class.create({
+ 		this.isInitialQuery = false;
+ 		this.airplaneModeInitialQueryDone = false;
+ 		this.carrierText = "Palm";
++		this.statusText = null;
+ 		this.airplaneModeTriggered = false;
+ 		this.show3GForEvdo = false;
+ 		this.carrierTextEnglish = "Palm";
+@@ -29,6 +30,7 @@ var BarAssistant = Class.create({
+ 		$('tty').hide();
+ 		$('hac').hide();
+ 		$('callforward').hide();
++		$('appmenu').hide();
+ 		
+ 		this.getBuildName();
+ 						
+@@ -86,14 +88,17 @@ var BarAssistant = Class.create({
+ 		this.initOnServerStart("com.palm.pubsubservice", this.pubsubServiceInit.bind(this));
+ 				
+ 		Mojo.Event.listen($('appmenu'),'mojo-tap', this.appMenuHandleTap.bindAsEventListener(this));
++		
++		Mojo.Event.listen($('statusmenu'),'mojo-tap', this.statusMenuHandleTap.bindAsEventListener(this));
++		Mojo.Event.listen($('todaymenu'),'mojo-tap', this.todayMenuHandleTap.bindAsEventListener(this));
+ 		Mojo.Event.listen($('devicemenu'),'mojo-tap', this.deviceMenuHandleTap.bindAsEventListener(this));
+ 						
+ 		this.registerForeGroundApp();
+ 		this.registerStatusSettings();		
+ 		
+-		//Create the Device Menu Window. But do not do this if this is a frist use run.
++		//Create the System Menu Windows. But do not do this if this is a frist use run.
+ 		if(!PalmSystem.isMinimal)
+-			this.showDeviceMenu();
++			this.showSystemMenus();
+ 		
+ 		this.setStageControllerActiveToFalse.bind(this).delay(5);	
+ 		
+@@ -276,7 +281,7 @@ handleAppName:function(payload) {
+ 	//If it is First Use, Do not change the App Name.
+ 	if(PalmSystem.isMinimal) {
+ 		this.foregroundAppID = payload.id;
+-		$('appname').hide();
++		$('appmenu').hide();
+ 		$('carrier').show();
+ 		return;
+ 	}
+@@ -307,11 +312,11 @@ updateAppMenuTitle: function(payload) {
+ 		}
+ 		else 
+ 			$('appname').innerHTML = payload.appmenu || payload.title;
+-		$('appname').show();
++		$('appmenu').show();
+ 		this.foregroundAppID = payload.id;
+ 	}
+ 	else{
+-		$('appname').hide();
++		$('appmenu').hide();
+ 		$('carrier').show();
+ 		this.foregroundAppID=null;
+ 	}
+@@ -399,11 +404,11 @@ handleStatusChange: function(payload) {
+ 		}
+ 		if (payload.locked || this.foregroundAppID == null) {
+ 			$('carrier').show();
+-			$('appname').hide();
++			$('appmenu').hide();
+ 		}
+ 		else {
+ 			$('carrier').hide();
+-			$('appname').show();
++			$('appmenu').show();
+ 		}
+ 	}	
+ 	
+@@ -448,6 +453,116 @@ appMenuHandleTap: function(event){//make service call here to show app's menu
+ 	}	
+ },
+ 
++// System menus
++
++showSystemMenus: function() {
++	this.showStatusMenu();
++	this.showTodayMenu();
++	this.showDeviceMenu();
++},
++
++hideSystemMenus: function(menu) {
++	if(menu != "status") {
++		var modeStageController = Mojo.Controller.getAppController().getStageProxy("StatusMenu");
++		
++		if (modeStageController) {
++			modeStageController.delegateToSceneAssistant("close");
++		}
++	}
++	
++	if(menu != "today") {
++		var modeStageController = Mojo.Controller.getAppController().getStageProxy("TodayMenu");
++		
++		if (modeStageController) {
++			modeStageController.delegateToSceneAssistant("close");
++		}
++	}
++
++	if(menu != "device") {
++		var deviceStageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++		
++		if (deviceStageController) {
++			deviceStageController.delegateToSceneAssistant("close");
++		}
++	}	
++},
++
++// Status menu
++
++statusMenuHandleTap: function(event) { //show/hide statusmenu
++	//Ignore the notification if it's in First Use.
++	 if(PalmSystem.isMinimal)
++	 	return;
++
++	var target = event.target;
++	var i=0;
++	var level = 2; //up to 2 level, for hour, minute
++	while (target.getAttribute('id') != 'statusmenu' && i<level) {
++    	target = target.up();
++		i++;
++    }	 
++    if (target) {
++		if(target.getAttribute('id') == 'statusmenu'){//show/hide statusMenu
++ 			this.showStatusMenu();												
++ 		}     			
++    }
++},
++
++showStatusMenu: function() {
++//	var stageController = Mojo.Controller.getAppController().getStageProxy("StatusMenu");
++//	if (stageController) {
++//		this.hideSystemMenus("status");
++//		stageController.delegateToSceneAssistant("toggleStatusMenu");			
++//	} else {
++//		this.statusMenuCreatedHandler = this.statusMenuCreated.bind(this);
++//		Mojo.Controller.getAppController().createStageWithCallback({name:"StatusMenu",lightweight: true}, 
++//			this.statusMenuCreatedHandler, "menu");
++//	}
++},
++
++statusMenuCreated: function(stageController) {
++//	stageController.pushScene('statusmenu',this);
++},
++
++// Today menu
++
++todayMenuHandleTap: function(event) { //show/hide todaymenu
++	//Ignore the notification if it's in First Use.
++	 if(PalmSystem.isMinimal)
++	 	return;
++
++	var target = event.target;
++	var i=0;
++	var level = 2; //up to 2 level, for hour, minute
++	while (target.getAttribute('id') != 'todaymenu' && i<level) {
++    	target = target.up();
++		i++;
++    }	 
++    if (target) {
++		if(target.getAttribute('id') == 'todaymenu'){//show/hide todayMenu
++ 			this.showTodayMenu();												
++ 		}     			
++    }
++},
++
++showTodayMenu: function() {
++//	var stageController = Mojo.Controller.getAppController().getStageProxy("TodayMenu");
++//	if (stageController) {
++//		this.hideSystemMenus("today");
++//		stageController.delegateToSceneAssistant("toggleTodayMenu");			
++//	} else {
++//		this.todayMenuCreatedHandler = this.todayMenuCreated.bind(this);
++//		Mojo.Controller.getAppController().createStageWithCallback({name:"TodayMenu",lightweight: true}, 
++//			this.todayMenuCreatedHandler, "menu");
++//	}
++},
++
++todayMenuCreated: function(stageController) {
++//	stageController.pushScene('todaymenu',this);
++},
++
++// Device menu
++
+ deviceMenuHandleTap: function(event){//show/hide devicemenu
+ 	
+ 	//Ignore the notification if it's in First Use.
+@@ -475,6 +590,7 @@ showDeviceMenu: function() {
+ 		
+ 		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
+ 		if (stageController) {
++			this.hideSystemMenus("device");
+ 			stageController.delegateToSceneAssistant("toggleDeviceMenu");			
+ 		} else {
+ 			this.deviceMenuCreatedHandler = this.deviceMenuCreated.bind(this);
+@@ -615,7 +731,10 @@ handleNetworkStatusQueryNotification: function(payload) {
+ 				this.carrierTextEnglish = payload.extended.networkName.escapeHTML();
+ 			} 
+ 				
+-			$('carrier').innerHTML = this.carrierText;	   	
++			if(this.statusText != null)
++				$('carrier').innerHTML = this.statusText;
++			else
++				$('carrier').innerHTML = this.carrierText;	 
+ 			if(payload.extended.registration == 'home') {			
+ 				$('roaming').hide();
+ 			}								
+@@ -681,9 +800,11 @@ handleNetworkStatusQueryNotification: function(payload) {
+ 			$('rssi').className = "bars-0";
+ 			break;
+ 		default:
+-			this.carrierText = this.$L('No service');
+-			this.carrierTextEnglish = "No service";
+-			$('carrier').innerHTML = this.carrierText;
++			if(!this.airplaneMode) {
++				this.carrierTextEnglish = "No service";
++				this.carrierText = $L('No service');
++				$('carrier').innerHTML = this.carrierText;
++			}
+ 			$('roaming').hide();
+ 			break;			
+ 	}
+@@ -1019,7 +1140,11 @@ handletelephonyNotifications: function(payload) {
+ 					this.carrierTextEnglish = networkMsg.networkName.escapeHTML();
+ 				}	
+ 					
+-				$('carrier').innerHTML = this.carrierText;
++				if(this.statusText != null)
++					$('carrier').innerHTML = this.statusText;
++				else
++					$('carrier').innerHTML = this.carrierText;
++
+ 				this.simlocked = false;
+ 				
+ 				if(networkMsg.registration == 'home') {					
+@@ -2821,8 +2946,23 @@ setAirplaneMode: function(mode) {
+ 		});	
+ },
+ 
++getAirplaneModeInProgress: function() {
++	return this.apModeInProgress;
++},
++
++setAirplaneModeInProgress: function(inprogress) {
++	this.apModeInProgress = inprogress;
++},
++
+ //Disable Airplane Mode by turning on Phone and other radios.
+ disableFlightMode: function() {
++	//Have immitate effect on the status...	
++	if(this.phoneType == 'gsm')
++		this.carrierText = $L("Network search...");
++	else
++		this.carrierText = $L("Searching...");			
++	$('carrier').innerHTML = this.carrierText;
++	
+ 	Mojo.Log.info("System UI - Disabling Airplane Mode");
+ 	this.airplaneModeTriggered = true;
+ 	this.clearAPModeRadioStatus();
+diff --git a/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html b/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
+index c1daf79..187c074 100644
+--- a/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
++++ b/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
+@@ -1,20 +1,18 @@
+ <div id="statusbar" class="status-bar">
+-	<div id="date-and-time">
+-		<div id="clock" class="clock">			 
+-		</div>
+-		<div id="date" style='display:none;'>
+-			<span id='today'></span> 
+-		</div>
+-	</div>
+-	<div id="appmenu">               
++	<div id="statusmenu">               
+ 		<div id="carrier" class="carrier-wrapper truncating-text">
+ 		</div>				
+-		<div class="appname-container">
+-   			<div id="appname" class="appname-wrapper truncating-text">
+-				<!-- Insert name here -->                  
+-			</div>	
++	</div>
++	
++	<div id="todaymenu">               
++		<div id="date-and-time">
++			<div id="clock" class="clock">			 
++			</div>
++			<div id="date" style='display:none;'>
++				<span id='today'></span> 
++			</div>
+ 		</div>
+-	</div>                   
++	</div>
+ 	
+ 	<div id="devicemenu">
+ 		<div id="power">
+@@ -36,4 +34,12 @@
+ 		<div id="hac">
+ 		</div>			
+ 	</div>
++
++	<div id="appmenu">               
++		<div class="appname-container">
++   			<div id="appname" class="appname-wrapper truncating-text">
++				<!-- Insert name here -->                  
++			</div>	
++		</div>
++	</div>                   
+ </div>
+diff --git a/usr/lib/luna/system/luna-systemui/stylesheets/devicemenu.css b/usr/lib/luna/system/luna-systemui/stylesheets/devicemenu.css
+index e2e56f7..e94ffd5 100644
+--- a/usr/lib/luna/system/luna-systemui/stylesheets/devicemenu.css
++++ b/usr/lib/luna/system/luna-systemui/stylesheets/devicemenu.css
+@@ -99,11 +99,3 @@
+ 	margin-left: 4px;
+ }                 
+ 
+-.scrim {
+-		width: 320px;
+-		height: 480px;
+-		top: 0px;
+-		background: url(../images/scrim.png) top left repeat-x;
+-		position: fixed;
+-		z-index: -1;
+-}
+\ No newline at end of file
+diff --git a/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css b/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
+index a0dee3c..2878f36 100644
+--- a/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
++++ b/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
+@@ -36,7 +36,7 @@ body.palm-default {
+ 		top: 0;
+ 		left: 0;
+ 		height: 28px;
+-		width: 140px;
++		width: 110px;
+ 		padding: 0;
+ }
+ 
+@@ -44,9 +44,10 @@ body.palm-default {
+ 		position: fixed;
+ 		margin: 1px 0 0 0;
+ 		top: 0;
+-		left: 0;
++		left: 110px;
++		right: 110px;
+ 		height: 28px;
+-		width: 100%;
++		width: 100px;
+ 		padding: 0;
+ 		text-align: center;
+ }
+@@ -55,13 +56,36 @@ body.palm-default {
+ 		font-size: 15px;
+ }
+ 
++#statusmenu {
++		color: #fff;
++		position: fixed;
++		margin: 0;
++		top: 0;
++		left: 0;
++		height: 28px;
++		width: 110px;
++		padding: 0;
++}
++
++#todaymenu {
++		color: #fff;
++		position: fixed;
++		margin: 0;
++		top: 0;
++		left: 110px;
++		right: 110px;
++		height: 28px;
++		width: 100px;
++		padding: 0;
++}
++
+ #devicemenu {
+ 		position: fixed;
+ 		margin: 0;
+ 		top: 0;
+ 		right: 0;
+ 		height: 28px;
+-		width: 180px;
++		width: 110px;
+ }
+ 
+ .appname-container {
+@@ -85,7 +109,7 @@ body.palm-default {
+ 		font-size: 14px;
+ 		line-height: 27px;
+ 		color: #fff;
+-		max-width: 132px;
++		max-width: 110px;
+ }
+ 
+ #carrier {
+@@ -393,3 +417,12 @@ body.palm-default {
+ 		height: 480px;
+ 		background-color: black;
+ }
++
++.scrim {
++		width: 320px;
++		height: 480px;
++		top: 0px;
++		background: url(../images/scrim.png) top left repeat-x;
++		position: fixed;
++		z-index: -1;
++}
+diff --git a/usr/palm/frameworks/mojo/submissions/345/stylesheets/global-menus.css b/usr/palm/frameworks/mojo/submissions/345/stylesheets/global-menus.css
+index 3c55c3d..6f430e3 100644
+--- a/usr/palm/frameworks/mojo/submissions/345/stylesheets/global-menus.css
++++ b/usr/palm/frameworks/mojo/submissions/345/stylesheets/global-menus.css
+@@ -626,9 +626,11 @@
+   padding-top: 28px;
+ }
+ 
+-/* Application and Device Menus */
++/* Status, Today, Device and Application Menus */
+ 
+ #palm-app-menu.palm-popup-container,
++#palm-status-menu.palm-popup-container,
++#palm-today-menu.palm-popup-container,
+ #palm-device-menu.palm-popup-container {
+   font-family: "Prelude" !important;
+   text-align: left !important;
+@@ -648,6 +650,8 @@
+ }
+ 
+ #palm-app-menu.palm-popup-container.palm-touch-rows-7,
++#palm-status-menu.palm-popup-container.palm-touch-rows-7,
++#palm-today-menu.palm-popup-container.palm-touch-rows-7,
+ #palm-device-menu.palm-popup-container.palm-touch-rows-7 {
+   -webkit-border-image: url(../images/system-menu-background-solid.png) 30 28 35 28 repeat repeat;
+ }
+@@ -655,24 +659,48 @@
+ #palm-app-menu.palm-popup-container {
+   top: -2px;
+   left: -6px;
+-  min-width: 278px;
++  min-width: 306px;
++  max-width: 306px;
++  max-height: 413px;
++}
++
++#palm-status-menu.palm-popup-container {
++  top: -2px;
++  left: -6px;
++  min-width: 306px;
++  max-width: 306px;
++  max-height: 413px;
++}
++
++#palm-today-menu.palm-popup-container {
++  top: -2px;
++  left: 8px;
++  min-width: 306px;
++  max-width: 306px;
+   max-height: 413px;
+ }
+ 
+ #palm-device-menu.palm-popup-container {
+   top: -2px;
+   right: -6px;
+-  min-width: 278px;
++  min-width: 306px;
++  max-width: 306px;
+   max-height: 413px;
+ }
+ 
+ #palm-app-menu > .palm-popup-wrapper,
++#palm-status-menu > .palm-popup-wrapper,
++#palm-today-menu > .palm-popup-wrapper,
+ #palm-device-menu > .palm-popup-wrapper {
+   margin: -58px -21px -48px -52px;
+ }
+ 
+ #palm-app-menu .palm-popup-fade-top,
+ #palm-app-menu .palm-popup-fade-bottom,
++#palm-status-menu .palm-popup-fade-top,
++#palm-status-menu .palm-popup-fade-bottom,
++#palm-today-menu .palm-popup-fade-top,
++#palm-today-menu .palm-popup-fade-bottom,
+ #palm-device-menu .palm-popup-fade-top,
+ #palm-device-menu .palm-popup-fade-bottom {
+   margin-right: 9px;
+@@ -687,6 +715,25 @@
+   left: -32px;
+   bottom: -24px;
+ }
++
++#palm-status-menu .palm-popup-fade-top {
++  left: -32px;
++  top: -27px;
++}
++#palm-status-menu .palm-popup-fade-bottom {
++  left: -32px;
++  bottom: -24px;
++}
++
++#palm-today-menu .palm-popup-fade-top {
++  left: -32px;
++  top: -27px;
++}
++#palm-today-menu .palm-popup-fade-bottom {
++  left: -32px;
++  bottom: -24px;
++}
++
+ #palm-device-menu .palm-popup-fade-top {
+   left: -33px;
+   top: -27px;
+@@ -698,50 +745,72 @@
+ 
+ 
+ #palm-app-menu .palm-popup-fade-top > .fade-background,
++#palm-status-menu .palm-popup-fade-top > .fade-background,
++#palm-today-menu .palm-popup-fade-top > .fade-background,
+ #palm-device-menu .palm-popup-fade-top > .fade-background {
+   -webkit-border-image: url(../images/system-menu-fade-top.png) 0 24 0 24 repeat repeat;
+ }
+ #palm-app-menu .palm-popup-fade-top > .fade-arrow,
++#palm-status-menu .palm-popup-fade-top > .fade-arrow,
++#palm-today-menu .palm-popup-fade-top > .fade-arrow,
+ #palm-device-menu .palm-popup-fade-top > .fade-arrow {
+   background: url(../images/palm-popup-fade-arrow-up-dark.png) center center no-repeat;
+ }
+ #palm-app-menu .palm-popup-fade-bottom > .fade-background,
++#palm-status-menu .palm-popup-fade-bottom > .fade-background,
++#palm-today-menu .palm-popup-fade-bottom > .fade-background,
+ #palm-device-menu .palm-popup-fade-bottom > .fade-background {
+   -webkit-border-image: url(../images/system-menu-fade-bottom.png) 0 24 0 24 repeat repeat;
+ }
+ #palm-app-menu .palm-popup-fade-bottom > .fade-arrow,
++#palm-status-menu .palm-popup-fade-bottom > .fade-arrow,
++#palm-today-menu .palm-popup-fade-bottom > .fade-arrow,
+ #palm-device-menu .palm-popup-fade-bottom > .fade-arrow {
+   background: url(../images/palm-popup-fade-arrow-down-dark.png) center center no-repeat;
+ }
+ 
+ #palm-app-menu.palm-touch-rows-7 .palm-popup-fade-top > .fade-background,
++#palm-status-menu.palm-touch-rows-7 .palm-popup-fade-top > .fade-background,
++#palm-today-menu.palm-touch-rows-7 .palm-popup-fade-top > .fade-background,
+ #palm-device-menu.palm-touch-rows-7 .palm-popup-fade-top > .fade-background {
+   -webkit-border-image: url(../images/system-menu-fade-top-solid.png) 0 24 0 24 repeat repeat;
+ }
+ #palm-app-menu.palm-touch-rows-7 .palm-popup-fade-bottom > .fade-background,
++#palm-status-menu.palm-touch-rows-7 .palm-popup-fade-bottom > .fade-background,
++#palm-today-menu.palm-touch-rows-7 .palm-popup-fade-bottom > .fade-background,
+ #palm-device-menu.palm-touch-rows-7 .palm-popup-fade-bottom > .fade-background {
+   -webkit-border-image: url(../images/system-menu-fade-bottom-solid.png) 0 24 0 24 repeat repeat;
+ }
+ 
+ #palm-app-menu .palm-popup-content,
++#palm-status-menu .palm-popup-content,
++#palm-today-menu .palm-popup-content,
+ #palm-device-menu .palm-popup-content {
+   margin: 31px 0 26px 31px;
+ }
+ 
+ #palm-app-menu .palm-row,
++#palm-status-menu .palm-row,
++#palm-today-menu .palm-row,
+ #palm-device-menu .palm-row {
+   background: url(../images/list-separator-dark-taper.png) bottom left no-repeat;
+ }
+ 
+ #palm-app-menu .palm-row.single,
++#palm-status-menu .palm-row.single,
++#palm-today-menu .palm-row.single,
+ #palm-device-menu .palm-row.single,
+ #palm-app-menu .palm-row.last,
++#palm-status-menu .palm-row.last,
++#palm-today-menu .palm-row.last,
+ #palm-device-menu .palm-row.last {
+   background: none;
+   -webkit-border-image: none;
+ }
+ 
+ #palm-app-menu .label,
++#palm-status-menu .label,
++#palm-today-menu .label,
+ #palm-device-menu .label {
+   color: #AAA;
+   text-shadow: #333 0 -1px 0;
+@@ -760,14 +829,20 @@
+ }
+ 
+ #palm-app-menu .palm-row.selected,
++#palm-status-menu .palm-row.selected,
++#palm-today-menu .palm-row.selected,
+ #palm-device-menu .palm-row.selected,
+ #palm-app-menu .palm-row.selected.submenu-group,
++#palm-status-menu .palm-row.selected.submenu-group,
++#palm-today-menu .palm-row.selected.submenu-group,
+ #palm-device-menu .palm-row.selected.submenu-group {
+   background: none;
+   -webkit-border-image: url(../images/system-menu-selection-gradient-default.png) 24 20 24 20 repeat repeat;
+ }
+ 
+ #palm-app-menu .palm-popup-content > .palm-list > .menu-start.selected,
++#palm-status-menu .palm-popup-content > .palm-list > .menu-start.selected,
++#palm-today-menu .palm-popup-content > .palm-list > .menu-start.selected,
+ #palm-device-menu .palm-popup-content > .palm-list > .menu-start.selected,
+ #palm-app-menu .palm-row.first.selected.submenu-group {
+   background: none;
+@@ -775,18 +850,24 @@
+ }
+ 
+ #palm-app-menu .palm-popup-content > .palm-list > .menu-end.selected,
++#palm-status-menu .palm-popup-content > .palm-list > .menu-end.selected,
++#palm-today-menu .palm-popup-content > .palm-list > .menu-end.selected,
+ #palm-device-menu .palm-popup-content > .palm-list > .menu-end.selected {
+   background: none;
+   -webkit-border-image: url(../images/system-menu-selection-gradient-last.png) 24 20 24 20 repeat repeat;
+ }
+ 
+ #palm-app-menu .palm-row.submenu-group,
++#palm-status-menu .palm-row.submenu-group,
++#palm-today-menu .palm-row.submenu-group,
+ #palm-device-menu .palm-row.submenu-group {
+   -webkit-border-image: none;
+   background: url(../images/system-menu-section-divider.png) bottom left no-repeat;
+ }
+ 
+ #palm-app-menu .palm-drawer-container,
++#palm-status-menu .palm-drawer-container,
++#palm-today-menu .palm-drawer-container,
+ #palm-device-menu .palm-drawer-container {
+   position: relative;
+   top: 0px;
+@@ -797,6 +878,8 @@
+ }
+ 
+ #palm-app-menu .palm-drawer-contents,
++#palm-status-menu .palm-drawer-contents,
++#palm-today-menu .palm-drawer-contents,
+ #palm-device-menu .palm-drawer-contents {
+   margin: 0;
+   position: relative;
+@@ -804,16 +887,22 @@
+ }
+ 
+ #palm-app-menu .palm-drawer-contents .palm-row .title,
++#palm-status-menu .palm-drawer-contents .palm-row .title,
++#palm-today-menu .palm-drawer-contents .palm-row .title,
+ #palm-device-menu .palm-drawer-contents .palm-row .title {
+   margin-left: 14px;
+ }
+ 
+ #palm-app-menu .palm-row .title.dim,
++#palm-status-menu .palm-row .title.dim,
++#palm-today-menu .palm-row .title.dim,
+ #palm-device-menu .palm-row .title.dim {
+   color: #BBB;
+ }
+ 
+ #palm-app-menu .palm-drawer-contents .palm-row .label,
++#palm-status-menu .palm-drawer-contents .palm-row .label,
++#palm-today-menu .palm-drawer-contents .palm-row .label,
+ #palm-device-menu .palm-drawer-contents .palm-row .label {
+   margin-right: 24px;
+ }

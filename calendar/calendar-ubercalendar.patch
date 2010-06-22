@@ -1,0 +1,1535 @@
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
+index 5375929..422c98e 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
+@@ -489,7 +489,15 @@ var AppAssistant = Class.create({
+ 			this.firstUseManager = new FirstUseManager(stageController);
+ 		} else {
+ 			// Otherwise show the Day View
+-			stageController.pushScene({name: "day", transition: Mojo.Transition.crossFade, disableSceneScroller: true});
++			var view = "day";
++			var cookie = new Mojo.Model.Cookie("LastView");
++			try {
++				view = cookie.get();
++			} catch (e) {}
++			if ((view != "month") && (view != "week")) {
++				view = "day";
++			}
++			stageController.pushScene({name: view, transition: Mojo.Transition.crossFade, disableSceneScroller: true});
+ 		}
+ 	},
+ 	
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
+index 84263c0..28c8f1f 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
+@@ -11,8 +11,8 @@ var DayAssistant = Class.create({
+ 		this.appMenuModel = { visible:true, 
+ 									label:$L('Calendar'), 
+ 									items: [ Mojo.Menu.editItem,
+-											{label:$L('New'), items: [{label:$L('Event'), command:'newtimed', disabled:false},
+-	                													{label:$L('All day event'), command:'newallday', disabled:false}] 
++											{label:$L('New'), items: [{label:$L('Event'), shortcut:'n', command:'newtimed', disabled:false},
++	                													{label:$L('All day event'), shortcut:'d', command:'newallday', disabled:false}] 
+ 	                													 				
+ 											},											
+ 											{label:$L('Sync Now'), command:'sync', id: 2},
+@@ -42,7 +42,9 @@ var DayAssistant = Class.create({
+ 		this.pendingCalendarSettingsUpdate = false;
+ 		//this.pendingOpenScratchEventInDetails = false;
+ 		this.snapEffectCount = 0;
+-
++		this.imgAlarm = new Image();
++		this.imgAlarm.src = "/media/internal/scrims/ubercalendar/alarm-icon.png";
++		this.imgIcons = new Object();
+ 		
+ 		this.hourHeight = 48;
+ 		this.halfHourHeight = 24;
+@@ -212,17 +214,23 @@ var DayAssistant = Class.create({
+ 	buildDayTitle: function(doScrim) {
+ 		var today = Date.today().clearTime();
+ 		var dayDateNoTime = new Date(this.dayDate).clearTime();
++		var weekNumber = new Date(this.dayDate).getISO8601Week();
+ 		
+ 		if (dayDateNoTime.compareTo(today) == 0) {
+-			var template = new Template($L("#{todayStr}, #{dateStr}"));
++			var template = new Template($L("#{todayStr}, #{dateStr}") + ", W#{weekStr}");
+ 			var todayStr= Mojo.Format.formatRelativeDate(today, {date: "short"}).capitalize();
+ 			
+ 			var templateModel = {};
+ 			templateModel.todayStr = todayStr;
++			templateModel.weekStr = weekNumber;
+ 			templateModel.dateStr = Mojo.Format.formatDate(this.dayDate, $L("EEE MMM d"));
+ 			this.controller.get('dv_title').update(template.evaluate(templateModel)); // Localize this date format string
+ 		} else {
+-			this.controller.get('dv_title').update(Mojo.Format.formatDate(this.dayDate, $L("EEE MMM d, yyyy"))); // Localize this date format string
++			var template = new Template($L("#{dateStr}") + ", W#{weekStr}");
++			var templateModel = {};
++			templateModel.weekStr = weekNumber;
++			templateModel.dateStr = Mojo.Format.formatDate(this.dayDate, $L("EEE MMM d, yyyy"));
++			this.controller.get('dv_title').update(template.evaluate(templateModel)); // Localize this date format string
+ 		}
+ 		
+ 		if (doScrim) {
+@@ -702,6 +710,8 @@ var DayAssistant = Class.create({
+ 		//Mojo.Log.info("day-assistant: renderEvent");
+ 		if (this.animating && !event.animatible)
+ 			return;
++
++//Mojo.Log.error(Object.toJSON(event));
+ 	
+ 		var ctx = this.divs[whichDay].ctxEvents;
+ 		var marginLeft = 28;
+@@ -743,6 +753,15 @@ var DayAssistant = Class.create({
+ 		ctx.fillRect(left+1, top+height-3, width-2, 1);
+ 		
+ 		var textTop = top + 30;
++
++		// get more details
++		if (event.gotFullDetails === undefined) {
++			// get more infos for this event
++			getCalendarService().getEvent(event.id,
++					this.getEventDetails.bind(this, whichDay, event, selected, ghost),
++					function(response) {Mojo.Log.error(response.errorText);},
++					this.controller);
++		}
+ 		
+ 		// Subject
+ 		ctx.fillStyle = this.colors[event.calendarColor].text;
+@@ -753,8 +772,27 @@ var DayAssistant = Class.create({
+ 		var subjectTop = top+15;
+ 		if (bottom >= (top + height))
+ 			subjectTop = top+17;	// no room for location or note, therefore vertically center subject text
+-		this.fillText(event.subject, ctx, left+4, subjectTop, width, bottom, 15 /*line height*/);	
+-		
++		this.fillText(event.subject, ctx, left+4, subjectTop, width-30, bottom, 15 /*line height*/);	
++
++		// Alarm
++		if ((event.alarm !== undefined) && (event.alarm != "none")) {
++			try{ ctx.drawImage(this.imgAlarm, left+4+width-18, subjectTop+1, 12, 12); }catch(e) {}
++		}
++		// Icon
++		if (event.note !== undefined) {
++			try {
++				var start = event.note.indexOf("ICON=");
++				if (start > -1) {
++					start += 5;
++					var end = event.note.indexOf(";");
++					if (end > start) {
++						var icon = event.note.substring(start, end);
++						ctx.drawImage(this.imgIcons[icon], left+4+width-30, subjectTop+12, 12, 12);
++					}
++				}
++			} catch(e) {}
++		}
++
+ 		// Location
+ 		if (event.location && (event.location.length > 0) && (textTop < (top + height))) {
+ 			ctx.font = "italic bold 14px Prelude";
+@@ -769,7 +807,7 @@ var DayAssistant = Class.create({
+ 			bottom = top+height;
+ 			this.fillText(event.note, ctx, left+4, textTop-2, width, bottom-2, 12 /*line height*/);			
+ 		}
+-		
++
+ 		if (ghost) {
+ 			var selectedColor = "rgba(228, 228, 226, 0.85)"
+ 			ctx.fillStyle = selectedColor;
+@@ -789,6 +827,13 @@ var DayAssistant = Class.create({
+ 		  ctx.fillRect(left, top, width, height);
+ 		}
+ 	},
++
++	getEventDetails: function(whichDay, event, selected, ghost, details) {
++		event.alarm = details.alarm;
++		event.note = details.note;
++		event.gotFullDetails = true;
++		this.renderEvent(whichDay, event, selected, ghost);
++	},
+ 	
+ 	getAllDayDimensions: function(index, event) {
+ 		var marginLeft = 4;
+@@ -822,13 +867,41 @@ var DayAssistant = Class.create({
+ 					   dim.top, 
+ 					   dim.width, 
+ 					   this.colors[event.calendarColor].allday.syCenter);
++
++		// get more details
++		if (event.gotFullDetails === undefined) {
++			// get more infos for this event
++			getCalendarService().getEvent(event.id,
++					this.getAllDayEventDetails.bind(this, whichDay, index, event, selected),
++					function(response) {Mojo.Log.error(response.errorText);},
++					this.controller);
++		}
+ 		
+ 		// Subject
+ 		ctx.fillStyle = this.colors[event.calendarColor].text;
+ 		if (selected)
+ 			ctx.fillStyle = "rgb(255, 255, 255)";
+ 		ctx.font = "bold 14px Prelude";
+-		this.fillText(event.subject, ctx, dim.left+10, dim.top+17, dim.width-10, dim.top+30, 15 /*line height*/);
++		this.fillText(event.subject, ctx, dim.left+10, dim.top+17, dim.width-30, dim.top+30, 15 /*line height*/);
++
++		// Alarm
++		if ((event.alarm !== undefined) && (event.alarm != "none")) {
++			try{ ctx.drawImage(this.imgAlarm, dim.left+dim.width-18, dim.top+(dim.height-12)/2, 12, 12); }catch(e) {}
++		}
++		// Icon
++		if (event.note !== undefined) {
++			try {
++				var start = event.note.indexOf("ICON=");
++				if (start > -1) {
++					start += 5;
++					var end = event.note.indexOf(";");
++					if (end > start) {
++						var icon = event.note.substring(start, end);
++						ctx.drawImage(this.imgIcons[icon], dim.left+dim.width-30, dim.top+(dim.height-12)/2, 12, 12);
++					}
++				}
++			} catch(e) {}
++		}
+ 		
+ 		if (selected) {
+ 			var selectedColor = "rgba(4, 4, 4, 0.5)"
+@@ -837,6 +910,13 @@ var DayAssistant = Class.create({
+ 		}
+ 	},
+ 	
++	getAllDayEventDetails: function(whichDay, index, event, selected, details) {
++		event.alarm = details.alarm;
++		event.note = details.note;
++		event.gotFullDetails = true;
++		this.renderAllDayEvent(whichDay, index, event, selected);
++	},
++
+ 	calcEventCompression: function(day) {
+ 		var i;
+ 		
+@@ -1557,6 +1637,23 @@ var DayAssistant = Class.create({
+ 		this.scratchEventActive = false;
+ 		this.scratchEvent = null;
+ 		
++		this.imgIcons.birthday = new Image();
++		this.imgIcons.birthday.src = "/media/internal/scrims/ubercalendar/icon-birthday.png";
++		this.imgIcons.car = new Image();
++		this.imgIcons.car.src = "/media/internal/scrims/ubercalendar/icon-car.png";
++		this.imgIcons.kids = new Image();
++		this.imgIcons.kids.src = "/media/internal/scrims/ubercalendar/icon-kids.png";
++		this.imgIcons.doctor = new Image();
++		this.imgIcons.doctor.src = "/media/internal/scrims/ubercalendar/icon-doctor.png";
++		this.imgIcons.plane = new Image();
++		this.imgIcons.plane.src = "/media/internal/scrims/ubercalendar/icon-plane.png";
++		this.imgIcons.holiday = new Image();
++		this.imgIcons.holiday.src = "/media/internal/scrims/ubercalendar/icon-holiday.png";
++		this.imgIcons.vacation = new Image();
++		this.imgIcons.vacation.src = "/media/internal/scrims/ubercalendar/icon-vacation.png";
++		this.imgIcons.party = new Image();
++		this.imgIcons.party.src = "/media/internal/scrims/ubercalendar/icon-party.png";
++
+ 		// Used to detect Orange key + tap to delete inline events
+ 		this.orangeKeyDown = false;
+ 	
+@@ -1824,15 +1921,16 @@ var DayAssistant = Class.create({
+ 		this.menuModel = {
+ 			visible:true,
+ 			items: [
+-					{},
++					{label: $L('Event'), icon: 'new-timed', command: 'newtimed'},
+ 						{label:$L('Views'), 
+ 						toggleCmd:'day', 
+ 						items:[
++							{label:$L('Agenda'), icon: 'menu-agenda', command:'agenda'},
+ 							{label:$L('Day'), icon: 'menu-day', command:'day'}, 
+ 							{label:$L('Week'), icon: 'menu-week', command:'week'}, 
+ 							{label:$L('Month'), icon: 'menu-month', command:'month'}
+ 					 ]},
+-					{},
++					{label: $L('All day event'), icon: 'new-allday', command: 'newallday'},
+ 					]};
+ 			
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
+@@ -1854,6 +1952,9 @@ var DayAssistant = Class.create({
+ 		this.controller.setupWidget(this.divs[this.PREV_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
+ 		this.controller.setupWidget(this.divs[this.NEXT_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
+ 
++		var cookie = new Mojo.Model.Cookie("LastView");
++		cookie.put("day");
++
+    		this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
+ 		
+ 		// IMPORTANT: Set up the height of the scrollers.  If this is not done
+@@ -2008,6 +2109,7 @@ var DayAssistant = Class.create({
+ 		// Find all the EAS accounts if there are any
+ 		this.easAccountIds = null;
+ 		response.list.each(function(acct){
++//Mojo.Log.error("accid", acct.accountId, Object.toJSON(acct));
+ 			//Mojo.Log.info("acct domain %s", acct.domain);
+ 			if (acct.domain == 'eas') {
+ 				// Keep track of the list of eas accounts for Sync Accounts button
+@@ -2075,11 +2177,11 @@ var DayAssistant = Class.create({
+ 				this.maybeCommitScratchEvent();
+ 			} else if(event.command =="newtimed"){
+ 				Event.stop(event);
+-				this.controller.stageController.pushScene('edit', 0, 0, false,this.getCalId()/*calendarId*/,0/*subject*/);
++				this.controller.stageController.pushScene('edit', 0, 0, false, this.getCalId()/*calendarId*/,0/*subject*/);
+ 				this.maybeCommitScratchEvent();
+ 			} else if(event.command=="newallday"){
+ 				Event.stop(event);
+-				this.controller.stageController.pushScene('edit', 0, 0, true,this.getCalId(),0/*subject*/);
++				this.controller.stageController.pushScene('edit', 0, 0, true, this.getCalId(),0/*subject*/);
+ 				this.maybeCommitScratchEvent();
+ 			} else if(event.command == Mojo.Menu.helpCmd){
+ 				this.maybeCommitScratchEvent(true);
+@@ -2095,15 +2197,27 @@ var DayAssistant = Class.create({
+ 				Event.stop(event);
+ 				this.maybeCommitScratchEvent(true);
+ 				this.syncAllCalendars();
++			} else if (event.command == 'agenda') {
++				Event.stop(event);
++				this.maybeCommitScratchEvent(true);
++				this.controller.serviceRequest('palm://com.palm.applicationManager', {
++					method: 'launch',
++					parameters: {
++						id: 'com.palm.app.agenda'
++					}
++				});
++				this.menuModel.items[1].toggleCmd = 'day';
++				this.controller.modelChanged(this.menuModel, this);
+ 			}				
+ 		} else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
+ 			// Enable prefs menuitem for this scene.
+ 			event.stopPropagation();
+-		} else if(event.type == Mojo.Event.back){
++		} else if (event.type == Mojo.Event.back) {
+ 			// If there's a scratch event, possibly commit it, and then override default back handling.
+-			if (this.maybeCommitScratchEvent(true)) {
+-				Event.stop(event);
+-			}
++			event.preventDefault();
++			event.stopPropagation();
++			this.maybeCommitScratchEvent(true);
++			this.handleMonthView();
+ 		}
+ 			
+ 	},
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
+index 9ba9c70..7aa5a90 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
+@@ -8,6 +8,7 @@ var EditAssistant = Class.create({
+ 	                											 {label:$L('Get Directions'), command:'direction', disabled:false}] 
+ 	                													 				
+ 							},
++							{label:$L('Edit event as new'), command:'editAsNewEvent', disabled:false},
+ 							{label:$L('Delete event'), command:'deleteEvent', disabled:false},
+ 							{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, disabled: true},
+ 							{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
+@@ -297,6 +298,12 @@ var EditAssistant = Class.create({
+ 		
+ 		// Delete event menu item.  Users can delete new and existing events
+ 		if(!this.isReadOnlyEvent)
++			this.appMenuModel.items[3].disabled = false;   
++		else
++			this.appMenuModel.items[3].disabled = true; 
++
++		// Edit as new event menu item. Users cannot edit new items as a new item
++		if(this.targetEvent.id > 0)
+ 			this.appMenuModel.items[2].disabled = false;   
+ 		else
+ 			this.appMenuModel.items[2].disabled = true; 
+@@ -444,7 +451,21 @@ var EditAssistant = Class.create({
+ 						 '-PT10M', //Do not localize
+ 						 '-PT15M', // Do NOT Localize
+ 						 '-PT30M', // Do NOT Localize
++						 '-PT45M', // Do NOT Localize
+ 						 '-PT1H', // Do NOT Localize
++						 '-PT90M', // Do NOT Localize
++						 '-PT2H', // Do NOT Localize
++						 '-PT150M', // Do NOT Localize
++						 '-PT3H', // Do NOT Localize
++						 '-PT220M', // Do NOT Localize
++						 '-PT4H', // Do NOT Localize
++						 '-PT5H', // Do NOT Localize
++						 '-PT6H', // Do NOT Localize
++						 '-PT7H', // Do NOT Localize
++						 '-PT8H', // Do NOT Localize
++						 '-PT10H', // Do NOT Localize
++						 '-PT12H', // Do NOT Localize	
++						 '-PT23H', // Do NOT Localize
+ 						 '-P1D' // Do NOT Localize
+ 						]
+ 						},
+@@ -452,9 +473,24 @@ var EditAssistant = Class.create({
+ 				list: [ 'none', // Do NOT Localize
+ 						'-PT0M',// DO NOT Localize
+ 	 					'-P1D', // Do NOT Localize
++						'-P36H', // Do NOT Localize
+ 	 					'-P2D', // Do NOT Localize
++						'-P60H', // Do NOT Localize	
+ 	 					'-P3D', // Do NOT Localize
++						'-P84H', // Do NOT Localize
++						'-P4D', // Do NOT Localize
++						'-P5D', // Do NOT Localize
++						'-P6D', // Do NOT Localize			
+ 	 					'-P1W', // Do NOT Localize
++						'-P2W', // Do NOT Localize
++						'-P3W', // Do NOT Localize
++						'-P4W', // Do NOT Localize
++						'-P8W', // Do NOT Localize
++						'-P12W', // Do NOT Localize
++						'-P16W', // Do NOT Localize
++						'-P20W', // Do NOT Localize
++						'-P24W', // Do NOT Localize
++						'-P52W' // Do NOT Localize
+ 					 ]
+ 					}
+ 		};
+@@ -664,22 +700,33 @@ var EditAssistant = Class.create({
+ 	 },
+ 	 handleCommand: function(event) {
+ 		if(event.type == Mojo.Event.command) {
+-			if(event.command == 'deleteEvent') {
+-				Event.stop(event);
+-				this.deletedeventId = this.targetEvent.id;
+-				this.handleDelete(event);
+-			} else if (event.command == Mojo.Menu.prefsCmd) {
+-				Event.stop(event);
+-				this.controller.stageController.pushScene('prefs');
+-			}else if(event.command =='copy'){
+-				//@todo
+-			}else if(event.command == Mojo.Menu.helpCmd){
+-				getAppManagerService().launchHelp(this.controller);
+-			} else if(event.command == 'map'){
+-				getAppManagerService().launchMaps(this.controller,this.targetEvent.location,false);
+-			}else if(event.command == 'direction'){
+-				getAppManagerService().launchMaps(this.controller,this.targetEvent.location,true);								
+-			}
++			try {
++				if(event.command == 'deleteEvent') {
++					Event.stop(event);
++					this.deletedeventId = this.targetEvent.id;
++					this.handleDelete(event);
++				} else if (event.command == Mojo.Menu.prefsCmd) {
++					Event.stop(event);
++					this.controller.stageController.pushScene('prefs');
++				}else if(event.command =='editAsNewEvent'){
++					Event.stop(event);
++					this.targetEvent = Object.clone(this.targetEvent);
++					this.targetId = 0;
++					delete this.targetEvent.id;
++					this.targetEvent.parentId = 0;
++	
++					this.renderEvent(this.targetEvent);
++					this.edit_infoHandler();
++				}else if(event.command =='copy'){
++					//@todo
++				}else if(event.command == Mojo.Menu.helpCmd){
++					getAppManagerService().launchHelp(this.controller);
++				} else if(event.command == 'map'){
++					getAppManagerService().launchMaps(this.controller,this.targetEvent.location,false);
++				}else if(event.command == 'direction'){
++					getAppManagerService().launchMaps(this.controller,this.targetEvent.location,true);								
++				}
++			} catch (e) {}
+ 		}
+ 		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
+ 			// Enable prefs menuitem for this scene.
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
+index 747fcb3..c1c9b9d 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
+@@ -5,12 +5,16 @@ var MONTH_DAY_ID_FORMAT = 'MMMM dd yyyy';	// IMPORTANT: DO NOT LOCALIZE!
+ var MonthAssistant = Class.create({
+ 				
+ 	reminderMenuItemId: 3,
++	fullEvts: null,
+ 	
+ 	initialize: function() {
+  		this.appMenuModel = { visible:true, 
+ 					label:$L('Calendar'), 
+ 					items: [
+ 						Mojo.Menu.editItem,
++						{label:$L('New'), items: [{label:$L('Event'), shortcut:'n', command:'newtimed', disabled:false},
++	                								{label:$L('All day event'), shortcut:'d', command:'newallday', disabled:false}] 
++						},
+ 						{label:$L('Sync Now'), command:'sync', id: 0},
+ 						{label:$L('Show today'), command:'today', id: 1},
+ 						{label:$L('Jump to...'), command:'jumpto', id: 2},
+@@ -22,12 +26,28 @@ var MonthAssistant = Class.create({
+ 				
+ 		this.scrollerModel = { scrollbars: false, mode: "vertical-snap", snapIndex: 0, snapElements: { y: [] } };
+ 	},
++
++	colors: {"cal-color-blue": "#91d3ea",
++		"cal-color-green": "#8cf08c",
++		"cal-color-yellow": "#e8e37c",
++		"cal-color-gray": "#c2c2c2",
++		"cal-color-orange": "#fbb474",
++		"cal-color-pink": "#f59cbc",
++		"cal-color-red": "#ff9797",
++		"cal-color-purple": "#d9b7ff",
++		"cal-color-teal": "#72dfd2"},
+ 														
+  	setupMonth: function(startDate, endDate, callbackfn) 
+ 	{
++		getCalendarService().getEvents('all', startDate.getTime(), endDate.getTime(), this.getEventsCallback.bind(this), this.controller, this.getEventsFailCallback, {useSlices: true});
+ 		getCalendarService().getBusyDays(getCurrentCal(), startDate.getTime(), endDate.getTime(), callbackfn, this.controller);
+ 	},
+-	
++
++	getEventsCallback: function(resp)
++	{
++		this.fullEvts = resp.days;
++	},
++
+ 	buildViewHeader: function() 
+ 	{
+ 		//Mojo.Log.info("month-assistant: buildViewHeader");
+@@ -37,7 +57,13 @@ var MonthAssistant = Class.create({
+ 	
+ 	buildMonthTitle: function() 
+ 	{
+-		this.mvTitle.innerText = Mojo.Format.formatDate(this.monthDate, $L("MMM yyyy")); // Localize this date format string
++		var wn = new Date(this.monthDate);
++		wn.setDate(1);
++		var firstWeek = wn.getISO8601Week();	
++		wn.setMonth(wn.getMonth()+1);
++		wn.setDate(wn.getDate()-1);
++		var lastWeek = wn.getISO8601Week();
++		this.mvTitle.innerText = Mojo.Format.formatDate(this.monthDate, $L("MMM yyyy")) + ", " + $L("Week") + " " + firstWeek + "-" + lastWeek; // Localize this date format string
+   	},
+ 
+  	buildDayHeader: function() {
+@@ -362,23 +388,38 @@ var MonthAssistant = Class.create({
+ 		var weekCell = this._months.rows[0];
+ 		var dayCell = weekCell.cells[0];
+ 		
++		var cls;
+ 		var days = response.days;
+ 		var daylen = days.length - 1; // We get back more days of info that we want - 1 more in fact, because its inclusive, rather than exclusive
+ 		for (var d = 0; d < daylen; d++) 
+ 		{
+ 			var day = this._token2state(days.charCodeAt(d));
+-			
++
++			var bgcolor = "";
++			for (var k=0; k<this.fullEvts[d].allDayEvents.length; k++)
++			{
++				if (bgcolor == "")
++				{
++					bgcolor = this.colors[this.fullEvts[d].allDayEvents[k].calendarColor];
++				}
++				else if (bgcolor != this.colors[this.fullEvts[d].allDayEvents[k].calendarColor])
++				{
++					bgcolor = "gray";
++					break;
++				}
++			}
++
+ 			var child = dayCell.firstChild;
+-			var cls;
+ 			for (var i = 1; i < 8; i <<= 1)
+ 			{
+-				if (day & (i << 3)) 
++				child.style.backgroundColor = bgcolor;
++				if (day & (i << 3))
+ 				{
+-					cls = "monthview-busy-time " + calStyle;
++					cls = "monthview-partly-busy-time " + calStyle;
+ 				}
+ 				else if (day & i) 
+ 				{
+-					cls = "monthview-busy-time";
++					cls = "monthview-partly-busy-time";
+ 				}
+ 				else 
+ 				{
+@@ -637,11 +678,16 @@ var MonthAssistant = Class.create({
+         this.menuModel = 
+         {
+             visible: true,
+-            items: [{}, 
++            items: [{label: $L('Event'), icon: 'new-timed', command: 'newtimed'}, 
+             {
+                 label: $L('Views'),
+                 toggleCmd: 'month',
+                 items: [
++				{
++					label:$L('Agenda'),
++					icon: 'menu-agenda',
++					command:'agenda'
++				},
+                 {
+                     label: $L('Day'),
+                     icon: 'menu-day',
+@@ -657,14 +703,18 @@ var MonthAssistant = Class.create({
+                     icon: 'menu-month',
+                     command: 'month'
+                 }]
+-            }, {}, ]
++            }, {label: $L('All day event'), icon: 'new-allday', command: 'newallday'}, ]
+         };
+ 		
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
+ 		this.remindersUpdated(); 	// Update missed reminders menu item
+ 		
++		var cookie = new Mojo.Model.Cookie("LastView");
++		cookie.put("month");
++		
+ 		this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
++		this.getCalId = DayAssistant.getCalId();
+   	},
+   
+ 	showJumpTo: function() {
+@@ -715,6 +765,12 @@ var MonthAssistant = Class.create({
+ 			} else if (event.command == Mojo.Menu.prefsCmd) {
+ 				Event.stop(event);
+ 				this.controller.stageController.pushScene('prefs');
++			} else if(event.command =="newtimed"){
++				Event.stop(event);
++				this.controller.stageController.pushScene('edit', 0, 0, false, this.getCalId/*calendarId*/,0/*subject*/);
++			} else if(event.command=="newallday"){
++				Event.stop(event);
++				this.controller.stageController.pushScene('edit', 0, 0, true, this.getCalId,0/*subject*/);
+ 			}else if(event.command == Mojo.Menu.helpCmd){
+ 				getAppManagerService().launchHelp(this.controller);
+ 			} else if (event.command == 'sync') {
+@@ -729,6 +785,16 @@ var MonthAssistant = Class.create({
+ 			} else if (event.command == 'reminders') {
+ 				Event.stop(event);
+ 				this.controller.stageController.pushScene('reminder-list');
++			} else if (event.command == 'agenda') {
++				Event.stop(event);
++				this.controller.serviceRequest('palm://com.palm.applicationManager', {
++					method: 'launch',
++					parameters: {
++						id: 'com.palm.app.agenda'
++					}
++				});
++				this.menuModel.items[1].toggleCmd = 'month';
++				this.controller.modelChanged(this.menuModel, this);
+ 			}				
+ 		}
+ 		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
+index 217a467..b25539b 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
+@@ -8,6 +8,9 @@ var WeekAssistant = Class.create({
+ 		this.appMenuModel = { visible:true, 
+ 									label:$L('Calendar'), 
+ 									items: [ Mojo.Menu.editItem,
++											{label:$L('New'), items: [{label:$L('Event'), shortcut:'n', command:'newtimed', disabled:false},
++	                													{label:$L('All day event'), shortcut:'d', command:'newallday', disabled:false}] 
++											},
+ 											{label:$L('Sync Now'), command:'sync', id: 0},
+ 											{label:$L('Show today'), command:'today', id: 1},
+ 											{label:$L('Jump to...'), command:'jumpto', id: 2},
+@@ -42,6 +45,10 @@ var WeekAssistant = Class.create({
+ 		this.COL_POS = [0, 45, 91, 137, 183, 229, 275];
+ 		this.pendingRender = false;
+ 		this.pendingCalendarSettingsUpdate = false;
++		this.imgAlarm = new Image();
++		this.imgAlarm.src = "/media/internal/scrims/ubercalendar/alarm-icon.png";
++		this.imgIcons = new Object();
++		this.ALL_DAY_HEIGHT = 12;
+ 	},
+ 					
+ 	getEventChangeCallback: function(response) {
+@@ -103,10 +110,12 @@ var WeekAssistant = Class.create({
+ 	buildWeekTitle: function() {
+ 		var today = Date.today().clearTime();
+ 		var dayOfWeek = this.getFirstDayOfWeek(this.weekDate);
++		var weekNumber = new Date(this.weekDate).getISO8601Week();
+ 		
+-		var template = new Template($L("Week of #{dateStr}"));
++		var template = new Template($L("Week") + " #{weekStr}, " + $L("#{dateStr}"));
+ 		var templateModel = {};
+ 		templateModel.dateStr = Mojo.Format.formatDate(dayOfWeek, $L("MMM d, yyyy"));
++		templateModel.weekStr = weekNumber;
+ 		this.title.innerHTML = template.evaluate(templateModel);
+ 		
+ 		if (this.changingWeeks)
+@@ -373,6 +382,13 @@ var WeekAssistant = Class.create({
+ 		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
+ 		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
+ 		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
++		
++		for (var i=1; i<24; i++) {
++			ctx.fillStyle = "rgb(185, 185, 185)";
++			ctx.fillRect(0, i * this.HOUR_HEIGHT - 1, 320, 1);
++			ctx.fillStyle = "rgb(255, 255, 255)";
++			ctx.fillRect(0, i * this.HOUR_HEIGHT, 320, 1);
++		}
+ 
+ 		// Draw marker lines
+ 		ctx.fillStyle = "rgb(135, 135, 134)";
+@@ -388,7 +404,16 @@ var WeekAssistant = Class.create({
+ 	
+ 	renderStartEndDayLabels: function(whichWeek) {
+ 		var ctx = this.weeks[whichWeek].ctxEvents;
+-		
++
++		// Draw marker labels
++		ctx.fillStyle = "rgb(0, 0, 0)";
++		ctx.font = "bold 14px Prelude";
++
++		for (var i=2; i<24; i+=2) {
++			var endPos = i * this.HOUR_HEIGHT - 1;
++			ctx.strokeText(i, 12, endPos + 24);
++		}
++		/*
+ 		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
+ 		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
+ 		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
+@@ -401,6 +426,7 @@ var WeekAssistant = Class.create({
+ 		if (this.midDayMarkerPos != this.startDayMarkerPos && this.midDayMarkerPos != this.endDayMarkerPos)
+ 			ctx.strokeText(this.midDayMarkerTime, 12, midPos + 24);
+ 		ctx.strokeText(this.endDayMarkerTime, 17, endPos + 24);
++		*/
+ 	},
+ 	
+ 	renderEmptyWeek: function(whichWeek) {
+@@ -488,8 +514,76 @@ var WeekAssistant = Class.create({
+ 		
+ 		ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
+ 		ctx.fillRect(left+1, top+height-3, width-2, 1);
++		
++		if (event.subject === undefined) {
++			// get more infos for this event
++			getCalendarService().getEvent(event.id,
++					this.getEventDetails.bind(this, whichWeek, whichDay, event),
++					function(response) {Mojo.Log.error(response.errorText);},
++					this.controller);
++		} else {
++			// Subject
++			ctx.fillStyle = this.colors[event.calendarColor].text;
++			ctx.font = "10px Prelude";
++			var oldAlign = ctx.textAlign;
++			var oldBaseline = ctx.textBaseline;
++			ctx.textAlign = "left";
++			ctx.textBaseline = "top";
++			
++			var text = event.subject;
++			var length = text.length;
++			var metrics = ctx.measureText(text);
++			while ((metrics.width > eventMaxWidth-3) && (length > 0)) {
++				// too large, try one less
++				length--;
++				text = text.substring(0, length);
++				metrics = ctx.measureText(text);
++			}
++			ctx.fillText(text, left+2, top+1);
++			top += 12
++			if (text.length < event.subject.length) {
++				var text = event.subject.substring(text.length);
++				var length = text.length;
++				var metrics = ctx.measureText(text);
++				while ((metrics.width > eventMaxWidth-3) && (length > 0)) {
++					// too large, try one less
++					length--;
++					text = text.substring(0, length);
++					metrics = ctx.measureText(text);
++				}
++				ctx.fillText(text, left+2, top+1);
++				top += 12
++			}
++			// Alarm
++			if ((event.alarm !== undefined) && (event.alarm != "none")) {
++				try{ ctx.drawImage(this.imgAlarm, left+1, top+2, 12, 12); }catch (e) {}
++			}
++			// Icon
++			if (event.note !== undefined) {
++				try {
++					var start = event.note.indexOf("ICON=");
++					if (start > -1) {
++						start += 5;
++						var end = event.note.indexOf(";");
++						if (end > start) {
++							var icon = event.note.substring(start, end);
++							ctx.drawImage(this.imgIcons[icon], left+13, top+2, 12, 12);
++						}
++					}
++				} catch(e) {}
++			}
++			ctx.textAlign = oldAlign;
++			ctx.textBaseline = oldBaseline;
++		}
+ 	},
+-	
++
++	getEventDetails: function(whichWeek, whichDay, event, details) {
++		event.subject = details.subject;
++		event.alarm = details.alarm;
++		event.note = details.note;
++		this.renderEvent(whichWeek, whichDay, event);
++	},
++
+ 	renderBusyTime: function(whichWeek, whichDay, busy) {
+ 		var ctx = this.weeks[whichWeek].ctxEvents;
+ 		var marginLeft = 1;
+@@ -508,11 +602,66 @@ var WeekAssistant = Class.create({
+ 	renderAllDayEvent: function(whichWeek, whichDay, row, allday) {
+ 		var ctx = this.weeks[whichWeek].ctxAllDay;
+ 		var marginLeft = 4;
+-		var top = 2 + row * 9;
++		var top = 2 + row * this.ALL_DAY_HEIGHT;
+ 		var left = this.COL_POS[whichDay] + marginLeft;
+-		ctx.drawImage(this.colors[allday.calendarColor].allday, left, top);
++		var eventMaxWidth = this.COL_WIDTH[whichDay] - marginLeft - marginLeft;
++		ctx.drawImage(this.colors[allday.calendarColor].allday, left, top, eventMaxWidth, this.ALL_DAY_HEIGHT);
++
++		if (allday.subject === undefined) {
++			// get more infos for this event
++			getCalendarService().getEvent(allday.id,
++					this.getAllDayEventDetails.bind(this, whichWeek, whichDay, row, allday),
++					function(response) {Mojo.Log.error(response.errorText);},
++					this.controller);
++		} else {
++			// Subject
++			ctx.fillStyle = this.colors[allday.calendarColor].text;
++			ctx.font = "9px Prelude";
++			var oldAlign = ctx.textAlign;
++			var oldBaseline = ctx.textBaseline;
++			ctx.textAlign = "left";
++			ctx.textBaseline = "top";
++			
++			var text = allday.subject;
++			var length = text.length;
++			var metrics = ctx.measureText(text);
++			while ((metrics.width > eventMaxWidth) && (length > 0)) {
++				// too large, try one less
++				length--;
++				text = text.substring(0, length);
++				metrics = ctx.measureText(text);
++			}
++			ctx.fillText(text, left, top);
++			// Alarm
++			if ((allday.alarm !== undefined) && (allday.alarm != "none")) {
++				try{ ctx.drawImage(this.imgAlarm, left+eventMaxWidth-4, top+2, 10, 10); }catch (e) {}
++			}
++			// Icon
++			if (allday.note !== undefined) {
++				try {
++					var start = allday.note.indexOf("ICON=");
++					if (start > -1) {
++						start += 5;
++						var end = allday.note.indexOf(";");
++						if (end > start) {
++							var icon = allday.note.substring(start, end);
++							ctx.drawImage(this.imgIcons[icon], left+eventMaxWidth-14, top+2, 10, 10);
++						}
++					}
++				} catch(e) {}
++			}
++			ctx.textAlign = oldAlign;
++			ctx.textBaseline = oldBaseline;
++		}
+ 	},
+ 	
++	getAllDayEventDetails: function(whichWeek, whichDay, row, event, details) {
++		//Mojo.Log.error(Object.toJSON(details));
++		event.subject = details.subject;
++		event.alarm = details.alarm;
++		event.note = details.note;
++		this.renderAllDayEvent(whichWeek, whichDay, row, event);
++	},
+ 	
+ 	renderWeek: function(whichWeek, data) {
+ 		this.renderEmptyWeek(whichWeek);
+@@ -548,7 +697,7 @@ var WeekAssistant = Class.create({
+ 		if(maxRows > 5)
+ 			maxRows = 5;
+ 			
+-		this.weeks[whichWeek].alldayHeight = maxRows ? maxRows * 9 + 3 : 0;
++		this.weeks[whichWeek].alldayHeight = maxRows ? maxRows * this.ALL_DAY_HEIGHT + 3 : 0;
+ 		this.updateWeekHeight(whichWeek);
+ 		
+ 		for (var whichDay = 0; whichDay < 7; whichDay++) {
+@@ -612,6 +761,23 @@ var WeekAssistant = Class.create({
+ 		this.currentDay = this.controller.get('wv_current_day');
+ 		this.scrollMakerPos = this.controller.get('wv_scroll_marker');
+ 		this.scrollDataDiv = this.controller.get('wv_scroll_data');
++
++		this.imgIcons.birthday = new Image();
++		this.imgIcons.birthday.src = "/media/internal/scrims/ubercalendar/icon-birthday.png";
++		this.imgIcons.car = new Image();
++		this.imgIcons.car.src = "/media/internal/scrims/ubercalendar/icon-car.png";
++		this.imgIcons.kids = new Image();
++		this.imgIcons.kids.src = "/media/internal/scrims/ubercalendar/icon-kids.png";
++		this.imgIcons.doctor = new Image();
++		this.imgIcons.doctor.src = "/media/internal/scrims/ubercalendar/icon-doctor.png";
++		this.imgIcons.plane = new Image();
++		this.imgIcons.plane.src = "/media/internal/scrims/ubercalendar/icon-plane.png";
++		this.imgIcons.holiday = new Image();
++		this.imgIcons.holiday.src = "/media/internal/scrims/ubercalendar/icon-holiday.png";
++		this.imgIcons.vacation = new Image();
++		this.imgIcons.vacation.src = "/media/internal/scrims/ubercalendar/icon-vacation.png";
++		this.imgIcons.party = new Image();
++		this.imgIcons.party.src = "/media/internal/scrims/ubercalendar/icon-party.png";
+ 		
+ 		this.weeks = [];
+ 		this.weeks = [];
+@@ -708,25 +874,30 @@ var WeekAssistant = Class.create({
+ 		this.menuModel = {
+ 			visible:true,
+ 			items: [ 
+-						{},
++						{label: $L('Event'), icon: 'new-timed', command: 'newtimed'},
+ 						{	label:$L('Views'), 
+ 							toggleCmd:'week', 
+ 							items:[
++								{label:$L('Agenda'), icon: 'menu-agenda', command:'agenda'},
+ 								{label:$L('Day'), icon: 'menu-day', command:'day'}, 
+ 								{label:$L('Week'), icon: 'menu-week', command:'week'}, 
+ 								{label:$L('Month'), icon: 'menu-month', command:'month'}
+ 								]},
+-						{},
++						{label: $L('All day event'), icon: 'new-allday', command: 'newallday'},
+ 					]
+ 			};
+ 			
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
+ 		this.remindersUpdated(); 	// Update missed reminders menu item
++
++		var cookie = new Mojo.Model.Cookie("LastView");
++		cookie.put("week");
+ 		
+     	this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
+ 		
+ 		this.scrolling = 0;
++		this.getCalId = DayAssistant.getCalId();
+ 	},
+   
+ 	showJumpTo: function() {
+@@ -776,6 +947,12 @@ var WeekAssistant = Class.create({
+ 			} else if (event.command == Mojo.Menu.prefsCmd) {
+ 				Event.stop(event);
+ 				this.controller.stageController.pushScene('prefs');
++			} else if(event.command =="newtimed"){
++				Event.stop(event);
++				this.controller.stageController.pushScene('edit', 0, 0, false, this.getCalId/*calendarId*/,0/*subject*/);
++			} else if(event.command=="newallday"){
++				Event.stop(event);
++				this.controller.stageController.pushScene('edit', 0, 0, true, this.getCalId,0/*subject*/);
+ 			} else if(event.command == Mojo.Menu.helpCmd){
+ 				getAppManagerService().launchHelp(this.controller);
+ 			} else if (event.command == 'sync') {
+@@ -791,11 +968,25 @@ var WeekAssistant = Class.create({
+ 			} else if (event.command == 'reminders') {
+ 				Event.stop(event);
+ 				this.controller.stageController.pushScene('reminder-list');
++			} else if (event.command == 'agenda') {
++				Event.stop(event);
++				this.controller.serviceRequest('palm://com.palm.applicationManager', {
++					method: 'launch',
++					parameters: {
++						id: 'com.palm.app.agenda'
++					}
++				});
++				this.menuModel.items[1].toggleCmd = 'week';
++				this.controller.modelChanged(this.menuModel, this);
+ 			}				
+ 		}
+ 		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
+ 			// Enable prefs menuitem for this scene.
+ 			event.stopPropagation();
++		} else if (event.type == Mojo.Event.back) {
++			event.preventDefault();
++			event.stopPropagation();
++			this.handleMonthView();
+ 		}
+ 	},
+ 	
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/models/calendar-luna-service.js b/usr/palm/applications/com.palm.app.calendar/app/models/calendar-luna-service.js
+index 13176a6..11c7c57 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/models/calendar-luna-service.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/models/calendar-luna-service.js
+@@ -264,6 +264,7 @@ var CalendarMojoService = Class.create( {
+ 	},
+ 
+ 	setEvent: function(targetEvent, callback, sceneController, failure) {
++//Mojo.Log.error('setEvent', Object.toJSON(targetEvent));
+ 		if(!targetEvent.rrule || targetEvent.rrule=="")
+ 			targetEvent.endValidity = 0;
+ 		else if(targetEvent.rrule && targetEvent.rrule!="" && targetEvent.isRecurringForever ==true)
+@@ -287,7 +288,7 @@ var CalendarMojoService = Class.create( {
+ 		
+ 	},
+ 	updateEvent: function(targetEvent, callback, sceneController, failure) {
+-		
++//Mojo.Log.error(Object.toJSON('updateEvent', targetEvent));
+ 		return sceneController.serviceRequest(CalendarMojoService.identifier, {
+ 			method: 'updateEvent',
+ 			parameters: targetEvent,
+diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/datejs/week.js b/usr/palm/applications/com.palm.app.calendar/javascripts/datejs/week.js
+new file mode 100644
+index 0000000..501c299
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.calendar/javascripts/datejs/week.js
+@@ -0,0 +1,44 @@
++Date.prototype.getWeek = function() {
++	var date = new Date(this);
++	var year = date.getFullYear();
++	var month = date.getMonth();
++	var day = date.getDate();
++	
++	var when = new Date(year,month,day);
++	var newYear = new Date(year,0,1);
++	var modDay = newYear.getDay();
++
++	if(this.startDay != 1)
++		if (modDay == 0) modDay=6; else modDay--;
++
++	var daynum = ((Date.UTC(year,when.getMonth(),when.getDate(),0,0,0) -
++		Date.UTC(year,0,1,0,0,0)) /1000/60/60/24) + 1;
++
++	if (modDay < 4 ) {
++		var weekno = Math.floor((daynum+modDay-1)/7)+1;
++	}
++	else {
++		var weekno = Math.floor((daynum+modDay-1)/7);
++	
++		if (weekno == 0) {
++			year--;
++		
++			var prevNewYear = new Date(year,0,1);
++			var prevmodDay = prevNewYear.getDay();
++			if (prevmodDay == 0) prevmodDay = 6; else prevmodDay--;
++			if (prevmodDay < 4) weekno = 53; else weekno = 52;
++		}
++	}
++
++	return weekno;
++};
++
++Date.prototype.getISO8601Week = function() {
++	var d = new Date(this);
++	d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7 + 3);
++	var ms = d.valueOf();
++	d.setUTCMonth(0, 4);
++	var w = Math.round((ms - d.valueOf()) / 604800000) + 1;
++	if (w <= 9) { w = "0" + w; }
++	return w;
++};
+diff --git a/usr/palm/applications/com.palm.app.calendar/sources.json b/usr/palm/applications/com.palm.app.calendar/sources.json
+index 3beec78..9741133 100644
+--- a/usr/palm/applications/com.palm.app.calendar/sources.json
++++ b/usr/palm/applications/com.palm.app.calendar/sources.json
+@@ -3,6 +3,9 @@
+     "source": "javascripts\/datejs\/date.js"
+   },
+   {
++    "source": "javascripts\/datejs\/week.js"
++  },
++  {
+     "source": "javascripts\/recurrence-rule.js"
+   },
+   {
+diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css
+index f30cb63..b4080de 100644
+--- a/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css
++++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css
+@@ -1,208 +1,220 @@
+-/* @override http://172.16.110.131:8888/com.palm.app.calendar/stylesheets/calendar.css */
+-
+-/*
+- * Copyright 2008 Palm Inc. Confidential until public release.
+- */
+-
+-@import url(month.css);
+-@import url(week.css);
+-@import url(day.css);
+-@import url(edit.css);
+-@import url(datetime.css);
+-@import url(alarm.css);
+-@import url(repeat.css);
+-@import url(participants.css);
+-@import url(details.css);
+-@import url(preferences.css);
+-@import url(event-colors.css);
+-@import url(prefs-acct.css);
+-@import url(notification.css);
+-@import url(accountlogin.css);
+-
+-/* general layout */
+-
+-table, tr, td {
+-		-webkit-box-sizing: border-box;
+-		box-sizing: border-box;
+-}
+-
+-body {
+-		font-size: 20px;
+-		font-weight: normal;
+-		cursor: default;
+-		-webkit-user-select: none;
+-}
+-
+-.view_header {
+-		width: 100%;
+-}
+-
+-.navBtn {
+-		padding: 0px;
+-		margin: 0px;
+-		width: 24px;
+-		display: inline;
+-		vertical-align: middle;
+-}
+-
+-/* Menu Icons */
+-
+-.palm-menu-icon.menu-month {
+-		background-image: url(../images/menu-icon-month.png);
+-}
+-
+-.palm-menu-icon.menu-week {
+-		background-image: url(../images/menu-icon-week.png);
+-}
+-
+-.palm-menu-icon.menu-day {
+-		background-image: url(../images/menu-icon-day.png);
+-}
+-
+-.palm-menu-icon.edit {
+-		background-image: url(../images/menu-icon-compose.png);
+-}
+-
+-.palm-menu-icon.today {
+-		background-image: url(../images/menu-icon-today.png);
+-}
+-
+-.palm-menu-icon.newevent {
+-		background-image: url(../images/menu-icon-newevent.png);
+-}
+-
+-.palm-popup-icon.menu_all {
+-	width: 24px;
+-  background: url(../images/menu-icon-all.png) center center no-repeat;
+-}
+-
+-/* Calendar Selector in Month/Week/Day view headers */
+-.header-cal-source {
+-	position:relative;
+-	float:right;
+-	margin: 8px -16px 0px 0px;
+-	font-size: 14px;
+-	text-transform: uppercase;
+-	font-weight: bold;
+-	height:35px;
+-	line-height: 33px;
+-	border-width: 0px 22px 0px 16px;
+-	-webkit-border-image: url(../images/cal-selector-header-gray.png) 0 22 0 16 stretch stretch;
+-	-webkit-box-sizing: border-box;	
+-}
+-.header-cal-source-hit-target { 
+-	/* note to self, this is a convenient way to create hit targets, because it doesn't disrupt any flow! */
+-	position:absolute;
+-	top:-10px;
+-	left:-35px;
+-	right:-25px;
+-	height:52px;
+-}
+-.header-cal-selector {
+-	margin-left:-5px;
+-	padding-right: 2px;
+-	background: transparent;
+-	display:inline-block;
+-	min-width: 12px;
+-	max-width: 80px;
+-	text-overflow: ellipsis;
+-	white-space: nowrap;
+-	overflow: hidden;
+-}
+-.header-down-arrow {
+-	background: transparent;
+-	float:right;
+-	display:inline-block;
+-	background: url(../images/header-arrow-down.png) right center no-repeat;
+-	height:36px;
+-	margin-right:-5px;
+-	width:10px;
+-}
+-
+-
+-/* First Use */
+-.first-use-text {
+-	width: inherit;  
+-	text-align: center;
+-	font-size: 14px;	
+-	color: #444;            
+-	margin-bottom: 8px;
+-}
+-
+-.firstuse-icon-div {
+-	padding-top: 8px;
+-}
+-
+-.first-launch-info {     
+-	height: 39px;        
+-	font-size: 20px;
+-	line-height: 50px;	
+-	color: #666;
+-}   
+-
+-/* if you make a change to the style below, please remember to mirror it in the localized stylesheets */
+-/* (to be found under /resources/xx_xx/stylesheets/) */
+-.first-use-header {
+-	color: #444;
+-	font-size: 16px;
+-	text-align: center;
+-	text-transform: capitalize;
+-	margin: 10px 0px 5px 0px;     
+-}
+-
+-.firstuse-list-label,
+-.add-account-button-label {
+-	text-align: left;
+-	vertical-align: middle;
+-}
+-
+-.firstuse-button-div {
+-	margin-top:20px;
+-}
+-/* Account Icons */      
+-
+-.account-icon {
+-  width: 32px;
+-  height: 32px;
+-  margin: 9px 8px 9px 12px;
+-  float: left;
+-}                  
+-
+-.account-icon.first-use{
+-	padding: 0px; 
+-	margin:8px 4px 6px 15px;
+-}
+-.account-icon.button{
+-  margin: 10px 8px 10px 12px;
+-}                  
+-
+-.palm-dashboard-icon.calendar { 
+-	background: url(../images/notification-large-calendar.png) center left no-repeat; 
+-}
+-
+-.palm-page-header > .header-icon.reminder-list {
+-  background: url(../images/calendar-dtl/reminder-icon.png) center left no-repeat;
+-}
+-
+-.header-title {
+-	padding-right: 5px;
+-}
+-
+-/* Account Login ... candidate to move to accountlogin.css */
+-/*.hdr-acct-icon {
+-	margin-left: 16px;
+-}
+-
+-/* candidate to move to accountlogin.css */
+-/*.add-account-title {
+-	margin-left: 15px;
+-	line-height: 17px;
+-}*/
+-.reminder-palm-list {
+-  padding-bottom: 50px;
+-}
+-
+-.palm-menu.command-menu.reminder-menu > .palm-menu-text {
+-  left: auto !important;
+-  right: 0px;
+-}
++/* @override http://172.16.110.131:8888/com.palm.app.calendar/stylesheets/calendar.css */
++
++/*
++ * Copyright 2008 Palm Inc. Confidential until public release.
++ */
++
++@import url(month.css);
++@import url(week.css);
++@import url(day.css);
++@import url(edit.css);
++@import url(datetime.css);
++@import url(alarm.css);
++@import url(repeat.css);
++@import url(participants.css);
++@import url(details.css);
++@import url(preferences.css);
++@import url(event-colors.css);
++@import url(prefs-acct.css);
++@import url(notification.css);
++@import url(accountlogin.css);
++
++/* general layout */
++
++table, tr, td {
++		-webkit-box-sizing: border-box;
++		box-sizing: border-box;
++}
++
++body {
++		font-size: 20px;
++		font-weight: normal;
++		cursor: default;
++		-webkit-user-select: none;
++}
++
++.view_header {
++		width: 100%;
++}
++
++.navBtn {
++		padding: 0px;
++		margin: 0px;
++		width: 24px;
++		display: inline;
++		vertical-align: middle;
++}
++
++/* Menu Icons */
++
++.palm-menu-icon.menu-month {
++		background-image: url(../images/menu-icon-month.png);
++}
++
++.palm-menu-icon.menu-week {
++		background-image: url(../images/menu-icon-week.png);
++}
++
++.palm-menu-icon.menu-day {
++		background-image: url(../images/menu-icon-day.png);
++}
++
++.palm-menu-icon.new-timed{
++		background-image: url(../images/menu-icon-newevent.png);
++}
++
++.palm-menu-icon.new-allday {
++		background-image: url(../images/menu-icon-today.png);
++}
++
++.palm-menu-icon.menu-agenda {
++		background-image: url(/media/internal/scrims/ubercalendar/menu-icon-agenda.png);
++}
++
++.palm-menu-icon.edit {
++		background-image: url(../images/menu-icon-compose.png);
++}
++
++.palm-menu-icon.today {
++		background-image: url(../images/menu-icon-today.png);
++}
++
++.palm-menu-icon.newevent {
++		background-image: url(../images/menu-icon-newevent.png);
++}
++
++.palm-popup-icon.menu_all {
++	width: 24px;
++  background: url(../images/menu-icon-all.png) center center no-repeat;
++}
++
++/* Calendar Selector in Month/Week/Day view headers */
++.header-cal-source {
++	position:relative;
++	float:right;
++	margin: 8px -16px 0px 0px;
++	font-size: 14px;
++	text-transform: uppercase;
++	font-weight: bold;
++	height:35px;
++	line-height: 33px;
++	border-width: 0px 22px 0px 16px;
++	-webkit-border-image: url(../images/cal-selector-header-gray.png) 0 22 0 16 stretch stretch;
++	-webkit-box-sizing: border-box;	
++}
++.header-cal-source-hit-target { 
++	/* note to self, this is a convenient way to create hit targets, because it doesn't disrupt any flow! */
++	position:absolute;
++	top:-10px;
++	left:-35px;
++	right:-25px;
++	height:52px;
++}
++.header-cal-selector {
++	margin-left:-5px;
++	padding-right: 2px;
++	background: transparent;
++	display:inline-block;
++	min-width: 12px;
++	max-width: 80px;
++	text-overflow: ellipsis;
++	white-space: nowrap;
++	overflow: hidden;
++}
++.header-down-arrow {
++	background: transparent;
++	float:right;
++	display:inline-block;
++	background: url(../images/header-arrow-down.png) right center no-repeat;
++	height:36px;
++	margin-right:-5px;
++	width:10px;
++}
++
++
++/* First Use */
++.first-use-text {
++	width: inherit;  
++	text-align: center;
++	font-size: 14px;	
++	color: #444;            
++	margin-bottom: 8px;
++}
++
++.firstuse-icon-div {
++	padding-top: 8px;
++}
++
++.first-launch-info {     
++	height: 39px;        
++	font-size: 20px;
++	line-height: 50px;	
++	color: #666;
++}   
++
++/* if you make a change to the style below, please remember to mirror it in the localized stylesheets */
++/* (to be found under /resources/xx_xx/stylesheets/) */
++.first-use-header {
++	color: #444;
++	font-size: 16px;
++	text-align: center;
++	text-transform: capitalize;
++	margin: 10px 0px 5px 0px;     
++}
++
++.firstuse-list-label,
++.add-account-button-label {
++	text-align: left;
++	vertical-align: middle;
++}
++
++.firstuse-button-div {
++	margin-top:20px;
++}
++/* Account Icons */      
++
++.account-icon {
++  width: 32px;
++  height: 32px;
++  margin: 9px 8px 9px 12px;
++  float: left;
++}                  
++
++.account-icon.first-use{
++	padding: 0px; 
++	margin:8px 4px 6px 15px;
++}
++.account-icon.button{
++  margin: 10px 8px 10px 12px;
++}                  
++
++.palm-dashboard-icon.calendar { 
++	background: url(../images/notification-large-calendar.png) center left no-repeat; 
++}
++
++.palm-page-header > .header-icon.reminder-list {
++  background: url(../images/calendar-dtl/reminder-icon.png) center left no-repeat;
++}
++
++.header-title {
++	padding-right: 5px;
++}
++
++/* Account Login ... candidate to move to accountlogin.css */
++/*.hdr-acct-icon {
++	margin-left: 16px;
++}
++
++/* candidate to move to accountlogin.css */
++/*.add-account-title {
++	margin-left: 15px;
++	line-height: 17px;
++}*/
++.reminder-palm-list {
++  padding-bottom: 50px;
++}
++
++.palm-menu.command-menu.reminder-menu > .palm-menu-text {
++  left: auto !important;
++  right: 0px;
++}
+diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/event-colors.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/event-colors.css
+index 3b455df..a350808 100644
+--- a/usr/palm/applications/com.palm.app.calendar/stylesheets/event-colors.css
++++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/event-colors.css
+@@ -15,15 +15,26 @@ Copyright 2009 Palm, Inc.  All rights reserved.
+ */
+ 
+ /* Month View: busy time */
+-.monthview-busy-time.cal-color-blue 				{ background: url(../images/month-busy-time-blue.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-green 				{ background: url(../images/month-busy-time-green.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-yellow 				{ background: url(../images/month-busy-time-yellow.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-gray 				{ background: url(../images/month-busy-time-gray.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-orange 				{ background: url(../images/month-busy-time-orange.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-pink 				{ background: url(../images/month-busy-time-pink.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-red 					{ background: url(../images/month-busy-time-red.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-purple 				{ background: url(../images/month-busy-time-purple.png) 0 0 fixed repeat; }
+-.monthview-busy-time.cal-color-teal 				{ background: url(../images/month-busy-time-teal.png) 0 0 fixed repeat; }
++.monthview-busy-time.cal-color-blue 				{ background: url(../images/month-busy-time-blue.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-green 				{ background: url(../images/month-busy-time-green.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-yellow 				{ background: url(../images/month-busy-time-yellow.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-gray 				{ background: url(../images/month-busy-time-gray.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-orange 				{ background: url(../images/month-busy-time-orange.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-pink 				{ background: url(../images/month-busy-time-pink.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-red 					{ background: url(../images/month-busy-time-red.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-purple 				{ background: url(../images/month-busy-time-purple.png) right 0 fixed repeat-y; }
++.monthview-busy-time.cal-color-teal 				{ background: url(../images/month-busy-time-teal.png) right 0 fixed repeat-y; }
++
++/* Month View: partly busy time */
++.monthview-partly-busy-time.cal-color-blue 			{ background: url(../images/month-busy-time-blue.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-green 		{ background: url(../images/month-busy-time-green.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-yellow 		{ background: url(../images/month-busy-time-yellow.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-gray 			{ background: url(../images/month-busy-time-gray.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-orange 		{ background: url(../images/month-busy-time-orange.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-pink 			{ background: url(../images/month-busy-time-pink.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-red 			{ background: url(../images/month-busy-time-red.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-purple 		{ background: url(../images/month-busy-time-purple.png) left center fixed no-repeat; }
++.monthview-partly-busy-time.cal-color-teal 			{ background: url(../images/month-busy-time-teal.png) left center fixed no-repeat; }
+ 
+ /* Week View: Events */
+ .wv_event.cal-color-blue,
+diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css
+index 49e070f..8a94034 100644
+--- a/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css
++++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css
+@@ -124,12 +124,24 @@
+ 		float: left;
+ }
+ 
++.monthview-partly-busy-time {
++		background: none;
++		background-image: url(../images/busy-time.png);
++		background-repeat: no-repeat;
++		background-attachment: fixed;
++		background-position: left center;
++		/*color: #FF0000;*/
++		width: 100%;
++		height: 16px;
++		float: left;
++}
++
+ .monthview-busy-time {
+ 		background: none;
+ 		background-image: url(../images/busy-time.png);
+-		background-repeat: repeat;
++		background-repeat: repeat-y;
+ 		background-attachment: fixed;
+-		background-position: 0 0;
++		background-position: right 0;
+ 		/*color: #FF0000;*/
+ 		width: 100%;
+ 		height: 16px;
