@@ -20,7 +20,7 @@ index 5375929..422c98e 100644
  	},
  	
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
-index f80b85f..66dcebd 100644
+index f80b85f..3219adb 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 @@ -11,8 +11,8 @@ var DayAssistant = Class.create({
@@ -106,7 +106,7 @@ index f80b85f..66dcebd 100644
 +
 +		// Alarm
 +		if ((event.alarm !== undefined) && (event.alarm != "none")) {
-+			try{ ctx.drawImage(this.imgAlarm, left+4+width-18, subjectTop+1, 12, 12); }catch(e) {}
++			try{ Mojo.Log.error(Object.toJSON(event)); ctx.drawImage(this.imgAlarm, left+4+width-18, subjectTop+1, 12, 12); }catch(e) {}
 +		}
 +		// Icon
 +		if (event.note !== undefined) {
@@ -313,8 +313,122 @@ index f80b85f..66dcebd 100644
  		}
  			
  	},
+@@ -3183,6 +3297,7 @@ var DayAssistant = Class.create({
+ 			this.event_being_dragged = this.controller.get("dragging_event");
+ 			// Keep track of the initial hit point
+ 			this.dragLastPointY = event.down.y;
++			this.dragLastPointX = event.down.X;
+ 			Event.stop(event);
+ 			return Mojo.Gesture.CONSUMED_EVENT;
+ 		}
+@@ -3198,6 +3313,21 @@ var DayAssistant = Class.create({
+ 		return newTop;
+ 	},
+ 	
++	// Move the element... NOTE: This assumes that the element is 
++	// positioned absolutely
++	moveElementX: function(element, dx) {
++		var newLeft = parseInt(element.getStyle('left'), 10) + dx;
++		//Mojo.Log.info("day-assistant: moveElement: %s %d",element.id,newTop)
++		
++		element.setStyle({left: newLeft + 'px'});
++		if (newLeft > 100) {
++			element.setStyle({opacity: 0.5});
++		} else {
++			element.setStyle({opacity: 1.0});
++		}
++		return newLeft;
++	},
++	
+ 	handleEventsDragging: function(event) {
+ 		//Mojo.Log.info("day-assistant handleEventsDragging");
+ 		if (this.event_being_dragged) {
+@@ -3214,6 +3344,15 @@ var DayAssistant = Class.create({
+ 				this.dragLastPointY = pointerY;
+ 			}
+ 		
++			var pointerX = event.move.x;
++	    if (this.dragLastPointX != pointerX) {
++				// Calculate the delta of the current point and the last point
++		  	var newOffsetX = pointerX - this.dragLastPointX;
++				// Move the element based off of the delta
++		  	this.moveElementX(target, newOffsetX);
++				this.dragLastPointX = pointerX;
++			}
++		
+ 			return Mojo.Gesture.CONSUMED_EVENT;
+ 		}
+ 	},
+@@ -3363,31 +3502,43 @@ var DayAssistant = Class.create({
+ 		//Mojo.Log.info("day-assistant handleEventsDragEnd");
+ 		
+ 		if (this.event_being_dragged) {
+-			var itemTop = this.event_being_dragged.positionedOffset().top;
+-			
+-			// Calculate how much "time" the user has moved the event.  When the event is retrieved
+-			// we use this delta to calculate the new start time.  Can not calculate the new start
+-			// time here, because for events that overlap days, this.dragStartHour may not reflect
+-			// the actual start time of the event
+-			this.newTimeDeltaInMinutes = this.ptToHalfHour(itemTop-this.event_being_held.top) * 30;
+-			
+-			// Set these to undefined since we use newTimeDeltaInMinutes to determing the new start time
+-			// in gotEventForUpdateTime
+-			this.newHour = undefined;
+-			this.newMinutes = undefined;
+-			
+-			// Show the event in its new position.  At this point, the CalendarEvent in the
+-			// database hasn't been updated with the new time, but we can move the event
+-			// visually first
+-			this.event_being_held.origDragTop = this.event_being_held.top;
+-			
+-			this.event_being_held.top = itemTop;
+-			this.renderEvent(this.THIS_DAY, this.event_being_held, false);
++			var itemLeft = this.event_being_dragged.positionedOffset().left;
++			if (itemLeft > 100) {
++				this.eventToBeDeleted = this.event_being_held;
++				this.deletedeventId = this.event_being_held.id;
++				getCalendarService().getEvent(this.event_being_held.id, this.gotEventInlineDelete.bind(this),this.gotEventInlineDeleteFailed.bind(this), this.controller);
++				// Reset the dragging state
++				this.resetEventBeingDragged();
+ 
+-			// Retrieve the event from the calendar service so we can set the new start time
+-			getCalendarService().getEvent(this.event_being_held.id, this.gotEventForUpdateTime.bind(this),this.gotEventFailed.bind(this), this.controller);
+-			
+-			return Mojo.Gesture.CONSUMED_EVENT;
++				return Mojo.Gesture.CONSUMED_EVENT;
++			} else {
++				var itemTop = this.event_being_dragged.positionedOffset().top;
++				
++				// Calculate how much "time" the user has moved the event.  When the event is retrieved
++				// we use this delta to calculate the new start time.  Can not calculate the new start
++				// time here, because for events that overlap days, this.dragStartHour may not reflect
++				// the actual start time of the event
++				this.newTimeDeltaInMinutes = this.ptToHalfHour(itemTop-this.event_being_held.top) * 30;
++				
++				// Set these to undefined since we use newTimeDeltaInMinutes to determing the new start time
++				// in gotEventForUpdateTime
++				this.newHour = undefined;
++				this.newMinutes = undefined;
++				
++				// Show the event in its new position.  At this point, the CalendarEvent in the
++				// database hasn't been updated with the new time, but we can move the event
++				// visually first
++				this.event_being_held.origDragTop = this.event_being_held.top;
++				
++				this.event_being_held.top = itemTop;
++				this.event_being_held.left = 0;
++				this.renderEvent(this.THIS_DAY, this.event_being_held, false);
++	
++				// Retrieve the event from the calendar service so we can set the new start time
++				getCalendarService().getEvent(this.event_being_held.id, this.gotEventForUpdateTime.bind(this),this.gotEventFailed.bind(this), this.controller);
++				
++				return Mojo.Gesture.CONSUMED_EVENT;
++			}
+ 		}
+ 	},
+ 	
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
-index 9ba9c70..7aa5a90 100644
+index 9ba9c70..37be245 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 @@ -8,6 +8,7 @@ var EditAssistant = Class.create({
@@ -338,12 +452,17 @@ index 9ba9c70..7aa5a90 100644
  			this.appMenuModel.items[2].disabled = false;   
  		else
  			this.appMenuModel.items[2].disabled = true; 
-@@ -444,7 +451,21 @@ var EditAssistant = Class.create({
+@@ -443,18 +450,68 @@ var EditAssistant = Class.create({
+ 						 '-PT5M', // Do Not Localize
  						 '-PT10M', //Do not localize
  						 '-PT15M', // Do NOT Localize
++						 '-PT20M', // Do NOT Localize
++						 '-PT25M', // Do NOT Localize
  						 '-PT30M', // Do NOT Localize
++						 '-PT35M', // Do NOT Localize
 +						 '-PT45M', // Do NOT Localize
  						 '-PT1H', // Do NOT Localize
+-						 '-P1D' // Do NOT Localize
 +						 '-PT90M', // Do NOT Localize
 +						 '-PT2H', // Do NOT Localize
 +						 '-PT150M', // Do NOT Localize
@@ -357,10 +476,28 @@ index 9ba9c70..7aa5a90 100644
 +						 '-PT10H', // Do NOT Localize
 +						 '-PT12H', // Do NOT Localize	
 +						 '-PT23H', // Do NOT Localize
- 						 '-P1D' // Do NOT Localize
++						 '-P1D', // Do NOT Localize
++						'-P36H', // Do NOT Localize
++	 					'-P2D', // Do NOT Localize
++						'-P60H', // Do NOT Localize	
++	 					'-P3D', // Do NOT Localize
++						'-P84H', // Do NOT Localize
++						'-P4D', // Do NOT Localize
++						'-P5D', // Do NOT Localize
++						'-P6D', // Do NOT Localize			
++	 					'-P1W', // Do NOT Localize
++						'-P2W', // Do NOT Localize
++						'-P3W', // Do NOT Localize
++						'-P4W', // Do NOT Localize
++						'-P8W', // Do NOT Localize
++						'-P12W', // Do NOT Localize
++						'-P16W', // Do NOT Localize
++						'-P20W', // Do NOT Localize
++						'-P24W', // Do NOT Localize
++						'-P52W' // Do NOT Localize
  						]
  						},
-@@ -452,9 +473,24 @@ var EditAssistant = Class.create({
+ 			alarmsAllday: {
  				list: [ 'none', // Do NOT Localize
  						'-PT0M',// DO NOT Localize
  	 					'-P1D', // Do NOT Localize
@@ -385,7 +522,7 @@ index 9ba9c70..7aa5a90 100644
  					 ]
  					}
  		};
-@@ -664,22 +700,33 @@ var EditAssistant = Class.create({
+@@ -664,22 +721,33 @@ var EditAssistant = Class.create({
  	 },
  	 handleCommand: function(event) {
  		if(event.type == Mojo.Event.command) {
@@ -436,10 +573,10 @@ index 9ba9c70..7aa5a90 100644
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
  			// Enable prefs menuitem for this scene.
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
-index 747fcb3..c1c9b9d 100644
+index 747fcb3..d0ae85a 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
-@@ -5,12 +5,16 @@ var MONTH_DAY_ID_FORMAT = 'MMMM dd yyyy';	// IMPORTANT: DO NOT LOCALIZE!
+@@ -5,29 +5,65 @@ var MONTH_DAY_ID_FORMAT = 'MMMM dd yyyy';	// IMPORTANT: DO NOT LOCALIZE!
  var MonthAssistant = Class.create({
  				
  	reminderMenuItemId: 3,
@@ -456,9 +593,20 @@ index 747fcb3..c1c9b9d 100644
  						{label:$L('Sync Now'), command:'sync', id: 0},
  						{label:$L('Show today'), command:'today', id: 1},
  						{label:$L('Jump to...'), command:'jumpto', id: 2},
-@@ -22,12 +26,28 @@ var MonthAssistant = Class.create({
+ 						{label:$L('Missed reminders...'), command:'reminders', id: 3},
+ 						{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, checkEnabled: true},
++						this.enhancedMenuItem = {label:$L('Enhanced View'), command:'enhanced', chosen: true},
+ 						{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}
+ 					]
+ 				};
  				
  		this.scrollerModel = { scrollbars: false, mode: "vertical-snap", snapIndex: 0, snapElements: { y: [] } };
++
++		this.enhancedView = false;
++		var cookie = new Mojo.Model.Cookie('MonthViewEnhanced');
++		if (cookie !== undefined) {
++			this.enhancedView = cookie.get();
++		}
  	},
 +
 +	colors: {"cal-color-blue": "#91d3ea",
@@ -470,6 +618,15 @@ index 747fcb3..c1c9b9d 100644
 +		"cal-color-red": "#ff9797",
 +		"cal-color-purple": "#d9b7ff",
 +		"cal-color-teal": "#72dfd2"},
++
++	placements: {"0": "top left",
++		"1": "top center",
++		"2": "top right",
++		"3": "center left",
++		"4": "center right",
++		"5": "bottom left",
++		"6": "bottom center",
++		"7": "bottom right"},
  														
   	setupMonth: function(startDate, endDate, callbackfn) 
  	{
@@ -486,7 +643,7 @@ index 747fcb3..c1c9b9d 100644
  	buildViewHeader: function() 
  	{
  		//Mojo.Log.info("month-assistant: buildViewHeader");
-@@ -37,7 +57,13 @@ var MonthAssistant = Class.create({
+@@ -37,7 +73,13 @@ var MonthAssistant = Class.create({
  	
  	buildMonthTitle: function() 
  	{
@@ -501,7 +658,7 @@ index 747fcb3..c1c9b9d 100644
    	},
  
   	buildDayHeader: function() {
-@@ -362,23 +388,38 @@ var MonthAssistant = Class.create({
+@@ -362,23 +404,38 @@ var MonthAssistant = Class.create({
  		var weekCell = this._months.rows[0];
  		var dayCell = weekCell.cells[0];
  		
@@ -545,7 +702,85 @@ index 747fcb3..c1c9b9d 100644
  				}
  				else 
  				{
-@@ -637,11 +678,16 @@ var MonthAssistant = Class.create({
+@@ -390,7 +447,23 @@ var MonthAssistant = Class.create({
+ 				}
+ 				child = child.nextSibling;
+ 			}
+-			
++
++			//Mojo.Log.error(Object.toJSON(this.fullEvts[d]));
++			if (this.enhancedView) {
++				for (var k=0; k<this.fullEvts[d].events.length; k++) {
++					// get more details
++					if (this.fullEvts[d].events[k].gotFullDetails === undefined) {
++						// get more infos for this event
++						getCalendarService().getEvent(this.fullEvts[d].events[k].id,
++								this.getEventDetails.bind(this, this.fullEvts[d].events, k, dayCell),
++								function(response) {Mojo.Log.error(response.errorText);},
++								this.controller);
++					}
++				}
++	
++				this.renderIcons(this.fullEvts[d].events, dayCell);
++			}
++
+ 			// Advance the dayCell
+ 			if (d % 7 == 6) 
+ 			{
+@@ -404,6 +477,52 @@ var MonthAssistant = Class.create({
+ 			}
+ 		}
+ 	},
++
++	getEventDetails: function(events, k, dayCell, details) {
++		events[k].alarm = details.alarm;
++		events[k].note = details.note;
++		events[k].gotFullDetails = true;
++		if (k == (events.length-1)) {
++			this.renderIcons(events, dayCell);
++		}
++	},
++	
++	renderIcons: function(events, dayCell) {
++		var bgimage = "";
++		var bgrepeat = "";
++		var bgplacement = "";
++		var imgIdx = 0;
++		for (var k=0; k<events.length; k++) {
++			if (events[k].note !== undefined) {
++				try {
++					var start = events[k].note.indexOf("ICON=");
++					if (start > -1) {
++						start += 5;
++						var end = events[k].note.indexOf(";");
++						if (end > start) {
++							var icon = events[k].note.substring(start, end);
++							if (bgimage != "") { bgimage += ", "; }
++							bgimage += "url(/media/internal/scrims/ubercalendar/icon-" + icon + ".png)";
++							if (bgrepeat != "") { bgrepeat += ", "; }
++							bgrepeat += "no-repeat";
++							if (bgplacement != "") { bgplacement += ", "; }
++							bgplacement += this.placements[imgIdx];
++							imgIdx++;
++							if (imgIdx >= this.placements.length) {
++								break;
++							}
++						}
++					}
++				} catch(e) {}
++			}
++		}
++Mojo.Log.error(bgimage);
++Mojo.Log.error(bgrepeat);
++Mojo.Log.error(bgplacement);
++		dayCell.setStyle({backgroundImage: bgimage});
++		dayCell.setStyle({backgroundRepeat: bgrepeat});
++		dayCell.setStyle({backgroundPosition: bgplacement});
++	},
+ 	
+  	buildDays: function() 
+ 	{
+@@ -637,11 +756,16 @@ var MonthAssistant = Class.create({
          this.menuModel = 
          {
              visible: true,
@@ -563,7 +798,7 @@ index 747fcb3..c1c9b9d 100644
                  {
                      label: $L('Day'),
                      icon: 'menu-day',
-@@ -657,14 +703,18 @@ var MonthAssistant = Class.create({
+@@ -657,14 +781,19 @@ var MonthAssistant = Class.create({
                      icon: 'menu-month',
                      command: 'month'
                  }]
@@ -572,6 +807,7 @@ index 747fcb3..c1c9b9d 100644
          };
  		
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
++		this.enhancedMenuItem.chosen = this.enhancedView;
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		this.remindersUpdated(); 	// Update missed reminders menu item
  		
@@ -583,7 +819,7 @@ index 747fcb3..c1c9b9d 100644
    	},
    
  	showJumpTo: function() {
-@@ -715,6 +765,12 @@ var MonthAssistant = Class.create({
+@@ -715,6 +844,12 @@ var MonthAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Event.stop(event);
  				this.controller.stageController.pushScene('prefs');
@@ -596,7 +832,17 @@ index 747fcb3..c1c9b9d 100644
  			}else if(event.command == Mojo.Menu.helpCmd){
  				getAppManagerService().launchHelp(this.controller);
  			} else if (event.command == 'sync') {
-@@ -729,6 +785,16 @@ var MonthAssistant = Class.create({
+@@ -726,9 +861,26 @@ var MonthAssistant = Class.create({
+ 			}else if (event.command == 'jumpto') {
+ 				Event.stop(event);
+ 				this.showJumpTo();
++			} else if (event.command == 'enhanced') {
++				Event.stop(event);
++				this.enhancedView = !this.enhancedView;
++				var cookie = new Mojo.Model.Cookie('MonthViewEnhanced');
++				cookie.put(this.enhancedView);
++				this.enhancedMenuItem.chosen = this.enhancedView;
++				this.controller.modelChanged(this.appMenuModel);
  			} else if (event.command == 'reminders') {
  				Event.stop(event);
  				this.controller.stageController.pushScene('reminder-list');
@@ -613,11 +859,98 @@ index 747fcb3..c1c9b9d 100644
  			}				
  		}
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
+index cebe803..d673935 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
+@@ -759,19 +759,71 @@ var PrefsAssistant = Class.create({
+ 	
+ 	alarms: [
+ 		{label: '', command: 'none'},			// Do NOT Localize
+-		{label: '', command: '-PT5M'},		//Do Not localize
+-		{label: '', command: '-PT10M'},		//Do Not localize
+-		{label: '', command: '-PT15M'},		// Do NOT Localize
+-		{label: '', command: '-PT30M'},		// Do NOT Localize
+-		{label: '', command: '-PT1H'},		// Do NOT Localize
+-		{label: '', command: '-P1D'}			// Do NOT Localize	
++		{label: '', command:  '-PT0M'}, //DO NOT Localize
++		{label: '', command:  '-PT5M'}, // Do Not Localize
++		{label: '', command:  '-PT10M'}, //Do not localize
++		{label: '', command:  '-PT15M'}, // Do NOT Localize
++		{label: '', command:  '-PT20M'}, // Do NOT Localize
++		{label: '', command:  '-PT25M'}, // Do NOT Localize
++		{label: '', command:  '-PT30M'}, // Do NOT Localize
++		{label: '', command:  '-PT35M'}, // Do NOT Localize
++		{label: '', command:  '-PT45M'}, // Do NOT Localize
++		{label: '', command:  '-PT1H'}, // Do NOT Localize
++		{label: '', command:  '-PT90M'}, // Do NOT Localize
++		{label: '', command:  '-PT2H'}, // Do NOT Localize
++		{label: '', command:  '-PT150M'}, // Do NOT Localize
++		{label: '', command:  '-PT3H'}, // Do NOT Localize
++		{label: '', command:  '-PT220M'}, // Do NOT Localize
++		{label: '', command:  '-PT4H'}, // Do NOT Localize
++		{label: '', command:  '-PT5H'}, // Do NOT Localize
++		{label: '', command:  '-PT6H'}, // Do NOT Localize
++		{label: '', command:  '-PT7H'}, // Do NOT Localize
++		{label: '', command:  '-PT8H'}, // Do NOT Localize
++		{label: '', command:  '-PT10H'}, // Do NOT Localize
++		{label: '', command:  '-PT12H'}, // Do NOT Localize	
++		{label: '', command:  '-PT23H'}, // Do NOT Localize
++		{label: '', command:  '-P1D'}, // Do NOT Localize
++		{label: '', command: '-P36H'}, // Do NOT Localize
++		{label: '', command: '-P2D'}, // Do NOT Localize
++		{label: '', command: '-P60H'}, // Do NOT Localize	
++		{label: '', command: '-P3D'}, // Do NOT Localize
++		{label: '', command: '-P84H'}, // Do NOT Localize
++		{label: '', command: '-P4D'}, // Do NOT Localize
++		{label: '', command: '-P5D'}, // Do NOT Localize
++		{label: '', command: '-P6D'}, // Do NOT Localize			
++		{label: '', command: '-P1W'}, // Do NOT Localize
++		{label: '', command: '-P2W'}, // Do NOT Localize
++		{label: '', command: '-P3W'}, // Do NOT Localize
++		{label: '', command: '-P4W'}, // Do NOT Localize
++		{label: '', command: '-P8W'}, // Do NOT Localize
++		{label: '', command: '-P12W'}, // Do NOT Localize
++		{label: '', command: '-P16W'}, // Do NOT Localize
++		{label: '', command: '-P20W'}, // Do NOT Localize
++		{label: '', command: '-P24W'}, // Do NOT Localize
++		{label: '', command: '-P52W'} // Do NOT Localize
+ 	],
+ 	
+ 	allDayAlarms: [
+ 		{label: '', command: 'none'},			// Do NOT Localize
+-		{label: '', command: '-P1D'},			// Do NOT Localize
+-		{label: '', command: '-P2D'},			// Do NOT Localize
+-		{label: '', command: '-P3D'},			// Do NOT Localize
+-		{label: '', command: '-P1W'}			// Do NOT Localize		
++		{label: '', command: '-PT0M'},// DO NOT Localize
++		{label: '', command: '-P1D'}, // Do NOT Localize
++		{label: '', command: '-P36H'}, // Do NOT Localize
++		{label: '', command: '-P2D'}, // Do NOT Localize
++		{label: '', command: '-P60H'}, // Do NOT Localize	
++		{label: '', command: '-P3D'}, // Do NOT Localize
++		{label: '', command: '-P84H'}, // Do NOT Localize
++		{label: '', command: '-P4D'}, // Do NOT Localize
++		{label: '', command: '-P5D'}, // Do NOT Localize
++		{label: '', command: '-P6D'}, // Do NOT Localize			
++		{label: '', command: '-P1W'}, // Do NOT Localize
++		{label: '', command: '-P2W'}, // Do NOT Localize
++		{label: '', command: '-P3W'}, // Do NOT Localize
++		{label: '', command: '-P4W'}, // Do NOT Localize
++		{label: '', command: '-P8W'}, // Do NOT Localize
++		{label: '', command: '-P12W'}, // Do NOT Localize
++		{label: '', command: '-P16W'}, // Do NOT Localize
++		{label: '', command: '-P20W'}, // Do NOT Localize
++		{label: '', command: '-P24W'}, // Do NOT Localize
++		{label: '', command: '-P52W'} // Do NOT Localize
+ 	]
+ });
+\ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
-index 217a467..b25539b 100644
+index 217a467..6487ed2 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
-@@ -8,6 +8,9 @@ var WeekAssistant = Class.create({
+@@ -8,11 +8,15 @@ var WeekAssistant = Class.create({
  		this.appMenuModel = { visible:true, 
  									label:$L('Calendar'), 
  									items: [ Mojo.Menu.editItem,
@@ -627,7 +960,13 @@ index 217a467..b25539b 100644
  											{label:$L('Sync Now'), command:'sync', id: 0},
  											{label:$L('Show today'), command:'today', id: 1},
  											{label:$L('Jump to...'), command:'jumpto', id: 2},
-@@ -42,6 +45,10 @@ var WeekAssistant = Class.create({
+ 											{label:$L('Missed reminders...'), command:'reminders', id: 3},
+ 											{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, checkEnabled: true},
++											this.enhancedMenuItem = {label:$L('Enhanced View'), command:'enhanced', chosen: true},
+ 											{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
+ 								};
+ 
+@@ -42,6 +46,15 @@ var WeekAssistant = Class.create({
  		this.COL_POS = [0, 45, 91, 137, 183, 229, 275];
  		this.pendingRender = false;
  		this.pendingCalendarSettingsUpdate = false;
@@ -635,10 +974,15 @@ index 217a467..b25539b 100644
 +		this.imgAlarm.src = "/media/internal/scrims/ubercalendar/alarm-icon.png";
 +		this.imgIcons = new Object();
 +		this.ALL_DAY_HEIGHT = 12;
++		this.enhancedView = false;
++		var cookie = new Mojo.Model.Cookie('WeekViewEnhanced');
++		if (cookie !== undefined) {
++			this.enhancedView = cookie.get();
++		}
  	},
  					
  	getEventChangeCallback: function(response) {
-@@ -103,10 +110,12 @@ var WeekAssistant = Class.create({
+@@ -103,10 +116,12 @@ var WeekAssistant = Class.create({
  	buildWeekTitle: function() {
  		var today = Date.today().clearTime();
  		var dayOfWeek = this.getFirstDayOfWeek(this.weekDate);
@@ -652,7 +996,7 @@ index 217a467..b25539b 100644
  		this.title.innerHTML = template.evaluate(templateModel);
  		
  		if (this.changingWeeks)
-@@ -373,6 +382,13 @@ var WeekAssistant = Class.create({
+@@ -373,6 +388,13 @@ var WeekAssistant = Class.create({
  		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
@@ -666,7 +1010,7 @@ index 217a467..b25539b 100644
  
  		// Draw marker lines
  		ctx.fillStyle = "rgb(135, 135, 134)";
-@@ -388,7 +404,16 @@ var WeekAssistant = Class.create({
+@@ -388,7 +410,27 @@ var WeekAssistant = Class.create({
  	
  	renderStartEndDayLabels: function(whichWeek) {
  		var ctx = this.weeks[whichWeek].ctxEvents;
@@ -676,15 +1020,26 @@ index 217a467..b25539b 100644
 +		ctx.fillStyle = "rgb(0, 0, 0)";
 +		ctx.font = "bold 14px Prelude";
 +
-+		for (var i=2; i<24; i+=2) {
-+			var endPos = i * this.HOUR_HEIGHT - 1;
-+			ctx.strokeText(i, 12, endPos + 24);
++		if (getTimeFormat() == 'HH24') {
++			for (var i=2; i<24; i+=2) {
++				var endPos = i * this.HOUR_HEIGHT - 1;
++				ctx.strokeText(i, 12, endPos + 24);
++			}
++		} else {
++			for (var i=2; i<12; i+=2) {
++				var endPos = i * this.HOUR_HEIGHT - 1;
++				ctx.strokeText(i + " AM", 12, endPos + 24);
++			}
++			for (var i=0; i<12; i+=2) {
++				var endPos = (i + 12) * this.HOUR_HEIGHT - 1;
++				ctx.strokeText(i + " PM", 12, endPos + 24);
++			}
 +		}
 +		/*
  		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
-@@ -401,6 +426,7 @@ var WeekAssistant = Class.create({
+@@ -401,6 +443,7 @@ var WeekAssistant = Class.create({
  		if (this.midDayMarkerPos != this.startDayMarkerPos && this.midDayMarkerPos != this.endDayMarkerPos)
  			ctx.strokeText(this.midDayMarkerTime, 12, midPos + 24);
  		ctx.strokeText(this.endDayMarkerTime, 17, endPos + 24);
@@ -692,12 +1047,12 @@ index 217a467..b25539b 100644
  	},
  	
  	renderEmptyWeek: function(whichWeek) {
-@@ -488,8 +514,76 @@ var WeekAssistant = Class.create({
+@@ -488,8 +531,78 @@ var WeekAssistant = Class.create({
  		
  		ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
  		ctx.fillRect(left+1, top+height-3, width-2, 1);
 +		
-+		if (event.subject === undefined) {
++		if ((event.subject === undefined) && this.enhancedView) {
 +			// get more infos for this event
 +			getCalendarService().getEvent(event.id,
 +					this.getEventDetails.bind(this, whichWeek, whichDay, event),
@@ -713,18 +1068,7 @@ index 217a467..b25539b 100644
 +			ctx.textBaseline = "top";
 +			
 +			var text = event.subject;
-+			var length = text.length;
-+			var metrics = ctx.measureText(text);
-+			while ((metrics.width > eventMaxWidth-3) && (length > 0)) {
-+				// too large, try one less
-+				length--;
-+				text = text.substring(0, length);
-+				metrics = ctx.measureText(text);
-+			}
-+			ctx.fillText(text, left+2, top+1);
-+			top += 12
-+			if (text.length < event.subject.length) {
-+				var text = event.subject.substring(text.length);
++			if (text !== undefined) {
 +				var length = text.length;
 +				var metrics = ctx.measureText(text);
 +				while ((metrics.width > eventMaxWidth-3) && (length > 0)) {
@@ -735,6 +1079,19 @@ index 217a467..b25539b 100644
 +				}
 +				ctx.fillText(text, left+2, top+1);
 +				top += 12
++				if (text.length < event.subject.length) {
++					var text = event.subject.substring(text.length);
++					var length = text.length;
++					var metrics = ctx.measureText(text);
++					while ((metrics.width > eventMaxWidth-3) && (length > 0)) {
++						// too large, try one less
++						length--;
++						text = text.substring(0, length);
++						metrics = ctx.measureText(text);
++					}
++					ctx.fillText(text, left+2, top+1);
++					top += 12
++				}
 +			}
 +			// Alarm
 +			if ((event.alarm !== undefined) && (event.alarm != "none")) {
@@ -770,7 +1127,7 @@ index 217a467..b25539b 100644
  	renderBusyTime: function(whichWeek, whichDay, busy) {
  		var ctx = this.weeks[whichWeek].ctxEvents;
  		var marginLeft = 1;
-@@ -508,11 +602,66 @@ var WeekAssistant = Class.create({
+@@ -508,11 +621,68 @@ var WeekAssistant = Class.create({
  	renderAllDayEvent: function(whichWeek, whichDay, row, allday) {
  		var ctx = this.weeks[whichWeek].ctxAllDay;
  		var marginLeft = 4;
@@ -781,7 +1138,7 @@ index 217a467..b25539b 100644
 +		var eventMaxWidth = this.COL_WIDTH[whichDay] - marginLeft - marginLeft;
 +		ctx.drawImage(this.colors[allday.calendarColor].allday, left, top, eventMaxWidth, this.ALL_DAY_HEIGHT);
 +
-+		if (allday.subject === undefined) {
++		if ((allday.subject === undefined) && this.enhancedView) {
 +			// get more infos for this event
 +			getCalendarService().getEvent(allday.id,
 +					this.getAllDayEventDetails.bind(this, whichWeek, whichDay, row, allday),
@@ -797,15 +1154,17 @@ index 217a467..b25539b 100644
 +			ctx.textBaseline = "top";
 +			
 +			var text = allday.subject;
-+			var length = text.length;
-+			var metrics = ctx.measureText(text);
-+			while ((metrics.width > eventMaxWidth) && (length > 0)) {
-+				// too large, try one less
-+				length--;
-+				text = text.substring(0, length);
-+				metrics = ctx.measureText(text);
++			if (text !== undefined) {
++				var length = text.length;
++				var metrics = ctx.measureText(text);
++				while ((metrics.width > eventMaxWidth) && (length > 0)) {
++					// too large, try one less
++					length--;
++					text = text.substring(0, length);
++					metrics = ctx.measureText(text);
++				}
++				ctx.fillText(text, left, top);
 +			}
-+			ctx.fillText(text, left, top);
 +			// Alarm
 +			if ((allday.alarm !== undefined) && (allday.alarm != "none")) {
 +				try{ ctx.drawImage(this.imgAlarm, left+eventMaxWidth-4, top+2, 10, 10); }catch (e) {}
@@ -839,7 +1198,7 @@ index 217a467..b25539b 100644
  	
  	renderWeek: function(whichWeek, data) {
  		this.renderEmptyWeek(whichWeek);
-@@ -548,7 +697,7 @@ var WeekAssistant = Class.create({
+@@ -548,7 +718,7 @@ var WeekAssistant = Class.create({
  		if(maxRows > 5)
  			maxRows = 5;
  			
@@ -848,7 +1207,7 @@ index 217a467..b25539b 100644
  		this.updateWeekHeight(whichWeek);
  		
  		for (var whichDay = 0; whichDay < 7; whichDay++) {
-@@ -612,6 +761,23 @@ var WeekAssistant = Class.create({
+@@ -612,6 +782,23 @@ var WeekAssistant = Class.create({
  		this.currentDay = this.controller.get('wv_current_day');
  		this.scrollMakerPos = this.controller.get('wv_scroll_marker');
  		this.scrollDataDiv = this.controller.get('wv_scroll_data');
@@ -872,7 +1231,7 @@ index 217a467..b25539b 100644
  		
  		this.weeks = [];
  		this.weeks = [];
-@@ -708,25 +874,30 @@ var WeekAssistant = Class.create({
+@@ -708,25 +895,31 @@ var WeekAssistant = Class.create({
  		this.menuModel = {
  			visible:true,
  			items: [ 
@@ -892,6 +1251,7 @@ index 217a467..b25539b 100644
  			};
  			
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
++		this.enhancedMenuItem.chosen = this.enhancedView;
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		this.remindersUpdated(); 	// Update missed reminders menu item
 +
@@ -905,7 +1265,7 @@ index 217a467..b25539b 100644
  	},
    
  	showJumpTo: function() {
-@@ -776,6 +947,12 @@ var WeekAssistant = Class.create({
+@@ -776,6 +969,12 @@ var WeekAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Event.stop(event);
  				this.controller.stageController.pushScene('prefs');
@@ -918,7 +1278,17 @@ index 217a467..b25539b 100644
  			} else if(event.command == Mojo.Menu.helpCmd){
  				getAppManagerService().launchHelp(this.controller);
  			} else if (event.command == 'sync') {
-@@ -791,11 +968,25 @@ var WeekAssistant = Class.create({
+@@ -788,14 +987,35 @@ var WeekAssistant = Class.create({
+ 			}else if (event.command == 'jumpto') {
+ 				Event.stop(event);
+ 				this.showJumpTo();
++			} else if (event.command == 'enhanced') {
++				Event.stop(event);
++				this.enhancedView = !this.enhancedView;
++				var cookie = new Mojo.Model.Cookie('WeekViewEnhanced');
++				cookie.put(this.enhancedView);
++				this.enhancedMenuItem.chosen = this.enhancedView;
++				this.controller.modelChanged(this.appMenuModel);
  			} else if (event.command == 'reminders') {
  				Event.stop(event);
  				this.controller.stageController.pushScene('reminder-list');
