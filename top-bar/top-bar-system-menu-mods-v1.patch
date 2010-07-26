@@ -1,6 +1,8 @@
---- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-+++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-@@ -21,6 +21,7 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 786f7ae..08b26fb 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -21,6 +21,7 @@ var BarAssistant = Class.create({
  		this.bluetoothState = 'Off';
  		this.wifiState = 'Off';	
  		this.wifiRadio = false;	
@@ -8,7 +10,7 @@
  		
  		$('rssi').className = 'nobars';
  		$('datanet').className = 'off';
-@@ -46,6 +47,9 @@
+@@ -45,6 +46,9 @@ var BarAssistant = Class.create({
  		//Get the Carrier Name by querying the Carrier DB
  		this.getCarrierName();
  		
@@ -18,15 +20,7 @@
  		// Initialize the Bluetooth icon once the service is running
  		this.initOnServerStart("com.palm.btmonitor", this.btMonitorInit.bind(this), this.btMonitorDeinit.bind(this));
  		this.initOnServerStart("com.palm.bluetooth", this.btInit.bind(this), this.btDeInit.bind(this));
-@@ -590,6 +594,7 @@
- 		
- 		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
- 		if (stageController) {
-+			this.gpsGetRadioStatus();
- 			this.hideSystemMenus("device");
- 			stageController.delegateToSceneAssistant("toggleDeviceMenu");			
- 		} else {
-@@ -1897,6 +1902,47 @@
+@@ -1773,6 +1777,47 @@ closePbapAlert: function() {
  },
  
  /*
@@ -74,7 +68,18 @@
   * Handle power and charging notifications
   */
  handlePowerNotifications: function(payload) {
-@@ -1974,7 +2020,11 @@
+@@ -1782,6 +1827,10 @@ handlePowerNotifications: function(payload) {
+ 		Mojo.Log.error("SystemUI PowerD down -- ignoring the notification");
+ 		return;
+ 	}	
++	// Is the temperature info provided?
++	if(payload.temperature_C) {
++		this.batteryTemp = payload.temperature_C;
++	}
+ 	// Is the battery level provided?
+ 	if (payload.percent_ui != undefined) {
+ 		
+@@ -1850,7 +1899,11 @@ handlePowerNotifications: function(payload) {
  			//Update the System Menu
  			var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
  			if (stageController) {
@@ -87,7 +92,7 @@
  			}					
  			return;
  		}		 
-@@ -2067,6 +2117,13 @@
+@@ -1943,6 +1996,17 @@ getBatteryLevel: function() {
  	return this.batteryLevel;
  },
  
@@ -98,62 +103,114 @@
 +		return "Discharging";
 +},
 +
++getBatteryTemp: function() {
++	return this.batteryTemp;
++},
++
  queryBatteryStatus: function() {
  	this.queryBatteryStatusReq = new Mojo.Service.Request('palm://com.palm.power/com/palm/power/', {
  		method: 'batteryStatusQuery',});
-@@ -2135,8 +2192,10 @@
+@@ -1956,6 +2020,7 @@ powerInit:function() {
+ 	this.lastBatteryLevel = 0;
+ 	this.chargingBannerShown = false;
+ 	this.batteryLevel = 0;
++	this.batteryTemp = 0;
+ 	// Subscribe to Battery Power Notifications
+ 	this.powerNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
+ 		method: 'addmatch',
+@@ -2011,9 +2076,20 @@ handleWANNotifications: function(payload) {
  	
  	 Mojo.Log.info("SystemUI -WAN Notification "+ Object.toJSON(payload));
  	 
 -	 if(payload.returnValue != undefined && payload.returnValue)
 -	 	return;
+-		
 +	 if(payload.returnValue != undefined && payload.returnValue) {
-+	 	this.dataRoaming = false;
 + 	 	return;
 +	 }	 
- 		
++
++	 if(payload.disablewan === 'on')
++	 	this.dataConnState = false;
++	 else if(payload.disablewan === 'off')
++	 	this.dataConnState = true;
++
++	 if(payload.roamGuard === 'disable')
++	 	this.dataRoamState = true;
++	 else if(payload.roamGuard === 'enable')
++	 	this.dataRoamState = false;
++	 
  	 var mipFailureCode, causeCode;	
  			
-@@ -2208,6 +2267,13 @@
- 		Mojo.Log.error("SystemUI - Updating WAN Icon - Status - Removed " + Object.toJSON(payload));
- 	}          
+ 	 if (payload.networkstatus == "attached" && payload.connectedservices && payload.connectedservices.length > 0) { 
+@@ -2788,22 +2864,12 @@ saveAirplaneMode: function(payload) {
+ 		this.airplaneMode = false;
+ 	
+ 	if(this.airplaneModeInitialQueryDone) {
+-		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");	
+-		if (stageController) {
+-			stageController.delegateToSceneAssistant("updateAirplaneModeProgress");
+-		}	
+ 		if (this.airplaneMode === false) 
+ 			this.disableFlightMode();
+ 		else {
+ 			this.enableFlightMode();
+ 		}
+ 	}
+-	else {
+-		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");	
+-		if (stageController) {
+-			stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
+-		}	
+-	}  	
+ 	this.airplaneModeInitialQueryDone = true;
+ },
+ 
+@@ -2949,12 +3015,9 @@ updateAirplaneModeProgress: function(radioName) {
+ 	this.apModeRadioStatus.set(radioName, true);
+ 	
+ 	var apModeDone = this.apModeRadioStatus.get('phone') & this.apModeRadioStatus.get('bluetooth') & this.apModeRadioStatus.get('wifi');
+-	var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
  		
-+	// Update the Data Roaming Settings
-+	this.dataRoaming = (payload.roamGuard === "disable") ? true : false;
-+	
-+	var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");	
-+	if (stageController) {
-+		stageController.delegateToSceneAssistant("updateDataRoamingSettings");
-+	}			
+ 	if (apModeDone && stageController) {
+-		Mojo.Log.info("SystemUI - Enable / Disable Airplane Mode complete - Updating Device Menu");
+ 		this.airplaneModeTriggered = false;
+-		stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
+ 	}	
  },
  
- /*
-@@ -2888,6 +2954,21 @@
- 	$('today').innerHTML = Mojo.Format.formatDate(date,{date:'short'});
- },
- 
-+//Returns the Data Roaming settings. Called by DeviceMenu.
-+getDataRoaming: function() {	
-+	return this.dataRoaming;
-+},
-+
-+//Turn on / off the Data Roaming. Makes service call set the Roamguard state.
-+setDataRoaming: function(mode) {
-+	Mojo.Log.info("SystemUI - Setting Data Roaming ");
-+	this.dataRoaming = mode;
-+	this.controller.serviceRequest('palm://com.palm.wan/', {
-+		method: 'set',
-+		parameters: {roamguard: (this.dataRoaming === true) ? 'disable' : 'enable'},
-+	});
-+},
-+
- /*
-  * Query the System Service to get the value of Airplane Mode key.
-  */
-@@ -3211,6 +3292,10 @@
+@@ -3069,6 +3132,39 @@ setKeepFlightModeOn: function(keepon) {
  			
  },
  
++getCurrentPhoneState: function() {
++	if(this.phoneRadioState) {
++		if(this.carrierText.length > 0)
++			return this.carrierText;
++		else
++			return 'On';
++	}
++	else
++		return 'Off';
++},
++
++getCurrentDataState: function() {
++	if(this.dataConnState) {
++		if(this.carrierText.length > 0)
++			return this.carrierText;
++		else
++			return 'On';
++	}
++	else
++		return 'Off';
++},
++
++getRoamingDataState: function() {	
++	if(this.dataRoamState)
++		return 'On';
++	else
++		return 'Off';
++},
++
 +getCurrentGpsState: function() {
 +	return this.gpsState;
 +},
@@ -161,42 +218,153 @@
  getCurrentBluetoothState: function() {
  	return this.bluetoothState;
  },
---- .orig/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
-+++ /usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
-@@ -1,6 +1,6 @@
+@@ -4592,6 +4688,8 @@ isAppRestoreRequired: function() {
+ 	// Telephony Variables
+ 	phoneType: null,
+ 	phoneRadioState: null,
++	dataConnState: null,
++	dataRoamState: null,
+  	phoneRadioNotificationSession: null,
+ 	signalNotificationSession: null,
+ 	networkNotificationSession: null,
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.rej b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.rej
+new file mode 100644
+index 0000000..b4db4de
+--- /dev/null
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.rej
+@@ -0,0 +1,16 @@
++***************
++*** 602,607 ****
++  		
++  		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++  		if (stageController) {
++  			this.hideSystemMenus("device");
++  			stageController.delegateToSceneAssistant("toggleDeviceMenu", edit);			
++  		} else {
++--- 606,612 ----
++  		
++  		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++  		if (stageController) {
+++ 			this.gpsGetRadioStatus();
++  			this.hideSystemMenus("device");
++  			stageController.delegateToSceneAssistant("toggleDeviceMenu", edit);			
++  		} else {
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+index 335a73c..661376e 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -1,6 +1,10 @@
  /* Copyright 2009 Palm, Inc.  All rights reserved. */
  
 -var RadioState = new Hash({wifi: undefined, bluetooth: undefined});
++var ConnState = new Hash({phone: undefined, data: undefined});
++
++var RoamState = new Hash({phone: undefined, data: undefined});
++
 +var RadioState = new Hash({wifi: undefined, bluetooth: undefined, gps: undefined});
  
  var DevicemenuAssistant = Class.create({
  	
-@@ -32,10 +32,8 @@
- 		//Add a touchable row class
+@@ -20,32 +24,79 @@ var DevicemenuAssistant = Class.create({
+ 		spinning: false
+ 	},
+ 	
++	wifiAPList: [],
++	btdeviceList: [],
++	
+ 	initialize: function(barAssistant,btProfileStatus) {
+ 		this.barAssistant = barAssistant;
+ 		this.btProfileStatus = btProfileStatus;	
+ 		//this.barAssistant.setDeviceMenuAssistant(this);
++		
+ 		this.turningOnBtRadio = false;
++
++		this.isVisible = true;
++		this.isEditing = false;
++
++		this.prevDrawer = null;
++
++		this.editItems = new Array();
++
++		this.quickAction = "LED Flashlight";
++		this.hiddenItems = new Array("Device", "Security", "Network");
++
++		this.menus = ["Device", "Security", "Network", "Phone", "Data", "Wi-Fi", "Bluetooth", "GPS"];
++
++		this.item_ids = ["dm_device", "dm_security", "dm_network", "dm_phone", "dm_data", "dm_wifi", 
++			"dm_bluetooth", "dm_gps"];
++		
++		this.menuActions = ["LED Flashlight", "Phone Connection", "Voice Roaming", "Data Connection", 
++			"Data Roaming", "Wi-Fi Connection", "BT Connection", "GPS Connection"];
+ 	},
+ 	
+ 	setup: function() {
+ 		
+-		//Add a touchable row class
++		// Add a touchable row class
  		this.controller.get('palm-device-menu').addClassName('palm-touch-rows-'+Mojo.Environment.DeviceInfo.touchableRows);
- 			
+-			
 -		var date = new Date();
 -		this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '}) +  Mojo.Format.formatDate(date,{date:'long'});
 -		var msg = $L("Battery: #{batlevel}");
 -		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel())});
-+		var msg = $L("Battery: #{batlevel}, #{batstate}");
-+		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel()), "batstate": this.barAssistant.getBatteryState()});
- 						
- 		this.modesModel = {scrollbars: false, mode: "vertical"},
- 		this.controller.setupWidget('devicescroller', {}, this.modesModel);
-@@ -44,8 +42,10 @@
+-						
+-		this.modesModel = {scrollbars: false, mode: "vertical"},
+-		this.controller.setupWidget('devicescroller', {}, this.modesModel);
+-		this.menuscroller = this.controller.get('devicescroller');
++		
++		this.modelScroller = {scrollbars: false, mode: "vertical"},
++		this.controller.setupWidget('scroller', {}, this.modelScroller);
++		this.menuscroller = this.controller.get('scroller');
++
++		this.modelFlashlight = {value: false, disabled: false};
++
++		this.controller.setupWidget("flashlight_toggle", {falseValue: 0, trueValue: 100}, this.modelFlashlight); 
++
++		this.modelBrightness = {value: 50};
++
++		this.controller.setupWidget('brightness_slider', {minValue: 0, maxValue: 100}, this.modelBrightness);
++
++		this.modelVolume = {value: 50};
++		
++		this.controller.setupWidget('volume_slider', {minValue: 0, maxValue: 100}, this.modelVolume);
++		
++		this.modelEditItems = {'items': this.editItems};
++
++		this.controller.setupWidget('edit_items', 
++			{itemTemplate:'devicemenu/listitem-edit'}, 
++			this.modelEditItems);		
+ 		
  		this.drawerModel = {myOpenProperty:false};
++		this.controller.setupWidget('devicedetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.controller.setupWidget('securitydetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.controller.setupWidget('networkdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.controller.setupWidget('phonedetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.controller.setupWidget('datadetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
  		this.controller.setupWidget('wifidetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
  		this.controller.setupWidget('btdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
 +		this.controller.setupWidget('gpsdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
++		this.devicedrawer = this.controller.get('devicedetails');
++		this.securitydrawer = this.controller.get('securitydetails');
++		this.networkdrawer = this.controller.get('networkdetails');
++		this.phonedrawer = this.controller.get('phonedetails');
++		this.datadrawer = this.controller.get('datadetails');
  		this.wifidrawer = this.controller.get('wifidetails');
  		this.btdrawer = this.controller.get('btdetails');
 +		this.gpsdrawer = this.controller.get('gpsdetails');
  		
  		this.wifiListModel = {
  			items: this.wifiAPList
-@@ -69,14 +69,25 @@
- 		//Spinner for BT
+@@ -63,74 +114,76 @@ var DevicemenuAssistant = Class.create({
+ 									this.btListModel);									
+ 		this.btListWidget = this.controller.get('btlist');
+ 		
+-		//Spinner for WiFi
++		// Spinner for WiFi
+ 		this.controller.setupWidget('wifiSpinner', this.spinnerAttrs, this.spinnerModel);
+ 		
+-		//Spinner for BT
++		// Spinner for BT
  		this.controller.setupWidget('btSpinner', this.spinnerAttrs, this.btspinnerModel);
  		
 -		//Spinner for Airplande Mode
@@ -204,36 +372,92 @@
 -			
 -		if(this.barAssistant.getAirplaneMode()) 			
 -			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn off Airplane Mode');
-+		if(this.barAssistant.getDataRoaming()) 			
-+			this.controller.get('dm_dataroaming_status').innerHTML = $L('Turn off Data Roaming');
- 		else
+-		else
 -			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn on Airplane Mode');
 -			
-+			this.controller.get('dm_dataroaming_status').innerHTML = $L('Turn on Data Roaming');
+-		var btstate = this.barAssistant.getCurrentBluetoothState();
+-		if(btstate === 'Off') {
+-			this.controller.get('btmsg').innerHTML = $L('Off');
+-			RadioState.set('bluetooth',false);
+-		}			
+-		else {
+-			RadioState.set('bluetooth',true);
+-					
+-			if(btstate === 'On')
+-				this.controller.get('btmsg').innerHTML = $L('On');
+-			else
+-				this.controller.get('btmsg').innerHTML = btstate.escapeHTML();			
+-		}			
+-			
+-		var wifistate = this.barAssistant.getCurrentWiFiState();
+-		if(wifistate === 'Off') {
+-			this.controller.get('wifimsg').innerHTML = $L('Off');
+-			RadioState.set('wifi',false);
+-		}			
+-		else {
+-			RadioState.set('wifi',true);	
+-			if(wifistate === 'On')
+-				this.controller.get('wifimsg').innerHTML = $L('On');
+-			else
+-				this.controller.get('wifimsg').innerHTML = wifistate.escapeHTML();			
+-		}		
+-		this.controller.listen(this.controller.document, Mojo.Event.deactivate, this.close.bindAsEventListener(this));
+-		this.isVisible = true;
+-		
+-		//Hide WiFi Menu if WiFi is not present.
++		// Hide WiFi Menu if WiFi is not present
+ 		if(!Mojo.Environment.DeviceInfo.wifiAvailable) {
+ 			this.controller.get('dm_wifi').hide();
+ 			this.controller.hideWidgetContainer(this.controller.get('dm_wifi'));
+ 		}
+ 		
+-		//set up the the menu div
++		// Set up the the menu div
+ 		this.scrim = this.controller.sceneElement.querySelector('div[x-mojo-scrim]');
+ 		this.systemmenu = this.controller.sceneElement.querySelector('div[x-mojo-dialog]');
+ 		this.scrim.style.opacity = 0;
+ 		this.systemmenuTop = this.systemmenu.offsetTop;
+ 		this.systemmenu.style.top = (-1 * this.systemmenu.offsetHeight) + 'px';					
++
++		this.controller.listen(this.controller.document, Mojo.Event.deactivate, this.close.bindAsEventListener(this));
 +		
-+		var gpsstate = this.barAssistant.getCurrentGpsState();
-+		if(gpsstate === 'Off') {
-+			this.controller.get('gpsmsg').innerHTML = $L('Off');
-+			RadioState.set('gps',false);
-+		}			
-+		else {
-+			RadioState.set('gps',true);
-+					
-+			if(gpsstate === 'On')
-+				this.controller.get('gpsmsg').innerHTML = $L('On');
-+			else
-+				this.controller.get('gpsmsg').innerHTML = gpsstate.escapeHTML();	
-+		}
-+		
- 		var btstate = this.barAssistant.getCurrentBluetoothState();
- 		if(btstate === 'Off') {
- 			this.controller.get('btmsg').innerHTML = $L('Off');
-@@ -121,15 +132,18 @@
++		// Load preferences for the menu
++		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'getPreferences', parameters: {subscribe: false, keys: ['deviceMenuCfg']},
++			onSuccess: this.handlePreferences.bind(this) });
  	},
  	
  	activate: function() {
 -		this.controller.get('dm_airplanemode').addEventListener(Mojo.Event.tap, this.toggleAirplaneMode.bindAsEventListener(this));
-+		this.controller.get('dm_dataroaming').addEventListener(Mojo.Event.tap, this.toggleDataRoaming.bindAsEventListener(this));
++		this.controller.get('menu_action').addEventListener(Mojo.Event.tap, this.handleActionTap.bindAsEventListener(this));
++		this.controller.get('edit_items').addEventListener(Mojo.Event.listTap, this.handleItemTap.bindAsEventListener(this));
++
++		this.controller.get('dm_device').addEventListener(Mojo.Event.tap, this.toggleDeviceList.bindAsEventListener(this));
++		this.controller.get('volume_toggle').addEventListener(Mojo.Event.tap, this.handleVolumeToggle.bindAsEventListener(this));						
++		this.controller.get('flashlight_toggle').addEventListener(Mojo.Event.propertyChange, this.handleFlashlightToggle.bindAsEventListener(this));
++		this.controller.get('brightness_slider').addEventListener(Mojo.Event.propertyChange, this.handleBrightnessSlider.bindAsEventListener(this));
++		this.controller.get('volume_slider').addEventListener(Mojo.Event.propertyChange, this.handleVolumeSlider.bindAsEventListener(this));
++
++		this.controller.get('dm_security').addEventListener(Mojo.Event.tap, this.toggleSecurityList.bindAsEventListener(this));
++		this.controller.get('security_none').addEventListener(Mojo.Event.tap, this.changeSecurityState.bindAsEventListener(this));
++		this.controller.get('security_pin').addEventListener(Mojo.Event.tap, this.changeSecurityState.bindAsEventListener(this));
++		this.controller.get('security_pw').addEventListener(Mojo.Event.tap, this.changeSecurityState.bindAsEventListener(this));
++
++		this.controller.get('dm_network').addEventListener(Mojo.Event.tap, this.toggleNetworkList.bindAsEventListener(this));
++		this.controller.get('network_2g').addEventListener(Mojo.Event.tap, this.changeNetworkState.bindAsEventListener(this));
++		this.controller.get('network_3g').addEventListener(Mojo.Event.tap, this.changeNetworkState.bindAsEventListener(this));
++		this.controller.get('network_auto').addEventListener(Mojo.Event.tap, this.changeNetworkState.bindAsEventListener(this));
++		
++		this.controller.get('dm_phone').addEventListener(Mojo.Event.tap, this.togglePhoneList.bindAsEventListener(this));
++		this.controller.get('phone_conn').addEventListener(Mojo.Event.tap, this.togglePhoneConn.bindAsEventListener(this));
++		this.controller.get('phone_roam').addEventListener(Mojo.Event.tap, this.togglePhoneRoam.bindAsEventListener(this));
++		this.controller.get('phone_pref').addEventListener(Mojo.Event.tap,this.handlePhoneLaunch.bindAsEventListener(this));
++
++		this.controller.get('dm_data').addEventListener(Mojo.Event.tap, this.toggleDataList.bindAsEventListener(this));
++		this.controller.get('data_conn').addEventListener(Mojo.Event.tap, this.toggleDataConn.bindAsEventListener(this));
++		this.controller.get('data_roam').addEventListener(Mojo.Event.tap, this.toggleDataRoam.bindAsEventListener(this));
++		this.controller.get('data_pref').addEventListener(Mojo.Event.tap,this.handlePhoneLaunch.bindAsEventListener(this));
++						
  		this.controller.get('wifilist').addEventListener(Mojo.Event.listTap,this.handleWiFiTap.bindAsEventListener(this));
  		this.controller.get('btlist').addEventListener(Mojo.Event.listTap,this.handleBTTap.bindAsEventListener(this));		
  		this.controller.get('dm_wifi').addEventListener(Mojo.Event.tap, this.togglewifiList.bindAsEventListener(this));
@@ -247,77 +471,747 @@
 +		this.controller.get('bt_pref').addEventListener(Mojo.Event.tap,this.handleBluetoothLaunch.bindAsEventListener(this));
 +		this.controller.get('gps_pref').addEventListener(Mojo.Event.tap,this.handleGpsLaunch.bindAsEventListener(this));
  		this.controller.get('scrim').addEventListener(Mojo.Event.tap, this.toggleDeviceMenu.bindAsEventListener(this));
++		
  		//Close the App because this is a first launch.
  		this.toggleDeviceMenu();						
-@@ -143,59 +157,120 @@
- 	btdeviceList: [],
+ 	},	
+@@ -138,64 +191,791 @@ var DevicemenuAssistant = Class.create({
+ 	cleanup: function() {
+ 		Mojo.Log.error("Device Menu - Clean up called");				
+ 	},	
+-			
+-	wifiAPList: [],
+-	btdeviceList: [],
++
++	savePreferences: function() {
++		this.hiddenItems.clear();
++	
++		for(var i = 0; i < this.editItems.length ; i++) {
++			if(this.editItems[i].label == "hide")
++				this.hiddenItems.push(this.editItems[i].title);
++		}
++	
++		if(this.setPreferencesRequest)
++			this.setPreferencesRequest.cancel();
++	
++		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'setPreferences', parameters: {'deviceMenuCfg': {hidden: this.hiddenItems, action: this.quickAction}} });
++	},
++	
++
++	handlePreferences: function(payload) {
++		if(payload != undefined) {
++			if(payload.deviceMenuCfg != undefined) {
++				this.hiddenItems = payload.deviceMenuCfg.hidden;
++				this.quickAction = payload.deviceMenuCfg.action;
++			}
++		}
++	},
++	
++	handleActionTap: function(event) {
++		if(this.isEditing) {
++			if((event.up) && ( event.up.altKey || event.up.metaKey))
++				this.menuActions.reverse();
++
++			for(var i = 0; i < this.menuActions.length; i++) {
++				if(this.menuActions[i] == this.quickAction) {
++					if((i+1) < this.menuActions.length)
++						this.quickAction = this.menuActions[i+1];
++					else
++						this.quickAction = this.menuActions[0];
++						
++					break;
++				}
++			}
++
++			if((event.up) && ( event.up.altKey || event.up.metaKey))
++				this.menuActions.reverse();
  		
- 	/*
+-	/*
 -	 * Toggles the AirplaneMode.
-+	 * Toggles the Data Roaming.
- 	 * 
+-	 * 
 -	 * When Airplane Mode is enabled, it turns off the Phone. Also, it saves the current state of Bluetooth and WiFi and turn them off. 
 -	 * The Airplan Mode setting gets stored in the System Preferences.
-+	 * When Data Roaming is enabled the data connection is also used in foreign networks. 
- 	 */	 
+-	 */	 
++			this.controller.get('menu_action').innerHTML = $L("Toggle " + this.quickAction);
++
++			this.savePreferences();
++		}
++		else {
++			if(this.quickAction == "LED Flashlight")
++				this.toggleFlashlightLed();
++			else if(this.quickAction == "Phone Connection")
++				this.togglePhoneConn(event);
++			else if(this.quickAction == "Voice Roaming")
++				this.togglePhoneRoam(event);
++			else if(this.quickAction == "Data Connection")
++				this.toggleDataConn(event);
++			else if(this.quickAction == "Data Roaming") 
++				this.toggleDataRoam(event);
++			else if(this.quickAction == "Wi-Fi Connection") 
++				this.toggleWifiRadio(event);
++			else if(this.quickAction == "BT Connection") 
++				this.toggleBTRadio(event);
++			else if(this.quickAction == "GPS Connection")
++				this.toggleGpsRadio(event);
++		}
++	},
  	
 -	toggleAirplaneMode: function() {
-+	toggleDataRoaming: function() {
++	handleItemTap: function(event) {
++		if(this.isEditing) {
++			var index = this.modelEditItems.items.indexOf(event.item);
  		
- 		//Ignore the tap event if Airplane Mode is in Progress
+-		//Ignore the tap event if Airplane Mode is in Progress
 -		if(this.apModeInProgress)
-+		if(this.barAssistant.getAirplaneModeInProgress())
- 			return;
+-			return;
++			if(this.modelEditItems.items[index].label == "hide")
++				this.modelEditItems.items[index].label = "show";
++			else
++				this.modelEditItems.items[index].label = "hide";
  		
 -		//this.apSpinnerModel.spinning = true;
 -		//this.controller.modelChanged(this.apSpinnerModel);	
--				
++			this.controller.modelChanged(this.modelEditItems, this);
++		
++			this.savePreferences();
++		}
++	},
++
++	toggleDeviceList: function(event) {	
++		if((event.up) && ( event.up.altKey || event.up.metaKey))
++			this.toggleFlashlightLed();
++		else {
++			if(this.devicedrawer.mojo.getOpenState()) {
++				this.prevDrawer = null;
++		
++				this.controller.hideWidgetContainer(this.controller.get('devicedetails'));
++			}
++			else {
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++		
++				this.prevDrawer = this.devicedrawer;
++		
++				this.controller.showWidgetContainer(this.controller.get('devicedetails'));	
++			}
++	
++			this.devicedrawer.mojo.setOpenState(!this.devicedrawer.mojo.getOpenState());						
++		}
++	},
++	
++	toggleFlashlightLed: function() {
++		if(this.modelFlashlight.value == 0)
++			this.modelFlashlight.value = 100;
++		else
++			this.modelFlashlight.value = 0;
++		
++		this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++			method: 'flashOn', parameters: {value: this.modelFlashlight.value}
++		});
++		
++		this.toggleDeviceMenu.bind(this).delay(0.2);
++	},
++	
++	handleFlashlightToggle: function(event) {
++		// BUG in toggle button widget!
++	
++		if(this.modelFlashlight.value == false)
++			this.modelFlashlight.value = 0;
++	
++		this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++			method: 'flashOn', parameters: {value: this.modelFlashlight.value}
++		});
++	},
++	
++	handleBrightnessSlider: function(event) {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'setProperty', parameters:{maximumBrightness: Math.round(event.value)}
++		});
++		
++		this.controller.get('dm_brightness').innerHTML = Math.round(event.value);
++	},
++       
++	handleVolumeSlider: function(event) {
++		if(this.controller.get('volume_toggle').innerHTML == "System Volume")
++			var service = "system";
++		else if(this.controller.get('volume_toggle').innerHTML == "Media Volume")
++			var service = "media";
++		else
++			var service = "ringtone";
++
++		this.controller.serviceRequest('palm://com.palm.audio/' + service, {
++			method: 'setVolume', parameters:{volume: Math.round(event.value)}
++		});
++		
++		this.controller.get('dm_volume').innerHTML = Math.round(event.value);
++	},
++	
++	handleVolumeToggle: function(event) {
++		if(this.controller.get('volume_toggle').innerHTML == "Ringtone Volume")
++			this.controller.get('volume_toggle').innerHTML = "System Volume";
++		else if(this.controller.get('volume_toggle').innerHTML == "System Volume")
++			this.controller.get('volume_toggle').innerHTML = "Media Volume";
++		else
++			this.controller.get('volume_toggle').innerHTML = "Ringtone Volume";
++
++		this.updateVolumeState();
++	},
++	
++	updateFlashState: function() {
++		this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++			method: 'flashState',
++			parameters: {},
++			onSuccess: function(response) {
++				this.modelFlashlight.value = response.value;
+ 				
 -		if(this.barAssistant.getAirplaneMode()) {
 -			Mojo.Log.info("SystemUI - Turning off Airplane Mode - Device Menu");
 -			this.barAssistant.setAirplaneMode(false);
 -			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turning off Airplane Mode');			
-+		if(this.barAssistant.getDataRoaming() == undefined)
-+			return;
-+		
-+		if(this.barAssistant.getDataRoaming()) {
-+			Mojo.Log.info("SystemUI - Turning off Data Roaming - Device Menu");
-+			this.barAssistant.setDataRoaming(false);
- 		}			
+-		}			
++				if(this.quickAction == "LED Flashlight") {
++					if(this.modelFlashlight.value == 0)
++						this.controller.get('menu_action').innerHTML = $L('Turn on LED Flashlight');
++					else
++						this.controller.get('menu_action').innerHTML = $L('Turn off LED Flashlight');
++				}
++				this.controller.modelChanged(this.modelFlashlight, this);
++			}.bind(this),
++		});
++	},
++	
++	updateScreenState: function() {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'getProperty',
++			parameters:{properties:['maximumBrightness']},
++			onSuccess: function(response) {
++				if(response.maximumBrightness != undefined) {
++					this.modelBrightness.value = parseInt(response.maximumBrightness);
++					this.controller.modelChanged(this.modelBrightness);
++
++					this.controller.get('dm_brightness').innerHTML = response.maximumBrightness;
++				} else {
++					this.controller.get('dm_brightness').innerHTML = "??";
++				}
++			}.bind(this)
++		});
++	},
++	
++	updateVolumeState: function() {
++		if(this.controller.get('volume_toggle').innerHTML == "System Volume")
++			var service = "system";
++		else if(this.controller.get('volume_toggle').innerHTML == "Media Volume")
++			var service = "media";
++		else
++			var service = "ringtone";
++
++		this.controller.serviceRequest('palm://com.palm.audio/' + service, {
++			method: 'getVolume',
++			parameters:{},
++			onSuccess: function(response) {
++				if(response.volume != undefined) {
++					this.modelVolume.value = parseInt(response.volume);
++					this.controller.modelChanged(this.modelVolume);
++	
++					this.controller.get('dm_volume').innerHTML = response.volume;
++				} else {
++					this.controller.get('dm_volume').innerHTML = "??";
++				}
++			}.bind(this)
++		});
++	},
++
++	toggleSecurityList: function(event) {
++		if((event.up) && ( event.up.altKey || event.up.metaKey)) {
++			this.serviceRequest = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++				method: 'open',
++				parameters: {'id': 'com.palm.app.screenlock','params':{mode: "none"}}
++			});
++		}
  		else {
 -			Mojo.Log.info("SystemUI - Turning on Airplane Mode - Device Menu");
 -			this.barAssistant.setAirplaneMode(true);
 -			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turning on Airplane Mode');
-+			Mojo.Log.info("SystemUI - Turning on Data Roaming - Device Menu");
-+			this.barAssistant.setDataRoaming(true);
++			if(this.securitydrawer.mojo.getOpenState()) {
++				this.prevDrawer = null;
++		
++				this.controller.hideWidgetContainer(this.controller.get('securitydetails'));
++			}
++			else {
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++		
++				this.prevDrawer = this.securitydrawer;
++		
++				this.controller.showWidgetContainer(this.controller.get('securitydetails'));	
++			}
++	
++			this.securitydrawer.mojo.setOpenState(!this.securitydrawer.mojo.getOpenState());						
  		}
 -		this.apModeInProgress = true;
++	},
++
++	changeSecurityState: function(event) {
++		if(event.target.id == "security_pin")
++			var security = "pin";
++		else if(event.target.id == "security_pw")
++			var security = "password";			
++		else 
++			var security = "none";
 +		
-+		this.updateDataRoamingSettings();
++		this.serviceRequest = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++			method: 'open',
++			parameters: {'id': 'com.palm.app.screenlock','params':{mode: security}}
++		});
++	},
++	
++	updateSecurityState: function() {
++		this.controller.serviceRequest('palm://com.palm.systemmanager/', {
++			method: "getDeviceLockMode", 
++			onComplete: function(response) {
++				if(response && response.lockMode) {
++					if(response.lockMode === 'pin')
++						this.controller.get('securitymsg').innerHTML = $L('PIN');
++					else if(response.lockMode === 'password')
++						this.controller.get('securitymsg').innerHTML = $L('PW');
++					else
++						this.controller.get('securitymsg').innerHTML = $L('None');
++				}
++			}.bind(this)
++		});
++	},
++
++	toggleNetworkList: function(event) {	
++		if((event.up) && ( event.up.altKey || event.up.metaKey)) {
++			this.controller.serviceRequest('palm://com.palm.telephony/', {
++				method: "ratSet", parameters: {"mode": "automatic"}
++			});
++		}
++		else {
++			if(this.networkdrawer.mojo.getOpenState()) {
++				this.prevDrawer = null;
++		
++				this.controller.hideWidgetContainer(this.controller.get('networkdetails'));
++			}
++			else {
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++		
++				this.prevDrawer = this.networkdrawer;
++		
++				this.controller.showWidgetContainer(this.controller.get('networkdetails'));	
++			}
++	
++			this.networkdrawer.mojo.setOpenState(!this.networkdrawer.mojo.getOpenState());						
++		}
++	},
++
++	changeNetworkState: function(event) {
++		if(event.target.id == "network_2g")
++			var network = "gsm";
++		else if(event.target.id == "network_3g") 
++			var network = "umts";
++		else
++			var network = "automatic";
++
++		this.controller.serviceRequest('palm://com.palm.telephony/', {
++			method: "ratSet", parameters: {"mode": network}
++		});
++		
++		this.toggleDeviceMenu.bind(this).delay(0.2);
++	},
++	
++	updateNetworkState: function() {
++		this.controller.serviceRequest('palm://com.palm.telephony/', {
++			method: "ratQuery", 
++			onComplete: function(response) {
++				if(response && response.extended && response.extended.mode) {
++					if(response.extended.mode === 'gsm')
++						this.controller.get('networkmsg').innerHTML = $L('2G');
++					else if(response.extended.mode === 'umts')
++						this.controller.get('networkmsg').innerHTML = $L('3G');
++					else
++						this.controller.get('networkmsg').innerHTML = $L('Auto');
++				}
++			}.bind(this)
++		});
++	},
++	
++	togglePhoneList: function(event) {	
++		//Ignore the tap event if Airplane Mode is on
++		if(this.barAssistant.getAirplaneMode())
++			return;
++
++		if((event.up) && ( event.up.altKey || event.up.metaKey))
++			this.togglePhoneConn(event);
++		else {
++			if(this.phonedrawer.mojo.getOpenState()) {
++				this.prevDrawer = null;
++		
++				this.controller.hideWidgetContainer(this.controller.get('phonedetails'));
++			}
++			else {
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++		
++				this.prevDrawer = this.phonedrawer;
++		
++				this.controller.showWidgetContainer(this.controller.get('phonedetails'));	
++			}
++	
++			this.phonedrawer.mojo.setOpenState(!this.phonedrawer.mojo.getOpenState());						
++		}
++	},
++	
++	togglePhoneConn: function(event) {
++		if(ConnState.get('phone'))
++			TelephonyService.tempPowerSet('off',false,null,null);
++		else
++			TelephonyService.tempPowerSet('on',false,null,null);
++
  		this.toggleDeviceMenu.bind(this).delay(0.2);		
  	},
  	
 -	updateAirplaneModeSettings: function() {
--		
++	togglePhoneRoam: function(event) {
++		var roamstate = RoamState.get('phone');
++
++		if((event.up) && ( event.up.altKey || event.up.metaKey)) {	
++			if(roamstate === 'any')
++				var state = 'roamonly';
++			else
++				var state = 'any';
++		}
++		else {
++			if(roamstate === 'any')
++				var state = 'homeonly';
++			else
++				var state = 'any';
++		}
++
++		this.controller.serviceRequest('palm://com.palm.telephony', {
++			method: 'roamModeSet', 
++			parameters: {mode: state, client: Mojo.appName}
++		});
++
++		this.toggleDeviceMenu.bind(this).delay(0.2);		
++	},
++	
++	handlePhoneLaunch: function(event) {
++		this.launchPhonePrefs.bind(this).delay(0.2);
++	},
++
++	launchPhonePrefs: function(toggleMenu) {
++		this.serviceRequest = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++			method: 'open',
++			parameters: {'id': 'com.palm.app.phoneprefs','params':{}}
++		});
++
++		this.toggleDeviceMenu();
++	},
++	
++	updatePhoneState: function() {
++		var phonestate = this.barAssistant.getCurrentPhoneState();
++
++		if(phonestate === 'Off') {
++			ConnState.set('phone', false);
++
++			this.controller.get('phonemsg').innerHTML = $L('Off');
++
++			this.controller.get('phone_conn').innerHTML = $L('Turn on Phone');					
++
++			if(this.quickAction == "Phone Connection")
++				this.controller.get('menu_action').innerHTML = $L('Turn on Phone Connection');
++		}
++		else {
++			ConnState.set('phone', true);
++
++			if(phonestate === 'On')
++				this.controller.get('phonemsg').innerHTML = $L('On');
++			else
++				this.controller.get('phonemsg').innerHTML = phonestate.escapeHTML();
++
++			this.controller.get('phone_conn').innerHTML = $L('Turn off Phone');					
++
++			if(this.quickAction == "Phone Connection")
++				this.controller.get('menu_action').innerHTML = "Turn off Phone Connection";
++		}
++		
++		this.controller.get('phone_roam').innerHTML = 'Roaming Enabled';
++		
++		this.controller.serviceRequest('palm://com.palm.telephony/', {
++			method: 'roamModeQuery', parameters: {},
++			onSuccess: function(response) {
++				RoamState.set('phone', response.extended.mode);
++
++				var roamstate = RoamState.get('phone');
++
++				if(roamstate=='roamonly') {
++					this.controller.get('phone_roam').innerHTML = 'Roaming Forced';
++					
++					if(this.quickAction == "Voice Roaming")
++						this.controller.get('menu_action').innerHTML = "Enable Voice Roaming";
++				}
++				else if (roamstate=="homeonly") {
++					this.controller.get('phone_roam').innerHTML = 'Roaming Disabled';
++					
++					if(this.quickAction == "Voice Roaming")
++						this.controller.get('menu_action').innerHTML = "Enable Voice Roaming";
++				}
++				else {
++					this.controller.get('phone_roam').innerHTML = 'Roaming Enabled';
++					
++					if(this.quickAction == "Voice Roaming")
++						this.controller.get('menu_action').innerHTML = "Disable Voice Roaming";
++				}
++			}.bind(this)
++		});
++	},
++	
++	toggleDataList: function(event) {	
++		//Ignore the tap event if Airplane Mode is on
++		if(this.barAssistant.getAirplaneMode())
++			return;
++
++		if((event.up) && ( event.up.altKey || event.up.metaKey))
++			this.toggleDataConn(event);
++		else {
++			if(this.datadrawer.mojo.getOpenState()) {
++				this.prevDrawer = null;
+ 		
 -		//this.apSpinnerModel.spinning = false;
 -		//this.controller.modelChanged(this.apSpinnerModel);
-+	updateDataRoamingSettings: function() {
++				this.controller.hideWidgetContainer(this.controller.get('datadetails'));
++			}
++			else {
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++		
++				this.prevDrawer = this.datadrawer;
++		
++				this.controller.showWidgetContainer(this.controller.get('datadetails'));	
++			}
++	
++			this.datadrawer.mojo.setOpenState(!this.datadrawer.mojo.getOpenState());						
++		}
++	},
++	
++	toggleDataConn: function(event) {
++		if(ConnState.get('data'))
++			var state = "on";
++		else
++			var state = "off";
++			
++		this.controller.serviceRequest('palm://com.palm.wan/', {
++			method: 'set', parameters: {disablewan: state}
++		});
++
++		this.toggleDeviceMenu.bind(this).delay(0.2);		
++	},
++	
++	toggleDataRoam: function(event) {
++		var roamstate = RoamState.get('data');
++
++		if(roamstate === true)
++			var state = "enable";
++		else
++			var state = "disable";
++		
++		this.controller.serviceRequest('palm://com.palm.wan/', {
++			method: 'set',
++			parameters: {roamguard: state},
++		});
++
++		this.toggleDeviceMenu.bind(this).delay(0.2);		
++	},
++	
++	updateDataState: function() {
++		var datastate = this.barAssistant.getCurrentDataState();
++		
++		if(datastate === 'Off') {
++			ConnState.set('data', false);
++
++			this.controller.get('datamsg').innerHTML = $L('Off');
++
++			this.controller.get('data_conn').innerHTML = $L('Turn on Data');					
++
++			if(this.quickAction == "Data Connection")
++				this.controller.get('menu_action').innerHTML = $L('Turn on Data Connection');
++		}
++		else {
++			ConnState.set('data', true);
++
++			if(datastate === 'On')
++				this.controller.get('datamsg').innerHTML = $L('On');
++			else
++				this.controller.get('datamsg').innerHTML = datastate.escapeHTML();
++
++			this.controller.get('data_conn').innerHTML = $L('Turn off Data');					
++
++			if(this.quickAction == "Data Connection")
++				this.controller.get('menu_action').innerHTML = "Turn off Data Connection";
++		}
++
++		var roamstate = this.barAssistant.getRoamingDataState();
  		
 -		if(this.barAssistant.getAirplaneMode()) {
 -			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn off Airplane Mode');			
-+		if(this.barAssistant.getDataRoaming()) {
-+			this.controller.get('dm_dataroaming_status').innerHTML = $L('Turn off Data Roaming');			
++		if(roamstate === 'Off') {
++			RoamState.set('data', false);
++			
++			this.controller.get('data_roam').innerHTML = $L('Roaming Disabled');
++			
++			if(this.quickAction == "Data Roaming")
++				this.controller.get('menu_action').innerHTML = "Enable Data Roaming";
++		}
++		else {
++			RoamState.set('data', true);
++
++			this.controller.get('data_roam').innerHTML = $L('Roaming Enabled');
++
++			if(this.quickAction == "Data Roaming")
++				this.controller.get('menu_action').innerHTML = "Disable Data Roaming";
++		}
++	},
++	
++	updateWiFiState: function() {
++		var wifistate = this.barAssistant.getCurrentWiFiState();
++		
++		if(wifistate === 'Off') {
++			RadioState.set('wifi',false);
++
++			this.controller.get('wifimsg').innerHTML = $L('Off');
++
++			if(this.quickAction == "Wi-Fi Connection")
++				this.controller.get('menu_action').innerHTML = "Turn on Wi-Fi Connection";
  		}			
- 		else {			
+-		else {			
 -			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn on Airplane Mode');
-+			this.controller.get('dm_dataroaming_status').innerHTML = $L('Turn on Data Roaming');
++		else {
++			RadioState.set('wifi',true);
++			
++			if(wifistate === 'On')
++				this.controller.get('wifimsg').innerHTML = $L('On');
++			else
++				this.controller.get('wifimsg').innerHTML = wifistate.escapeHTML();			
++
++			if(this.quickAction == "Wi-Fi Connection")
++				this.controller.get('menu_action').innerHTML = "Turn off Wi-Fi Connection";
++		}
++	},
++	
++	updateBTState: function() {
++		var btstate = this.barAssistant.getCurrentBluetoothState();
++		
++		if(btstate === 'Off') {
++			RadioState.set('bluetooth',false);
++
++			this.controller.get('btmsg').innerHTML = $L('Off');
++
++			if(this.quickAction == "BT Connection")
++				this.controller.get('menu_action').innerHTML = "Turn on BT Connection";
++		}			
++		else {
++			RadioState.set('bluetooth',true);
++					
++			if(btstate === 'On')
++				this.controller.get('btmsg').innerHTML = $L('On');
++			else
++				this.controller.get('btmsg').innerHTML = btstate.escapeHTML();			
++
++			if(this.quickAction == "BT Connection")
++				this.controller.get('menu_action').innerHTML = "Turn off BT Connection";
++		}			
++		
++		if(this.turningOnBtRadio) {
++			this.btspinnerModel.spinning = true;
++			this.controller.modelChanged(this.btspinnerModel);
++		}
++	},
++	
++	updateGPSState: function() {
++		var gpsstate = this.barAssistant.getCurrentGpsState();
++		
++		if(gpsstate === 'Off') {
++			RadioState.set('gps',false);
++			
++			this.controller.get('gpsmsg').innerHTML = $L('Off');
++
++			if(this.quickAction == "GPS Connection")
++				this.controller.get('menu_action').innerHTML = "Turn on GPS Connection";
++		}			
++		else {
++			RadioState.set('gps',true);
++					
++			if(gpsstate === 'On')
++				this.controller.get('gpsmsg').innerHTML = $L('On');
++			else
++				this.controller.get('gpsmsg').innerHTML = gpsstate.escapeHTML();	
++		
++			if(this.quickAction == "GPS Connection")
++				this.controller.get('menu_action').innerHTML = "Turn off GPS Connection";
++		}
++	},
++	
++	updateMenuItems: function() {
++		var msg = $L("Battery: #{batlevel}, #{batstate}");
++		
++		this.controller.get('menu_header').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel()), "batstate": this.barAssistant.getBatteryState()});
++	
++		for(var i = 0; i < this.menus.length; i++) {
++			if(this.hiddenItems.indexOf(this.menus[i]) == -1)
++				this.controller.get(this.item_ids[i]).show();
++			else 
++				this.controller.get(this.item_ids[i]).hide();
++		}
++		
++		this.controller.modelChanged(this.modelScroller, this);
++	
++		var temp = this.barAssistant.getBatteryTemp();
++
++		this.controller.get("devicemsg").innerHTML = temp + "&deg;C";
++
++		this.updateFlashState();
++		this.updateScreenState();
++		this.updateVolumeState();
++
++		this.updateSecurityState();
++
++		this.updateNetworkState();
++						
++		this.updatePhoneState();
++
++		this.updateDataState();
++		
++		this.updateWiFiState();
++		
++		this.updateBTState();
++		
++		this.updateGPSState();
++	},
++	
++	updateEditItems: function() {
++		this.controller.get('menu_header').innerHTML = "Menu Content Settings";
++		
++		this.controller.get('menu_action').innerHTML = $L("Toggle " + this.quickAction);
++
++		this.editItems.clear();
++
++		for(var i = 0; i < this.menus.length; i++) {
++			if(this.hiddenItems.indexOf(this.menus[i]) == -1)
++				this.editItems.push({title: this.menus[i], label: "show"});
++			else
++				this.editItems.push({title: this.menus[i], label: "hide"});
  		}
 -		this.apModeInProgress = false;
++		
++		this.controller.modelChanged(this.modelEditItems, this);
  	},
--	
+ 	
 -	updateAirplaneModeProgress: function() {
 -		if(this.barAssistant.getAirplaneMode()) {
 -			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turning on Airplane Mode');
-+ 		
 +	toggleGpsRadio: function(event) {
 +		if(RadioState.get('gps')) {
 +			this.controller.serviceRequest('palm://com.palm.location/', {
@@ -346,25 +1240,31 @@
 +		//Ignore the tap event if Airplane Mode is on
 +		if(this.barAssistant.getAirplaneMode())
 +			return;
-+				
-+		if (this.gpsdrawer.mojo.getOpenState()) {			
-+			this.controller.hideWidgetContainer(this.controller.get('gpsdetails'));	
-+		}
-+		else {
-+			if (this.wifidrawer.mojo.getOpenState())
-+				this.wifidrawer.mojo.setOpenState(false);
-+			else if (this.btdrawer.mojo.getOpenState())
-+				this.btdrawer.mojo.setOpenState(false);
-+			
-+			if(RadioState.get('gps')) {
-+				this.controller.get('gps_radio').innerHTML = $L('Turn off GPS');
-+			}				
-+			else
-+				this.controller.get('gps_radio').innerHTML = $L('Turn on GPS');	
++
++		if((event.up) && ( event.up.altKey || event.up.metaKey))
++			this.toggleGpsRadio(event);
++		else {				
++			if (this.gpsdrawer.mojo.getOpenState()) {			
++				this.prevDrawer = null;
++		
++				this.controller.hideWidgetContainer(this.controller.get('gpsdetails'));	
++			}
++			else {
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++		
++				this.prevDrawer = this.gpsdrawer;
++						
++				if(RadioState.get('gps')) {
++					this.controller.get('gps_radio').innerHTML = $L('Turn off GPS');
++				}				
++				else
++					this.controller.get('gps_radio').innerHTML = $L('Turn on GPS');	
 +					
-+			this.controller.showWidgetContainer(this.controller.get('gpsdetails'));			
-+		}	
-+		this.gpsdrawer.mojo.setOpenState(!this.gpsdrawer.mojo.getOpenState());						
++				this.controller.showWidgetContainer(this.controller.get('gpsdetails'));			
++			}	
++			this.gpsdrawer.mojo.setOpenState(!this.gpsdrawer.mojo.getOpenState());						
++		}
 +	},
 +
 +	handleGpsLaunch: function(event) {
@@ -386,21 +1286,25 @@
 +			
 +	updateGps: function(value) {
 +		if(value === 'On') {
-+			this.controller.get('gpsmsg').innerHTML = $L('On');
-+			this.controller.get('gps_radio').innerHTML = $L('Turn off GPS');					
 +			RadioState.set('gps', true);
++
++			this.controller.get('gpsmsg').innerHTML = $L('On');
++			
++			this.controller.get('gps_radio').innerHTML = $L('Turn off GPS');					
 +		}
 +		else {
-+			this.controller.get('gpsmsg').innerHTML = $L('Off');
-+			this.controller.get('gps_radio').innerHTML = $L('Turn on GPS');
 +			RadioState.set('gps', false);
++			
++			this.controller.get('gpsmsg').innerHTML = $L('Off');
++			
++			this.controller.get('gps_radio').innerHTML = $L('Turn on GPS');
 +		}
 +	},
 +
  	toggleBTRadio: function(event) {
  		
  		if(this.turningOnBtRadio)
-@@ -222,8 +297,8 @@
+@@ -222,38 +1002,48 @@ var DevicemenuAssistant = Class.create({
  	 */	
  	togglebluetoothList: function(event) {
  		
@@ -409,20 +1313,73 @@
 +		//Ignore the tap event if Airplane Mode is On
 +		if(this.barAssistant.getAirplaneMode())
  			return;
- 				
- 		this.clearBTList();
-@@ -232,6 +307,10 @@
- 			this.controller.hideWidgetContainer(this.controller.get('btdetails'));	
- 		}
+-				
+-		this.clearBTList();
+-		if (this.btdrawer.mojo.getOpenState()) {			
+-			this.controller.get('btlist').hide();
+-			this.controller.hideWidgetContainer(this.controller.get('btdetails'));	
+-		}
++
++		if((event.up) && ( event.up.altKey || event.up.metaKey))
++			this.toggleBTRadio(event);
  		else {
-+			if (this.wifidrawer.mojo.getOpenState())
-+				this.wifidrawer.mojo.setOpenState(false);
-+			else if (this.gpsdrawer.mojo.getOpenState())
-+				this.gpsdrawer.mojo.setOpenState(false);
- 						
- 			if (RadioState.get('bluetooth')) {
- 				this.controller.get('bt_radio').innerHTML = $L('Turn off Bluetooth');
-@@ -439,39 +518,41 @@
+-						
+-			if (RadioState.get('bluetooth')) {
+-				this.controller.get('bt_radio').innerHTML = $L('Turn off Bluetooth');
+-				if (this.btTrustedListReq) {
+-					this.btTrustedListReq.cancel();
+-					this.btTrustedListReq = undefined;
+-				}	
+-				this.btTrustedListReq = BtService.getTrustedList(this.BtDevicesHandler.bind(this), this.BtDevicesHandler.bind(this));
++			this.clearBTList();
++			if (this.btdrawer.mojo.getOpenState()) {			
++				this.prevDrawer = null;
++			
++				this.controller.get('btlist').hide();
++				this.controller.hideWidgetContainer(this.controller.get('btdetails'));	
+ 			}
+ 			else {
+-				this.getNumBTProfileReq = BtService.getNumOfProfiles(this.gotNumOfProfiles.bind(this));
+-				if(this.turningOnBtRadio) {
+-					this.controller.get('bt_radio').innerHTML = $L('Turning on Bluetooth...');
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++						
++				this.prevDrawer = this.btdrawer;
++						
++				if (RadioState.get('bluetooth')) {
++					this.controller.get('bt_radio').innerHTML = $L('Turn off Bluetooth');
++					if (this.btTrustedListReq) {
++						this.btTrustedListReq.cancel();
++						this.btTrustedListReq = undefined;
++					}	
++					this.btTrustedListReq = BtService.getTrustedList(this.BtDevicesHandler.bind(this), this.BtDevicesHandler.bind(this));
+ 				}
+-				else 
+-					this.controller.get('bt_radio').innerHTML = $L('Turn on Bluetooth');
+-			}	
++				else {
++					this.getNumBTProfileReq = BtService.getNumOfProfiles(this.gotNumOfProfiles.bind(this));
++					if(this.turningOnBtRadio) {
++						this.controller.get('bt_radio').innerHTML = $L('Turning on Bluetooth...');
++					}
++					else 
++						this.controller.get('bt_radio').innerHTML = $L('Turn on Bluetooth');
++				}	
+ 					
+-			this.controller.get('btlist').show();
+-			this.controller.showWidgetContainer(this.controller.get('btdetails'));			
+-		}	
+-		this.btdrawer.mojo.setOpenState(!this.btdrawer.mojo.getOpenState());						
++				this.controller.get('btlist').show();
++				this.controller.showWidgetContainer(this.controller.get('btdetails'));			
++			}	
++			this.btdrawer.mojo.setOpenState(!this.btdrawer.mojo.getOpenState());						
++		}
+ 	},
+ 	
+ 	//Clear the Bluetooth List Array and List Model.	
+@@ -439,39 +1229,41 @@ var DevicemenuAssistant = Class.create({
  		if(!payload || !payload.returnValue ||!payload.trusteddevices)
  			return;
  		
@@ -434,13 +1391,6 @@
 -				COD: payload.trusteddevices[i].cod,
 -				showSelected: ''
 -			};
--			
--			if(isHFGSupported(payload.trusteddevices[i].cod) || isA2DPSupported(payload.trusteddevices[i].cod)) {
--				if(payload.trusteddevices[i].status == 'connected') {
--					device.showConnected = 'connected';	
--					if (this.btProfileStatus['hfg'].status == "connected" && this.btProfileStatus['hfg'].address == payload.trusteddevices[i].address ||
--					this.btProfileStatus['a2dp'].status == "connected" && this.btProfileStatus['a2dp'].address == payload.trusteddevices[i].address) 
--						device.showConnected = 'connected';
 +		if(payload.trusteddevices) {
 +			for (var i = 0; i < payload.trusteddevices.length; i++) {			
 +				var device = {
@@ -450,7 +1400,13 @@
 +					COD: payload.trusteddevices[i].cod,
 +					showSelected: ''
 +				};
-+			
+ 			
+-			if(isHFGSupported(payload.trusteddevices[i].cod) || isA2DPSupported(payload.trusteddevices[i].cod)) {
+-				if(payload.trusteddevices[i].status == 'connected') {
+-					device.showConnected = 'connected';	
+-					if (this.btProfileStatus['hfg'].status == "connected" && this.btProfileStatus['hfg'].address == payload.trusteddevices[i].address ||
+-					this.btProfileStatus['a2dp'].status == "connected" && this.btProfileStatus['a2dp'].address == payload.trusteddevices[i].address) 
+-						device.showConnected = 'connected';
 +				if(isHFGSupported(payload.trusteddevices[i].cod) || isA2DPSupported(payload.trusteddevices[i].cod)) {
 +					if(payload.trusteddevices[i].status == 'connected') {
 +						device.showConnected = 'connected';	
@@ -495,7 +1451,7 @@
  		}				
  	},
  	
-@@ -706,8 +787,8 @@
+@@ -706,34 +1498,45 @@ var DevicemenuAssistant = Class.create({
  	//Toggles the WiFi list to show or hide.		
  	togglewifiList: function(event) {	
  		
@@ -505,71 +1461,323 @@
 +		if(this.barAssistant.getAirplaneMode())
  			return;
  		
- 		this.clearWiFiList();
-@@ -717,6 +798,11 @@
- 			this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
- 		}
+-		this.clearWiFiList();
+-		if(this.wifidrawer.mojo.getOpenState()) {
+-			this.clearWiFiList();
+-			this.controller.get('wifilist').hide();
+-			this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
+-		}
++		if((event.up) && ( event.up.altKey || event.up.metaKey))
++			this.toggleWifiRadio(event);
  		else {
-+			if (this.btdrawer.mojo.getOpenState())
-+				this.btdrawer.mojo.setOpenState(false);
-+			else if (this.gpsdrawer.mojo.getOpenState())
-+				this.gpsdrawer.mojo.setOpenState(false);
+-			if(RadioState.get('wifi')) {
+-				this.controller.get('wifi_radio').innerHTML = $L('Turn off Wi-Fi');
+-				this.spinOn();	
++			this.clearWiFiList();
++			if(this.wifidrawer.mojo.getOpenState()) {
++				this.prevDrawer = null;
 +			
- 			if(RadioState.get('wifi')) {
- 				this.controller.get('wifi_radio').innerHTML = $L('Turn off Wi-Fi');
- 				this.spinOn();	
-@@ -1040,6 +1126,10 @@
++				this.clearWiFiList();
++				this.controller.get('wifilist').hide();
++				this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
++			}
++			else {
++				if(this.prevDrawer)
++					this.prevDrawer.mojo.setOpenState(false);
++		
++				this.prevDrawer = this.wifidrawer;
++			
++				if(RadioState.get('wifi')) {
++					this.controller.get('wifi_radio').innerHTML = $L('Turn off Wi-Fi');
++					this.spinOn();	
+ 				
+-				if(this.wifiFindNetworksReq) {
+-					this.wifiFindNetworksReq.cancel();
+-					this.wifiFindNetworksReq = undefined;
+-				}
+-				this.wifiFindNetworksReq = WiFiService.findNetworks(this.wifiListCb.bind(this),this.wifiListCb.bind(this));
+-			}				
+-			else
+-				this.controller.get('wifi_radio').innerHTML = $L('Turn on Wi-Fi');	
++					if(this.wifiFindNetworksReq) {
++						this.wifiFindNetworksReq.cancel();
++						this.wifiFindNetworksReq = undefined;
++					}
++					this.wifiFindNetworksReq = WiFiService.findNetworks(this.wifiListCb.bind(this),this.wifiListCb.bind(this));
++				}				
++				else
++					this.controller.get('wifi_radio').innerHTML = $L('Turn on Wi-Fi');	
+ 					
+-			this.controller.get('wifilist').show();	
+-			this.controller.showWidgetContainer(this.controller.get('wifidetails'));	
+-		}		
+-		this.wifidrawer.mojo.setOpenState(!this.wifidrawer.mojo.getOpenState());						
++				this.controller.get('wifilist').show();	
++				this.controller.showWidgetContainer(this.controller.get('wifidetails'));	
++			}		
++			this.wifidrawer.mojo.setOpenState(!this.wifidrawer.mojo.getOpenState());						
++		}
+ 	},
+ 	
+ 	/*
+@@ -1035,18 +1838,21 @@ var DevicemenuAssistant = Class.create({
+ 		this.menuscroller.mojo.revealTop(0);
+ 	},
+ 	
+-	toggleDeviceMenu: function() {
++	toggleDeviceMenu: function(edit) {
+ 		
  		if(this.isVisible) {			
  			this.isVisible = false;
  			
-+			this.wifidrawer.mojo.setOpenState(false);
-+			this.btdrawer.mojo.setOpenState(false);
-+			this.gpsdrawer.mojo.setOpenState(false);
-+
++			if(this.prevDrawer)
++				this.prevDrawer.mojo.setOpenState(false);
++			
  			this.btspinnerModel.spinning = false;
  			this.controller.modelChanged(this.btspinnerModel);
  			//animate the submenu onto the scene
-@@ -1071,8 +1161,6 @@
+ 			var animateScrim = function(){
+ 				Mojo.Animation.animateStyle(this.scrim, 'opacity', 'bezier', {
+-							from: 0,
+-							to: 1,
++							from: 1,
++							to: 0,
+ 							duration: .15,
+ 							curve:'over-easy',
+ 							reverse:true,
+@@ -1071,13 +1877,24 @@ var DevicemenuAssistant = Class.create({
  		}
  		else {
  			this.isVisible = true;
 -			var date = new Date();		
 -			this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'});
  			
- 			if(this.turningOnBtRadio) {
- 				this.btspinnerModel.spinning = true;
-@@ -1106,10 +1194,11 @@
+-			if(this.turningOnBtRadio) {
+-				this.btspinnerModel.spinning = true;
+-				this.controller.modelChanged(this.btspinnerModel);
++			if(edit) {
++				this.isEditing = true;
++				
++				this.controller.get('menu_items').hide();
++				this.controller.get('edit_items').show();
++				
++				this.updateEditItems();
+ 			}
++			else {
++				this.isEditing = false;
++	
++				this.controller.get('menu_items').show();
++				this.controller.get('edit_items').hide();
++
++				this.updateMenuItems();
++			}
++			
+ 			this.controller.stageController.activate();
+ 			
+ 			var animateDialog = function(){
+@@ -1106,11 +1923,14 @@ var DevicemenuAssistant = Class.create({
  		}		  
  	},
  	
 -	updateBatteryLevel: function(batlevel) {		
 -		var msg = $L("Battery: #{batlevel}");
-+	updateBatteryInfo: function(batlevel, batstate) {		
-+		var msg = $L("Battery: #{batlevel}, #{batstate}");
- 		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({
+-		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({
 -			"batlevel": Mojo.Format.formatPercent(batlevel)
-+			"batlevel": Mojo.Format.formatPercent(batlevel),
-+			"batstate": batstate
- 		});		
+-		});		
++	updateBatteryInfo: function(batlevel, batstate) {
++		if(!this.isEditing) {
++			var msg = $L("Battery: #{batlevel}, #{batstate}");
++			this.controller.get('menu_header').innerHTML = new Template(msg).evaluate({
++				"batlevel": Mojo.Format.formatPercent(batlevel),
++				"batstate": batstate
++			});		
++		}
  	},
  	
---- .orig/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
-+++ /usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
-@@ -15,13 +15,6 @@
+ });
+diff --git a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+index d153a8d..bf17e33 100644
+--- a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -1,4 +1,5 @@
+ <div id="scrim" class="palm-scrim" x-mojo-scrim=""></div>
++
+ <div id='palm-device-menu' class='palm-popup-container' x-mojo-dialog="">           
+ 	<div class="palm-popup-wrapper">  
+ 		
+@@ -11,23 +12,161 @@
+ 			<div class="fade-arrow"></div>
+ 		</div>
+ 		
+-		<div id="devicescroller" class="palm-popup-content" x-mojo-element="Scroller">       
++		<div id="scroller" class="palm-popup-content" x-mojo-element="Scroller">       
  			<div class="palm-list">          
  				
- 				<div class="palm-row first"><div class="palm-row-wrapper">
+-				<div class="palm-row first"><div class="palm-row-wrapper">
 -					<div id="dm_date" class="title dim"></div>
--				</div></div>
--				
++				<div class="palm-row first menu-start"><div class="palm-row-wrapper">
++					<div id="menu_header" class="title dim"></div>
++				</div></div> 
++				
++				<div class="palm-section-divider"></div>               
++				
++				<div id="menu_items">
++				
++				<div class="palm-row" id="dm_device" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="devicemsg">&nbsp;</div>       
++						<span x-mojo-loc=''>Device</span>                          
++					</div>
+ 				</div></div>
++
++				<div id='devicedetails' x-mojo-element="Drawer">
++				
++					<div class="palm-row first" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div style="padding: 5px 0px 5px 0px;">
++						<div id="flashlight_toggle" class="right" x-mojo-element="ToggleButton"></div>
++						<div class="title truncating-text" >LED Flashlight</div>
++					</div>
++					</div></div> 
++					
++					<div class="palm-row" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="dm_brightness" style="float:right;padding-top:16px;padding-right: 22px;font-weight:bold;">50</div>
++						<div class="title">Screen Brightness</div>
++
++						<div x-mojo-element="Slider" id="brightness_slider" style="padding: 1px 3px 0px 0px; height: 40px;"></div>
++					</div></div>
++				
++					<div class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="dm_volume" style="float:right;padding-top:16px;padding-right: 22px;font-weight:bold;">50</div>
++						<div id="volume_toggle" class="title">Ringtone Volume</div>
++						
++						<div x-mojo-element="Slider" id="volume_slider" style="padding-top: 1px 3px 0px 0px; height: 40px;"></div>
++					</div></div>
+ 				
 -				<div class="palm-section-divider">
 -				</div> 
--				
--				<div class="palm-row"><div class="palm-row-wrapper">
- 					<div id="dm_battery" class="title dim"></div>
- 				</div></div> 
++				</div>
++
++				<div class="palm-section-divider"></div>
  				
-@@ -97,13 +90,37 @@
+-				<div class="palm-row"><div class="palm-row-wrapper">
+-					<div id="dm_battery" class="title dim"></div>
+-				</div></div> 
++				<div class="palm-row" id="dm_security" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="securitymsg">&nbsp;</div>       
++						<span x-mojo-loc=''>Security</span>                          
++					</div>
++				</div></div>
++
++				<div id="securitydetails" x-mojo-element="Drawer">
++					
++					<div class="palm-row first" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="security_none" class="title truncating-text">Secure Unlock Off</div>
++					</div></div>
++
++					<div class="palm-row" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="security_pin" class="title truncating-text">Simple PIN Unlock</div>
++					</div></div>
++
++					<div class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="security_pw" class="title truncating-text">Password Unlock</div>
++					</div></div>
++					
++				</div>
++
++				<div class="palm-section-divider"></div>
++				
++				<div class="palm-row" id="dm_network" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="networkmsg">&nbsp;</div>       
++						<span x-mojo-loc=''>Network</span>                          
++					</div>
++				</div></div>
++
++				<div id="networkdetails" x-mojo-element="Drawer">
++					
++					<div class="palm-row first" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="network_auto" class="title truncating-text">
++							Automatic Network
++						</div>								
++					</div></div>
++
++					<div class="palm-row" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="network_2g" class="title truncating-text">
++							Only 2G Networks
++						</div>								
++					</div></div>
++
++					<div class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="network_3g" class="title truncating-text">
++							Only 3G Networks
++						</div>								
++					</div></div>
++					
++				</div>
++
++				<div class="palm-section-divider"></div>
+ 				
+-				<div class="palm-section-divider">
+-				</div>               
++				<div class="palm-row" id="dm_phone" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="phonemsg">&nbsp;</div>       
++						<span x-mojo-loc=''>Phone</span>                          
++					</div>
++				</div></div>
++
++				<div id="phonedetails" x-mojo-element="Drawer">
++					
++					<div class="palm-row first" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="phone_conn" class="title truncating-text"></div>								
++					</div></div>
++
++					<div class="palm-row" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="phone_roam" class="title truncating-text"></div>								
++					</div></div>
++					
++					<div id="phone_pref" class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div class="title truncating-text">
++							<span x-mojo-loc=''>Phone Preferences</span>
++						</div>
++					</div></div>
++					
++				</div>
++
++				<div class="palm-section-divider"></div>
+ 				
++				<div class="palm-row" id="dm_data" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="title truncating-text">
++						<div class="label right" id="datamsg">&nbsp;</div>       
++						<span x-mojo-loc=''>Data</span>                          
++					</div>
++				</div></div>
++
++				<div id="datadetails" x-mojo-element="Drawer">
++					
++					<div class="palm-row first" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="data_conn" class="title truncating-text"></div>								
++					</div></div>
++					
++					<div class="palm-row" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div id="data_roam" class="title truncating-text"></div>								
++					</div></div>
++					
++					<div id="data_pref" class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++						<div class="title truncating-text">
++							<span x-mojo-loc=''>Data Preferences</span>
++						</div>
++					</div></div>
++					
++				</div>
++								
++				<div class="palm-section-divider"></div>
++								
+ 				<div class="palm-row" id="dm_wifi" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
+ 					<div class="title truncating-text">
+ 						<div class="label right" id="wifimsg">&nbsp;</div>                               
+@@ -97,14 +236,40 @@
  				
  				<div class="palm-section-divider"></div>
  				
@@ -577,6 +1785,7 @@
 -					<div id="dm_airplanemode_status" class="title truncating-text">
 -					 </div>
 -					 <!--<div id='apSpinner' class='label' x-mojo-element="Spinner"></div>-->
+-				</div></div>   
 +				<div class="palm-row" id="dm_gps" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
 +						<div class="title truncating-text">
 +							<div class="label right" id="gpsmsg">&nbsp;</div>
@@ -586,12 +1795,10 @@
 +				
 +				<div id="gpsdetails" x-mojo-element="Drawer">
 +					
-+					<div class="palm-row" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div class="palm-row first" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
 +						<div id="gps_radio" class="title truncating-text">
 +						</div>								
 +					</div></div>
-+					
-+					<div class="palm-section-divider"></div>					
 +					
 +					<div id="gps_pref" class="palm-row last" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
 +						<div class="title truncating-text">
@@ -601,14 +1808,534 @@
 +					
 +				</div>
 +
-+				<div class="palm-section-divider"></div>
-+ 				
-+				<div id="dm_dataroaming" class="palm-row last menu-end" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
-+					<div id="dm_dataroaming_status" class="title truncating-text">
-+					</div>
- 				</div></div>   
++				</div>
  				
 -				</div>       
++				<div id="edit_items" x-mojo-element="List"></div>
++
++				<div class="palm-section-divider"></div>
++ 				
++				<div class="palm-row last menu-end" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div id="menu_action" class="title truncating-text"></div>
++				</div></div>   
++
  			</div>
  		</div>
  	</div>                          
+ </div>
++
+diff --git a/usr/palm/applications/com.palm.app.screenlock/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.screenlock/app/controllers/app-assistant.js
+index da3d85a..c4f863d 100644
+--- a/usr/palm/applications/com.palm.app.screenlock/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.screenlock/app/controllers/app-assistant.js
+@@ -6,8 +6,25 @@ function AppAssistant(appController) {
+ 
+ function StageAssistant(stageController) {
+   this.stageController = stageController
+-  this.stageController.pushScene('securityconfig')
+ }
+ 
++StageAssistant.prototype.initialize = function() {
++}
++
++StageAssistant.prototype.setup = function() {
++  var params = Mojo.getLaunchParameters();
+ 
++  if((params) && (params.mode)) {
++    if(params.mode == "none")
++      this.stageController.pushScene('securityconfig', "none");
++    else if(params.mode == "pin")
++      this.stageController.pushScene('securityconfig', "pin");
++    else if(params.mode == "password")
++      this.stageController.pushScene('securityconfig', "password");
++    else
++      this.stageController.pushScene('securityconfig');  
++  }
++  else
++    this.stageController.pushScene('securityconfig');
++}
+ 
+diff --git a/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js b/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
+index 96dd0e6..a03239b 100644
+--- a/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
++++ b/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
+@@ -1,7 +1,9 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+ var SecurityconfigAssistant = Class.create({
+-	initialize: function() {
++	initialize: function(mode) {
++		this.mode = mode;
++		
+ 		this.switchAppOnInfo = $L("Swiping the entire length of the gesture area will switch to the next or previous app.");
+ 		this.switchAppOffInfo = $L("Any right to left swipe on the gesture area will perform the back gesture.");
+ 		this.newSecurity = '';	
+@@ -44,7 +46,9 @@ var SecurityconfigAssistant = Class.create({
+   	},
+ 		
+ 	setup: function(){
+-		
++		if(this.mode)
++			this.controller.get('main').hide();
++			
+ 		//this.controller.get('fixedtimerrow').hide();
+ 			
+ 		this.controller.setupWidget('showAlerts', this.onOffToggleOpt, this.alertToggleModel);
+@@ -154,6 +158,27 @@ var SecurityconfigAssistant = Class.create({
+ 		this.currentSecurity = payload.lockMode || 'none';
+ 		this.showModifyRow();
+ 		this.revertChanges();
++		
++		if(this.mode) {
++			for(var i = 0; i < this.availableSecurity.length; i++) {
++				if(this.availableSecurity[i].value == this.mode) {
++					this.newSecurity = this.mode;	
++					
++					if((this.currentSecurity === this.mode) && (this.mode === 'pin'))
++						this.controller.stageController.pushScene({name: "pin", automaticFocusAdvance: false},"changePin",this);
++					else if((this.currentSecurity === this.mode) && (this.mode === 'password'))
++						this.controller.stageController.pushScene({name: "password", automaticFocusAdvance: false},"changePassword",this);
++					else if(this.currentSecurity === 'none')
++						this.changeSecureLock(this.mode,false);
++					else if(this.currentSecurity === 'pin') 
++						this.askPin();
++					else if(this.currentSecurity === 'password')
++						this.askPassword();
++					
++					return;
++				}
++			}
++		}
+ 	},
+ 	
+ 	handleSystemlockValue: function(payload) {
+@@ -362,7 +387,7 @@ var SecurityconfigAssistant = Class.create({
+ 			this.controller.stageController.pushScene({name: "pin", automaticFocusAdvance: false},"changePin",this);
+ 		}
+ 		else if(this.currentSecurity == 'password') {
+-			this.askPassword();
++			this.controller.stageController.pushScene({name: "password", automaticFocusAdvance: false},"changePassword",this);
+ 			this.newSecurity = "password";
+ 		}			
+ 	},
+@@ -423,16 +448,16 @@ var SecurityconfigAssistant = Class.create({
+ 		if(pinCorrect)
+ 			this.changeSecureLock(this.newSecurity,true);
+ 		else {
++			if(this.mode)
++				this.controller.window.close();
++
+ 			Mojo.Log.info("Pin was wrong");
+ 			this.revertChanges();
+ 		}
+ 	},
+ 	
+ 	askPassword: function() {
+-		this.dialogBox = this.controller.showDialog({
+-			template: 'template/password-box',			
+-			assistant: new VerifyPasswordAssistant(this,this.systemlockValue),			
+-		});
++		this.controller.stageController.pushScene({name: "password", automaticFocusAdvance: false},"askPassword",this);	
+ 	},
+ 	
+ 	passwordVerified: function(passwordCorrect) {
+@@ -440,6 +465,9 @@ var SecurityconfigAssistant = Class.create({
+ 			this.changeSecureLock(this.newSecurity,false);
+ 		}
+ 		else {
++			if(this.mode)
++				this.controller.window.close();
++		
+ 			Mojo.Log.info("Password was wrong");
+ 			this.revertChanges();
+ 			
+@@ -448,25 +476,40 @@ var SecurityconfigAssistant = Class.create({
+ 	
+ 	changeSecureLock: function(newSetting,setFocus) {
+ 		if(newSetting == 'pin') {
+-			this.showPINDialogBox();				
++			if(this.currentSecurity == 'password')
++				this.showPINDialogBox.bind(this).delay(1);
++			else
++				this.showPINDialogBox();				
+ 		}
+ 		else if (newSetting == 'password') {
+-			this.showPasswordDialogBox(setFocus);				
++			if(this.currentSecurity == 'pin')
++				this.showPasswordDialogBox.bind(this, setFocus).delay(1);				
++			else
++				this.showPasswordDialogBox(setFocus);				
+ 		}
+ 		else {
+ 			Mojo.Log.info("Security is Off");
+ 			this.currentSecurity = 'none';
+ 			$('lockImg').hide();
+-			this.setSystemlockModeReq = SystemService.setSystemlockValue('none','');
++			this.setSystemlockModeReq = SystemService.setSystemlockValue('none','', this.changedSystemlockValue.bind(this));
+ 			this.showModifyRow();
+ 		}	
+ 	},
+ 	
++	changedSystemlockValue: function() {
++		if(this.mode)
++			this.controller.window.close();
++	},
++	
+ 	setPinCode: function(pincode) {
+ 		
+ 		if(pincode === '') {
++			if(this.mode)
++				this.controller.window.close();
++
+ 			Mojo.Log.info("PIN code is Emplty");
+ 			this.revertChanges();
++			
+ 			return;
+ 		}
+ 		this.setSystemlockModeReq = SystemService.setSystemlockValue('pin',pincode, this.handleSetPasscodeResponse.bind(this));	
+@@ -474,6 +517,10 @@ var SecurityconfigAssistant = Class.create({
+ 	
+ 	handleSetPasscodeResponse: function(response) {
+ 		Mojo.Log.error("Response "+ Object.toJSON(response));
++		
++		if(this.mode)
++			this.controller.window.close();
++		
+ 		if(response.returnValue) {
+ 			this.currentSecurity = 'pin';
+ 			$('lockImg').show();
+@@ -485,6 +532,9 @@ var SecurityconfigAssistant = Class.create({
+ 	},
+ 	
+ 	pinAlreadySet: function() {
++		if(this.mode)
++			this.controller.window.close();
++		
+ 		this.currentSecurity = 'pin';
+ 		$('lockImg').show();
+ 		this.policyEnforced = true;
+@@ -496,6 +546,9 @@ var SecurityconfigAssistant = Class.create({
+ 	},
+ 	
+ 	setPassword: function(password) {
++		if(this.mode)
++			this.controller.window.close();
++
+ 		Mojo.Log.info("Entered Password "+ password);
+ 		if(password === '') {
+ 			Mojo.Log.info("Password is Emplty");
+@@ -510,6 +563,9 @@ var SecurityconfigAssistant = Class.create({
+ 	},
+ 	
+ 	passwordAlreadySet: function(password) {
++		if(this.mode)
++			this.controller.window.close();
++	
+ 		this.currentSecurity = 'password';
+ 		this.systemlockValue = password;
+ 		this.policyEnforced = true;
+@@ -519,10 +575,7 @@ var SecurityconfigAssistant = Class.create({
+ 	
+ 	
+ 	showPasswordDialogBox: function(setFocus) {		
+-		this.dialogBox = this.controller.showDialog({
+-			template: 'template/security-password-box',
+-			assistant: new PasswordAssistant(this,setFocus),			
+-		});		
++		this.controller.stageController.pushScene({name: "password", automaticFocusAdvance: false},"enterPassword",this,setFocus);	
+ 	},
+ 
+ 	revertChanges: function() {
+@@ -645,280 +698,3 @@ var SecurityconfigAssistant = Class.create({
+ 	},
+ });
+ 
+-
+-var VerifyPasswordAssistant = Class.create({
+-	
+-	initialize: function(sceneAssistant) {
+-		this.sceneAssistant = sceneAssistant;
+-		this.enteredPassword = '';
+-		this.passwordVerified = false;		
+-	},
+-	
+-	setup : function(widget) {
+-		
+-		Mojo.Log.info("Pincode assistant setup ");
+-		this.widget = widget;
+-						
+-		this.passwordAttributes = {
+-		textFieldName: "password",
+-		hintText: $L('enter password...'),
+-        property: 'value',
+-        multi: false,        
+-		changeOnKeyPress: true,
+-        disabled: false,
+-		requiresEnterKey: true,		
+-    	},
+-    
+-    	this.passwordModel = {
+-        'value': ''
+-    	},
+-		
+-		this.sceneAssistant.controller.setupWidget('password', this.passwordAttributes, this.passwordModel);
+-		$('password').observe(Mojo.Event.propertyChange, this.propertyChanged.bind(this));
+-		$('done_pw').addEventListener(Mojo.Event.tap, this.matchPassword.bindAsEventListener(this));
+-		$('cancel_pw').addEventListener(Mojo.Event.tap, this.cancel.bindAsEventListener(this));
+-				
+-		if(this.sceneAssistant.securityPolicy && this.sceneAssistant.retriesLeft == 1) {
+-			$('passworderrortext').innerHTML = $L("Password incorrect. If you enter an incorrect password now your phone will be erased.");
+-			$('passworderror').show();
+-		}
+-	},
+-	
+-	matchPassword: function(event) {
+-		if(!event)
+-			return;
+-		event.stop();
+-		SystemService.matchDevicePasscode($('password').mojo.getValue(),this.verifyPasswd.bind(this));
+-	},
+-	
+-	propertyChanged: function(event) {
+-		if(!event)
+-			return;
+-		
+-		if (event && Mojo.Char.isEnterKey(event.originalEvent.keyCode)) {
+-			this.matchPassword(event);
+-		}
+-	},
+-	
+-	cancel: function(event) {
+-		event.stop();
+-		this.sceneAssistant.passwordVerified(false);
+-		this.widget.mojo.close();	
+-	},
+-	
+-	cleanup: function() {
+-		if(this.passwordVerified === false) {
+-			this.sceneAssistant.passwordVerified(false);
+-		}
+-	},
+-	
+-	
+-	verifyPasswd: function(payload) {
+-		if(!payload)
+-			return;
+-				
+-		if(payload.returnValue === true ) {
+-			if(this.sceneAssistant.securityPolicy) 
+-				this.sceneAssistant.retriesLeft = this.sceneAssistant.maxRetries;
+-			this.passwordVerified = true;		
+-			Mojo.Log.info("Password Matches!!!");
+-			this.sceneAssistant.passwordVerified(true);
+-			this.widget.mojo.close();			
+-		}
+-		else {
+-			
+-			this.clearFields();
+-			
+-			if(this.sceneAssistant.securityPolicy) {
+-				this.sceneAssistant.retriesLeft = payload.retriesLeft;
+-				if(payload.retriesLeft === 1) { 
+-					$('passworderrortext').innerHTML = $L("Password incorrect. If you enter an incorrect password now your phone will be erased.");
+-				}
+-				else {
+-					$('passworderrortext').innerHTML = $L("Password incorrect. ") + Mojo.Format.formatChoice(payload.retriesLeft, 
+-								$L("##{num} tries remaining."), 
+-								{num: SystemService.numberToWord(payload.retriesLeft)});
+-				}
+-			}
+-			else 
+-				$('passworderrortext').innerHTML = $L("Incorrect password.");
+-			$('passworderror').show();
+-		}
+-	},
+-	
+-	clearFields: function() {
+-		this.passwordModel.value = '';
+-		this.sceneAssistant.controller.modelChanged(this.passwordModel,this);	
+-		$('password').mojo.focus();	
+-	},
+-	
+-	handleCommand: function(event) {
+-		if(event.type == Mojo.Event.back) {			
+-			this.sceneAssistant.revertChanges();
+-			event.stop();
+-			this.widget.mojo.close();								
+-		}
+-	}	
+-	
+-});
+-
+-var PasswordAssistant = Class.create({
+-	
+-	initialize: function(sceneAssistant,setFocus) {
+-		this.sceneAssistant = sceneAssistant;
+-		this.enteredPin = '';
+-		this.firstPinInput = '';
+-		this.setFocus = setFocus;
+-		this.settingPassword = false;
+-	},
+-	
+-	setup : function(widget) {
+-		
+-		Mojo.Log.info("Pincode assistant setup ");
+-		this.widget = widget;
+-						
+-		this.attributes = {
+-     	 textFieldName: "password",
+-        property: 'value',
+-        multi: false,        
+-		changeOnKeyPress: true,
+-        disabled: false,		      
+-		hintText: $L('enter password...'),
+-    	};
+-   		 this.model = {
+-     		 'value' : ''
+-   		 };
+-		 
+-		 this.attributes1 = {
+-     	textFieldName: "password",
+-        property: 'value',
+-        multi: false,        
+-		changeOnKeyPress: true,
+-        disabled: false,	    
+-		hintText: $L('confirm password...'),
+-		requiresEnterKey: true,
+-    	};
+-   		 this.model1 = {
+-     		 'value' : ''
+-   		 };
+-		 
+-		 this.buttonattributes = {
+-				disabledProperty: 'disabled'
+-		 },
+-		 
+-		 this.donebuttonmodel = {
+-			buttonLabel : $L("Done"),
+-			buttonClass : "affirmative",
+-			disabled: false
+-		},
+-		this.cancelbuttonmodel = {
+-			buttonLabel : $L("Cancel"),
+-			disabled: false
+-		},
+-		 
+-		this.sceneAssistant.controller.setupWidget('passwordInput', this.attributes, this.model);
+-		this.sceneAssistant.controller.setupWidget('password_confirm', this.attributes1, this.model1);
+-		$('passwordInput').observe(Mojo.Event.propertyChange, this.propertyChanged.bind(this));
+-		$('password_confirm').observe(Mojo.Event.propertyChange, this.confirmPasswordpropertyChanged.bind(this));
+-		
+-		this.sceneAssistant.controller.setupWidget('done', this.buttonattributes, this.donebuttonmodel);
+-		this.sceneAssistant.controller.setupWidget('cancel', this.buttonattributes, this.cancelbuttonmodel);		
+-		$('cancel').addEventListener(Mojo.Event.tap, this.cancel.bindAsEventListener(this));	
+-   		$('done').addEventListener(Mojo.Event.tap, this.verifyPasswd.bindAsEventListener(this));
+-		
+-		if(this.sceneAssistant.passwordHintText)
+-			$('passwordhint').innerHTML = this.sceneAssistant.passwordHintText;
+-	},
+-	
+-	activate: function() {
+-		if(this.setFocus)
+-			$('passwordInput').mojo.focus();	
+-	},
+-	
+-	cleanup: function() {
+-		if(this.settingPassword === false)	
+-			this.sceneAssistant.revertChanges();
+-	},
+-
+-	verifyPasswd: function(event) {
+-		Event.stop(event);
+-		
+-		if($('passwordInput').mojo.getValue() == $('password_confirm').mojo.getValue()) {
+-			if(this.sceneAssistant.securityPolicy) {
+-				this.settingPassword = true;
+-				this.donebuttonmodel.disabled = true;
+-				this.cancelbuttonmodel.disabled = true;
+-				this.sceneAssistant.controller.modelChanged(this.donebuttonmodel);
+-				this.sceneAssistant.controller.modelChanged(this.cancelbuttonmodel);
+-				this.setSystemlockPasswordReq = SystemService.setSystemlockValue('password',$('passwordInput').mojo.getValue(), this.handleSetPasswordResponse.bind(this));
+-			}
+-			else {
+-				this.sceneAssistant.setPassword($('password_confirm').mojo.getValue());
+-				this.widget.mojo.close();	
+-			}		
+-		}
+-		else {
+-			Mojo.Log.info("Password don't Match!!!");
+-			this.clearFields();
+-			$('errortext').innerHTML = $L("Passwords do not match.");
+-			$('passworderror').show();
+-		}
+-	},
+-	
+-	handleSetPasswordResponse: function(payload) {
+-		
+-		this.settingPassword = false;
+-		this.donebuttonmodel.disabled = false;
+-		this.cancelbuttonmodel.disabled = false;
+-		this.sceneAssistant.controller.modelChanged(this.donebuttonmodel);
+-		this.sceneAssistant.controller.modelChanged(this.cancelbuttonmodel);
+-		
+-		if(payload.returnValue) {
+-			this.sceneAssistant.passwordAlreadySet($('passwordInput').mojo.getValue());
+-			this.widget.mojo.close();	
+-		}
+-		else {
+-			this.clearFields();
+-			$('errortext').innerHTML = $L("Password does not match security requirements.");
+-			$('passworderror').show();
+-		}
+-	},
+-	
+-	propertyChanged: function(event) {
+-		if(!event)
+-			return;
+-		if($('passworderror').visible())
+-			$('passworderror').hide();
+-	},
+-	
+-	confirmPasswordpropertyChanged: function(event) {
+-		if (event && Mojo.Char.isEnterKey(event.originalEvent.keyCode)) {
+-			this.verifyPasswd(event);
+-		}
+-	},
+-		
+-	cancel: function(event) {
+-		this.sceneAssistant.setPassword('');
+-		this.widget.mojo.close();	
+-	},
+-	
+-	clearFields: function() {
+-		this.model1.value = '';
+-		this.model.value = '';
+-		this.sceneAssistant.controller.modelChanged(this.model,this);
+-		this.sceneAssistant.controller.modelChanged(this.model1,this);
+-		$('passwordInput').mojo.focus();	
+-	},
+-	
+-	handleCommand: function(event) {
+-		if(event.type == Mojo.Event.back) {	
+-			event.stop();
+-			if(this.settingPassword == true)
+-				return;		
+-			this.sceneAssistant.revertChanges();
+-			this.widget.mojo.close();										
+-		}
+-	}		
+-	
+-});
+-
+diff --git a/usr/palm/applications/com.palm.app.screenlock/index.html b/usr/palm/applications/com.palm.app.screenlock/index.html
+index 4f999c0..539c4bb 100644
+--- a/usr/palm/applications/com.palm.app.screenlock/index.html
++++ b/usr/palm/applications/com.palm.app.screenlock/index.html
+@@ -10,6 +10,7 @@
+       Mojo.loadScript('app/controllers/app-assistant.js');
+ 	  Mojo.loadScript('app/controllers/securityconfig-assistant.js');
+ 	  Mojo.loadScript('app/controllers/pin-assistant.js');
++  	  Mojo.loadScript('app/controllers/password-assistant.js');
+ 	  Mojo.loadScript('app/models/SystemService.js');	  
+    </script>
+   <link href="stylesheets/screenlock.css" media="screen" rel="stylesheet" type="text/css" />
