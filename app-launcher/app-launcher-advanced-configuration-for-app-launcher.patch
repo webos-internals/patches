@@ -1,71 +1,37 @@
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
-index 6b3e351..85032f1 100644
---- a/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
-@@ -7,7 +7,10 @@ var AppInfoAssistant = Class.create({
- 		this.isDynamic = this.isDynamicLaunchPoint(this.appInfo);
- 		this.closeCallback = closeCallback;
- 
--		this.onDone = this.onDone.bind(this);
-+		this.action = "";
-+
-+		this.onMove = this.onDone.bind(this, "move");
-+		this.onDone = this.onDone.bind(this, "done");
- 	},
- 	
- 	setup: function(widget) {
-@@ -86,6 +89,7 @@ var AppInfoAssistant = Class.create({
- 	
- 	setupButtons: function() {
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -32,6 +32,16 @@
  		
-+		var moveModel = {buttonLabel: $L('Move')}		
- 		var doneModel = {buttonLabel: $L('Done')}
- 		
- 		if (this.appInfo.removable) {
-@@ -100,6 +104,9 @@ var AppInfoAssistant = Class.create({
- 			this.sceneController.setupWidget('delete-btn', {type: Mojo.Widget.activityButton}, this.deleteModel);
- 			this.sceneController.listen('delete-btn', Mojo.Event.tap, this.onDelete.bindAsEventListener(this));
- 			this.sceneController.get('delete-btn').show();
+ 		this.getBuildName();
+ 						
++		// Subscribe to the Quick Launch Bar prererences
++		this.quickLaunchCfg = null;
 +
-+			// mode button
-+			moveModel.buttonClass = 'dismiss';
- 			
- 			// done button
- 			doneModel.buttonClass = 'dismiss';
-@@ -108,6 +115,9 @@ var AppInfoAssistant = Class.create({
- 			this.sceneController.get('delete-btn').hide();
- 		}
- 		
-+		this.sceneController.setupWidget('move-btn', undefined, moveModel);
-+		this.sceneController.listen('move-btn', Mojo.Event.tap, this.onMove);
-+
- 		this.sceneController.setupWidget('done-btn', undefined, doneModel);
- 		this.sceneController.listen('done-btn', Mojo.Event.tap, this.onDone);
- 	},
-@@ -136,7 +146,9 @@ var AppInfoAssistant = Class.create({
- 		}
- 	},
- 
--	onDone: function() {
-+	onDone: function(action) {
-+		this.action = action;
++		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
++			method: 'getPreferences', parameters: {"keys":["quickLaunchCfg"],"subscribe": true},
++			onSuccess: function(payload) {
++				if((payload != undefined) && (payload.quickLaunchCfg != undefined))
++					this.quickLaunchCfg = payload.quickLaunchCfg;
++				}.bind(this) });
 +		
- 		var deleteBtn = this.sceneController.get('delete-btn');
- 		if (deleteBtn && deleteBtn.mojo && deleteBtn.mojo.deactivate) {
- 			deleteBtn.mojo.deactivate();
-@@ -163,6 +175,6 @@ var AppInfoAssistant = Class.create({
- 			this.appSizeRequest.cancel();
- 			this.appSizeRequest = undefined;
- 		}
--		this.closeCallback();
-+		this.closeCallback(this.action);
+ 		// Initialize the Battery Power Nofication and get the initial value
+ 		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
+ 		
+@@ -315,6 +325,11 @@
+ 		$('carrier').show();
+ 		this.foregroundAppID=null;
  	}
- });
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-index b9db2c2..ea19fec 100644
---- a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-@@ -249,9 +249,6 @@ GlobalSearchAssistant = Class.create({
++
++	if((this.quickLaunchCfg) && (this.quickLaunchCfg.mode == "hidden")) {
++		this.controller.serviceRequest('palm://com.palm.systemmanager', {
++			method: 'systemUi', parameters: {"quicklaunch": false} });
++	}
+ },
+ 
+ updatePhoneAppName: function(){
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+@@ -249,9 +249,6 @@
  			SystemManagerService.showLauncher(false);
  			this.launcherHiddenAtFirstKeydown = false;
  		}
@@ -75,7 +41,7 @@ index b9db2c2..ea19fec 100644
  		
  		this.galInit();
  	},
-@@ -265,15 +262,13 @@ GlobalSearchAssistant = Class.create({
+@@ -265,15 +262,13 @@
  	},
  	
  	onKeyDown: function(event) {
@@ -94,7 +60,7 @@ index b9db2c2..ea19fec 100644
  		// track whether we should hide the launcher when exiting global search
  		if (this.searchTerm.length === 0 && !Mojo.Controller.stageController.isActiveAndHasScenes()) {			
  			this.launcherHiddenAtFirstKeydown = true;
-@@ -283,10 +278,8 @@ GlobalSearchAssistant = Class.create({
+@@ -283,10 +278,8 @@
  	onKeyUp: function(event) {
  		
  		// block key events from global search
@@ -106,7 +72,7 @@ index b9db2c2..ea19fec 100644
  	
  		// first key no longer being held
  		this.searchPressHoldTerm = "";
-@@ -299,6 +292,10 @@ GlobalSearchAssistant = Class.create({
+@@ -299,6 +292,10 @@
  	
  	onKeyPress: function(event) {
  		
@@ -117,7 +83,7 @@ index b9db2c2..ea19fec 100644
  		if(this.searchPressHoldTerm && this.searchPressHoldTerm.length > 0 && event.keyCode != this.searchPressHoldTerm.charCodeAt(0)) {
          	// first key no longer being held
              this.searchPressHoldTerm = "";
-@@ -310,8 +307,7 @@ GlobalSearchAssistant = Class.create({
+@@ -310,8 +307,7 @@
          } 
  
  		// block key events from global search and from repeating until the first key has been processed
@@ -127,7 +93,7 @@ index b9db2c2..ea19fec 100644
  			(event.keyCode === Mojo.Char.spaceBar && !this.searchActive)) {
  			
  			event.stop();
-@@ -341,6 +337,10 @@ GlobalSearchAssistant = Class.create({
+@@ -341,6 +337,10 @@
  	
  	onSearchTermChanged: function(event) {
  		
@@ -138,11 +104,90 @@ index b9db2c2..ea19fec 100644
  		if (event.originalEvent && event.originalEvent.keyCode === Mojo.Char.enter) {
  			if (this.currentFilter.length > 0) {
  				// i'm feeling lucky
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-index 9057138..9553236 100644
---- a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-@@ -8,7 +8,7 @@ var LauncherAssistant = Class.create({
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
+@@ -239,6 +239,10 @@
+ 		for (var i = 0, len = this.appDivs.length; i < len; ++i) {
+ 			
+ 			var pos = this.launcherAssistant.calculateAppPosition(i);
++			
++			if(this.launcherAssistant.appLauncherCfg.header)
++				pos.top = pos.top + 50;
++			
+ 			var item = new Element('div', {'class': 'droppable'});
+ 			item.style.left = pos.left+'px';
+ 			item.style.top = pos.top+'px';
+@@ -314,7 +318,10 @@
+ 	
+ 	_startCyclePage: function(direction) {
+ 		if (!this.pagingTimer && !this.pagingAnimating) {
+-			this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
++			if(this.launcherAssistant.appLauncherCfg.wrap)
++				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout * 2);
++			else
++				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
+ 			
+ 			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollerListenerHandler);
+ 		}
+@@ -427,15 +434,37 @@
+ 	_cyclePage: function(direction) {
+ 		
+ 		var canPage = false;
++		var snapIndex = 0;
++
+ 		if (direction == -1 && this.activePage.previous() !== null) {
+ 			this.previousPage = this.activePage;
+ 			this.activePage = this.activePage.previous();
+ 			canPage = true;
++			snapIndex = this.launcherAssistant.activePageIndex + direction;
++		}
++		else if (direction == -1 && this.activePage.previous() == null) {
++			if(this.launcherAssistant.appLauncherCfg.wrap) {
++				this.previousPage = this.activePage;
++				while(this.activePage.next() !== null)
++					this.activePage = this.activePage.next();
++				canPage = true;
++				snapIndex = this.launcherAssistant.pagesModel.getNumPages() - 1;
++			}
+ 		}
+ 		else if (direction == 1 && this.activePage.next() !== null) {
+ 			this.previousPage = this.activePage;
+ 			this.activePage = this.activePage.next();
+ 			canPage = true;
++			snapIndex = this.launcherAssistant.activePageIndex + direction;
++		}
++		else if (direction == 1 && this.activePage.next() == null) {
++			if(this.launcherAssistant.appLauncherCfg.wrap) {
++				this.previousPage = this.activePage;
++				while(this.activePage.previous() !== null)
++					this.activePage = this.activePage.previous();
++				canPage = true;
++				snapIndex = 0;
++			}
+ 		}
+ 	    
+ 		if (canPage) {
+@@ -446,7 +475,16 @@
+ 			this.activePage.show();
+ 			
+ 			this.pagingAnimating = true;
+-			$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.activePageIndex + direction, true);
++			
++			this.launcherAssistant.changePage(snapIndex, true);
++			
++			if(this.launcherAssistant.appLauncherCfg.wrap) {
++				this.launcherAssistant.onPageChange({value: snapIndex});
++				
++				this.pagingAnimating = false;
++				var previousPageIndex = this.launcherAssistant.getPageIndex(this.previousPage);
++				this._pagingComplete(previousPageIndex, this.launcherAssistant.activePageIndex);
++			}
+ 		}
+ 	},
+ 	
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -8,7 +8,7 @@
  	 * hardcoding the quick launch height until we can find a better way. 
  	 * This value = ql graphic height - the offset from the top (small fade area)
  	 */
@@ -151,7 +196,7 @@ index 9057138..9553236 100644
  	
  	kPageIndicatorSpacing: 6, 	/* spacing between each page indicator */
  	kPageMargin: 10, /* 10 pixel margin on each side of a page */
-@@ -23,11 +23,25 @@ var LauncherAssistant = Class.create({
+@@ -23,11 +23,25 @@
  		visible: true,
  		label: $L('Launcher'),
          items: [
@@ -181,7 +226,7 @@ index 9057138..9553236 100644
  			Mojo.Menu.helpItem
  		]
      },
-@@ -59,12 +73,50 @@ var LauncherAssistant = Class.create({
+@@ -59,12 +73,50 @@
  		
  		this.dragStartHandler = this.onDragStart.bindAsEventListener(this);
  		this.launchApp = this.launchApp.bind(this);
@@ -232,7 +277,7 @@ index 9057138..9553236 100644
  		
  		this.pagesModel = new LauncherPages({
  				onPagesLoaded: this.buildPages.bind(this),
-@@ -82,12 +134,20 @@ var LauncherAssistant = Class.create({
+@@ -82,12 +134,20 @@
  		Mojo.Controller.stageController.focused = false;
  		
  		this.controller.setupWidget('launcher_root', undefined, this.launcherRootModel);
@@ -256,7 +301,7 @@ index 9057138..9553236 100644
  		// pre-calculate commonly used measurements
  		this.kPageWidth = $('launcher_root').getWidth();
  		this.kPageWidthNoMargin = (this.kPageWidth - this.kPageMargin * 2);
-@@ -121,21 +181,49 @@ var LauncherAssistant = Class.create({
+@@ -121,21 +181,49 @@
  				case 'defaultapps':
  					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.defaultAppParams);
  					break;
@@ -315,7 +360,7 @@ index 9057138..9553236 100644
  			}
  		}
  		else if (event.type === Mojo.Event.commandEnable) {
-@@ -157,11 +245,504 @@ var LauncherAssistant = Class.create({
+@@ -157,11 +245,504 @@
  			}
  		}
  	},
@@ -564,7 +609,7 @@ index 9057138..9553236 100644
 +			if(this.appLauncherCfg.page == this.activePageIndex)
 +				this.appLauncherCfg.page = newIndex;			
 +		}
- 		
++		
 +		var oldIndex = parseInt(this.activePageIndex);
 +
 +		var tmp = this.appLauncherCfg.pages.splice(oldIndex,1);
@@ -644,7 +689,7 @@ index 9057138..9553236 100644
 +
 +	showPageMenus: function(viewMenu, menuTitle, chooseCallback) {
 +		Mojo.stopListening($('launcher_root'), Mojo.Event.propertyChange, this.pageChangeHandler);
-+		
+ 		
 +		this.globalSearchAssistant.enable(false);
 +
 +		var pageItems = [];
@@ -822,7 +867,7 @@ index 9057138..9553236 100644
  	},
  	
  	/* clean and hide global search */
-@@ -175,7 +756,17 @@ var LauncherAssistant = Class.create({
+@@ -175,7 +756,17 @@
  			this.appDialog.mojo.close();
  		}
  		
@@ -841,7 +886,7 @@ index 9057138..9553236 100644
  		
  		this.launchRequest = undefined;
  	},
-@@ -202,12 +793,12 @@ var LauncherAssistant = Class.create({
+@@ -202,12 +793,12 @@
  	
  	/* helper to consolidate all the places accessing these types of elements */
  	getAppContainer: function(pageIndex) {
@@ -856,7 +901,7 @@ index 9057138..9553236 100644
  		return this.pageDivs[pageIndex].down('.page_scroller');
  	},
  	
-@@ -255,15 +846,51 @@ var LauncherAssistant = Class.create({
+@@ -255,15 +846,51 @@
  		
  		// tell our scroller widget that it has a new page element to snap
  		this.updatePageSnappingPoints();
@@ -908,7 +953,7 @@ index 9057138..9553236 100644
  		// move appDivs over to their new home
  		var apps = this.getAppContainer(pageIndex).select('.app');
  		var startIndex = apps.length;
-@@ -284,7 +911,7 @@ var LauncherAssistant = Class.create({
+@@ -284,7 +911,7 @@
  		if (scroller) {
  			this.controller.setupWidget(scroller.id, undefined, undefined);
  		}
@@ -917,7 +962,7 @@ index 9057138..9553236 100644
  		// remove the page div
  		this.pageDivs[pageIndex].remove();
  		this.pageDivs = $$('.launcher_page');
-@@ -294,17 +921,13 @@ var LauncherAssistant = Class.create({
+@@ -294,17 +921,13 @@
  		for (var i=pageIndex; i<this.pageDivs.length; i++) {
  			this.pageDivs[i].style.left = (this.kPageWidth*i)+'px';
  		}
@@ -939,7 +984,7 @@ index 9057138..9553236 100644
  		
  		this.updatePageSnappingPoints();
  	},
-@@ -514,6 +1137,10 @@ var LauncherAssistant = Class.create({
+@@ -514,6 +1137,10 @@
  		for (var i=offset, len = children.length; i<len; i++) {
  			var item = children[i];
  			var appPos = this.calculateAppPosition(i);
@@ -950,7 +995,7 @@ index 9057138..9553236 100644
  			if (animate) {
  				LauncherAnimation.animateApp(item, appPos);
  			} else {
-@@ -577,17 +1204,35 @@ var LauncherAssistant = Class.create({
+@@ -577,17 +1204,35 @@
  				return;
  			}
  		}
@@ -991,130 +1036,8 @@ index 9057138..9553236 100644
  
  		this.appDialog = this.controller.showDialog({
  							template: 'launcher/dialogs/app-info',
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js b/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
-index 232582b..71c9f0c 100644
---- a/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
-@@ -239,6 +239,10 @@ var ReorderController = Class.create({
- 		for (var i = 0, len = this.appDivs.length; i < len; ++i) {
- 			
- 			var pos = this.launcherAssistant.calculateAppPosition(i);
-+			
-+			if(this.launcherAssistant.appLauncherCfg.header)
-+				pos.top = pos.top + 50;
-+			
- 			var item = new Element('div', {'class': 'droppable'});
- 			item.style.left = pos.left+'px';
- 			item.style.top = pos.top+'px';
-@@ -314,7 +318,10 @@ var ReorderController = Class.create({
- 	
- 	_startCyclePage: function(direction) {
- 		if (!this.pagingTimer && !this.pagingAnimating) {
--			this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
-+			if(this.launcherAssistant.appLauncherCfg.wrap)
-+				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout * 2);
-+			else
-+				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
- 			
- 			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollerListenerHandler);
- 		}
-@@ -427,15 +434,37 @@ var ReorderController = Class.create({
- 	_cyclePage: function(direction) {
- 		
- 		var canPage = false;
-+		var snapIndex = 0;
-+
- 		if (direction == -1 && this.activePage.previous() !== null) {
- 			this.previousPage = this.activePage;
- 			this.activePage = this.activePage.previous();
- 			canPage = true;
-+			snapIndex = this.launcherAssistant.activePageIndex + direction;
-+		}
-+		else if (direction == -1 && this.activePage.previous() == null) {
-+			if(this.launcherAssistant.appLauncherCfg.wrap) {
-+				this.previousPage = this.activePage;
-+				while(this.activePage.next() !== null)
-+					this.activePage = this.activePage.next();
-+				canPage = true;
-+				snapIndex = this.launcherAssistant.pagesModel.getNumPages() - 1;
-+			}
- 		}
- 		else if (direction == 1 && this.activePage.next() !== null) {
- 			this.previousPage = this.activePage;
- 			this.activePage = this.activePage.next();
- 			canPage = true;
-+			snapIndex = this.launcherAssistant.activePageIndex + direction;
-+		}
-+		else if (direction == 1 && this.activePage.next() == null) {
-+			if(this.launcherAssistant.appLauncherCfg.wrap) {
-+				this.previousPage = this.activePage;
-+				while(this.activePage.previous() !== null)
-+					this.activePage = this.activePage.previous();
-+				canPage = true;
-+				snapIndex = 0;
-+			}
- 		}
- 	    
- 		if (canPage) {
-@@ -446,7 +475,16 @@ var ReorderController = Class.create({
- 			this.activePage.show();
- 			
- 			this.pagingAnimating = true;
--			$('launcher_root').mojo.setSnapIndex(this.launcherAssistant.activePageIndex + direction, true);
-+			
-+			this.launcherAssistant.changePage(snapIndex, true);
-+			
-+			if(this.launcherAssistant.appLauncherCfg.wrap) {
-+				this.launcherAssistant.onPageChange({value: snapIndex});
-+				
-+				this.pagingAnimating = false;
-+				var previousPageIndex = this.launcherAssistant.getPageIndex(this.previousPage);
-+				this._pagingComplete(previousPageIndex, this.launcherAssistant.activePageIndex);
-+			}
- 		}
- 	},
- 	
-diff --git a/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js b/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
-index 062bddd..77c1099 100644
---- a/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
-+++ b/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
-@@ -4,7 +4,7 @@
- var LauncherPages = Class.create({
- 	kDepotOptions: {version: 1, name: 'paged_launcher_apps'},
- 	kDepotDataKey: "Pages",
--	kMaxPages: 10,
-+	kMaxPages: 16,
- 	
- 	initialize: function(callbacks) {
- 		
-@@ -240,6 +240,12 @@ var LauncherPages = Class.create({
- 		return true;
- 	},
- 	
-+	switchPages: function(firstIndex, secondIndex) {
-+		var page = this._storedPages.splice(firstIndex, 1);
-+
-+		this._storedPages.splice(secondIndex, 0, page[0]);
-+	},
-+	
- 	getNumPages: function() {
- 		return this._storedPages.length;
- 	},
-diff --git a/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
-index bdf3824..b9fbfc2 100644
---- a/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
-+++ b/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
-@@ -9,5 +9,6 @@
- <div class="palm-dialog-separator"></div>
- <div class="palm-dialog-buttons">
- 	<div id='delete-btn' x-mojo-element="Button"></div>	
-+	<div id='move-btn' x-mojo-element="Button"></div>
- 	<div id='done-btn' x-mojo-element="Button"></div>
- </div>
-diff --git a/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html b/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
-index d34a6a5..294420f 100644
---- a/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
-+++ b/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
 @@ -17,7 +17,11 @@
  		<div class="palm-header-spacer strut"></div>
  	</div>
@@ -1128,11 +1051,103 @@ index d34a6a5..294420f 100644
  		<div id="launcher_root" x-mojo-element="Scroller">
  			<div id="pages_container"></div>
  		</div>
-diff --git a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-index 45b6546..7c2b0e0 100644
---- a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-+++ b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-@@ -342,3 +342,87 @@ body.palm-default
+--- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
++++ /usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
+@@ -7,7 +7,10 @@
+ 		this.isDynamic = this.isDynamicLaunchPoint(this.appInfo);
+ 		this.closeCallback = closeCallback;
+ 
+-		this.onDone = this.onDone.bind(this);
++		this.action = "";
++
++		this.onMove = this.onDone.bind(this, "move");
++		this.onDone = this.onDone.bind(this, "done");
+ 	},
+ 	
+ 	setup: function(widget) {
+@@ -86,6 +89,7 @@
+ 	
+ 	setupButtons: function() {
+ 		
++		var moveModel = {buttonLabel: $L('Move')}		
+ 		var doneModel = {buttonLabel: $L('Done')}
+ 		
+ 		if (this.appInfo.removable) {
+@@ -100,6 +104,9 @@
+ 			this.sceneController.setupWidget('delete-btn', {type: Mojo.Widget.activityButton}, this.deleteModel);
+ 			this.sceneController.listen('delete-btn', Mojo.Event.tap, this.onDelete.bindAsEventListener(this));
+ 			this.sceneController.get('delete-btn').show();
++
++			// mode button
++			moveModel.buttonClass = 'dismiss';
+ 			
+ 			// done button
+ 			doneModel.buttonClass = 'dismiss';
+@@ -108,6 +115,9 @@
+ 			this.sceneController.get('delete-btn').hide();
+ 		}
+ 		
++		this.sceneController.setupWidget('move-btn', undefined, moveModel);
++		this.sceneController.listen('move-btn', Mojo.Event.tap, this.onMove);
++
+ 		this.sceneController.setupWidget('done-btn', undefined, doneModel);
+ 		this.sceneController.listen('done-btn', Mojo.Event.tap, this.onDone);
+ 	},
+@@ -136,7 +146,9 @@
+ 		}
+ 	},
+ 
+-	onDone: function() {
++	onDone: function(action) {
++		this.action = action;
++		
+ 		var deleteBtn = this.sceneController.get('delete-btn');
+ 		if (deleteBtn && deleteBtn.mojo && deleteBtn.mojo.deactivate) {
+ 			deleteBtn.mojo.deactivate();
+@@ -163,6 +175,6 @@
+ 			this.appSizeRequest.cancel();
+ 			this.appSizeRequest = undefined;
+ 		}
+-		this.closeCallback();
++		this.closeCallback(this.action);
+ 	}
+ });
+--- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
++++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
+@@ -9,5 +9,6 @@
+ <div class="palm-dialog-separator"></div>
+ <div class="palm-dialog-buttons">
+ 	<div id='delete-btn' x-mojo-element="Button"></div>	
++	<div id='move-btn' x-mojo-element="Button"></div>
+ 	<div id='done-btn' x-mojo-element="Button"></div>
+ </div>
+--- .orig/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
++++ /usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
+@@ -4,7 +4,7 @@
+ var LauncherPages = Class.create({
+ 	kDepotOptions: {version: 1, name: 'paged_launcher_apps'},
+ 	kDepotDataKey: "Pages",
+-	kMaxPages: 10,
++	kMaxPages: 16,
+ 	
+ 	initialize: function(callbacks) {
+ 		
+@@ -240,6 +240,12 @@
+ 		return true;
+ 	},
+ 	
++	switchPages: function(firstIndex, secondIndex) {
++		var page = this._storedPages.splice(firstIndex, 1);
++
++		this._storedPages.splice(secondIndex, 0, page[0]);
++	},
++	
+ 	getNumPages: function() {
+ 		return this._storedPages.length;
+ 	},
+--- .orig/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
++++ /usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
+@@ -342,3 +342,87 @@
  	text-overflow: ellipsis;
  	white-space: nowrap;
  }
@@ -1220,36 +1235,3 @@ index 45b6546..7c2b0e0 100644
 +	z-index: 10;
 +}
 +
-diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-index 5dc60f6..8b60b5d 100644
---- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-+++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-@@ -32,6 +32,16 @@ var BarAssistant = Class.create({
- 		
- 		this.getBuildName();
- 						
-+		// Subscribe to the Quick Launch Bar prererences
-+		this.quickLaunchCfg = null;
-+
-+		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
-+			method: 'getPreferences', parameters: {"keys":["quickLaunchCfg"],"subscribe": true},
-+			onSuccess: function(payload) {
-+				if((payload != undefined) && (payload.quickLaunchCfg != undefined))
-+					this.quickLaunchCfg = payload.quickLaunchCfg;
-+				}.bind(this) });
-+		
- 		// Initialize the Battery Power Nofication and get the initial value
- 		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
- 		
-@@ -315,6 +325,11 @@ updateAppMenuTitle: function(payload) {
- 		$('carrier').show();
- 		this.foregroundAppID=null;
- 	}
-+
-+	if((this.quickLaunchCfg) && (this.quickLaunchCfg.mode == "hidden")) {
-+		this.controller.serviceRequest('palm://com.palm.systemmanager', {
-+			method: 'systemUi', parameters: {"quicklaunch": false} });
-+	}
- },
- 
- updatePhoneAppName: function(){
