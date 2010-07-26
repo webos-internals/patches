@@ -139,7 +139,7 @@ index 6f3368e..12efcb8 100644
  			if (this.currentFilter.length > 0) {
  				// i'm feeling lucky
 diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
-index 9057138..3c64702 100644
+index 9057138..9553236 100644
 --- a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
 +++ b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
 @@ -8,7 +8,7 @@ var LauncherAssistant = Class.create({
@@ -181,7 +181,7 @@ index 9057138..3c64702 100644
  			Mojo.Menu.helpItem
  		]
      },
-@@ -59,10 +73,44 @@ var LauncherAssistant = Class.create({
+@@ -59,12 +73,50 @@ var LauncherAssistant = Class.create({
  		
  		this.dragStartHandler = this.onDragStart.bindAsEventListener(this);
  		this.launchApp = this.launchApp.bind(this);
@@ -220,18 +220,24 @@ index 9057138..3c64702 100644
 +		this.controller.setupWidget(Mojo.Menu.commandMenu, {spacerHeight: 0, menuClass: 'no-fade'},
 +			this.viewMenuModel);
 +
-+		Mojo.listen($('page_header'), Mojo.Event.tap, this.handleHeaderTap.bindAsEventListener(this));
-+		
 +		Mojo.listen(this.controller.document, Mojo.Event.activate, this.onActivate.bindAsEventListener(this));
  		Mojo.listen(this.controller.document, Mojo.Event.deactivate, this.onDeactivate.bindAsEventListener(this));
  		Mojo.listen(this.controller.window, 'resize', this.onResize.bindAsEventListener(this));
++
++		this.controller.listen($('launcher_root'), Mojo.Event.tap, this.handleLauncherTap.bindAsEventListener(this));
++
++		this.controller.listen($('page_header'), Mojo.Event.tap, this.handleHeaderTap.bindAsEventListener(this));
++		
++		this.controller.listen('page_text', Mojo.Event.propertyChange, this.handlePageRename.bindAsEventListener(this));
  		
-@@ -83,11 +131,21 @@ var LauncherAssistant = Class.create({
+ 		this.pagesModel = new LauncherPages({
+ 				onPagesLoaded: this.buildPages.bind(this),
+@@ -82,12 +134,20 @@ var LauncherAssistant = Class.create({
+ 		Mojo.Controller.stageController.focused = false;
  		
  		this.controller.setupWidget('launcher_root', undefined, this.launcherRootModel);
- 		
-+		this.controller.listen('page_text', Mojo.Event.propertyChange, this.handlePageRename.bindAsEventListener(this));
-+		
+-		
++
  		this.reorderController = new ReorderController(this, this.onReorderFinished.bind(this));
 -		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.onPageChange.bindAsEventListener(this));
  		
@@ -250,7 +256,7 @@ index 9057138..3c64702 100644
  		// pre-calculate commonly used measurements
  		this.kPageWidth = $('launcher_root').getWidth();
  		this.kPageWidthNoMargin = (this.kPageWidth - this.kPageMargin * 2);
-@@ -121,21 +179,49 @@ var LauncherAssistant = Class.create({
+@@ -121,21 +181,49 @@ var LauncherAssistant = Class.create({
  				case 'defaultapps':
  					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.defaultAppParams);
  					break;
@@ -268,7 +274,7 @@ index 9057138..3c64702 100644
 +					this.setupQuickLaunch("mixed");
 +					break;
 +				case 'addnewpage':
-+					if (this.pageDivs.length < 12) {
++					if (this.pageDivs.length < 16) {
 +						this.insertPage(this.pageDivs.length, true);
  					}
  					break;
@@ -309,7 +315,7 @@ index 9057138..3c64702 100644
  			}
  		}
  		else if (event.type === Mojo.Event.commandEnable) {
-@@ -157,11 +243,486 @@ var LauncherAssistant = Class.create({
+@@ -157,11 +245,504 @@ var LauncherAssistant = Class.create({
  			}
  		}
  	},
@@ -452,6 +458,27 @@ index 9057138..3c64702 100644
 +
 +			this.controller.get('page_text').style.display = "none";
 +			this.controller.get('page_name').style.display = "block";
++		}
++	},
++	
++	handleLauncherTap: function(event) {
++		if((event.up) && ( event.up.altKey || event.up.metaKey )) {
++			if(!this.appLauncherCfg.header)
++				this.controller.get('page_header').style.display = "block";
++	
++			var chooseCallback = this.selectPage.bind(this);
++
++			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++		}
++		else {
++			if(event.count == 2) {
++				if(!this.appLauncherCfg.header)
++					this.controller.get('page_header').style.display = "block";
++	
++				var chooseCallback = this.jumpToPage.bind(this);
++
++				this.showPageMenus(false, "Jump to Page:", chooseCallback);
++			}
 +		}
 +	},
 +	
@@ -620,14 +647,6 @@ index 9057138..3c64702 100644
 +		
 +		this.globalSearchAssistant.enable(false);
 +
-+		this.controller.get('page_text').style.display = "none";
-+		this.controller.get('page_name').style.display = "block";
-+
-+		if(!this.appLauncherCfg.header) {
-+			this.controller.get('page_header').style.display = "block";
-+			this.controller.get('page_name').style.display = "block";
-+		}
-+		
 +		var pageItems = [];
 +
 +		for(var i = 0; i < this.pageDivs.length; i++) {
@@ -651,6 +670,13 @@ index 9057138..3c64702 100644
 +			onChoose: chooseCallback
 +		});
 +
++		if((viewMenu) || (this.appLauncherCfg.header)) {
++			this.controller.get('page_header').style.display = "block";
++		}
++
++		this.controller.get('page_text').style.display = "none";
++		this.controller.get('page_name').style.display = "block";
++
 +		this.controller.get('page_name').update(menuTitle);
 +
 +		if(this.quickLaunchCfg.mode == "visible") {
@@ -669,7 +695,7 @@ index 9057138..3c64702 100644
 +		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.pageChangeHandler);
 +
 +		this.globalSearchAssistant.enable(true);
-+		
++
 +		if(!this.appLauncherCfg.header) {
 +			this.controller.get('page_header').style.display = "none";
 +			this.controller.get('page_name').style.display = "none";
@@ -728,8 +754,6 @@ index 9057138..3c64702 100644
 +	},
 +
 +	scrollStarting: function(event) {
-+//		this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left) / this.kPageWidth;
-+	
 +		event.scroller.addListener(this);
 +	},
 +	
@@ -798,7 +822,7 @@ index 9057138..3c64702 100644
  	},
  	
  	/* clean and hide global search */
-@@ -175,7 +736,17 @@ var LauncherAssistant = Class.create({
+@@ -175,7 +756,17 @@ var LauncherAssistant = Class.create({
  			this.appDialog.mojo.close();
  		}
  		
@@ -817,7 +841,7 @@ index 9057138..3c64702 100644
  		
  		this.launchRequest = undefined;
  	},
-@@ -202,12 +773,12 @@ var LauncherAssistant = Class.create({
+@@ -202,12 +793,12 @@ var LauncherAssistant = Class.create({
  	
  	/* helper to consolidate all the places accessing these types of elements */
  	getAppContainer: function(pageIndex) {
@@ -832,7 +856,7 @@ index 9057138..3c64702 100644
  		return this.pageDivs[pageIndex].down('.page_scroller');
  	},
  	
-@@ -255,15 +826,51 @@ var LauncherAssistant = Class.create({
+@@ -255,15 +846,51 @@ var LauncherAssistant = Class.create({
  		
  		// tell our scroller widget that it has a new page element to snap
  		this.updatePageSnappingPoints();
@@ -884,7 +908,7 @@ index 9057138..3c64702 100644
  		// move appDivs over to their new home
  		var apps = this.getAppContainer(pageIndex).select('.app');
  		var startIndex = apps.length;
-@@ -284,7 +891,7 @@ var LauncherAssistant = Class.create({
+@@ -284,7 +911,7 @@ var LauncherAssistant = Class.create({
  		if (scroller) {
  			this.controller.setupWidget(scroller.id, undefined, undefined);
  		}
@@ -893,7 +917,7 @@ index 9057138..3c64702 100644
  		// remove the page div
  		this.pageDivs[pageIndex].remove();
  		this.pageDivs = $$('.launcher_page');
-@@ -294,17 +901,13 @@ var LauncherAssistant = Class.create({
+@@ -294,17 +921,13 @@ var LauncherAssistant = Class.create({
  		for (var i=pageIndex; i<this.pageDivs.length; i++) {
  			this.pageDivs[i].style.left = (this.kPageWidth*i)+'px';
  		}
@@ -915,7 +939,7 @@ index 9057138..3c64702 100644
  		
  		this.updatePageSnappingPoints();
  	},
-@@ -514,6 +1117,10 @@ var LauncherAssistant = Class.create({
+@@ -514,6 +1137,10 @@ var LauncherAssistant = Class.create({
  		for (var i=offset, len = children.length; i<len; i++) {
  			var item = children[i];
  			var appPos = this.calculateAppPosition(i);
@@ -926,7 +950,7 @@ index 9057138..3c64702 100644
  			if (animate) {
  				LauncherAnimation.animateApp(item, appPos);
  			} else {
-@@ -577,17 +1184,32 @@ var LauncherAssistant = Class.create({
+@@ -577,17 +1204,35 @@ var LauncherAssistant = Class.create({
  				return;
  			}
  		}
@@ -954,6 +978,9 @@ index 9057138..3c64702 100644
 +															this.adjustLayout();
 +														}
 +														if(action == "move") { 
++															if(!this.appLauncherCfg.header)
++																this.controller.get('page_header').style.display = "block";
++															
 +															var chooseCallback = this.movePageApp.bind(this, appInfo);
 +															
 +															this.showPageMenus(false, "Move Application:", chooseCallback);
@@ -1048,9 +1075,18 @@ index 232582b..71c9f0c 100644
  	},
  	
 diff --git a/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js b/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
-index 062bddd..a6704b8 100644
+index 062bddd..77c1099 100644
 --- a/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
 +++ b/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
+@@ -4,7 +4,7 @@
+ var LauncherPages = Class.create({
+ 	kDepotOptions: {version: 1, name: 'paged_launcher_apps'},
+ 	kDepotDataKey: "Pages",
+-	kMaxPages: 10,
++	kMaxPages: 16,
+ 	
+ 	initialize: function(callbacks) {
+ 		
 @@ -240,6 +240,12 @@ var LauncherPages = Class.create({
  		return true;
  	},
@@ -1093,7 +1129,7 @@ index d34a6a5..294420f 100644
  			<div id="pages_container"></div>
  		</div>
 diff --git a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-index 45b6546..c14a69d 100644
+index 45b6546..7c2b0e0 100644
 --- a/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
 +++ b/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
 @@ -342,3 +342,87 @@ body.palm-default
@@ -1181,7 +1217,7 @@ index 45b6546..c14a69d 100644
 +
 +.pageMenuScrim {
 +	background: transparent;
-+	z-index: 30;
++	z-index: 10;
 +}
 +
 diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
