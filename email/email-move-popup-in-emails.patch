@@ -1,0 +1,89 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+index 761069e..dcf98d8 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -61,21 +61,29 @@ var MessageAssistant = Class.create({
+ 		if (focusStage === true) {
+ 			this.focusStageTimer = this.focusEmailStage.bind(this).delay(0.6);
+ 		}
++		this.requests = [];
+ 	},
+ 
+ 	setup: function() {
+ 		this.setupMessage(); // get message details and setup message webview widget
+ 		
++		// move-to menu
++		this.moveToMenuModel = {
++			items: []
++			};
++		
+ 		// setup menu	
+ 		this.cmdMenuModel = {
+ 				visible:true,
+ 				items: [
++					{label:$L('Move'),      icon:'file',      submenu:'move-to', disabled: true},
+ 					{label:$L('Reply'),     icon:'reply',     command:'reply'},
+ 					{label:$L('Reply all'), icon:'reply-all', command:'replyAll'},
+ 					{label:$L('Forward'),   icon:'forward-email', command:'forward'},
+ 					{label:$L('Delete'),    icon:'delete',    command:'delete'}
+ 				]};
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
++		this.controller.setupWidget('move-to', undefined, this.moveToMenuModel);
+ 		
+ 		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread, shortcut:'k', command:'mark-unread'};
+ 		this.markSetFlagMenuItem =    {label:MessageAssistant.kAppMenuSetFlag, shortcut:'g', command:'flag'};
+@@ -175,6 +183,25 @@ var MessageAssistant = Class.create({
+ 		Mojo.Event.stopListening(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
+ 		//  This currently does nothing. Commenting out
+ 		//  Message.closeMessage(this.controller, this.data.id);
++		this.requests.each(function (r) { r.cancel();});
++	},
++	
++	renderFolderList: function(data) {
++		var padding = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
++		if (data.list) {
++			this.moveToMenuModel.items = [];
++			data.list.each(function(folder) {
++				var name = padding.substring(0, folder.depth*24) + folder.name;
++				var icon = 'server-folder-icon';
++				if (this.account.folder === folder.id) {
++					icon = 'server-folder-checkmark checked';
++				}
++				this.moveToMenuModel.items.push({label: name, command: 'move-to-cmd_' + folder.id, icon: icon});
++			}.bind(this));
++			this.cmdMenuModel.items[0].disabled = false;
++			this.controller.modelChanged(this.moveToMenuModel);
++			this.controller.modelChanged(this.cmdMenuModel);
++		}
+ 	},
+ 
+ 	aboutToActivate: function(callback) {
+@@ -376,6 +403,7 @@ var MessageAssistant = Class.create({
+ 		var assistant = Mojo.Controller.getAppController().assistant;
+ 		assistant.notificationAssistant.clear(resp.account, resp.folder, this.data.id);
+ 		assistant.clearDebounce('m'+this.data.id);
++		this.requests.push(Folder.subscribeAccountFolderList(this.account.account, undefined, this.renderFolderList.bind(this)));
+ 	},
+ 
+ 	updateRecipientStatus: function() {
+@@ -1442,7 +1470,20 @@ var MessageAssistant = Class.create({
+ 	handleCommand: function(event) {
+ 		if (event.type == Mojo.Event.command) {
+ 			try {
++				var targetId = null;
++				if (event.command.substring(0, 11) === 'move-to-cmd') {
++					targetId = event.command.substring(event.command.lastIndexOf('_')+1);
++					event.command = 'move-to-cmd';
++				}
+ 				switch (event.command) {
++					case 'move-to-cmd':
++						if (targetId) {
++							Mojo.Log.error('moving to folder: %s', targetId);
++							Message.moveMessage(this.controller, this.account.emailId, targetId);
++							this.controller.stageController.popScene();
++						}
++						break;
++						
+ 					case 'copyAll':
+ 						this.copyAll(event);
+ 						break;
