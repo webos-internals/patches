@@ -1,16 +1,43 @@
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
-index 5375929..132cd1b 100644
+index 5375929..a4d378c 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
-@@ -5,6 +5,7 @@ var AppAssistant = Class.create({
+@@ -5,6 +5,34 @@ var AppAssistant = Class.create({
  	
  	initialize: function(appController) {
  		Mojo.Log.info("AppAssistant initialize");
++
++		//get default snooze duration options from cookie
++		try
++		{
++			this.cookie = new Mojo.Model.Cookie("com.palm.app.calendar.defaultsnoozeduration");
++
++			if (this.cookie) 
++			{
++				var cookie = this.cookie.get();
++
++				if (cookie) 
++				{			
++					if(cookie.showReminderDashboard)
++					{
++						this.showReminderDashboard = cookie.showReminderDashboard;
++					}
++					else
++					{
++						this.showReminderDashboard = false;
++					}
++				}
++			}
++		}
++		catch(err)
++		{
++			console.error("Error: app-assistant initialize: Failed to read cookie.");
++		}
 +		
  		this.appController = appController;
  		this.openReminderAlert = null;
  		
-@@ -78,7 +79,9 @@ var AppAssistant = Class.create({
+@@ -78,7 +106,9 @@ var AppAssistant = Class.create({
  		// gives us a flag to let us now if this being called at boot.
  		this.handlelaunchCount++;
  		if (this.handlelaunchCount <= 1)
@@ -20,7 +47,7 @@ index 5375929..132cd1b 100644
  			
  		//if this failed during initialization, try again	
  		if (!this.calendarsManager.accounts) {			
-@@ -110,8 +113,8 @@ var AppAssistant = Class.create({
+@@ -110,8 +140,8 @@ var AppAssistant = Class.create({
  		}
  		else if (launchParams.alarmsnooze){
  			Mojo.Log.info("$$$$$$$$ AppAssistant handleLaunch : alarmsnooze");
@@ -30,7 +57,7 @@ index 5375929..132cd1b 100644
  		} 
  		else if (launchParams.alarmclose){
  			Mojo.Log.info("$$$$$$$$ AppAssistant handleLaunch : alarmclose");
-@@ -348,6 +351,7 @@ var AppAssistant = Class.create({
+@@ -348,6 +378,7 @@ var AppAssistant = Class.create({
  	
  	// *** ALARMS ***
  	doAlarm: function(isSnoozedReminder,dontAlert,eventId, attendees, isAllDay, subject, location, emailAccountId) {	
@@ -38,7 +65,7 @@ index 5375929..132cd1b 100644
  		Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm :start,"+dontAlert);
  	
  		//first check if is a snoozed reminder and if it exists in reminder manager
-@@ -399,9 +403,9 @@ var AppAssistant = Class.create({
+@@ -399,9 +430,9 @@ var AppAssistant = Class.create({
  		var reminder = getReminderManager().getReminder(eventId);
  		reminder.userClosed = false;
  		if (reminder.attendees.length > 1 /*now we include the organizer in attendee list*/)
@@ -50,7 +77,26 @@ index 5375929..132cd1b 100644
  		
  		var needThrobbing =(hasNewContent || !isSnoozedReminder) ? true:false;
  		Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:createStageWithCallback for stage: "+this.createAlarmStageName(eventId)+", stage height is: "+height);
-@@ -863,8 +867,16 @@ function notifyTimeFormatObservers() {
+@@ -436,6 +467,9 @@ var AppAssistant = Class.create({
+ 			}
+ 		}
+ 		
++		//Optionally diable the reminder dashboard
++		if(this.showReminderDashboard)
++		{
+ 		Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:calling getStageController for calendar-dashboard");
+ 		var dashboardStageController = Mojo.Controller.getAppController().getStageController("calendar-dashboard");
+ 		if (!dashboardStageController) {
+@@ -453,6 +487,8 @@ var AppAssistant = Class.create({
+ 				applicationStylesheets: ["stylesheets/notification.css"],
+ 			}, pushDashboardScene, "dashboard");
+ 		}
++		}
++		
+ 		Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm :end");
+ 	},
+ 	
+@@ -863,8 +899,16 @@ function notifyTimeFormatObservers() {
  }
  
  function getTimeFormat() {
@@ -84,7 +130,7 @@ index a667ac9..b87f7b0 100644
  	},
  	
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
-index cebe803..b818111 100644
+index cebe803..1f643dd 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 @@ -76,6 +76,7 @@ var PrefsAssistant = Class.create({
@@ -157,31 +203,75 @@ index cebe803..b818111 100644
  	},
  	
  	buildAlarmsMenu: function() {
-@@ -377,6 +394,23 @@ var PrefsAssistant = Class.create({
+@@ -377,6 +394,67 @@ var PrefsAssistant = Class.create({
  	setup: function() {
  		// Retrieve the prefs from the service
  		this.prefs = getPrefs();
 +
 +		//get default snooze duration from cookie
-+		this.cookie = new Mojo.Model.Cookie("com.palm.app.calendar.defaultsnoozeduration");
++		this.showSnoozedForBanner = false;
++		this.showReminderDashboard = false;
 +
-+		if (this.cookie) 
++		try
 +		{
-+			var cookie = this.cookie.get();
++			this.cookie = new Mojo.Model.Cookie("com.palm.app.calendar.defaultsnoozeduration");
 +
-+			if (cookie) 
-+			{			
-+				if(cookie.defaultSnoozeDuration)
-+				{
-+					this.prefs.defaultSnoozeDuration = cookie.defaultSnoozeDuration;
++			if (this.cookie) 
++			{
++				var cookie = this.cookie.get();
++
++				if (cookie) 
++				{			
++					if(cookie.defaultSnoozeDuration)
++					{
++						this.prefs.defaultSnoozeDuration = cookie.defaultSnoozeDuration;
++					}
++					
++					if(cookie.showSnoozedForBanner)
++					{
++						this.showSnoozedForBanner = cookie.showSnoozedForBanner;
++					}
++					else
++					{
++						this.showSnoozedForBanner = false;
++					}
++					
++					if(cookie.showReminderDashboard)
++					{
++						this.showReminderDashboard = cookie.showReminderDashboard;
++					}
++					else
++					{
++						this.showReminderDashboard = false;
++					}
 +				}
 +			}
 +		}
++		catch(err)
++		{
++			console.error("Error: prefs-assistant initialize: Failed to read cookie.");
++		}
++		
++		this.snoozeDurationPrefs = {
++			showsnoozedforbanner: { id: "ShowSnoozedForBanner", value: this.showSnoozedForBanner },
++			showreminderdashboard: { id: "ShowReminderDashboard", value: this.showReminderDashboard }
++		}
++
++		var snoozeDurationAttributes = {
++			modelProperty: "value",
++			trueValue: true,
++			falseValue: false
++		};
++		
++		this.controller.setupWidget('prefs-showsnoozedforbanner-toggle', snoozeDurationAttributes, this.snoozeDurationPrefs.showsnoozedforbanner);
++		this.controller.setupWidget('prefs-showreminderdashboard-toggle', snoozeDurationAttributes, this.snoozeDurationPrefs.showreminderdashboard);
++		this.controller.listen('prefs-showsnoozedforbanner-toggle', Mojo.Event.propertyChange, this.toggleSnoozeDurationPrefs.bind(this));
++		this.controller.listen('prefs-showreminderdashboard-toggle', Mojo.Event.propertyChange, this.toggleSnoozeDurationPrefs.bind(this));
 +
  		this.requests = [];
  		this.syncSources = [];
  		this.dirty = false;
-@@ -420,7 +454,6 @@ var PrefsAssistant = Class.create({
+@@ -420,7 +498,6 @@ var PrefsAssistant = Class.create({
        		]
        	};
  	
@@ -189,7 +279,7 @@ index cebe803..b818111 100644
  		this.notificationSoundModel = {
          	value:this.convertSoundDBToPopupVal(this.prefs.alarmSoundOn)
        	};
-@@ -433,7 +466,6 @@ var PrefsAssistant = Class.create({
+@@ -433,7 +510,6 @@ var PrefsAssistant = Class.create({
  		else 
  			this.controller.get('currentringtone').update(this.prefs.ringtoneName);
  		
@@ -197,7 +287,7 @@ index cebe803..b818111 100644
  		this.renderNewEventDuration();
  	
  		this.buildAlarmsMenu();
-@@ -443,7 +475,6 @@ var PrefsAssistant = Class.create({
+@@ -443,7 +519,6 @@ var PrefsAssistant = Class.create({
  		this.getCalendarAccountsRequest = getAccountsService().getAllAccountsForCalendarService(
  		this.getCalendarAccountsCallback.bind(this), this.controller);
  		
@@ -205,16 +295,27 @@ index cebe803..b818111 100644
  		this.appMenuModel= {
  			visible:true, 
  			label:$L('Calendar'), 
-@@ -452,8 +483,6 @@ var PrefsAssistant = Class.create({
+@@ -452,8 +527,19 @@ var PrefsAssistant = Class.create({
  					{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
  		}
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
--
--				
++	},
+ 
++	toggleSnoozeDurationPrefs: function(event) {
+ 				
++		if(event.model.id == "ShowSnoozedForBanner")
++		{
++			this.showSnoozedForBanner = event.model.value;
++		}
++		else if(event.model.id == "ShowReminderDashboard")
++		{
++			this.showReminderDashboard = event.model.value;
++			getAppAssistant().showReminderDashboard = this.showReminderDashboard;
++		}
  	},
  
  	setCalendarPrefsCallback: function(response) {
-@@ -473,6 +502,12 @@ var PrefsAssistant = Class.create({
+@@ -473,6 +559,16 @@ var PrefsAssistant = Class.create({
  		
  		if (this.dirty)
  			this.savePrefs();
@@ -222,12 +323,16 @@ index cebe803..b818111 100644
 +		//save default snooze duration to cookie	
 +		if (this.cookie)
 +		{
-+			this.cookie.put({defaultSnoozeDuration: this.prefs.defaultSnoozeDuration});
++			this.cookie.put( {
++								defaultSnoozeDuration: this.prefs.defaultSnoozeDuration,
++								showSnoozedForBanner: this.showSnoozedForBanner,
++								showReminderDashboard: this.showReminderDashboard
++								} );
 +		}
  	},
  	
  	syncAllCallback: function(response) {
-@@ -504,6 +539,9 @@ var PrefsAssistant = Class.create({
+@@ -504,6 +600,9 @@ var PrefsAssistant = Class.create({
  		this.controller.get('pv_default_evt_alarm').observe('mojo-tap', this.defaultEventAlarmClickHandler);
  		this.defaultAllDayEventAlarmClickHandler = this.handleDefaultAllDayEventAlarmClick.bindAsEventListener(this);
  		this.controller.get('pv_default_allday_evt_alarm').observe('mojo-tap', this.defaultAllDayEventAlarmClickHandler);
@@ -237,7 +342,7 @@ index cebe803..b818111 100644
  				
  		this.newEventDurationClickHandler = this.handleNewEventDurationClick.bindAsEventListener(this);
  		this.controller.get('pv_new_event_duration').observe('mojo-tap', this.newEventDurationClickHandler);	
-@@ -546,6 +584,9 @@ var PrefsAssistant = Class.create({
+@@ -546,6 +645,9 @@ var PrefsAssistant = Class.create({
  		this.controller.get('pv_default_allday_evt_alarm').stopObserving('mojo-tap', this.defaultAllDayEventAlarmClickHandler);
  		this.defaultAllDayEventAlarmClickHandler = undefined;
  		
@@ -247,7 +352,7 @@ index cebe803..b818111 100644
  		this.controller.get('pv_new_event_duration').stopObserving('mojo-tap', this.newEventDurationClickHandler);
  		
  		this.controller.get('pv_accounts_list').stopObserving(Mojo.Event.listTap, this.acctsListSelectionHandler);
-@@ -708,7 +749,7 @@ var PrefsAssistant = Class.create({
+@@ -708,7 +810,7 @@ var PrefsAssistant = Class.create({
  		//Mojo.Log.info('prefs-assistant: defaultEventAlarmChoose');
  		if (value != undefined && value != this.prefs.defaultEventReminder) {
  			this.prefs.defaultEventReminder = value;
@@ -256,7 +361,7 @@ index cebe803..b818111 100644
  			this.dirty = true;
  		}
  	},
-@@ -728,7 +769,7 @@ var PrefsAssistant = Class.create({
+@@ -728,7 +830,7 @@ var PrefsAssistant = Class.create({
  		//Mojo.Log.info('prefs-assistant: defaultAllDayEventAlarmChoose');
  		if (value != undefined && value != this.prefs.defaultAllDayEventReminder) {
  			this.prefs.defaultAllDayEventReminder = value;
@@ -265,7 +370,7 @@ index cebe803..b818111 100644
  			this.dirty = true;
  		}
  	},
-@@ -744,6 +785,27 @@ var PrefsAssistant = Class.create({
+@@ -744,6 +846,27 @@ var PrefsAssistant = Class.create({
  			});
  	},
  	
@@ -293,7 +398,7 @@ index cebe803..b818111 100644
  	// *** WIDGET ATTRS & MODELS
  
  	
-@@ -757,6 +819,32 @@ var PrefsAssistant = Class.create({
+@@ -757,6 +880,32 @@ var PrefsAssistant = Class.create({
  		items: [],
  	},
  	
@@ -327,7 +432,7 @@ index cebe803..b818111 100644
  		{label: '', command: 'none'},			// Do NOT Localize
  		{label: '', command: '-PT5M'},		//Do Not localize
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
-index d190fd1..e237477 100644
+index d190fd1..6376591 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 @@ -2,9 +2,35 @@
@@ -367,28 +472,44 @@ index d190fd1..e237477 100644
  		this.reminders = getReminderManager();
  		getAppAssistant().openReminderAlert = this;
  		this.requests = [];
-@@ -14,6 +40,55 @@ var ReminderAssistant = Class.create({
+@@ -14,6 +40,71 @@ var ReminderAssistant = Class.create({
  		this.doThrob =needThrobbing;
  		this.autoSnoozed = false;
  		
-+		//get default snooze duration from cookie
-+		this.cookie = new Mojo.Model.Cookie("com.palm.app.calendar.defaultsnoozeduration");
-+
-+		if (this.cookie) 
++		//get default snooze duration options from cookie
++		try
 +		{
-+			var cookie = this.cookie.get();
++			this.cookie = new Mojo.Model.Cookie("com.palm.app.calendar.defaultsnoozeduration");
 +
-+			if (cookie) 
-+			{			
-+				if(cookie.defaultSnoozeDuration)
-+				{
-+					this.DEFAULT_SNOOZE = parseInt(cookie.defaultSnoozeDuration);
-+				}
-+				else
-+				{
-+					this.DEFAULT_SNOOZE = -15;
++			if (this.cookie) 
++			{
++				var cookie = this.cookie.get();
++
++				if (cookie) 
++				{			
++					if(cookie.defaultSnoozeDuration)
++					{
++						this.DEFAULT_SNOOZE = parseInt(cookie.defaultSnoozeDuration);
++					}
++					else
++					{
++						this.DEFAULT_SNOOZE = -15;
++					}
++					
++					if(cookie.showSnoozedForBanner)
++					{
++						this.showSnoozedForBanner = cookie.showSnoozedForBanner;
++					}
++					else
++					{
++						this.showSnoozedForBanner = false;
++					}
 +				}
 +			}
++		}
++		catch(err)
++		{
++			console.error("Error: reminder-assistant initialize: Failed to read cookie.");
 +		}
 +
 +		//logic to not pic a default snooze that has already past
@@ -419,11 +540,11 @@ index d190fd1..e237477 100644
 +		{
 +			this.DEFAULT_SNOOZE = defSnooze;
 +		}
-+
++		
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant initialize:end");
  	},
  
-@@ -27,6 +102,19 @@ var ReminderAssistant = Class.create({
+@@ -27,6 +118,19 @@ var ReminderAssistant = Class.create({
  	},
  	
  	setup: function() {
@@ -443,7 +564,7 @@ index d190fd1..e237477 100644
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant setup:start");
  		this.service = getCalendarService();
  
-@@ -43,6 +131,10 @@ var ReminderAssistant = Class.create({
+@@ -43,6 +147,10 @@ var ReminderAssistant = Class.create({
      
  	cleanup: function() {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant cleanup:start:");
@@ -454,7 +575,7 @@ index d190fd1..e237477 100644
  		this.reminders.stopObservingReminders('alert');
  		
  		getAppAssistant().openReminderAlert = null;
-@@ -52,11 +144,11 @@ var ReminderAssistant = Class.create({
+@@ -52,11 +160,11 @@ var ReminderAssistant = Class.create({
  				Mojo.Log.info("$$$$$$$$ Reminder-assistant cleanup: snoozing reminder " + this.reminder.id);
  				this.snooze(this.DEFAULT_SNOOZE);
  			}
@@ -467,7 +588,7 @@ index d190fd1..e237477 100644
  			}
  		}
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant cleanup:end:");
-@@ -150,6 +242,9 @@ var ReminderAssistant = Class.create({
+@@ -150,6 +258,9 @@ var ReminderAssistant = Class.create({
  		
  		this.controller.get('reminder-dismiss').addEventListener(Mojo.Event.tap, this.onDismissHandler);
  		this.controller.get('reminder-snooze').addEventListener(Mojo.Event.tap, this.onSnoozeHandler);
@@ -477,7 +598,7 @@ index d190fd1..e237477 100644
  	},
  
  	removeListeners: function() {
-@@ -167,6 +262,10 @@ var ReminderAssistant = Class.create({
+@@ -167,6 +278,10 @@ var ReminderAssistant = Class.create({
  		if (email) email.removeEventListener(Mojo.Event.tap, this.onEmailHandler);
  		var snooze = this.controller.get('reminder-snooze');
  		if (snooze) snooze.removeEventListener(Mojo.Event.tap, this.onSnoozeHandler);
@@ -488,7 +609,14 @@ index d190fd1..e237477 100644
  	},
  	
  	
-@@ -307,6 +406,23 @@ var ReminderAssistant = Class.create({
+@@ -304,9 +419,34 @@ var ReminderAssistant = Class.create({
+ 		this.reminder.userClosed = true;
+ 		this.reminder.scheduleStartTime = true;
+ 		this.reissueAutoSnoozedAlerts();
++		
++		//Since we are using the Power TimeOut instead of the taskscheduler we need to remove the 
++		//AtStartTime alarm that was scheduled.
++		this.removeAtStartTime();
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant onSnooze: end: " + this.reminder.id);
  	},
  	
@@ -506,21 +634,43 @@ index d190fd1..e237477 100644
 +		this.reminder.userClosed = true;
 +		this.reminder.scheduleStartTime = true;
 +		this.reissueAutoSnoozedAlerts();
++		
++		//Since we are using the Power TimeOut instead of the taskscheduler we need to remove the 
++		//AtStartTime alarm that was scheduled.
++		this.removeAtStartTime();
 +		Mojo.Log.info("$$$$$$$$ Reminder-assistant onSnoozeDurationChanged: end: " + this.reminder.id);
 +	},
 +
  	removeReminder: function() {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeReminder: start: " + this.reminder.id);
  		this.reminders.removeReminder(this.reminder.id);
-@@ -342,9 +458,19 @@ var ReminderAssistant = Class.create({
+@@ -333,6 +473,17 @@ var ReminderAssistant = Class.create({
+ 		this.reminder.scheduleStartTime = false;
+ 	},
+ 	
++	removeAtStartTime: function() {
++		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeAtStartTime: start " + this.reminder.id);
++		
++		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: removeAtStartTime: calendar-snooze-" + this.reminder.id);
++		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++					                    method: 'removeTask',
++					                    parameters: {key: 'calendar-snooze-' + this.reminder.id}
++					                	});
++		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeAtStartTime: end " + this.reminder.id);
++	},
++	
+ 	snooze: function(minutes) {
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: start: " + this.reminder.id);
+ 		
+@@ -342,9 +493,19 @@ var ReminderAssistant = Class.create({
  			return;
  		}	
  		
 -		var snooze = new Date().addMinutes(minutes);
 -		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: updateTask: calendar-snooze-" + this.reminder.id + "   date = " + snooze.toUTCString());
 +		var snooze;
- 		
-+		if( minutes > 0 )
++		
++		if( minutes >= 0 )
 +		{
 +			snooze = new Date().addMinutes(minutes);
 +		}
@@ -528,13 +678,13 @@ index d190fd1..e237477 100644
 +		{
 +			snooze = new Date(this.reminder.time).addMinutes(minutes);
 +		}
-+		
+ 		
 +		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: updateTask: calendar-snooze-" + this.reminder.id + "   date = " + snooze.toUTCString());
 +/*		
  		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
  					                    method: 'updateTask',
  					                    parameters: {uri: 'palm://com.palm.applicationManager/open',
-@@ -355,7 +481,34 @@ var ReminderAssistant = Class.create({
+@@ -355,8 +516,38 @@ var ReminderAssistant = Class.create({
  													 prereq: ['MSM_OFF'],
  													 misfirePolicy: {executeNow: true}}
  					                	});
@@ -542,12 +692,12 @@ index d190fd1..e237477 100644
 +
 +		//use a powered/timeout alarm so that the reminder survives a reboot
 +		var alarmLaunchParams = '{"id":"com.palm.app.calendar","params":{"alarmsnooze":"' + this.reminder.id + '"}}';
- 
++
 +		var newParams = alarmLaunchParams.evalJSON();
 +		newParams.params.id = this.reminder.id;
-+
+ 
 +		var newParamsJSON = Object.toJSON(newParams);
-+
+ 
 +		var at = this.dateFormatForScheduler(snooze);
 +
 +        this.controller.serviceRequest("luna://com.palm.power/timeout/", {
@@ -566,10 +716,23 @@ index d190fd1..e237477 100644
 +				Mojo.Log.error("****************** Reminder-assistant snooze failed: " );
 +			}.bind(this)
 +		});
- 
++
++		//Disable the Snoozed For Banner
++		if(this.showSnoozedForBanner)
++		{
  		var templateModel = {};
  		var templateStr = $L("Snoozed for #{num} minutes");
-@@ -402,7 +555,18 @@ var ReminderAssistant = Class.create({
+ 		templateModel.num =minutes;
+@@ -364,7 +555,7 @@ var ReminderAssistant = Class.create({
+ 		var snoozeText=template.evaluate(templateModel);
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: showBanner" + this.reminder.id);
+ 		Mojo.Controller.appController.showBanner({messageText: snoozeText}, null /*launchArguments*/, "calendar-snooze");
+-
++		}
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: end" + this.reminder.id);
+ 	},
+ 	
+@@ -402,7 +593,18 @@ var ReminderAssistant = Class.create({
  					                	});
  	},
  	
@@ -683,10 +846,10 @@ index c2619fe..85fd857 100644
  	
  });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/prefs/prefs-scene.html b/usr/palm/applications/com.palm.app.calendar/app/views/prefs/prefs-scene.html
-index 3f1e673..6e73470 100644
+index 3f1e673..ca7a818 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/views/prefs/prefs-scene.html
 +++ b/usr/palm/applications/com.palm.app.calendar/app/views/prefs/prefs-scene.html
-@@ -52,12 +52,19 @@
+@@ -52,7 +52,7 @@
  				</div>
  			</div>
  	
@@ -695,18 +858,40 @@ index 3f1e673..6e73470 100644
  				<div class="palm-row-wrapper">
  		  			<div class="label" x-mojo-loc="">All day</div>
  		  			<div id="pv_default_allday_evt_alarm_value" class="title"></div>
- 				</div>
+@@ -60,6 +60,33 @@
  			</div>
-+			
+ 	 	</div>
+ </div>
++<div id='pv_snoozeduration_div' class="palm-group">
++	<div class="palm-group-title" x-mojo-loc="">Snooze Duration Options</div>
++	 	<div class="palm-list">
++	 				
 +			<div id="pv_default_snooze_duration" class="palm-row first">
 +				<div class="palm-row-wrapper">
 +		 				<div class="label" x-mojo-loc="">Snooze</div>
 +		 				<div id="pv_default_snooze_duration_value" class="title"></div>
 +				</div>
 +			</div>
- 	 	</div>
- </div>
++			
++			<div class="palm-row">
++				<div class="palm-row-wrapper">
++		            <div x-mojo-element="ToggleButton" id="prefs-showsnoozedforbanner-toggle"></div>
++		            <div class="title" x-mojo-loc=''>Snoozed For Banner</div>
++				</div>
++	    	</div>
++			
++			<div class="palm-row last">
++				<div class="palm-row-wrapper">
++		            <div x-mojo-element="ToggleButton" id="prefs-showreminderdashboard-toggle"></div>
++		            <div class="title" x-mojo-loc=''>Reminder Dashboard</div>
++				</div>
++	    	</div>
++			
++	 	</div>
++</div>
  <div id='pv_alarmsound_div' class='palm-group'>
+ 	<div class="palm-group-title" x-mojo-loc="">Event reminders</div>
+ 		<div class="palm-list">
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/reminder/reminder-scene.html b/usr/palm/applications/com.palm.app.calendar/app/views/reminder/reminder-scene.html
 index c3ca688..1d89d4b 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/views/reminder/reminder-scene.html
