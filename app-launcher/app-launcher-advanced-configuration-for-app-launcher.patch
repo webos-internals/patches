@@ -31,7 +31,28 @@
  updatePhoneAppName: function(){
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
 +++ /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-@@ -249,9 +249,6 @@
+@@ -212,6 +212,10 @@
+ 			this.launcherHiddenAtFirstKeydown = true;
+ 		}
+ 		
++		this.viewMenuState = this.launcherAssistant.viewMenuModel.visible;
++		this.launcherAssistant.viewMenuModel.visible = false;
++		this.controller.modelChanged(this.launcherAssistant.viewMenuModel, this);
++		
+ 		// save the launchers scroller states
+ 		this.controller.hideWidgetContainer(this.controller.getSceneScroller());
+ 		this.controller.get('launcher-main').hide();
+@@ -237,6 +241,9 @@
+ 			return;
+ 		}
+ 		
++		this.launcherAssistant.viewMenuModel.visible = this.viewMenuState;
++		this.controller.modelChanged(this.launcherAssistant.viewMenuModel, this);
++		
+ 		// restore the launchers scroller states
+ 		this.controller.get('global-search-main').addClassName('offscreen');
+ 		this.controller.get('launcher-main').show();
+@@ -249,9 +256,6 @@
  			SystemManagerService.showLauncher(false);
  			this.launcherHiddenAtFirstKeydown = false;
  		}
@@ -41,7 +62,7 @@
  		
  		this.galInit();
  	},
-@@ -265,15 +262,13 @@
+@@ -265,15 +269,13 @@
  	},
  	
  	onKeyDown: function(event) {
@@ -60,7 +81,7 @@
  		// track whether we should hide the launcher when exiting global search
  		if (this.searchTerm.length === 0 && !Mojo.Controller.stageController.isActiveAndHasScenes()) {			
  			this.launcherHiddenAtFirstKeydown = true;
-@@ -283,10 +278,8 @@
+@@ -283,10 +285,8 @@
  	onKeyUp: function(event) {
  		
  		// block key events from global search
@@ -72,7 +93,7 @@
  	
  		// first key no longer being held
  		this.searchPressHoldTerm = "";
-@@ -299,6 +292,10 @@
+@@ -299,6 +299,10 @@
  	
  	onKeyPress: function(event) {
  		
@@ -83,7 +104,7 @@
  		if(this.searchPressHoldTerm && this.searchPressHoldTerm.length > 0 && event.keyCode != this.searchPressHoldTerm.charCodeAt(0)) {
          	// first key no longer being held
              this.searchPressHoldTerm = "";
-@@ -310,8 +307,7 @@
+@@ -310,8 +314,7 @@
          } 
  
  		// block key events from global search and from repeating until the first key has been processed
@@ -93,7 +114,7 @@
  			(event.keyCode === Mojo.Char.spaceBar && !this.searchActive)) {
  			
  			event.stop();
-@@ -341,6 +337,10 @@
+@@ -341,6 +344,10 @@
  	
  	onSearchTermChanged: function(event) {
  		
@@ -196,7 +217,7 @@
  	
  	kPageIndicatorSpacing: 6, 	/* spacing between each page indicator */
  	kPageMargin: 10, /* 10 pixel margin on each side of a page */
-@@ -23,11 +23,25 @@
+@@ -23,11 +23,26 @@
  		visible: true,
  		label: $L('Launcher'),
          items: [
@@ -208,7 +229,8 @@
 +			{ label: $L('App Launcher'),
 +				items: [
 +					{ label: $L('Enter Edit Mode'), command: 'toggleedit' },
-+					{ label: $L('Show Page Names'), command: 'togglenames' },
++					{ label: $L('Show Page Header'), command: 'toggleheader' },
++					{ label: $L('Use Tabs for Pages'), command: 'togglevisual' },
 +					{ label: $L('Set As Default Page'), command: 'togglepage' },
 +					{ label: $L('Enable Position Reset'), command: 'togglereset' },
 +					{ label: $L('Enable Page Wrapping'), command: 'togglewrap' }
@@ -226,7 +248,7 @@
  			Mojo.Menu.helpItem
  		]
      },
-@@ -59,12 +73,54 @@
+@@ -59,12 +74,57 @@
  		
  		this.dragStartHandler = this.onDragStart.bindAsEventListener(this);
  		this.launchApp = this.launchApp.bind(this);
@@ -238,7 +260,7 @@
 +		
 +		this.pagingAnimating = false;
 +		
-+		this.appLauncherCfg = {header: false, reset: false, wrap: false, page: "default", pages: []};
++		this.appLauncherCfg = {header: false, reset: false, wrap: false, page: "default", pages: [], hidden: [], visual: "name"};
 +		
 +		this.quickLaunchCfg = {mode: "visible"};
  	},
@@ -249,22 +271,24 @@
 +			method: 'getPreferences', parameters: {subscribe: false, keys: ['appLauncherCfg', 'quickLaunchCfg']},
 +			onSuccess: this.handlePreferences.bind(this) });
 +
-+		this.viewMenuModel = {visible: false,
-+			items: [ 
-+				{items: [
-+					{ icon: "new", command: "addnewpage"},
-+					{ icon: 'delete', command: 'deletepage'}
-+				]},
-+				{ label: "Rename", command: "renamepage", width: 100},
-+				{items: [
-+					{ icon: "back", command: "movepageleft"},
-+					{ icon: 'forward', command: 'movepageright'}
-+				]}
-+			]
-+		};
++		this.viewMenuModel = {visible: false, items: []};
++
++		this.controller.setupWidget(Mojo.Menu.viewMenu, {spacerHeight: 0, menuClass: 'no-fade'},
++			this.viewMenuModel);
++
++		this.commandMenuModel = {visible: false, items: [
++			{items: [
++				{ icon: "new", command: "addnewpage"},
++				{ icon: 'delete', command: 'deletepage'}
++			]},
++			{label: "Rename", command: "renamepage", width: 100},
++			{items: [
++				{ icon: "back", command: "movepageleft"},
++				{ icon: 'forward', command: 'movepageright'}
++			]} ]};
 +
 +		this.controller.setupWidget(Mojo.Menu.commandMenu, {spacerHeight: 0, menuClass: 'no-fade'},
-+			this.viewMenuModel);
++			this.commandMenuModel);
 +
 +		Mojo.listen(this.controller.document, Mojo.Event.activate, this.onActivate.bindAsEventListener(this));
  		Mojo.listen(this.controller.document, Mojo.Event.deactivate, this.onDeactivate.bindAsEventListener(this));
@@ -276,12 +300,13 @@
 +		this.headerTapHandler = this.handleHeaderTap.bindAsEventListener(this);
 +		Mojo.listen($('page_header'), Mojo.Event.tap, this.headerTapHandler);
 +		
++		this.appRenameHandler = this.handleAppRename.bindAsEventListener(this);
++		
 +		this.pageRenameHandler = this.handlePageRename.bindAsEventListener(this);
-+		Mojo.listen($('page_text'), Mojo.Event.propertyChange, this.pageRenameHandler);
  		
  		this.pagesModel = new LauncherPages({
  				onPagesLoaded: this.buildPages.bind(this),
-@@ -82,12 +138,20 @@
+@@ -82,12 +142,20 @@
  		Mojo.Controller.stageController.focused = false;
  		
  		this.controller.setupWidget('launcher_root', undefined, this.launcherRootModel);
@@ -305,7 +330,7 @@
  		// pre-calculate commonly used measurements
  		this.kPageWidth = $('launcher_root').getWidth();
  		this.kPageWidthNoMargin = (this.kPageWidth - this.kPageMargin * 2);
-@@ -121,23 +185,59 @@
+@@ -121,23 +189,80 @@
  				case 'defaultapps':
  					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.defaultAppParams);
  					break;
@@ -349,8 +374,11 @@
 +				case 'toggleedit':
 +					this.setupAppLauncher(event, "edit");
 +					break;
-+				case 'togglenames':
-+					this.setupAppLauncher(event, "names");
++				case 'toggleheader':
++					this.setupAppLauncher(event, "header");
++					break;
++				case 'togglevisual':
++					this.setupAppLauncher(event, "visual");
 +					break;
 +				case 'togglepage':
 +					this.setupAppLauncher(event, "page");
@@ -360,6 +388,24 @@
 +					break;
 +				case 'togglereset':
 +					this.setupAppLauncher(event, "reset");
++					break;
++				case 'showpagemenu':
++					this.tabPageSelect(event);
++					break;
++				case 'selectpage1':
++					this.tabPageSelect(event, 0);
++					break;
++				case 'selectpage2':
++					this.tabPageSelect(event, 1);
++					break;
++				case 'selectpage3':
++					this.tabPageSelect(event, 2);
++					break;
++				case 'selectpage4':
++					this.tabPageSelect(event, 3);
++					break;
++				case 'selectpage5':
++					this.tabPageSelect(event, 4);
 +					break;
  			}
  		}
@@ -374,7 +420,7 @@
  		else if (event.type === Mojo.Event.commandEnable) {
  			switch (event.command) {
  				case Mojo.Menu.copyCmd:
-@@ -157,11 +257,545 @@
+@@ -157,11 +282,743 @@
  			}
  		}
  	},
@@ -390,8 +436,43 @@
 +		
 +		this.updateAppLauncher(true);
 +		this.updateQuickLaunch(true);
++		
++		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'getPreferences', parameters: {subscribe: true, keys: ['appLauncherCfg']},
++			onSuccess: this.handlePreferencesUpdate.bind(this) });
 +	},
 +
++	handlePreferencesUpdate: function(payload) {
++		var oldHidden = [];
++		
++		if((this.appLauncherCfg) && (this.appLauncherCfg.hidden))
++			oldHidden = this.appLauncherCfg.hidden;
++	
++		if((payload != undefined) && (payload.appLauncherCfg != undefined))
++			this.appLauncherCfg = payload.appLauncherCfg;
++		
++		for(var i = 0; i < oldHidden.length; i++) {
++			if(this.appLauncherCfg.hidden.indexOf(oldHidden[i]) == -1) {
++				var location = {page: 0, position: 0};
++			
++				for (var j=0, numPages=this.pagesModel.getNumPages(); j<numPages; j++) {
++					var page = this.pagesModel.getPage(j);
++		
++					location.page = j;
++					
++					for (var k=0; k<page.length; k++) {
++						var appInfo = this.pagesModel.getAppInfo(page[k]);
++
++						if(appInfo.launchPointId == oldHidden[i]) {
++							location.position = k;
++							this.insertApp(location, appInfo);
++						}
++					}
++				}
++			}
++		}
++	},
++	
 +	setupAppLauncher: function(event, option) {
 +		if(option == "edit") {
 +			var chooseCallback = this.selectPage.bind(this);
@@ -399,11 +480,17 @@
 +			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
 +		}
 +		else {
-+			if(option == "names") {
++			if(option == "header") {
 +				if(this.appLauncherCfg.header)
 +					this.appLauncherCfg.header = false;
 +				else
 +					this.appLauncherCfg.header = true;
++			}
++			else if(option == "visual") {
++				if(this.appLauncherCfg.visual == "tabs")
++					this.appLauncherCfg.visual = "name";
++				else
++					this.appLauncherCfg.visual = "tabs";
 +			}
 +			else if(option == "page") {
 +				if(this.appLauncherCfg.page == "default")
@@ -448,35 +535,57 @@
 +
 +	updateAppLauncher: function(init) {
 +		if(this.appLauncherCfg.header) {
-+			this.appMenuModel.items[1].items[1].label = "Hide Page Names";
-+			this.controller.get('page_header').style.display = "block";
-+			this.controller.get('page_name').style.display = "block";
++			this.appMenuModel.items[1].items[1].label = "Hide Page Header";
++
++			if(this.appLauncherCfg.visual == "tabs") {
++				this.appMenuModel.items[1].items[2].label = "Use Name For Pages";
++
++				this.controller.get('page_header').style.display = "none";
++				this.controller.get('page_name').style.display = "none";
++
++				this.viewMenuModel.visible = true;
++			}
++			else {
++				this.appMenuModel.items[1].items[2].label = "Use Tabs For Pages";
++
++				this.controller.get('page_header').style.display = "block";
++				this.controller.get('page_name').style.display = "block";
 +			
++				this.viewMenuModel.visible = false;
++			}
++
++			this.updatePageTabs();
 +			this.updatePageHeader();
++
++			this.controller.modelChanged(this.viewMenuModel, this);
 +		}
 +		else {
-+			this.appMenuModel.items[1].items[1].label = "Show Page Names";
++			this.appMenuModel.items[1].items[1].label = "Show Page Header";
++
 +			this.controller.get('page_header').style.display = "none";
 +			this.controller.get('page_name').style.display = "none";
++			
++			this.viewMenuModel.visible = false;
++			this.controller.modelChanged(this.viewMenuModel, this);
 +		}
 +
 +		if(this.appLauncherCfg.page != "default")
-+			this.appMenuModel.items[1].items[2].label = "Unset Default Page";
++			this.appMenuModel.items[1].items[3].label = "Unset Default Page";
 +		else 
-+			this.appMenuModel.items[1].items[2].label = "Set As Default Page";
++			this.appMenuModel.items[1].items[3].label = "Set As Default Page";
 +
 +		if(this.appLauncherCfg.reset)
-+			this.appMenuModel.items[1].items[3].label = "Disable Position Reset";
++			this.appMenuModel.items[1].items[4].label = "Disable Position Reset";
 +		else 
-+			this.appMenuModel.items[1].items[3].label = "Enable Position Reset";
++			this.appMenuModel.items[1].items[4].label = "Enable Position Reset";
 +
 +		if(this.appLauncherCfg.wrap) {
-+			this.appMenuModel.items[1].items[4].label = "Disable Page Wrapping";
++			this.appMenuModel.items[1].items[5].label = "Disable Page Wrapping";
 +			
 +			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
 +		}
 +		else {
-+			this.appMenuModel.items[1].items[4].label = "Enable Page Wrapping";
++			this.appMenuModel.items[1].items[5].label = "Enable Page Wrapping";
 +			
 +			Mojo.stopListening($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
 +		}
@@ -510,16 +619,64 @@
 +	},
 +
 +	updatePageHeader: function() {
-+		if(this.appLauncherCfg.header) {
++		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual != "tabs")) {
 +			var pageName = this.getPageName(this.activePageIndex);
 +			
 +			this.controller.get('page_name').update(pageName);
 +
++			this.controller.get('page_header').style.display = "block";
 +			this.controller.get('page_text').style.display = "none";
 +			this.controller.get('page_name').style.display = "block";
 +		}
 +	},
 +	
++	updatePageTabs: function() {
++		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs")) {
++			this.viewMenuModel.visible = true;
++
++			var tabs = [];
++			var size = 325 / this.pageDivs.length;
++			
++			if(this.pageDivs.length > 5) {
++				tabs.push({label: "#1", command: "selectpage1"});
++				tabs.push({label: "#2", command: "selectpage2"});
++				tabs.push({label: "Menu", command: "showpagemenu"});
++				tabs.push({label: "#3", command: "selectpage3"});
++				tabs.push({label: "#4", command: "selectpage4"});
++			}
++			else {
++				for(var i = 0; i < this.pageDivs.length; i++) {
++					tabs.push({label: "#" + (i + 1), command: "selectpage" + (i + 1), width: size});
++				}
++			}
++		
++			this.viewMenuModel.items.clear();
++			this.viewMenuModel.items.push({items: []}, {items: tabs}, {items: []});
++			this.controller.modelChanged(this.viewMenuModel);
++		}
++	},
++	
++	tabPageSelect: function(event, index) {
++		if((event.originalEvent.up) && ( event.originalEvent.up.altKey || event.originalEvent.up.metaKey )) {
++			if((this.pageDivs.length <= 5) || (index == undefined)) {		
++				var chooseCallback = this.selectPage.bind(this);
++
++				this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++			}
++			else if(index + 4 < this.pageDivs.length) {
++				this.changePage(index + 4, true);
++			}	
++		}
++		else {
++			var chooseCallback = this.jumpToPage.bind(this);
++		
++			if(index == undefined)
++				this.showPageMenus(false, null, chooseCallback);
++			else
++				this.changePage(index, true);
++		}
++	},
+ 		
 +	handleLauncherTap: function(event) {
 +		if((event.up) && ( event.up.altKey || event.up.metaKey )) {
 +			if(!this.appLauncherCfg.header)
@@ -554,6 +711,35 @@
 +		}
 +	},
 +	
++	startAppRename: function(appInfo) {
++		Mojo.stopListening($('page_header'), Mojo.Event.tap, this.headerTapHandler);
++
++		Mojo.listen($('page_text'), Mojo.Event.propertyChange, this.appRenameHandler);
++		
++		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs")) {
++			this.viewMenuModel.visible = false;
++			this.controller.modelChanged(this.viewMenuModel, this);
++		}
++
++		this.controller.get('page_header').style.display = "block";
++		this.controller.get('page_name').style.display = "none";
++		this.controller.get('page_text').style.display = "block";
++
++		if((this.appLauncherCfg.names) && (this.appLauncherCfg.names[appInfo.launchPointId] != undefined))
++			this.pageNameModel.value = this.appLauncherCfg.names[appInfo.launchPointId];
++		else
++			this.pageNameModel.value = appInfo.title;
++		
++		this.pageNameModel.id = appInfo.launchPointId;
++			
++		this.controller.modelChanged(this.pageNameModel);			
++				
++		var curPos = this.pageNameModel.value.length;
++			
++		this.controller.get('page_text').mojo.setCursorPosition(curPos, curPos);
++		this.controller.get('page_text').mojo.focus();
++	},
++	
 +	startPageRename: function(refresh) {
 +	 	this.globalSearchAssistant.enable(false);
 +	
@@ -563,9 +749,11 @@
 +		else {	
 +			this.renaming = true;
 +
++			Mojo.listen($('page_text'), Mojo.Event.propertyChange, this.pageRenameHandler);
++
 +			if(!refresh) {
-+				this.viewMenuModel.items[1].label = "Done";
-+				this.controller.modelChanged(this.viewMenuModel);
++				this.commandMenuModel.items[1].label = "Done";
++				this.controller.modelChanged(this.commandMenuModel);
 +
 +				this.pageNameModel.value = this.getPageName(this.activePageIndex);
 +				this.controller.modelChanged(this.pageNameModel);
@@ -581,9 +769,54 @@
 +		}
 +	},
 +	
++	handleAppRename: function(event) {
++		if((!event) || (Mojo.Char.isEnterKey(event.originalEvent.keyCode))) {
++			Mojo.listen($('page_header'), Mojo.Event.tap, this.headerTapHandler);
++
++			Mojo.stopListening($('page_text'), Mojo.Event.propertyChange, this.appRenameHandler);
++
++			this.controller.get('page_header').style.display = "none";
++			this.controller.get('page_text').style.display = "none";
++		
++			if(this.appLauncherCfg.header) {
++				if(this.appLauncherCfg.visual == "tabs") {
++					this.viewMenuModel.visible = true;
++					this.controller.modelChanged(this.viewMenuModel, this);
++				}
++				else {
++					this.controller.get('page_header').style.display = "block";
++					this.controller.get('page_name').style.display = "block";
++				}
++			}
++
++			var element = $(this.pageNameModel.id);
++
++			if (element) {
++				if(!this.appLauncherCfg.names) 
++					this.appLauncherCfg.names = {};
++			
++				this.appLauncherCfg.names[this.pageNameModel.id] = this.pageNameModel.value.escapeHTML();
++
++				var elm = element.down('.name');
++				
++				elm.innerHTML = this.pageNameModel.value;
++			}
++
++			this.globalSearchAssistant.enable(true);
++
++			if(this.setPreferencesRequest)
++				this.setPreferencesRequest.cancel();
++		
++			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++		}	
++	},
++	
 +	handlePageRename: function(event) {
 +		if((!event) || (Mojo.Char.isEnterKey(event.originalEvent.keyCode))) {
 +			this.renaming = false;
++
++			Mojo.stopListening($('page_text'), Mojo.Event.propertyChange, this.pageRenameHandler);
 +
 +			this.setPageName(this.activePageIndex, this.pageNameModel.value);
 +
@@ -592,8 +825,8 @@
 +
 +			this.selectPage(this.activePageIndex);
 +
-+			this.viewMenuModel.items[1].label = "Rename";
-+			this.controller.modelChanged(this.viewMenuModel);
++			this.commandMenuModel.items[1].label = "Rename";
++			this.controller.modelChanged(this.commandMenuModel);
 +
 +			if(this.setPreferencesRequest)
 +				this.setPreferencesRequest.cancel();
@@ -727,22 +960,24 @@
 +			
 +			if (scroller && scroller.mojo) { scroller.mojo.revealTop(); }
 +		}
-+
++		
 +		if(this.activePageIndex != index) {
 +			this.activePageIndex = index;
 +			
 +			if(this.appLauncherCfg.wrap)
 +				$('launcher_root').mojo.scrollTo((index) * -this.kPageWidth, undefined, false, true);
-+			else 
++			else {
 +				$('launcher_root').mojo.setSnapIndex(parseInt(index), animate);
++			}
 +		}
 +	},
 +
 +	showPageMenus: function(viewMenu, menuTitle, chooseCallback) {
-+		Mojo.stopListening($('page_header'), Mojo.Event.tap, this.headerTapHandler);
-+
 +		Mojo.stopListening($('launcher_root'), Mojo.Event.propertyChange, this.pageChangeHandler);
-+				
++
++		if(menuTitle)
++			Mojo.stopListening($('page_header'), Mojo.Event.tap, this.headerTapHandler);
++					
 +		this.globalSearchAssistant.enable(false);
 +
 +		var pageItems = [];
@@ -768,15 +1003,22 @@
 +			onChoose: chooseCallback
 +		});
 +
-+		if((viewMenu) || (this.appLauncherCfg.header)) {
-+			this.controller.get('page_header').style.display = "block";
++		if(menuTitle) {
++			if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs")) {
++				this.viewMenuModel.visible = false;
++				this.controller.modelChanged(this.viewMenuModel, this);
++			}
++		
++			if((viewMenu) || (this.appLauncherCfg.header)) {
++				this.controller.get('page_header').style.display = "block";
++			}
++
++			this.controller.get('page_text').style.display = "none";
++			this.controller.get('page_name').style.display = "block";
++
++			this.controller.get('page_name').update(menuTitle);
 +		}
-+
-+		this.controller.get('page_text').style.display = "none";
-+		this.controller.get('page_name').style.display = "block";
-+
-+		this.controller.get('page_name').update(menuTitle);
-+
++		
 +		if(this.quickLaunchCfg.mode == "visible") {
 +			SystemManagerService.showQuickLaunch(false);
 +			this.kQuickLaunchHeight = 0;
@@ -784,8 +1026,8 @@
 +		}
 +
 +		if(viewMenu) {
-+			this.viewMenuModel.visible = true;
-+			this.controller.modelChanged(this.viewMenuModel);
++			this.commandMenuModel.visible = true;
++			this.controller.modelChanged(this.commandMenuModel);
 +		}
 +	},
 +	
@@ -796,17 +1038,17 @@
 +
 +	 	this.globalSearchAssistant.enable(true);
 +
-+		if(!this.appLauncherCfg.header) {
-+			this.controller.get('page_header').style.display = "none";
-+			this.controller.get('page_name').style.display = "none";
-+		}
++		this.controller.get('page_header').style.display = "none";
++		this.controller.get('page_name').style.display = "none";
 +
 +		this.updatePageHeader();
++		this.updatePageTabs();
++
 +		this.updatePageIndicators();
 +		
-+		this.viewMenuModel.visible = false;
-+		this.controller.modelChanged(this.viewMenuModel);
- 		
++		this.commandMenuModel.visible = false;
++		this.controller.modelChanged(this.commandMenuModel);
++		
 +		if(this.quickLaunchCfg.mode == "visible") {
 +			SystemManagerService.showQuickLaunch(true);
 +			this.kQuickLaunchHeight = 67;
@@ -834,22 +1076,24 @@
 +		if(apps.length == 0)
 +			this.deletePage(this.activePageIndex);
 +		else {
-+		    this.controller.showAlertDialog({
++			this.controller.showAlertDialog({
 +				title: "Delete Launcher Page",
 +				message: "Are you sure that you want to delete the current launcher page?",
 +				choices:[
-+					{label:'Cancel', value:"cancel", type:'default'},
-+					{label:'Delete', value:"delete", type:'negative'}],
++					{label:'Delete', value:"delete", type:'negative'},
++					{label:'Cancel', value:"cancel", type:'default'}],
 +				preventCancel: false,
 +				allowHTMLMessage: false,
 +				onChoose: function(value) {
 +					if(value == "delete")
-+						this.deletePage(this.activePageIndex);
++					this.deletePage(this.activePageIndex);
 +
 +					var chooseCallback = this.selectPage.bind(this);
 +
 +					this.showPageMenus(true, "Edit Launcher Page:", chooseCallback);
 +				}.bind(this)});
++
++			SystemManagerService.showQuickLaunch(false);
 +		}
 +	},
 +
@@ -922,7 +1166,7 @@
  	},
  	
  	/* clean and hide global search */
-@@ -174,8 +808,19 @@
+@@ -174,8 +1031,19 @@
  		if (this.appDialog) {
  			this.appDialog.mojo.close();
  		}
@@ -943,7 +1187,7 @@
  		
  		this.launchRequest = undefined;
  	},
-@@ -202,12 +847,12 @@
+@@ -202,12 +1070,12 @@
  	
  	/* helper to consolidate all the places accessing these types of elements */
  	getAppContainer: function(pageIndex) {
@@ -958,7 +1202,7 @@
  		return this.pageDivs[pageIndex].down('.page_scroller');
  	},
  	
-@@ -255,15 +900,51 @@
+@@ -255,15 +1123,59 @@
  		
  		// tell our scroller widget that it has a new page element to snap
  		this.updatePageSnappingPoints();
@@ -988,12 +1232,20 @@
  			return false;
  		}
  		
-+		// snap to a valid location
-+		if (pageIndex >= this.pageDivs.length - 1)
-+			this.changePage(this.pageDivs.length - 2, true);
-+		else
-+			this.changePage(pageIndex, true);
++		// Weird problem in changePage / setsnapindex, no page change when index 0
 +
++		if(this.pageDivs.length == 2) {
++			this.activePageIndex = 0;
++			$('launcher_root').mojo.scrollTo(0, undefined, true, false);
++		}
++		else {
++			// snap to a valid location
++			if(pageIndex >= this.pageDivs.length - 1)
++				this.changePage(this.pageDivs.length - 2, true);
++			else
++				this.changePage(pageIndex, true);
++		}
++		
 +		if(this.appLauncherCfg.page != "default") {
 +			if(this.appLauncherCfg.page == pageIndex)
 +				this.setupAppLauncher(null, "page");
@@ -1010,7 +1262,7 @@
  		// move appDivs over to their new home
  		var apps = this.getAppContainer(pageIndex).select('.app');
  		var startIndex = apps.length;
-@@ -284,7 +965,7 @@
+@@ -284,7 +1196,7 @@
  		if (scroller) {
  			this.controller.setupWidget(scroller.id, undefined, undefined);
  		}
@@ -1019,7 +1271,7 @@
  		// remove the page div
  		this.pageDivs[pageIndex].remove();
  		this.pageDivs = $$('.launcher_page');
-@@ -294,17 +975,13 @@
+@@ -294,17 +1206,13 @@
  		for (var i=pageIndex; i<this.pageDivs.length; i++) {
  			this.pageDivs[i].style.left = (this.kPageWidth*i)+'px';
  		}
@@ -1041,7 +1293,54 @@
  		
  		this.updatePageSnappingPoints();
  	},
-@@ -514,6 +1191,10 @@
+@@ -348,6 +1256,15 @@
+ 			// stash the application's data in the element
+ 			newAppDiv._info = newAppInfo;
+ 
++			// set the application name if renamed
++			elm = newAppDiv.down('.name');
++
++			if((elm) && (this.appLauncherCfg.names) && 
++				(this.appLauncherCfg.names[newAppInfo.launchPointId] != undefined))
++			{
++				elm.innerHTML = this.appLauncherCfg.names[newAppInfo.launchPointId];
++			}			
++
+ 			this._updateBadge(newAppDiv, newAppInfo);
+ 		
+ 			/* adjust page position and height */
+@@ -435,21 +1352,27 @@
+ 		if (elm) {
+ 			var newTitle = "";
+ 			if (newAppInfo.update && newAppInfo.update.title) {
+-				newTitle = newAppInfo.update.title.escapeHTML();
++				if((this.appLauncherCfg.names) && (this.appLauncherCfg.names[newAppInfo.update.launchPointId] != undefined))
++					newTitle = this.appLauncherCfg.names[newAppInfo.update.launchPointId];
++				else
++					newTitle = newAppInfo.update.title.escapeHTML();
+ 				if (newTitle !== elm.innerHTML) {
+ 					Mojo.Log.info("Updating title of app div, old: %d | new: %d", elm.innerHTML, newTitle);
+ 					elm.innerHTML = newTitle;
+ 				}
+ 			}
+ 			else if (newAppInfo.title) {
+-				newTitle = newAppInfo.title.escapeHTML();
++				if((this.appLauncherCfg.names) && (this.appLauncherCfg.names[newAppInfo.launchPointId] != undefined))
++					newTitle = this.appLauncherCfg.names[newAppInfo.launchPointId];	
++				else		
++					newTitle = newAppInfo.title.escapeHTML();
+ 				if (elm.innerHTML !== newTitle) {
+ 					Mojo.Log.info("Updating title of app div, old: %d | new: %d", elm.innerHTML, newTitle);
+ 					elm.innerHTML = newTitle;
+ 				}
+ 			}
+ 		}
+-
++		
+ 		this._updateBadge(element, newAppInfo);
+ 	},
+ 
+@@ -514,6 +1437,10 @@
  		for (var i=offset, len = children.length; i<len; i++) {
  			var item = children[i];
  			var appPos = this.calculateAppPosition(i);
@@ -1052,7 +1351,7 @@
  			if (animate) {
  				LauncherAnimation.animateApp(item, appPos);
  			} else {
-@@ -577,17 +1258,35 @@
+@@ -577,17 +1504,54 @@
  				return;
  			}
  		}
@@ -1087,12 +1386,98 @@
 +															
 +															this.showPageMenus(false, "Move Application:", chooseCallback);
 +														}
++														else if(action == "hide") {
++															if(!this.appLauncherCfg.hidden)
++																this.appLauncherCfg.hidden = [];
++																
++															this.appLauncherCfg.hidden.push(appInfo.launchPointId);
++															
++															this.globalSearchAssistant.enable(true);
++															
++															this.deleteApp(appInfo.launchPointId, true);
++															
++															if(this.setPreferencesRequest)
++																this.setPreferencesRequest.cancel();
++
++															this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++																method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++														}
++														else if(action == "rename") {
++															this.startAppRename(appInfo);
++														}
 +														else
 +															this.globalSearchAssistant.enable(true);
 +													}.bind(this, appInfo));
  
  		this.appDialog = this.controller.showDialog({
  							template: 'launcher/dialogs/app-info',
+@@ -601,23 +1565,54 @@
+ 		this.globalSearchAssistant.enable(false);
+ 		
+ 		this.deleteAllPages();
+-		
++
++		var allApps = [];
++					
+ 		var location = {page: 0, position: 0};
+ 		for (var i=0, numPages=this.pagesModel.getNumPages(); i<numPages; i++) {
+ 			// create a new page
+ 			this.insertPage(i);
++
++			var skip = 0;
+ 			
+ 			// insert all the applications for this page into the page container
+ 			var page = this.pagesModel.getPage(i);
+ 			location.page = i;
+ 			for (var j=0; j<page.length; j++) {
+-				location.position = j;
+-				this.insertApp(location, this.pagesModel.getAppInfo(page[j]));
++				var appInfo = this.pagesModel.getAppInfo(page[j]);
++			
++				allApps.push(appInfo.launchPointId);
++			
++				if(this.appLauncherCfg.hidden) {
++					if(this.appLauncherCfg.hidden.indexOf(appInfo.launchPointId) != -1) {
++						skip++;
++						continue;
++					}
++				}
++			
++				location.position = j - skip;
++				this.insertApp(location, appInfo);
++			}
++		}
++
++		if(this.appLauncherCfg.names) {
++			for(var key in this.appLauncherCfg.names) {
++				if(allApps.indexOf(key) == -1)
++					delete this.appLauncherCfg.names[key];
+ 			}
+ 		}
+ 		
++		if(this.setPreferencesRequest)
++			this.setPreferencesRequest.cancel();
++	
++		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++		
+ 		this.globalSearchAssistant.enable(true);
+ 
++		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs"))
++			this.updatePageTabs();
++
+ 		PalmSystem.launcherReady();
+ 	},
+ 	
+@@ -720,7 +1715,7 @@
+ 	onAppTapped: function(event) {
+ 		var target = event.currentTarget;
+ 		var appInfo = target._info;
+-		if (event.up && event.up.altKey) {
++		if (event.up && event.up.altKey || event.up && event.up.metaKey) {
+ 			// open app-info dialog
+ 			this.showAppInfoMenu(appInfo);
+ 		} else if (!this.launchRequest) { // are we already trying to launch something?
 --- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
 +++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
 @@ -17,7 +17,11 @@
@@ -1110,47 +1495,72 @@
  		</div>
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
 +++ /usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
-@@ -7,7 +7,10 @@
+@@ -7,7 +7,12 @@
  		this.isDynamic = this.isDynamicLaunchPoint(this.appInfo);
  		this.closeCallback = closeCallback;
  
 -		this.onDone = this.onDone.bind(this);
 +		this.action = "";
 +
++		this.onRename = this.onDone.bind(this, "rename");
++		this.onHide = this.onDone.bind(this, "hide");
 +		this.onMove = this.onDone.bind(this, "move");
 +		this.onDone = this.onDone.bind(this, "done");
  	},
  	
  	setup: function(widget) {
-@@ -86,6 +89,7 @@
+@@ -86,7 +91,9 @@
  	
  	setupButtons: function() {
  		
+-		var doneModel = {buttonLabel: $L('Done')}
++		var renameModel = {buttonLabel: $L('Rename')}
++		var hideModel = {buttonLabel: $L('Hide')}
 +		var moveModel = {buttonLabel: $L('Move')}		
- 		var doneModel = {buttonLabel: $L('Done')}
  		
  		if (this.appInfo.removable) {
-@@ -100,6 +104,9 @@
+ 			
+@@ -97,19 +104,33 @@
+ 				disabled: false
+ 			};
+ 			
++			if(this.isDynamic) 
++				this.sceneController.get('hide-btn').hide();
++			
  			this.sceneController.setupWidget('delete-btn', {type: Mojo.Widget.activityButton}, this.deleteModel);
  			this.sceneController.listen('delete-btn', Mojo.Event.tap, this.onDelete.bindAsEventListener(this));
  			this.sceneController.get('delete-btn').show();
+-			
+-			// done button
+-			doneModel.buttonClass = 'dismiss';
+-			
++
++			// rename button
++			renameModel.buttonClass = 'dismiss';
++
++			// hide button
++			hideModel.buttonClass = 'dismiss';
 +
 +			// mode button
 +			moveModel.buttonClass = 'dismiss';
- 			
- 			// done button
- 			doneModel.buttonClass = 'dismiss';
-@@ -108,6 +115,9 @@
+ 		} else {
  			this.sceneController.get('delete-btn').hide();
  		}
++
++		this.sceneController.setupWidget('rename-btn', undefined, renameModel);
++		this.sceneController.listen('rename-btn', Mojo.Event.tap, this.onRename);
++
++		this.sceneController.setupWidget('hide-btn', undefined, hideModel);
++		this.sceneController.listen('hide-btn', Mojo.Event.tap, this.onHide);
  		
+-		this.sceneController.setupWidget('done-btn', undefined, doneModel);
+-		this.sceneController.listen('done-btn', Mojo.Event.tap, this.onDone);
 +		this.sceneController.setupWidget('move-btn', undefined, moveModel);
 +		this.sceneController.listen('move-btn', Mojo.Event.tap, this.onMove);
-+
- 		this.sceneController.setupWidget('done-btn', undefined, doneModel);
- 		this.sceneController.listen('done-btn', Mojo.Event.tap, this.onDone);
  	},
-@@ -136,7 +146,9 @@
+ 
+ 	isDynamicLaunchPoint: function(appInfo) {
+@@ -136,7 +157,9 @@
  		}
  	},
  
@@ -1161,7 +1571,7 @@
  		var deleteBtn = this.sceneController.get('delete-btn');
  		if (deleteBtn && deleteBtn.mojo && deleteBtn.mojo.deactivate) {
  			deleteBtn.mojo.deactivate();
-@@ -163,6 +175,6 @@
+@@ -163,6 +186,6 @@
  			this.appSizeRequest.cancel();
  			this.appSizeRequest = undefined;
  		}
@@ -1171,12 +1581,14 @@
  });
 --- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
 +++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/dialogs/app-info.html
-@@ -9,5 +9,6 @@
+@@ -9,5 +9,7 @@
  <div class="palm-dialog-separator"></div>
  <div class="palm-dialog-buttons">
  	<div id='delete-btn' x-mojo-element="Button"></div>	
+-	<div id='done-btn' x-mojo-element="Button"></div>
++	<div id='rename-btn' x-mojo-element="Button"></div>
++	<div id='hide-btn' x-mojo-element="Button"></div>
 +	<div id='move-btn' x-mojo-element="Button"></div>
- 	<div id='done-btn' x-mojo-element="Button"></div>
  </div>
 --- .orig/usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
 +++ /usr/lib/luna/system/luna-applauncher/app/models/launcher-pages.js
@@ -1292,3 +1704,79 @@
 +	z-index: 10;
 +}
 +
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/app/controllers/app-info-assistant.js
++++ /usr/palm/applications/com.palm.app.deviceinfo/app/controllers/app-info-assistant.js
+@@ -69,22 +69,55 @@
+ 			this.controller.setupWidget('delete-btn', deleteAttrs, deleteModel);
+ 			this.controller.listen('delete-btn', Mojo.Event.tap, this.onDelete.bindAsEventListener(this));	
+ 			this.controller.get('delete-btn').show();
+-			// done button is light
+-			var doneModel = {
+-				buttonLabel: $L('Done'),
++			// show button is light
++			var showModel = {
++				buttonLabel: $L('Show'),
+ 				buttonClass: 'dismiss'
+ 			};
+ 		} else {
+ 			// hide 
+ 			this.controller.get('delete-btn').hide();
+ 			// done button is dark by default
+-			var doneModel = {
+-				buttonLabel: $L('Done')
++			var showModel = {
++				buttonLabel: $L('Show')
+ 			};
+ 		}	
+ 
+-		this.controller.setupWidget('done-btn', undefined, doneModel);
+-		this.controller.listen('done-btn', Mojo.Event.tap, this.close.bindAsEventListener(this));
++		this.controller.get('show-btn').hide();
++
++		this.controller.setupWidget('show-btn', undefined, showModel);
++		this.controller.listen('show-btn', Mojo.Event.tap, this.onShow.bindAsEventListener(this));
++		
++		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'getPreferences', parameters: {subscribe: false, keys: ['appLauncherCfg']},
++			onSuccess: this.handlePreferences.bind(this) });
++	},
++
++	handlePreferences: function(payload) {
++		if(payload != undefined) {
++			if(payload.appLauncherCfg != undefined) {
++				this.appLauncherCfg = payload.appLauncherCfg;
++			
++				if(payload.appLauncherCfg.hidden) {
++					if(payload.appLauncherCfg.hidden.indexOf(this.app.launchPointId) != -1)
++						this.controller.get('show-btn').show();
++				}
++			}
++		}
++	},
++	
++	onShow: function() {
++		var index = this.appLauncherCfg.hidden.indexOf(this.app.launchPointId);
++		
++		this.appLauncherCfg.hidden.splice(index, 1);
++		
++		if(this.setPreferencesRequest)
++			this.setPreferencesRequest.cancel();
++	
++		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++			method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });		
++	
++		this.close();
+ 	},
+ 	
+ 	onDelete: function() {
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/app/views/more/dialogs/app-info.html
++++ /usr/palm/applications/com.palm.app.deviceinfo/app/views/more/dialogs/app-info.html
+@@ -9,5 +9,5 @@
+ <div class="palm-dialog-separator"></div>
+ <div class="palm-dialog-buttons">
+ 	<div id='delete-btn' x-mojo-element="Button"></div>	
+-	<div id='done-btn' x-mojo-element="Button"></div>
+-</div>
+\ No newline at end of file
++	<div id='show-btn' x-mojo-element="Button"></div>
++</div>
