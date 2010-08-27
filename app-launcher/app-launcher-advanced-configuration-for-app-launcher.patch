@@ -1,6 +1,6 @@
 --- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
 +++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-@@ -33,6 +33,16 @@
+@@ -33,6 +33,20 @@
  		
  		this.getBuildName();
  						
@@ -8,16 +8,30 @@
 +		this.quickLaunchCfg = null;
 +
 +		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
-+			method: 'getPreferences', parameters: {"keys":["quickLaunchCfg"],"subscribe": true},
++			method: 'getPreferences', parameters: {"keys":["appLauncherCfg", "quickLaunchCfg"],"subscribe": true},
 +			onSuccess: function(payload) {
-+				if((payload != undefined) && (payload.quickLaunchCfg != undefined))
-+					this.quickLaunchCfg = payload.quickLaunchCfg;
-+				}.bind(this) });
++				if(payload != undefined) {
++					if(payload.appLauncherCfg != undefined)
++						this.appLauncherCfg = payload.appLauncherCfg;
++					if(payload.quickLaunchCfg != undefined)
++						this.quickLaunchCfg = payload.quickLaunchCfg;
++				}
++			}.bind(this) });
 +		
  		// Initialize the Battery Power Nofication and get the initial value
  		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
  		
-@@ -316,6 +326,11 @@
+@@ -294,6 +308,9 @@
+ 	this.phoneIsForeground = false;
+ 	this.updateIsForeground = false;
+ 	
++	if((this.appLauncherCfg.names) && (this.appLauncherCfg.names[payload.id + "_default"] != undefined))
++		payload.appmenu = this.appLauncherCfg.names[payload.id + "_default"].replace("<br>", " ");
++	
+ 	if (payload.title) {
+ 		$('carrier').hide();
+ 		if (payload.id == "com.palm.app.phone" || payload.id == "com.palm.app.firstuse"){ 
+@@ -316,6 +333,11 @@
  		$('carrier').show();
  		this.foregroundAppID=null;
  	}
@@ -296,7 +310,7 @@
 +
 +		this.launcherTapHandler = this.handleLauncherTap.bindAsEventListener(this);
 +		Mojo.listen($('launcher_root'), Mojo.Event.tap, this.launcherTapHandler);
-+
++		
 +		this.headerTapHandler = this.handleHeaderTap.bindAsEventListener(this);
 +		Mojo.listen($('page_header'), Mojo.Event.tap, this.headerTapHandler);
 +		
@@ -415,12 +429,12 @@
 +	
 +			var chooseCallback = this.jumpToPage.bind(this);
 +
-+			this.showPageMenus(false, "Jump to Page:", chooseCallback);
++			this.showPageMenus(false, $L("Jump to Page:"), chooseCallback);
 +		}			
  		else if (event.type === Mojo.Event.commandEnable) {
  			switch (event.command) {
  				case Mojo.Menu.copyCmd:
-@@ -157,11 +282,743 @@
+@@ -157,11 +282,763 @@
  			}
  		}
  	},
@@ -471,13 +485,19 @@
 +				}
 +			}
 +		}
++		
++		for(var i = 0; i < this.appLauncherCfg.hidden.length; i++) {
++			if(oldHidden.indexOf(this.appLauncherCfg.hidden[i]) == -1) {
++				this.deleteApp(this.appLauncherCfg.hidden[i], true);
++			}
++		}
 +	},
 +	
 +	setupAppLauncher: function(event, option) {
 +		if(option == "edit") {
 +			var chooseCallback = this.selectPage.bind(this);
 +		
-+			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++			this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +		}
 +		else {
 +			if(option == "header") {
@@ -652,26 +672,40 @@
 +		
 +			this.viewMenuModel.items.clear();
 +			this.viewMenuModel.items.push({items: []}, {items: tabs}, {items: []});
++			
++			this.viewMenuModel.items[1].toggleCmd = 'selectpage' + (parseInt(this.activePageIndex) + 1);
++
 +			this.controller.modelChanged(this.viewMenuModel);
 +		}
 +	},
 +	
 +	tabPageSelect: function(event, index) {
++		if(index != undefined)
++			this.viewMenuModel.items[1].toggleCmd = 'selectpage' + index;
++		else
++			this.viewMenuModel.items[1].toggleCmd = 'selectpagemenu';
++	
 +		if((event.originalEvent.up) && ( event.originalEvent.up.altKey || event.originalEvent.up.metaKey )) {
 +			if((this.pageDivs.length <= 5) || (index == undefined)) {		
 +				var chooseCallback = this.selectPage.bind(this);
 +
-+				this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++				this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +			}
 +			else if(index + 4 < this.pageDivs.length) {
 +				this.changePage(index + 4, true);
 +			}	
 +		}
 +		else {
-+			var chooseCallback = this.jumpToPage.bind(this);
-+		
-+			if(index == undefined)
++			if(index == undefined) {
++				var chooseCallback = this.jumpToPage.bind(this);
++
++				for(var i = 0; i < this.viewMenuModel.items[1].items.length; i++)
++					this.viewMenuModel.items[1].items[i].disabled = true;
++					
++				this.controller.modelChanged(this.viewMenuModel, this);
++			
 +				this.showPageMenus(false, null, chooseCallback);
++			}
 +			else
 +				this.changePage(index, true);
 +		}
@@ -684,7 +718,7 @@
 +	
 +			var chooseCallback = this.selectPage.bind(this);
 +
-+			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++			this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +		}
 +		else {
 +			if(event.count == 2) {
@@ -693,7 +727,7 @@
 +	
 +				var chooseCallback = this.jumpToPage.bind(this);
 +
-+				this.showPageMenus(false, "Jump to Page:", chooseCallback);
++				this.showPageMenus(false, $L("Jump to Page:"), chooseCallback);
 +			}
 +		}
 +	},
@@ -702,12 +736,12 @@
 +		if((event.up) && ( event.up.altKey || event.up.metaKey )) {
 +			var chooseCallback = this.selectPage.bind(this);
 +
-+			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++			this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +		}
 +		else {
 +			var chooseCallback = this.jumpToPage.bind(this);
 +
-+			this.showPageMenus(false, "Jump to Page:", chooseCallback);
++			this.showPageMenus(false, $L("Jump to Page:"), chooseCallback);
 +		}
 +	},
 +	
@@ -795,7 +829,7 @@
 +				if(!this.appLauncherCfg.names) 
 +					this.appLauncherCfg.names = {};
 +			
-+				this.appLauncherCfg.names[this.pageNameModel.id] = this.pageNameModel.value.escapeHTML();
++				this.appLauncherCfg.names[this.pageNameModel.id] = this.pageNameModel.value;
 +
 +				var elm = element.down('.name');
 +				
@@ -848,7 +882,7 @@
 +
 +				var chooseCallback = this.selectPage.bind(this);
 +			
-+				this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++				this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +			}
 +			else
 +				setTimeout(this.hideSymbolMenu.bind(this), 5);
@@ -858,7 +892,7 @@
 +	hideSymbolMenu: function() {
 +		var chooseCallback = this.selectPage.bind(this);
 +		
-+		this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++		this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +
 +		if(this.renaming)
 +			this.startPageRename(true);
@@ -963,7 +997,7 @@
 +		
 +		if(this.activePageIndex != index) {
 +			this.activePageIndex = index;
-+			
++
 +			if(this.appLauncherCfg.wrap)
 +				$('launcher_root').mojo.scrollTo((index) * -this.kPageWidth, undefined, false, true);
 +			else {
@@ -1090,7 +1124,7 @@
 +
 +					var chooseCallback = this.selectPage.bind(this);
 +
-+					this.showPageMenus(true, "Edit Launcher Page:", chooseCallback);
++					this.showPageMenus(true, $L("Edit Launcher Page:"), chooseCallback);
 +				}.bind(this)});
 +
 +			SystemManagerService.showQuickLaunch(false);
@@ -1166,7 +1200,7 @@
  	},
  	
  	/* clean and hide global search */
-@@ -174,8 +1031,19 @@
+@@ -174,8 +1051,19 @@
  		if (this.appDialog) {
  			this.appDialog.mojo.close();
  		}
@@ -1187,7 +1221,7 @@
  		
  		this.launchRequest = undefined;
  	},
-@@ -202,12 +1070,12 @@
+@@ -202,12 +1090,12 @@
  	
  	/* helper to consolidate all the places accessing these types of elements */
  	getAppContainer: function(pageIndex) {
@@ -1202,7 +1236,7 @@
  		return this.pageDivs[pageIndex].down('.page_scroller');
  	},
  	
-@@ -255,15 +1123,59 @@
+@@ -255,15 +1143,59 @@
  		
  		// tell our scroller widget that it has a new page element to snap
  		this.updatePageSnappingPoints();
@@ -1214,7 +1248,7 @@
 +			
 +			var chooseCallback = this.selectPage.bind(this);
 +
-+			this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++			this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +			
 +			if(this.setPreferencesRequest)
 +				this.setPreferencesRequest.cancel();
@@ -1262,7 +1296,7 @@
  		// move appDivs over to their new home
  		var apps = this.getAppContainer(pageIndex).select('.app');
  		var startIndex = apps.length;
-@@ -284,7 +1196,7 @@
+@@ -284,7 +1216,7 @@
  		if (scroller) {
  			this.controller.setupWidget(scroller.id, undefined, undefined);
  		}
@@ -1271,7 +1305,7 @@
  		// remove the page div
  		this.pageDivs[pageIndex].remove();
  		this.pageDivs = $$('.launcher_page');
-@@ -294,17 +1206,13 @@
+@@ -294,17 +1226,13 @@
  		for (var i=pageIndex; i<this.pageDivs.length; i++) {
  			this.pageDivs[i].style.left = (this.kPageWidth*i)+'px';
  		}
@@ -1289,11 +1323,11 @@
 -		}
 +		var chooseCallback = this.selectPage.bind(this);
 +
-+		this.showPageMenus(true, "Edit Launcher Pages:", chooseCallback);
++		this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
  		
  		this.updatePageSnappingPoints();
  	},
-@@ -348,6 +1256,15 @@
+@@ -348,6 +1276,15 @@
  			// stash the application's data in the element
  			newAppDiv._info = newAppInfo;
  
@@ -1309,7 +1343,7 @@
  			this._updateBadge(newAppDiv, newAppInfo);
  		
  			/* adjust page position and height */
-@@ -435,21 +1352,27 @@
+@@ -435,21 +1372,27 @@
  		if (elm) {
  			var newTitle = "";
  			if (newAppInfo.update && newAppInfo.update.title) {
@@ -1340,7 +1374,7 @@
  		this._updateBadge(element, newAppInfo);
  	},
  
-@@ -514,6 +1437,10 @@
+@@ -514,6 +1457,10 @@
  		for (var i=offset, len = children.length; i<len; i++) {
  			var item = children[i];
  			var appPos = this.calculateAppPosition(i);
@@ -1351,7 +1385,7 @@
  			if (animate) {
  				LauncherAnimation.animateApp(item, appPos);
  			} else {
-@@ -577,17 +1504,54 @@
+@@ -577,17 +1524,54 @@
  				return;
  			}
  		}
@@ -1411,7 +1445,7 @@
  
  		this.appDialog = this.controller.showDialog({
  							template: 'launcher/dialogs/app-info',
-@@ -601,23 +1565,54 @@
+@@ -601,23 +1585,54 @@
  		this.globalSearchAssistant.enable(false);
  		
  		this.deleteAllPages();
@@ -1469,7 +1503,7 @@
  		PalmSystem.launcherReady();
  	},
  	
-@@ -720,7 +1715,7 @@
+@@ -720,7 +1735,7 @@
  	onAppTapped: function(event) {
  		var target = event.currentTarget;
  		var appInfo = target._info;
@@ -1704,9 +1738,140 @@
 +	z-index: 10;
 +}
 +
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/app/controllers/more-assistant.js
++++ /usr/palm/applications/com.palm.app.deviceinfo/app/controllers/more-assistant.js
+@@ -93,14 +93,14 @@
+             itemTemplate: 'more/palmapp-item',
+ 			listTemplate: 'more/listcontainer'
+         }, this.palmAppModel);
+-		Mojo.Event.listen(this.palmApplicationListWidget, Mojo.Event.listTap, this.otherSelectionHandler.bind(this));
++		Mojo.Event.listen(this.palmApplicationListWidget, Mojo.Event.listTap, this.otherSelectionHandler.bind(this, "palmApplicationList"));
+ 		
+ 		this.otherApplicationListWidget = this.controller.get('otherApplicationList');
+         this.controller.setupWidget('otherApplicationList', {
+             itemTemplate: 'more/otherapp-item',
+ 			listTemplate: 'more/listcontainer'
+         }, this.otherAppModel);
+-		Mojo.Event.listen(this.otherApplicationListWidget, Mojo.Event.listTap, this.otherSelectionHandler.bind(this));
++		Mojo.Event.listen(this.otherApplicationListWidget, Mojo.Event.listTap, this.otherSelectionHandler.bind(this, "otherApplicationList"));
+ 
+         this.controller.setupWidget('phoneList', {
+             itemTemplate: 'list/item',
+@@ -148,11 +148,25 @@
+ 		
+ 		this.btPanChange = AppAssistant.telephonyService.getBtPanRouteStatus(this.btPanChangeCallback.bind(this), this.controller);
+ 		
+-		this.appManagerQuery = AppAssistant.appManagerService.listLaunchPoints(this.takeApps.bind(this), this.controller);
+-		
+ 		this._subscribeToAppChanges();
++		
++		this.appLauncherCfg = null;
++		
++		this.getPreferencesRequest = this.controller.serviceRequest('palm://com.palm.systemservice/', {
++			method: 'getPreferences', parameters: {subscribe: false, keys: ['appLauncherCfg']},
++			onSuccess: this.handlePreferences.bind(this) });
+     },
+ 
++	handlePreferences: function(payload) {
++		if(payload != undefined) {
++			if(payload.appLauncherCfg != undefined) {
++				this.appLauncherCfg = payload.appLauncherCfg;
++			}
++		}
++
++		this.appManagerQuery = AppAssistant.appManagerService.listLaunchPoints(this.takeApps.bind(this), this.controller);
++	},
++
+ 	btPanChangeCallback: function(response) {
+ 		Mojo.Log.info("btPanChangeCallback ", Object.toJSON(response));
+ 		var route = this.btRouteUp;
+@@ -170,19 +184,28 @@
+ 		}
+ 	},
+ 	
+-	otherSelectionHandler: function(event) {
++	otherSelectionHandler: function(element, event) {
+ 		var item = event.item;
+ 		Mojo.Log.info("listSelectionHandler item: " + Object.toJSON(item));
++
++		var hidden = false;
++		
++		if((this.appLauncherCfg) && (this.appLauncherCfg.hidden)) {
++			if(this.appLauncherCfg.hidden.indexOf(item.launchPointId) != -1)
++				hidden = true;
++		}
++		
++		var cb = this.controller.get(element).mojo.noticeUpdatedItems.bind(this, 0, event.model.items);
++		
+ 		this.controller.showDialog({
+ 			template: 'more/dialogs/app-info',
+-			assistant: new AppInfoAssistant(this, item),
++			assistant: new AppInfoAssistant(this, item, hidden, cb),
+ 			icon: item.icon,
+ 			title: item.title,
+ 			version: item.version,
+ 			vendor: item.vendor,
+ 			vendorUrl: item.vendorUrl
+ 		});
+-
+ 	},
+ 	
+ 	handleCommand: function(event) {
+@@ -292,6 +315,17 @@
+ 	},
+ 	
+ 	insertItem: function(item, model, widget) {
++		item.color = "black";
++		
++		if((this.appLauncherCfg) && (this.appLauncherCfg.hidden)) {
++			if(this.appLauncherCfg.hidden.indexOf(item.launchPointId) != -1)
++				item.color = "gray";
++		}
++
++		if((this.appLauncherCfg) && (this.appLauncherCfg.names)) {
++			if(this.appLauncherCfg.names[item.launchPointId] != undefined)
++				item.title = this.appLauncherCfg.names[item.launchPointId].replace("<br>", " ");
++		}
+ 		
+ 		var inserted = false;
+ 		$A(model.items).each(function(a, index) {
+@@ -407,6 +441,21 @@
+ 		
+ //		this.allApps = payload.apps;
+ 		this.allApps = payload.launchPoints;
++		
++		this.allApps.each(function(item, index){
++			item.color = "black";
++
++			if((this.appLauncherCfg) && (this.appLauncherCfg.hidden)) {
++				if(this.appLauncherCfg.hidden.indexOf(item.launchPointId) != -1)
++					item.color = "gray";
++			}
++
++			if((this.appLauncherCfg) && (this.appLauncherCfg.names)) {
++				if(this.appLauncherCfg.names[item.launchPointId] != undefined)
++					item.title = this.appLauncherCfg.names[item.launchPointId].replace("<br>", " ");
++			}
++		}.bind(this));
++		
+ 		this.allApps.sort(this.sortFunction);
+ 		
+ 		$A(this.palmAppModel.items).clear();
 --- .orig/usr/palm/applications/com.palm.app.deviceinfo/app/controllers/app-info-assistant.js
 +++ /usr/palm/applications/com.palm.app.deviceinfo/app/controllers/app-info-assistant.js
-@@ -69,22 +69,55 @@
+@@ -1,8 +1,10 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+ var AppInfoAssistant = Class.create({
+-	initialize: function(sceneAssistant, app) {
++	initialize: function(sceneAssistant, app, hidden, refresh) {
+ 		this.app = app;
++		this.hidden = hidden;
++		this.refresh = refresh;
+ 		this.sceneAssistant = sceneAssistant;
+ 		this.controller = this.sceneAssistant.controller;
+ 	},
+@@ -69,22 +71,74 @@
  			this.controller.setupWidget('delete-btn', deleteAttrs, deleteModel);
  			this.controller.listen('delete-btn', Mojo.Event.tap, this.onDelete.bindAsEventListener(this));	
  			this.controller.get('delete-btn').show();
@@ -1716,6 +1881,11 @@
 +			// show button is light
 +			var showModel = {
 +				buttonLabel: $L('Show'),
++				buttonClass: 'dismiss'
++			};
++			// hide button is light
++			var hideModel = {
++				buttonLabel: $L('Hide'),
  				buttonClass: 'dismiss'
  			};
  		} else {
@@ -1726,52 +1896,66 @@
 -				buttonLabel: $L('Done')
 +			var showModel = {
 +				buttonLabel: $L('Show')
++			};
++			var hideModel = {
++				buttonLabel: $L('Hide')
  			};
  		}	
  
 -		this.controller.setupWidget('done-btn', undefined, doneModel);
 -		this.controller.listen('done-btn', Mojo.Event.tap, this.close.bindAsEventListener(this));
-+		this.controller.get('show-btn').hide();
-+
++		if(this.hidden)
++			this.controller.get('hide-btn').hide();
++		else
++			this.controller.get('show-btn').hide();
++		
 +		this.controller.setupWidget('show-btn', undefined, showModel);
 +		this.controller.listen('show-btn', Mojo.Event.tap, this.onShow.bindAsEventListener(this));
-+		
-+		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+			method: 'getPreferences', parameters: {subscribe: false, keys: ['appLauncherCfg']},
-+			onSuccess: this.handlePreferences.bind(this) });
-+	},
-+
-+	handlePreferences: function(payload) {
-+		if(payload != undefined) {
-+			if(payload.appLauncherCfg != undefined) {
-+				this.appLauncherCfg = payload.appLauncherCfg;
-+			
-+				if(payload.appLauncherCfg.hidden) {
-+					if(payload.appLauncherCfg.hidden.indexOf(this.app.launchPointId) != -1)
-+						this.controller.get('show-btn').show();
-+				}
-+			}
-+		}
++	
++		this.controller.setupWidget('hide-btn', undefined, hideModel);
++		this.controller.listen('hide-btn', Mojo.Event.tap, this.onHide.bindAsEventListener(this));
 +	},
 +	
 +	onShow: function() {
-+		var index = this.appLauncherCfg.hidden.indexOf(this.app.launchPointId);
++		if(this.sceneAssistant.appLauncherCfg) {
++			this.app.color = "black";
++			this.refresh();
++
++			var index = this.sceneAssistant.appLauncherCfg.hidden.indexOf(this.app.launchPointId);
 +		
-+		this.appLauncherCfg.hidden.splice(index, 1);
++			this.sceneAssistant.appLauncherCfg.hidden.splice(index, 1);
 +		
-+		if(this.setPreferencesRequest)
-+			this.setPreferencesRequest.cancel();
++			if(this.setPreferencesRequest)
++				this.setPreferencesRequest.cancel();
 +	
-+		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+			method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });		
++			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'setPreferences', parameters: {'appLauncherCfg': this.sceneAssistant.appLauncherCfg} });		
++		}
 +	
++		this.close();
++	},
++
++	onHide: function() {
++		if(this.sceneAssistant.appLauncherCfg) {
++			this.app.color = "gray";
++			this.refresh();
++		
++			this.sceneAssistant.appLauncherCfg.hidden.push(this.app.launchPointId);
++		
++			if(this.setPreferencesRequest)
++				this.setPreferencesRequest.cancel();
++	
++			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'setPreferences', parameters: {'appLauncherCfg': this.sceneAssistant.appLauncherCfg} });		
++		}
++		
 +		this.close();
  	},
  	
  	onDelete: function() {
 --- .orig/usr/palm/applications/com.palm.app.deviceinfo/app/views/more/dialogs/app-info.html
 +++ /usr/palm/applications/com.palm.app.deviceinfo/app/views/more/dialogs/app-info.html
-@@ -9,5 +9,5 @@
+@@ -9,5 +9,6 @@
  <div class="palm-dialog-separator"></div>
  <div class="palm-dialog-buttons">
  	<div id='delete-btn' x-mojo-element="Button"></div>	
@@ -1779,4 +1963,253 @@
 -</div>
 \ No newline at end of file
 +	<div id='show-btn' x-mojo-element="Button"></div>
++	<div id='hide-btn' x-mojo-element="Button"></div>
 +</div>
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/app/views/more/otherapp-item.html
++++ /usr/palm/applications/com.palm.app.deviceinfo/app/views/more/otherapp-item.html
+@@ -2,8 +2,8 @@
+ 	<div class="palm-row-wrapper">
+ 		<table>
+ 			<tr>
+-				<td class="title">#{title}</td>
+-				<td class="title right" x-mojo-loc="">v#{version}</td>
++				<td class="title" style="color:#{color};">#{title}</td>
++				<td class="title right" style="color:#{color};" x-mojo-loc="">v#{version}</td>
+ 			</tr>
+ 		</table>
+ 	</div>
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/app/views/more/palmapp-item.html
++++ /usr/palm/applications/com.palm.app.deviceinfo/app/views/more/palmapp-item.html
+@@ -2,8 +2,8 @@
+ 	<div class="palm-row-wrapper"> 
+ 		<table>
+ 			<tr>
+-				<td class="title">#{title}</td>
+-				<td class="title right" x-mojo-loc="">v#{version}</td>
++				<td class="title" style="color:#{color};">#{title}</td>
++				<td class="title right" style="color:#{color};" x-mojo-loc="">v#{version}</td>
+ 			</tr>
+ 		</table>
+ 	</div>
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/resources/de_de/strings.json
++++ /usr/palm/applications/com.palm.app.deviceinfo/resources/de_de/strings.json
+@@ -54,6 +54,8 @@
+ 	"Decrease the volume 3 times.": "Verringern Sie die Lautstärke drei Mal.",
+ 	"Default Applications": "Standardanwendungen",
+ 	"Delete": "Löschen",
++	"Show": "",
++	"Hide": "",
+ 	"Device": "Gerät",
+ 	"Device Info": "Geräteinfos",
+ 	"Did the phone vibrate?": "Hat das Telefon vibriert?",
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/resources/es_es/strings.json
++++ /usr/palm/applications/com.palm.app.deviceinfo/resources/es_es/strings.json
+@@ -56,6 +56,8 @@
+ 	"Decrease the volume 3 times.": "Baja el volumen 3 veces.",
+ 	"Default Applications": "Aplicaciones predeterminadas",
+ 	"Delete": "Eliminar",
++	"Show": "",
++	"Hide": "",
+ 	"Device": "Dispositivo",
+ 	"Device Info": "Información del dispositivo",
+ 	"Did the phone vibrate?": "¿Vibró el teléfono?",
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/resources/es_us/strings.json
++++ /usr/palm/applications/com.palm.app.deviceinfo/resources/es_us/strings.json
+@@ -63,6 +63,8 @@
+ 	"Decrease the volume 3 times.": "Baja el volumen 3 veces.",
+ 	"Default Applications": "Aplicaciones predeterminadas",
+ 	"Delete": "Eliminar",
++	"Show": "",
++	"Hide": "",
+ 	"Device": "Dispositivo",
+ 	"Device Info": "Información del dispositivo",
+ 	"Did the phone vibrate?": "¿Vibró el teléfono?",
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/resources/fr_ca/strings.json
++++ /usr/palm/applications/com.palm.app.deviceinfo/resources/fr_ca/strings.json
+@@ -52,6 +52,8 @@
+ 	"Decrease the volume 3 times.": "Baissez le volume à trois reprises.",
+ 	"Default Applications": "Applications par défaut",
+ 	"Delete": "Supprimer",
++	"Show": "",
++	"Hide": "",
+ 	"Device": "Appareil",
+ 	"Device Info": "Info d'appareil",
+ 	"Did the phone vibrate?": "Le téléphone a-t-il vibré?",
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/resources/fr_fr/strings.json
++++ /usr/palm/applications/com.palm.app.deviceinfo/resources/fr_fr/strings.json
+@@ -52,6 +52,8 @@
+ 	"Decrease the volume 3 times.": "Baissez le volume à trois reprises.",
+ 	"Default Applications": "Applications par défaut",
+ 	"Delete": "Supprimer",
++	"Show": "",
++	"Hide": "",
+ 	"Device": "Appareil",
+ 	"Device Info": "Infos appareil",
+ 	"Did the phone vibrate?": "Le téléphone a-t-il vibré ?",
+--- .orig/usr/palm/applications/com.palm.app.deviceinfo/resources/it_it/strings.json
++++ /usr/palm/applications/com.palm.app.deviceinfo/resources/it_it/strings.json
+@@ -54,6 +54,8 @@
+ 	"Decrease the volume 3 times.": "Abbassare il volume 3 volte.",
+ 	"Default Applications": "Applicazioni predefinite",
+ 	"Delete": "Elimina",
++	"Show": "",
++	"Hide": "",
+ 	"Device": "Dispositivo",
+ 	"Device Info": "Informazioni sul dispositivo",
+ 	"Did the phone vibrate?": "Il telefono ha vibrato?",
+--- .orig/usr/lib/luna/system/luna-applauncher/resources/de_de/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/de_de/strings.json
+@@ -1,4 +1,23 @@
+ {
++	"App Launcher": "",
++	"Enter Edit Mode": "",
++	"Show Page Header": "",
++	"Use Tabs for Pages": "",
++	"Set As Default Page": "",
++	"Enable Position Reset": "",
++	"Enable Page Wrapping": "",
++	"Quick Launch Bar": "",
++	"Always Visible": "",
++	"Always Hidden": "",
++	"Hide in Launcher": "",
++	"List All Applications": "",
++	"Default Applications": "",
++	"Rename": "",
++	"Jump to Page:": "",
++	"Edit Launcher Pages:": "",
++	"Rename": "",
++	"Hide": "",
++	"Move": "",
+ 	"About": "Über",
+ 	"Add": "Hinzufügen",
+ 	"Add Reminder...": "Erinnerung hinzufügen…",
+--- .orig/usr/lib/luna/system/luna-applauncher/resources/es_es/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/es_es/strings.json
+@@ -1,4 +1,23 @@
+ {
++	"App Launcher": "",
++	"Enter Edit Mode": "",
++	"Show Page Header": "",
++	"Use Tabs for Pages": "",
++	"Set As Default Page": "",
++	"Enable Position Reset": "",
++	"Enable Page Wrapping": "",
++	"Quick Launch Bar": "",
++	"Always Visible": "",
++	"Always Hidden": "",
++	"Hide in Launcher": "",
++	"List All Applications": "",
++	"Default Applications": "",
++	"Rename": "",
++	"Jump to Page:": "",
++	"Edit Launcher Pages:": "",
++	"Rename": "",
++	"Hide": "",
++	"Move": "",
+ 	"About": "Acerca de",
+ 	"Add": "Añadir",
+ 	"Add Reminder...": "Añadir recordatorio…",
+--- .orig/usr/lib/luna/system/luna-applauncher/resources/es_us/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/es_us/strings.json
+@@ -1,4 +1,23 @@
+ {
++	"App Launcher": "",
++	"Enter Edit Mode": "",
++	"Show Page Header": "",
++	"Use Tabs for Pages": "",
++	"Set As Default Page": "",
++	"Enable Position Reset": "",
++	"Enable Page Wrapping": "",
++	"Quick Launch Bar": "",
++	"Always Visible": "",
++	"Always Hidden": "",
++	"Hide in Launcher": "",
++	"List All Applications": "",
++	"Default Applications": "",
++	"Rename": "",
++	"Jump to Page:": "",
++	"Edit Launcher Pages:": "",
++	"Rename": "",
++	"Hide": "",
++	"Move": "",
+ 	"About": "Acerca de",
+ 	"Add": "Añadir",
+ 	"Add Reminder...": "Añadir recordatorio…",
+--- .orig/usr/lib/luna/system/luna-applauncher/resources/fr_ca/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/fr_ca/strings.json
+@@ -1,4 +1,23 @@
+ {
++	"App Launcher": "",
++	"Enter Edit Mode": "",
++	"Show Page Header": "",
++	"Use Tabs for Pages": "",
++	"Set As Default Page": "",
++	"Enable Position Reset": "",
++	"Enable Page Wrapping": "",
++	"Quick Launch Bar": "",
++	"Always Visible": "",
++	"Always Hidden": "",
++	"Hide in Launcher": "",
++	"List All Applications": "",
++	"Default Applications": "",
++	"Rename": "",
++	"Jump to Page:": "",
++	"Edit Launcher Pages:": "",
++	"Rename": "",
++	"Hide": "",
++	"Move": "",
+ 	"About": "À propos de",
+ 	"Add": "Ajouter",
+ 	"Add Reminder...": "Ajouter un rappel…",
+--- .orig/usr/lib/luna/system/luna-applauncher/resources/fr_fr/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/fr_fr/strings.json
+@@ -1,4 +1,23 @@
+ {
++	"App Launcher": "",
++	"Enter Edit Mode": "",
++	"Show Page Header": "",
++	"Use Tabs for Pages": "",
++	"Set As Default Page": "",
++	"Enable Position Reset": "",
++	"Enable Page Wrapping": "",
++	"Quick Launch Bar": "",
++	"Always Visible": "",
++	"Always Hidden": "",
++	"Hide in Launcher": "",
++	"List All Applications": "",
++	"Default Applications": "",
++	"Rename": "",
++	"Jump to Page:": "",
++	"Edit Launcher Pages:": "",
++	"Rename": "",
++	"Hide": "",
++	"Move": "",
+ 	"About": "À propos de",
+ 	"Add": "Ajouter",
+ 	"Add Reminder...": "Ajouter un rappel…",
+--- .orig/usr/lib/luna/system/luna-applauncher/resources/it_it/strings.json
++++ /usr/lib/luna/system/luna-applauncher/resources/it_it/strings.json
+@@ -1,4 +1,23 @@
+ {
++	"App Launcher": "",
++	"Enter Edit Mode": "",
++	"Show Page Header": "",
++	"Use Tabs for Pages": "",
++	"Set As Default Page": "",
++	"Enable Position Reset": "",
++	"Enable Page Wrapping": "",
++	"Quick Launch Bar": "",
++	"Always Visible": "",
++	"Always Hidden": "",
++	"Hide in Launcher": "",
++	"List All Applications": "",
++	"Default Applications": "",
++	"Rename": "",
++	"Jump to Page:": "",
++	"Edit Launcher Pages:": "",
++	"Rename": "",
++	"Hide": "",
++	"Move": "",
+ 	"About": "Informazioni su",
+ 	"Add": "Aggiungi",
+ 	"Add Reminder...": "Aggiungi promemoria…",
