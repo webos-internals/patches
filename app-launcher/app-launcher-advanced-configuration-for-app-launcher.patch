@@ -1,10 +1,25 @@
+--- .orig/usr/lib/luna/system/luna-applauncher/sources.json
++++ /usr/lib/luna/system/luna-applauncher/sources.json
+@@ -7,6 +7,11 @@
+ 		"source": "app\/controllers\/launcher-assistant.js",
+ 		"scenes": "launcher"
+ 	},
++
++	{
++		"source": "app\/controllers\/prefs-assistant.js",
++		"scenes": "prefs"
++	},
+ 	
+ 	{
+ 		"source": "app\/controllers\/global-search-assistant.js"
 --- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
 +++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-@@ -33,6 +33,20 @@
+@@ -33,6 +33,21 @@
  		
  		this.getBuildName();
  						
-+		// Subscribe to the Quick Launch Bar prererences
++		// Subscribe to the App Launcher and Quick Launch Bar prererences
++		this.appLauncherCfg = null;
 +		this.quickLaunchCfg = null;
 +
 +		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
@@ -21,17 +36,20 @@
  		// Initialize the Battery Power Nofication and get the initial value
  		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
  		
-@@ -294,6 +308,9 @@
+@@ -294,6 +309,12 @@
  	this.phoneIsForeground = false;
  	this.updateIsForeground = false;
  	
-+	if((this.appLauncherCfg.names) && (this.appLauncherCfg.names[payload.id + "_default"] != undefined))
++	if((this.appLauncherCfg) && (this.appLauncherCfg.names) && 
++		(this.appLauncherCfg.names[payload.id + "_default"] != undefined))
++	{
 +		payload.appmenu = this.appLauncherCfg.names[payload.id + "_default"].replace("<br>", " ");
++	}
 +	
  	if (payload.title) {
  		$('carrier').hide();
  		if (payload.id == "com.palm.app.phone" || payload.id == "com.palm.app.firstuse"){ 
-@@ -316,6 +333,11 @@
+@@ -316,6 +337,11 @@
  		$('carrier').show();
  		this.foregroundAppID=null;
  	}
@@ -45,28 +63,33 @@
  updatePhoneAppName: function(){
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
 +++ /usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-@@ -212,6 +212,10 @@
+@@ -212,6 +212,13 @@
  			this.launcherHiddenAtFirstKeydown = true;
  		}
  		
 +		this.viewMenuState = this.launcherAssistant.viewMenuModel.visible;
-+		this.launcherAssistant.viewMenuModel.visible = false;
-+		this.controller.modelChanged(this.launcherAssistant.viewMenuModel, this);
 +		
++		if(this.launcherAssistant.viewMenuModel.visible) {
++			this.launcherAssistant.viewMenuModel.visible = false;
++			this.controller.modelChanged(this.launcherAssistant.viewMenuModel, this);
++		}
++			
  		// save the launchers scroller states
  		this.controller.hideWidgetContainer(this.controller.getSceneScroller());
  		this.controller.get('launcher-main').hide();
-@@ -237,6 +241,9 @@
+@@ -237,6 +244,11 @@
  			return;
  		}
  		
-+		this.launcherAssistant.viewMenuModel.visible = this.viewMenuState;
-+		this.controller.modelChanged(this.launcherAssistant.viewMenuModel, this);
-+		
++		if(this.viewMenuState) {
++			this.launcherAssistant.viewMenuModel.visible = this.viewMenuState;
++			this.controller.modelChanged(this.launcherAssistant.viewMenuModel, this);
++		}
++			
  		// restore the launchers scroller states
  		this.controller.get('global-search-main').addClassName('offscreen');
  		this.controller.get('launcher-main').show();
-@@ -249,9 +256,6 @@
+@@ -249,9 +261,6 @@
  			SystemManagerService.showLauncher(false);
  			this.launcherHiddenAtFirstKeydown = false;
  		}
@@ -76,7 +99,7 @@
  		
  		this.galInit();
  	},
-@@ -265,15 +269,13 @@
+@@ -265,15 +274,13 @@
  	},
  	
  	onKeyDown: function(event) {
@@ -95,7 +118,7 @@
  		// track whether we should hide the launcher when exiting global search
  		if (this.searchTerm.length === 0 && !Mojo.Controller.stageController.isActiveAndHasScenes()) {			
  			this.launcherHiddenAtFirstKeydown = true;
-@@ -283,10 +285,8 @@
+@@ -283,10 +290,8 @@
  	onKeyUp: function(event) {
  		
  		// block key events from global search
@@ -107,7 +130,7 @@
  	
  		// first key no longer being held
  		this.searchPressHoldTerm = "";
-@@ -299,6 +299,10 @@
+@@ -299,6 +304,10 @@
  	
  	onKeyPress: function(event) {
  		
@@ -118,7 +141,7 @@
  		if(this.searchPressHoldTerm && this.searchPressHoldTerm.length > 0 && event.keyCode != this.searchPressHoldTerm.charCodeAt(0)) {
          	// first key no longer being held
              this.searchPressHoldTerm = "";
-@@ -310,8 +314,7 @@
+@@ -310,8 +319,7 @@
          } 
  
  		// block key events from global search and from repeating until the first key has been processed
@@ -128,7 +151,7 @@
  			(event.keyCode === Mojo.Char.spaceBar && !this.searchActive)) {
  			
  			event.stop();
-@@ -341,6 +344,10 @@
+@@ -341,6 +349,10 @@
  	
  	onSearchTermChanged: function(event) {
  		
@@ -139,32 +162,98 @@
  		if (event.originalEvent && event.originalEvent.keyCode === Mojo.Char.enter) {
  			if (this.currentFilter.length > 0) {
  				// i'm feeling lucky
+@@ -1734,6 +1746,12 @@
+ 			// appitem.title need to highlight matched search string
+ 			if ( this.currentFilter && this.currentFilter.length > 0) {
+ 				var apptitle = appitem.title;					
++
++				if((this.launcherAssistant.appLauncherCfg) && (this.launcherAssistant.appLauncherCfg.names)) {
++					if(this.launcherAssistant.appLauncherCfg.names[appitem.launchPointId] != undefined)
++						apptitle = this.launcherAssistant.appLauncherCfg.names[appitem.launchPointId];
++				}
++
+ 				apptitle = apptitle.replace(beginPattern, function(whole, match) {
+ 					return matchTemplate.replace('ZZZZ', match);
+ 				});
+@@ -1783,8 +1801,8 @@
+ 		this.searchAppsReq = new Mojo.Service.Request('palm://com.palm.applicationManager', {
+ 			method: 'searchApps',
+ 			parameters: {'keyword': t},
+-			onSuccess: this.handleSearchAppResults.bind(this),
+-			onFailure: this.handleSearchAppResults.bind(this)
++			onSuccess: this.handleSearchAppResults.bind(this, t),
++			onFailure: this.handleSearchAppResults.bind(this, t)
+ 		});
+ 	
+ 		if (kEasterStrings.indexOf(t) !== -1) {
+@@ -1792,17 +1810,34 @@
+ 		}
+ 	},
+ 	
+-	handleSearchAppResults: function(response) {
++	handleSearchAppResults: function(keyword, response) {
+ 		if(!response.apps)
+ 			return;
+ 			
+ 		var matchingApps = response.apps;
+ 		var appInfoObj;
+ 		
++		var added = [];
++
++		if((this.launcherAssistant.appLauncherCfg) && (this.launcherAssistant.appLauncherCfg.names)) {
++			for(var key in this.launcherAssistant.appLauncherCfg.names) {
++				if(this.launcherAssistant.appLauncherCfg.names[key].substr(0, keyword.length).toLowerCase().replace("<br>", " ") == keyword) {
++					appInfoObj = this.launcherAssistant.pagesModel.getAppInfo(key);
++					if(appInfoObj != null) {
++						this.searchApps.push(appInfoObj);
++						
++						added.push(key);
++					}
++				}
++			}
++		}
++
+ 		for(var i = 0; i< matchingApps.length; i++) {
+-			appInfoObj = this.launcherAssistant.pagesModel.getAppInfo(matchingApps[i].launchPoint);
+-			if(appInfoObj != null)
+-				this.searchApps.push(appInfoObj);
++			if(added.indexOf(matchingApps[i].launchPoint) == -1) {
++				appInfoObj = this.launcherAssistant.pagesModel.getAppInfo(matchingApps[i].launchPoint);
++				if(appInfoObj != null)
++					this.searchApps.push(appInfoObj);
++			}
+ 		}
+ 		
+ 		this.updateLauncherIconsDiv(this.searchApps);
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
 +++ /usr/lib/luna/system/luna-applauncher/app/controllers/reorder-controller.js
-@@ -239,6 +239,10 @@
+@@ -239,6 +239,13 @@
  		for (var i = 0, len = this.appDivs.length; i < len; ++i) {
  			
  			var pos = this.launcherAssistant.calculateAppPosition(i);
 +			
-+			if(this.launcherAssistant.appLauncherCfg.header)
++			if((this.launcherAssistant.appLauncherCfg) && 
++				(this.launcherAssistant.appLauncherCfg.header != "none"))
++			{
 +				pos.top = pos.top + 50;
++			}
 +			
  			var item = new Element('div', {'class': 'droppable'});
  			item.style.left = pos.left+'px';
  			item.style.top = pos.top+'px';
-@@ -314,7 +318,10 @@
+@@ -314,7 +321,10 @@
  	
  	_startCyclePage: function(direction) {
  		if (!this.pagingTimer && !this.pagingAnimating) {
 -			this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
-+			if(this.launcherAssistant.appLauncherCfg.wrap)
++			if((this.launcherAssistant.appLauncherCfg) && (this.launcherAssistant.appLauncherCfg.wrap))
 +				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout * 2);
 +			else
 +				this.pagingTimer = this._cyclePage.bind(this, direction).delay(this.kHorizontalPageTimeout);
  			
  			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollerListenerHandler);
  		}
-@@ -427,15 +434,37 @@
+@@ -427,15 +437,41 @@
  	_cyclePage: function(direction) {
  		
  		var canPage = false;
@@ -177,7 +266,9 @@
 +			snapIndex = this.launcherAssistant.activePageIndex + direction;
 +		}
 +		else if (direction == -1 && this.activePage.previous() == null) {
-+			if(this.launcherAssistant.appLauncherCfg.wrap) {
++			if((this.launcherAssistant.appLauncherCfg) && 
++				(this.launcherAssistant.appLauncherCfg.wrap))
++			{
 +				this.previousPage = this.activePage;
 +				while(this.activePage.next() !== null)
 +					this.activePage = this.activePage.next();
@@ -192,7 +283,9 @@
 +			snapIndex = this.launcherAssistant.activePageIndex + direction;
 +		}
 +		else if (direction == 1 && this.activePage.next() == null) {
-+			if(this.launcherAssistant.appLauncherCfg.wrap) {
++			if((this.launcherAssistant.appLauncherCfg) &&
++				(this.launcherAssistant.appLauncherCfg.wrap))
++			{
 +				this.previousPage = this.activePage;
 +				while(this.activePage.previous() !== null)
 +					this.activePage = this.activePage.previous();
@@ -202,7 +295,7 @@
  		}
  	    
  		if (canPage) {
-@@ -446,7 +475,16 @@
+@@ -446,7 +482,18 @@
  			this.activePage.show();
  			
  			this.pagingAnimating = true;
@@ -210,7 +303,9 @@
 +			
 +			this.launcherAssistant.changePage(snapIndex, true);
 +			
-+			if(this.launcherAssistant.appLauncherCfg.wrap) {
++			if((this.launcherAssistant.appLauncherCfg) && 
++				(this.launcherAssistant.appLauncherCfg.wrap))
++			{
 +				this.launcherAssistant.onPageChange({value: snapIndex});
 +				
 +				this.pagingAnimating = false;
@@ -231,7 +326,7 @@
  	
  	kPageIndicatorSpacing: 6, 	/* spacing between each page indicator */
  	kPageMargin: 10, /* 10 pixel margin on each side of a page */
-@@ -23,11 +23,26 @@
+@@ -23,11 +23,12 @@
  		visible: true,
  		label: $L('Launcher'),
          items: [
@@ -240,29 +335,15 @@
  			Mojo.Menu.editItem,
 -			{ label: $L('List Apps...'), command: 'listapps' },
 -			{ label: $L('Default Applications'), command: 'defaultapps'},
-+			{ label: $L('App Launcher'),
-+				items: [
-+					{ label: $L('Enter Edit Mode'), command: 'toggleedit' },
-+					{ label: $L('Show Page Header'), command: 'toggleheader' },
-+					{ label: $L('Use Tabs for Pages'), command: 'togglevisual' },
-+					{ label: $L('Set As Default Page'), command: 'togglepage' },
-+					{ label: $L('Enable Position Reset'), command: 'togglereset' },
-+					{ label: $L('Enable Page Wrapping'), command: 'togglewrap' }
-+				]
-+			},
-+			{ label: $L('Quick Launch Bar'), 
-+				items: [
-+					{ label: $L('Always Visible'), command: 'qlvisible', disabled: false },
-+					{ label: $L('Always Hidden'), command: 'qlhidden', disabled: false },
-+					{ label: $L('Hide in Launcher'), command: 'qlmixed', disabled: false }
-+				]
-+			},
++			{ label: $L('Preferences'), command: 'preferences' },
++			{ label: $L('Enter Edit Mode'), command: 'startedit' },
++			{ label: $L('Set As Default Page'), command: 'setdefault' },
 +			{ label: $L('List All Applications'), command: 'listapps' },
 +			{ label: $L('Default Applications'), command: 'defaultapps' },
  			Mojo.Menu.helpItem
  		]
      },
-@@ -59,12 +74,57 @@
+@@ -59,13 +60,59 @@
  		
  		this.dragStartHandler = this.onDragStart.bindAsEventListener(this);
  		this.launchApp = this.launchApp.bind(this);
@@ -274,7 +355,9 @@
 +		
 +		this.pagingAnimating = false;
 +		
-+		this.appLauncherCfg = {header: false, reset: false, wrap: false, page: "default", pages: [], hidden: [], visual: "name"};
++		this.appLauncherCfg = {header: "none", placement: "first", reset: false, wrap: false, 
++			indicators: true, grid: "small", icons: "large", titles: true, page: "default", 
++			pages: [], hidden: [], names: {}};
 +		
 +		this.quickLaunchCfg = {mode: "visible"};
  	},
@@ -307,7 +390,7 @@
 +		Mojo.listen(this.controller.document, Mojo.Event.activate, this.onActivate.bindAsEventListener(this));
  		Mojo.listen(this.controller.document, Mojo.Event.deactivate, this.onDeactivate.bindAsEventListener(this));
  		Mojo.listen(this.controller.window, 'resize', this.onResize.bindAsEventListener(this));
-+
+ 		
 +		this.launcherTapHandler = this.handleLauncherTap.bindAsEventListener(this);
 +		Mojo.listen($('launcher_root'), Mojo.Event.tap, this.launcherTapHandler);
 +		
@@ -315,17 +398,14 @@
 +		Mojo.listen($('page_header'), Mojo.Event.tap, this.headerTapHandler);
 +		
 +		this.appRenameHandler = this.handleAppRename.bindAsEventListener(this);
-+		
 +		this.pageRenameHandler = this.handlePageRename.bindAsEventListener(this);
- 		
++
  		this.pagesModel = new LauncherPages({
  				onPagesLoaded: this.buildPages.bind(this),
-@@ -82,12 +142,20 @@
- 		Mojo.Controller.stageController.focused = false;
- 		
+ 				onAppAdded: this.onAppAdded.bind(this),
+@@ -84,10 +131,18 @@
  		this.controller.setupWidget('launcher_root', undefined, this.launcherRootModel);
--		
-+
+ 		
  		this.reorderController = new ReorderController(this, this.onReorderFinished.bind(this));
 -		Mojo.listen($('launcher_root'), Mojo.Event.propertyChange, this.onPageChange.bindAsEventListener(this));
  		
@@ -344,7 +424,7 @@
  		// pre-calculate commonly used measurements
  		this.kPageWidth = $('launcher_root').getWidth();
  		this.kPageWidthNoMargin = (this.kPageWidth - this.kPageMargin * 2);
-@@ -121,23 +189,80 @@
+@@ -121,23 +176,60 @@
  				case 'defaultapps':
  					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.defaultAppParams);
  					break;
@@ -352,14 +432,9 @@
 -				case 'newpage':
 -					if (this.pageDivs.length < 10) {
 -						this.insertPage(this.activePageIndex, true);
-+				case 'qlvisible':
-+					this.setupQuickLaunch("visible");
-+					break;
-+				case 'qlhidden':
-+					this.setupQuickLaunch("hidden");
-+					break;
-+				case 'qlmixed':
-+					this.setupQuickLaunch("mixed");
++				case 'preferences':
++					this.controller.stageController.pushScene("prefs", this.appLauncherCfg, 
++						this.quickLaunchCfg, this.reloadPreferences.bind(this));
 +					break;
 +				case 'addnewpage':
 +					if (this.pageDivs.length < 16) {
@@ -385,23 +460,11 @@
 +				case 'movepageright':
 +					this.movePage("right");
 +					break;					
-+				case 'toggleedit':
-+					this.setupAppLauncher(event, "edit");
++				case 'startedit':
++					this.startEditMode(event);
 +					break;
-+				case 'toggleheader':
-+					this.setupAppLauncher(event, "header");
-+					break;
-+				case 'togglevisual':
-+					this.setupAppLauncher(event, "visual");
-+					break;
-+				case 'togglepage':
-+					this.setupAppLauncher(event, "page");
-+					break;
-+				case 'togglewrap':
-+					this.setupAppLauncher(event, "wrap");
-+					break;
-+				case 'togglereset':
-+					this.setupAppLauncher(event, "reset");
++				case 'setdefault':
++					this.setDefaultPage(event);
 +					break;
 +				case 'showpagemenu':
 +					this.tabPageSelect(event);
@@ -424,9 +487,6 @@
  			}
  		}
 +		else if(event.type == Mojo.Event.forward) {
-+			if(!this.appLauncherCfg.header)
-+				this.controller.get('page_header').style.display = "block";
-+	
 +			var chooseCallback = this.jumpToPage.bind(this);
 +
 +			this.showPageMenus(false, $L("Jump to Page:"), chooseCallback);
@@ -434,7 +494,7 @@
  		else if (event.type === Mojo.Event.commandEnable) {
  			switch (event.command) {
  				case Mojo.Menu.copyCmd:
-@@ -157,11 +282,763 @@
+@@ -157,16 +249,773 @@
  			}
  		}
  	},
@@ -447,190 +507,205 @@
 +			if(payload.quickLaunchCfg != undefined)
 +				this.quickLaunchCfg = payload.quickLaunchCfg;
 +		}
++
++		// FIXME: remove at some point
+ 		
++		if(this.appLauncherCfg) {
++			if(this.appLauncherCfg.header == true) {
++				if(this.appLauncherCfg.visual == "tabs")
++					this.appLauncherCfg.header = "tabs";
++				else
++					this.appLauncherCfg.header = "name";
++			}
++			else if(this.appLauncherCfg.header == false)
++				this.appLauncherCfg.header = "none";
++
++			if(this.appLauncherCfg.placement == undefined)
++				this.appLauncherCfg.placement = "first";
++
++			if(this.appLauncherCfg.indicators == undefined)
++				this.appLauncherCfg.indicators = true;
++
++			if(this.appLauncherCfg.grid == undefined)
++				this.appLauncherCfg.grid = "small";
++
++			if(this.appLauncherCfg.icons == undefined)
++				this.appLauncherCfg.icons = "large";
++
++			if(this.appLauncherCfg.titles == undefined)
++				this.appLauncherCfg.titles = true;;
++			
++			if(this.appLauncherCfg.titles == true)
++				this.controller.get("launcher-main").removeClassName("notitles");
++			else
++				this.controller.get("launcher-main").addClassName("notitles");
++
++			if(this.appLauncherCfg.indicators == true)
++				this.controller.get("launcher-main").removeClassName("noindicators");
++			else
++				this.controller.get("launcher-main").addClassName("noindicators");
 +		
-+		this.updateAppLauncher(true);
-+		this.updateQuickLaunch(true);
++			this.controller.get("launcher_root").className = "grid_" + this.appLauncherCfg.grid;
 +		
-+		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+			method: 'getPreferences', parameters: {subscribe: true, keys: ['appLauncherCfg']},
-+			onSuccess: this.handlePreferencesUpdate.bind(this) });
++			this.controller.get("pages_container").className = "icons_" + this.appLauncherCfg.icons;
++
++			if(this.appLauncherCfg.page == "default")
++				this.appMenuModel.items[3].label = "Set As Default Page";
++			else
++				this.appMenuModel.items[3].label = "Unset Default Page";
++		
++			this.controller.modelChanged(this.appMenuModel, this);
++
++			this.updateAppLauncher(true);
++			this.updateQuickLaunch(true);
++
++			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg}});
++
++			this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'getPreferences', parameters: {subscribe: true, keys: ['appLauncherCfg']},
++				onSuccess: this.handlePreferencesUpdate.bind(this) });
++		}
 +	},
 +
 +	handlePreferencesUpdate: function(payload) {
-+		var oldHidden = [];
++		if((this.appLauncherCfg) && (payload != undefined) && 
++			(payload.appLauncherCfg != undefined))
++		{
++			var oldHidden = [];
 +		
-+		if((this.appLauncherCfg) && (this.appLauncherCfg.hidden))
-+			oldHidden = this.appLauncherCfg.hidden;
++			if(this.appLauncherCfg.hidden)
++				oldHidden = this.appLauncherCfg.hidden;
 +	
-+		if((payload != undefined) && (payload.appLauncherCfg != undefined))
 +			this.appLauncherCfg = payload.appLauncherCfg;
 +		
-+		for(var i = 0; i < oldHidden.length; i++) {
-+			if(this.appLauncherCfg.hidden.indexOf(oldHidden[i]) == -1) {
-+				var location = {page: 0, position: 0};
++			for(var i = 0; i < oldHidden.length; i++) {
++				if(this.appLauncherCfg.hidden.indexOf(oldHidden[i]) == -1) {
++					var location = {page: 0, position: 0};
 +			
-+				for (var j=0, numPages=this.pagesModel.getNumPages(); j<numPages; j++) {
-+					var page = this.pagesModel.getPage(j);
++					for (var j=0, numPages=this.pagesModel.getNumPages(); j<numPages; j++) {
++						var page = this.pagesModel.getPage(j);
 +		
-+					location.page = j;
++						location.page = j;
 +					
-+					for (var k=0; k<page.length; k++) {
-+						var appInfo = this.pagesModel.getAppInfo(page[k]);
++						for (var k=0; k<page.length; k++) {
++							var appInfo = this.pagesModel.getAppInfo(page[k]);
 +
-+						if(appInfo.launchPointId == oldHidden[i]) {
-+							location.position = k;
-+							this.insertApp(location, appInfo);
++							if(appInfo.launchPointId == oldHidden[i]) {
++								location.position = k;
++								this.insertApp(location, appInfo);
++							}
 +						}
 +					}
 +				}
 +			}
-+		}
 +		
-+		for(var i = 0; i < this.appLauncherCfg.hidden.length; i++) {
-+			if(oldHidden.indexOf(this.appLauncherCfg.hidden[i]) == -1) {
-+				this.deleteApp(this.appLauncherCfg.hidden[i], true);
++			for(var i = 0; i < this.appLauncherCfg.hidden.length; i++) {
++				if(oldHidden.indexOf(this.appLauncherCfg.hidden[i]) == -1) {
++					this.deleteApp(this.appLauncherCfg.hidden[i], true);
++				}
 +			}
 +		}
 +	},
 +	
-+	setupAppLauncher: function(event, option) {
-+		if(option == "edit") {
-+			var chooseCallback = this.selectPage.bind(this);
++	reloadPreferences: function(buildPages) {
++		this.updateAppLauncher(false);
++		this.updateQuickLaunch(false);
++	
++		if(this.appLauncherCfg.titles == true)
++			this.controller.get("launcher-main").removeClassName("notitles");
++		else
++			this.controller.get("launcher-main").addClassName("notitles");
++
++		if(this.appLauncherCfg.indicators == true)
++			this.controller.get("launcher-main").removeClassName("noindicators");
++		else
++			this.controller.get("launcher-main").addClassName("noindicators");
++			
++		this.controller.get("launcher_root").className = "grid_" + this.appLauncherCfg.grid;
++
++		this.controller.get("pages_container").className = "icons_" + this.appLauncherCfg.icons;
 +		
-+			this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
++		if(buildPages)
++			this.buildPages();		
++	},
++
++	startEditMode: function(event) {
++		var chooseCallback = this.selectPage.bind(this);
++		
++		this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
++	},
++	
++	setDefaultPage: function(event) {
++		if(this.appLauncherCfg.page == "default") {
++			this.appMenuModel.items[3].label = $L("Unset Default Page");
++			this.appLauncherCfg.page = this.activePageIndex;
 +		}
 +		else {
-+			if(option == "header") {
-+				if(this.appLauncherCfg.header)
-+					this.appLauncherCfg.header = false;
-+				else
-+					this.appLauncherCfg.header = true;
-+			}
-+			else if(option == "visual") {
-+				if(this.appLauncherCfg.visual == "tabs")
-+					this.appLauncherCfg.visual = "name";
-+				else
-+					this.appLauncherCfg.visual = "tabs";
-+			}
-+			else if(option == "page") {
-+				if(this.appLauncherCfg.page == "default")
-+					this.appLauncherCfg.page = this.activePageIndex;
-+				else
-+					this.appLauncherCfg.page = "default";
-+			}
-+			else if(option == "reset") {
-+				if(this.appLauncherCfg.reset)
-+					this.appLauncherCfg.reset = false;
-+				else
-+					this.appLauncherCfg.reset = true;
-+			}
-+			else if(option == "wrap") {
-+				if(this.appLauncherCfg.wrap)
-+					this.appLauncherCfg.wrap = false;
-+				else
-+					this.appLauncherCfg.wrap = true;
-+			}
-+
-+			this.updateAppLauncher();
-+		
-+			if(this.setPreferencesRequest)
-+				this.setPreferencesRequest.cancel();
-+		
-+			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++			this.appMenuModel.items[3].label = $L("Set As Default Page");
++			this.appLauncherCfg.page = "default";
 +		}
-+	},
-+	
-+	setupQuickLaunch: function(mode) {
-+		this.quickLaunchCfg.mode = mode;
-+
-+		this.updateQuickLaunch(false);
 +		
++		this.controller.modelChanged(this.appMenuModel, this);
++			
 +		if(this.setPreferencesRequest)
 +			this.setPreferencesRequest.cancel();
-+			
++	
 +		this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+			method: 'setPreferences', parameters: {'quickLaunchCfg': this.quickLaunchCfg} });
++			method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
 +	},
-+
++	
 +	updateAppLauncher: function(init) {
-+		if(this.appLauncherCfg.header) {
-+			this.appMenuModel.items[1].items[1].label = "Hide Page Header";
-+
-+			if(this.appLauncherCfg.visual == "tabs") {
-+				this.appMenuModel.items[1].items[2].label = "Use Name For Pages";
-+
-+				this.controller.get('page_header').style.display = "none";
-+				this.controller.get('page_name').style.display = "none";
-+
-+				this.viewMenuModel.visible = true;
-+			}
-+			else {
-+				this.appMenuModel.items[1].items[2].label = "Use Tabs For Pages";
-+
-+				this.controller.get('page_header').style.display = "block";
-+				this.controller.get('page_name').style.display = "block";
-+			
-+				this.viewMenuModel.visible = false;
-+			}
-+
-+			this.updatePageTabs();
-+			this.updatePageHeader();
-+
-+			this.controller.modelChanged(this.viewMenuModel, this);
-+		}
-+		else {
-+			this.appMenuModel.items[1].items[1].label = "Show Page Header";
-+
++		if(!this.appLauncherCfg)
++			return;
++	
++		if(this.appLauncherCfg.header == "none") {
 +			this.controller.get('page_header').style.display = "none";
 +			this.controller.get('page_name').style.display = "none";
 +			
 +			this.viewMenuModel.visible = false;
 +			this.controller.modelChanged(this.viewMenuModel, this);
 +		}
++		else if(this.appLauncherCfg.header == "name") {
++			this.controller.get('page_header').style.display = "block";
++			this.controller.get('page_name').style.display = "block";
++		
++			this.viewMenuModel.visible = false;
++		}
++		else if(this.appLauncherCfg.header == "tabs") {
++			this.controller.get('page_header').style.display = "none";
++			this.controller.get('page_name').style.display = "none";
 +
-+		if(this.appLauncherCfg.page != "default")
-+			this.appMenuModel.items[1].items[3].label = "Unset Default Page";
-+		else 
-+			this.appMenuModel.items[1].items[3].label = "Set As Default Page";
++			this.viewMenuModel.visible = true;
++		}
 +
-+		if(this.appLauncherCfg.reset)
-+			this.appMenuModel.items[1].items[4].label = "Disable Position Reset";
-+		else 
-+			this.appMenuModel.items[1].items[4].label = "Enable Position Reset";
++		this.controller.modelChanged(this.viewMenuModel, this);
 +
-+		if(this.appLauncherCfg.wrap) {
-+			this.appMenuModel.items[1].items[5].label = "Disable Page Wrapping";
-+			
++		this.updatePageTabs();
++		this.updatePageHeader();
++
++		if(this.appLauncherCfg.wrap)
 +			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
-+		}
-+		else {
-+			this.appMenuModel.items[1].items[5].label = "Enable Page Wrapping";
-+			
++		else
 +			Mojo.stopListening($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
-+		}
 +
 +		for(var i = 0; i < this.pageDivs.length; i++)
 +			this.updatePageLayout(i, 0);
 +	},
 +
 +	updateQuickLaunch: function(init) {
-+		this.appMenuModel.items[2].items[0].disabled = false;
-+		this.appMenuModel.items[2].items[1].disabled = false;
-+		this.appMenuModel.items[2].items[2].disabled = false;
-+
++		if(!this.quickLaunchCfg)
++			return;
++			
 +		if(this.quickLaunchCfg.mode == "visible") {
-+			this.appMenuModel.items[2].items[0].disabled = true;
 +			SystemManagerService.showQuickLaunch(true);
 +			this.kQuickLaunchHeight = 67;
 +		}	
 +		else if(this.quickLaunchCfg.mode == "hidden") {
-+			this.appMenuModel.items[2].items[1].disabled = true;
 +			SystemManagerService.showQuickLaunch(false);
 +			this.kQuickLaunchHeight = 0;
 +		}	
 +		else if(this.quickLaunchCfg.mode == "mixed") {
-+			this.appMenuModel.items[2].items[2].disabled = true;
 +			SystemManagerService.showQuickLaunch(init);
 +			this.kQuickLaunchHeight = 0;
 +		}
@@ -639,7 +714,7 @@
 +	},
 +
 +	updatePageHeader: function() {
-+		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual != "tabs")) {
++		if(this.appLauncherCfg.header == "name") {
 +			var pageName = this.getPageName(this.activePageIndex);
 +			
 +			this.controller.get('page_name').update(pageName);
@@ -651,7 +726,7 @@
 +	},
 +	
 +	updatePageTabs: function() {
-+		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs")) {
++		if(this.appLauncherCfg.header == "tabs") {
 +			this.viewMenuModel.visible = true;
 +
 +			var tabs = [];
@@ -710,21 +785,15 @@
 +				this.changePage(index, true);
 +		}
 +	},
- 		
++		
 +	handleLauncherTap: function(event) {
 +		if((event.up) && ( event.up.altKey || event.up.metaKey )) {
-+			if(!this.appLauncherCfg.header)
-+				this.controller.get('page_header').style.display = "block";
-+	
 +			var chooseCallback = this.selectPage.bind(this);
 +
 +			this.showPageMenus(true, $L("Edit Launcher Pages:"), chooseCallback);
 +		}
 +		else {
 +			if(event.count == 2) {
-+				if(!this.appLauncherCfg.header)
-+					this.controller.get('page_header').style.display = "block";
-+	
 +				var chooseCallback = this.jumpToPage.bind(this);
 +
 +				this.showPageMenus(false, $L("Jump to Page:"), chooseCallback);
@@ -750,7 +819,7 @@
 +
 +		Mojo.listen($('page_text'), Mojo.Event.propertyChange, this.appRenameHandler);
 +		
-+		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs")) {
++		if(this.appLauncherCfg.header == "tabs") {
 +			this.viewMenuModel.visible = false;
 +			this.controller.modelChanged(this.viewMenuModel, this);
 +		}
@@ -772,6 +841,47 @@
 +			
 +		this.controller.get('page_text').mojo.setCursorPosition(curPos, curPos);
 +		this.controller.get('page_text').mojo.focus();
++	},
++
++	handleAppRename: function(event) {
++		if((!event) || (Mojo.Char.isEnterKey(event.originalEvent.keyCode))) {
++			Mojo.listen($('page_header'), Mojo.Event.tap, this.headerTapHandler);
++
++			Mojo.stopListening($('page_text'), Mojo.Event.propertyChange, this.appRenameHandler);
++
++			this.controller.get('page_header').style.display = "none";
++			this.controller.get('page_text').style.display = "none";
++		
++			if(this.appLauncherCfg.header == "name") {
++				this.controller.get('page_header').style.display = "block";
++				this.controller.get('page_name').style.display = "block";
++			}
++			else if(this.appLauncherCfg.header == "tabs") {
++				this.viewMenuModel.visible = true;
++				this.controller.modelChanged(this.viewMenuModel, this);
++			}
++
++			var element = $(this.pageNameModel.id);
++
++			if (element) {
++				if(!this.appLauncherCfg.names) 
++					this.appLauncherCfg.names = {};
++			
++				this.appLauncherCfg.names[this.pageNameModel.id] = this.pageNameModel.value;
++
++				var elm = element.down('.name');
++				
++				elm.innerHTML = this.pageNameModel.value;
++			}
++
++			this.globalSearchAssistant.enable(true);
++
++			if(this.setPreferencesRequest)
++				this.setPreferencesRequest.cancel();
++		
++			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
++		}	
 +	},
 +	
 +	startPageRename: function(refresh) {
@@ -801,49 +911,6 @@
 +			this.controller.get('page_text').mojo.setCursorPosition(curPos, curPos);
 +			this.controller.get('page_text').mojo.focus();
 +		}
-+	},
-+	
-+	handleAppRename: function(event) {
-+		if((!event) || (Mojo.Char.isEnterKey(event.originalEvent.keyCode))) {
-+			Mojo.listen($('page_header'), Mojo.Event.tap, this.headerTapHandler);
-+
-+			Mojo.stopListening($('page_text'), Mojo.Event.propertyChange, this.appRenameHandler);
-+
-+			this.controller.get('page_header').style.display = "none";
-+			this.controller.get('page_text').style.display = "none";
-+		
-+			if(this.appLauncherCfg.header) {
-+				if(this.appLauncherCfg.visual == "tabs") {
-+					this.viewMenuModel.visible = true;
-+					this.controller.modelChanged(this.viewMenuModel, this);
-+				}
-+				else {
-+					this.controller.get('page_header').style.display = "block";
-+					this.controller.get('page_name').style.display = "block";
-+				}
-+			}
-+
-+			var element = $(this.pageNameModel.id);
-+
-+			if (element) {
-+				if(!this.appLauncherCfg.names) 
-+					this.appLauncherCfg.names = {};
-+			
-+				this.appLauncherCfg.names[this.pageNameModel.id] = this.pageNameModel.value;
-+
-+				var elm = element.down('.name');
-+				
-+				elm.innerHTML = this.pageNameModel.value;
-+			}
-+
-+			this.globalSearchAssistant.enable(true);
-+
-+			if(this.setPreferencesRequest)
-+				this.setPreferencesRequest.cancel();
-+		
-+			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
-+		}	
 +	},
 +	
 +	handlePageRename: function(event) {
@@ -1038,14 +1105,12 @@
 +		});
 +
 +		if(menuTitle) {
-+			if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs")) {
++			if(this.appLauncherCfg.header == "tabs") {
 +				this.viewMenuModel.visible = false;
 +				this.controller.modelChanged(this.viewMenuModel, this);
 +			}
 +		
-+			if((viewMenu) || (this.appLauncherCfg.header)) {
-+				this.controller.get('page_header').style.display = "block";
-+			}
++			this.controller.get('page_header').style.display = "block";
 +
 +			this.controller.get('page_text').style.display = "none";
 +			this.controller.get('page_name').style.display = "block";
@@ -1180,27 +1245,33 @@
 +			this.updatePageHeader();
 +			this.updatePageIndicators();
 +		}
++
++		if((this.appLauncherCfg.header == "tabs")) {
++			this.viewMenuModel.items[1].toggleCmd = 'selectpage' + (event.value + 1);
++	
++			this.controller.modelChanged(this.viewMenuModel);
++		}
 +	},
 +
 +	/* hide quick launch */
 +	onActivate: function(event) {
-+
 +		if(this.appLauncherCfg.page != "default") {
 +			this.changePage(this.appLauncherCfg.page, false);
 +
 +			this.updatePageHeader();
 +			this.updatePageIndicators();
 +		}
-+		
-+		if(this.quickLaunchCfg.mode != "visible") {
-+			SystemManagerService.showQuickLaunch(false);
-+			this.kQuickLaunchHeight = 0;
-+			this.adjustLayout();
-+		}
++
++		this.updateQuickLaunch(false);
  	},
  	
  	/* clean and hide global search */
-@@ -174,8 +1051,19 @@
+ 	onDeactivate: function(event) {
+-		
+ 		this.globalSearchAssistant.deactivate();
+ 		
+ 		this.reorderController.cancel();
+@@ -174,8 +1023,19 @@
  		if (this.appDialog) {
  			this.appDialog.mojo.close();
  		}
@@ -1221,7 +1292,7 @@
  		
  		this.launchRequest = undefined;
  	},
-@@ -202,12 +1090,12 @@
+@@ -202,12 +1062,12 @@
  	
  	/* helper to consolidate all the places accessing these types of elements */
  	getAppContainer: function(pageIndex) {
@@ -1236,7 +1307,7 @@
  		return this.pageDivs[pageIndex].down('.page_scroller');
  	},
  	
-@@ -255,15 +1143,59 @@
+@@ -255,15 +1115,59 @@
  		
  		// tell our scroller widget that it has a new page element to snap
  		this.updatePageSnappingPoints();
@@ -1296,21 +1367,7 @@
  		// move appDivs over to their new home
  		var apps = this.getAppContainer(pageIndex).select('.app');
  		var startIndex = apps.length;
-@@ -284,7 +1216,7 @@
- 		if (scroller) {
- 			this.controller.setupWidget(scroller.id, undefined, undefined);
- 		}
--		
-+				
- 		// remove the page div
- 		this.pageDivs[pageIndex].remove();
- 		this.pageDivs = $$('.launcher_page');
-@@ -294,17 +1226,13 @@
- 		for (var i=pageIndex; i<this.pageDivs.length; i++) {
- 			this.pageDivs[i].style.left = (this.kPageWidth*i)+'px';
- 		}
--		
-+
+@@ -298,13 +1202,9 @@
  		// remove the pages indicator
  		this.deletePageIndicator();
  		
@@ -1327,7 +1384,57 @@
  		
  		this.updatePageSnappingPoints();
  	},
-@@ -348,6 +1276,15 @@
+@@ -326,6 +1226,10 @@
+ 			var appContainer = this.getAppContainer(location.page);
+ 			var content = Mojo.View.render({object:newAppInfo, template: "launcher/page-item"});
+ 			var children = appContainer.select('.app');
++
++			if(location.position == null)
++				location.position = children.length;
++
+ 			if (location.position >= children.length) {
+ 				appContainer.insert({bottom:content});
+ 			} else {
+@@ -336,9 +1240,35 @@
+ 			newAppDiv = $(newAppInfo.launchPointId);
+ 			Mojo.assert(newAppDiv !== undefined, "Application (%d) was inserted into the DOM but unable to be retrieved!", newAppInfo.launchPointId);
+ 			if (isNaN(this.kAppWidth) || isNaN(this.kAppHeight)) {
+-				this.kAppWidth = newAppDiv.getWidth();
+-				this.kAppHeight = newAppDiv.getHeight();
+-				this.kAppsPerRow = Math.round(this.kPageWidthNoMargin / this.kAppWidth);
++				if(this.appLauncherCfg.grid == "small") {
++					this.kAppWidth = 104;
++					this.kAppsPerRow = 3;
++				}
++				else if(this.appLauncherCfg.grid == "medium") {
++					this.kAppWidth = 76;
++					this.kAppsPerRow = 4;
++				}
++				else if(this.appLauncherCfg.grid == "large") {
++					this.kAppWidth = 63;
++					this.kAppsPerRow = 5;
++				}
++
++				if(this.appLauncherCfg.titles == true) {
++					if(this.appLauncherCfg.icons == "small")
++						this.kAppHeight = 84;
++					else if(this.appLauncherCfg.icons == "medium")
++						this.kAppHeight = 94;
++					else if(this.appLauncherCfg.icons == "large")
++						this.kAppHeight = 104;
++				}
++				else {
++					if(this.appLauncherCfg.icons == "small")
++						this.kAppHeight = 72;
++					else if(this.appLauncherCfg.icons == "medium")
++						this.kAppHeight = 82;
++					else if(this.appLauncherCfg.icons == "large")
++						this.kAppHeight = 92;
++				}
+ 			}
+ 			
+ 			Mojo.listen(newAppDiv, Mojo.Event.tap, this.onAppTapped.bindAsEventListener(this));
+@@ -348,6 +1278,15 @@
  			// stash the application's data in the element
  			newAppDiv._info = newAppInfo;
  
@@ -1343,7 +1450,7 @@
  			this._updateBadge(newAppDiv, newAppInfo);
  		
  			/* adjust page position and height */
-@@ -435,21 +1372,27 @@
+@@ -435,14 +1374,20 @@
  		if (elm) {
  			var newTitle = "";
  			if (newAppInfo.update && newAppInfo.update.title) {
@@ -1366,26 +1473,35 @@
  				if (elm.innerHTML !== newTitle) {
  					Mojo.Log.info("Updating title of app div, old: %d | new: %d", elm.innerHTML, newTitle);
  					elm.innerHTML = newTitle;
- 				}
- 			}
- 		}
--
-+		
- 		this._updateBadge(element, newAppInfo);
- 	},
- 
-@@ -514,6 +1457,10 @@
+@@ -514,6 +1459,10 @@
  		for (var i=offset, len = children.length; i<len; i++) {
  			var item = children[i];
  			var appPos = this.calculateAppPosition(i);
 +			
-+			if(this.appLauncherCfg.header)
++			if(this.appLauncherCfg.header != "none")
 +				appPos.top = appPos.top + 50;
 +			
  			if (animate) {
  				LauncherAnimation.animateApp(item, appPos);
  			} else {
-@@ -577,17 +1524,54 @@
+@@ -535,8 +1484,15 @@
+ 	
+ 	/* determines the position of an app element at appIndex within a page */
+ 	calculateAppPosition: function(appIndex) {
++		if(this.appLauncherCfg.grid == "small")
++			var margin = 5;
++		else if(this.appLauncherCfg.grid == "medium")
++			var margin = -5;
++		else if(this.appLauncherCfg.grid == "large")
++			var margin = -16;
++	
+ 		return {
+-			left: (((appIndex % this.kAppsPerRow) * this.kAppWidth) + this.kPageMargin),
++			left: (((appIndex % this.kAppsPerRow) * this.kAppWidth) + margin),
+ 			top: (Math.floor(appIndex/this.kAppsPerRow) * this.kAppHeight)
+ 		};
+ 	},
+@@ -577,17 +1533,51 @@
  				return;
  			}
  		}
@@ -1413,9 +1529,6 @@
 +															this.adjustLayout();
 +														}
 +														if(action == "move") { 
-+															if(!this.appLauncherCfg.header)
-+																this.controller.get('page_header').style.display = "block";
-+															
 +															var chooseCallback = this.movePageApp.bind(this, appInfo);
 +															
 +															this.showPageMenus(false, "Move Application:", chooseCallback);
@@ -1445,12 +1558,10 @@
  
  		this.appDialog = this.controller.showDialog({
  							template: 'launcher/dialogs/app-info',
-@@ -601,23 +1585,54 @@
- 		this.globalSearchAssistant.enable(false);
+@@ -602,22 +1592,53 @@
  		
  		this.deleteAllPages();
--		
-+
+ 		
 +		var allApps = [];
 +					
  		var location = {page: 0, position: 0};
@@ -1497,13 +1608,148 @@
 +		
  		this.globalSearchAssistant.enable(true);
  
-+		if((this.appLauncherCfg.header) && (this.appLauncherCfg.visual == "tabs"))
++		if(this.appLauncherCfg.header == "tabs")
 +			this.updatePageTabs();
 +
  		PalmSystem.launcherReady();
  	},
  	
-@@ -720,7 +1735,7 @@
+@@ -633,10 +1654,12 @@
+ 	 * its starting position
+ 	 */
+ 	createPageIndicator: function() {
+-		var indicator = new Element('div', {'class': 'page_indicator'});
+-		$('page_indicators').appendChild(indicator);
+-		this.indicators.push({element: indicator});
+-		this.recalculateIndicatorRanges();
++		if(this.appLauncherCfg.indicators) {
++			var indicator = new Element('div', {'class': 'page_indicator'});
++			$('page_indicators').appendChild(indicator);
++			this.indicators.push({element: indicator});
++			this.recalculateIndicatorRanges();
++		}
+ 	},
+ 	
+ 	/*
+@@ -644,65 +1667,85 @@
+ 	 * the remaining page indicators
+ 	 */
+ 	deletePageIndicator: function() {
++		if(this.appLauncherCfg.indicators) {		
++			var indicator = this.indicators.pop();
++			if (indicator) {
++				indicator.element.remove();
++			}
+ 		
+-		var indicator = this.indicators.pop();
+-		if (indicator) {
+-			indicator.element.remove();
++			this.recalculateIndicatorRanges();
+ 		}
+-		
+-		this.recalculateIndicatorRanges();
+ 	},
+ 	
+ 	/* Updates the positions of all page indicators. */
+ 	updatePageIndicators: function() {
++		if(this.appLauncherCfg.indicators) {
++			if (this.indicators.length <= 0) {
++				return;
++			}
+ 		
+-		if (this.indicators.length <= 0) {
+-			return;
+-		}
+-		
+-		for (var i = 0; i < this.indicators.length; i++) {
+-			if (i < this.activePageIndex) {
+-				this.moveIndicator(i, this.indicators[i].range.left);
+-			} else {
+-				this.moveIndicator(i, this.indicators[i].range.right);
++			for (var i = 0; i < this.indicators.length; i++) {
++				if (i < this.activePageIndex) {
++					this.moveIndicator(i, this.indicators[i].range.left);
++				} else {
++					this.moveIndicator(i, this.indicators[i].range.right);
++				}
+ 			}
+ 		}
+ 	},
+ 	
+ 	/* recalculates the cached set of page indicator ranges and then redraws them */
+ 	recalculateIndicatorRanges: function() {
++		if(this.appLauncherCfg.indicators) {		
++			var indicator = this.indicators.first();
++			if (indicator === undefined) {
++				return;
++			}
+ 		
+-		var indicator = this.indicators.first();
+-		if (indicator === undefined) {
+-			return;
+-		}
+-		
+-		var indicatorWidth = this.kPageIndicatorSpacing + indicator.element.getWidth();
++			var indicatorWidth = this.kPageIndicatorSpacing; // + indicator.element.getWidth();
+ 		
+-		for (var i=0; i<this.indicators.length; i++) {
++			for (var i=0; i<this.indicators.length; i++) {
+ 			
+-			var left = (i+1) * indicatorWidth;
+-			var right = this.kPageWidthNoMargin - ((this.indicators.length-i-1) * indicatorWidth);
+-			this.indicators[i].range = {left: left, right: right};
++				var left = (i+1) * indicatorWidth;
++				var right = this.kPageWidthNoMargin - ((this.indicators.length-i-1) * indicatorWidth);
++				this.indicators[i].range = {left: left, right: right};
++			}
++			this.updatePageIndicators();
+ 		}
+-		this.updatePageIndicators();
+ 	},
+ 	
+ 	/* Moves the indicator to newPosition */
+ 	moveIndicator: function(indicatorIndex, newPosition) {
+-		
+-		var indicator = this.indicators[indicatorIndex];
+-		if (newPosition < indicator.range.left) {
+-			newPosition = indicator.range.left;
+-		} else if (newPosition > indicator.range.right) {
+-			newPosition = indicator.range.right;
++		if(this.appLauncherCfg.indicators) {
++			var indicator = this.indicators[indicatorIndex];
++			if (newPosition < indicator.range.left) {
++				newPosition = indicator.range.left;
++			} else if (newPosition > indicator.range.right) {
++				newPosition = indicator.range.right;
++			}
++			indicator.element.style.left = newPosition + 'px';
+ 		}
+-		indicator.element.style.left = newPosition + 'px';
+ 	},
+ /********** Page Indicator end **********/
+ 		
+ 	/* handler called by the pages model when a new application has been added */
+ 	onAppAdded: function(newAppInfo, newLocation) {
++		newLocation.position = null;
++		if((this.appLauncherCfg) && (this.appLauncherCfg.placement)) {
++			if(this.appLauncherCfg.placement == "first")
++				newLocation.page = 0;
++			else if(this.appLauncherCfg.placement == "last")
++				newLocation.page = this.pageDivs.length - 1;
++			else if(this.appLauncherCfg.placement == "active")
++				newLocation.page = this.activePageIndex;
++			else if(this.appLauncherCfg.placement == "default") {
++				if((this.appLauncherCfg.page != undefined) &&
++					(this.appLauncherCfg.page != "default"))
++				{
++					newLocation.page = this.appLauncherCfg.page;
++				}			
++			}	
++		}
+ 		this.insertApp(newLocation, newAppInfo);
+ 	},
+ 	
+@@ -720,7 +1763,7 @@
  	onAppTapped: function(event) {
  		var target = event.currentTarget;
  		var appInfo = target._info;
@@ -1514,19 +1760,23 @@
  		} else if (!this.launchRequest) { // are we already trying to launch something?
 --- .orig/usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
 +++ /usr/lib/luna/system/luna-applauncher/app/views/launcher/launcher-scene.html
-@@ -17,7 +17,11 @@
+@@ -17,9 +17,13 @@
  		<div class="palm-header-spacer strut"></div>
  	</div>
  	
 -	<div id="launcher-main">
-+	<div id="launcher-main">
+-		<div id="launcher_root" x-mojo-element="Scroller">
+-			<div id="pages_container"></div>
++	<div id="launcher-main" class="view">
 +		<div id="page_header" style="display: none;" class="palm-header center" x-mojo-touch-feedback="immediate">
 +			<div id="page_name" style="display: block;">Launcher Page</div>
 +			<div id="page_text" style="display: none;" x-mojo-element="TextField"></div>
 +		</div>
- 		<div id="launcher_root" x-mojo-element="Scroller">
- 			<div id="pages_container"></div>
++		<div id="launcher_root" class="grid_small" x-mojo-element="Scroller">
++			<div id="pages_container" class="icons_large"></div>
  		</div>
+ 		<div id="page_indicators"></div>
+ 	</div>
 --- .orig/usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
 +++ /usr/lib/luna/system/luna-applauncher/app/controllers/app-info-assistant.js
 @@ -7,7 +7,12 @@
@@ -1650,7 +1900,147 @@
  	},
 --- .orig/usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
 +++ /usr/lib/luna/system/luna-applauncher/stylesheets/launcher.css
-@@ -342,3 +342,87 @@
+@@ -33,6 +33,10 @@
+ 	-webkit-palm-mouse-target: ignore;
+ }
+ 
++.noindicators .launcher_fade_bottom {
++	background: none;
++}
++
+ .launcher_arrow_bottom {
+ 	position: absolute;
+ 	width: 100%;
+@@ -43,6 +47,10 @@
+ 	-webkit-palm-mouse-target: ignore;
+ }
+ 
++.noindicators .launcher_arrow_bottom {
++	background: none;
++}
++
+ .launcher_fade_top {
+ 	position:absolute;
+ 	background: url(../images/launcher-page-fade-top.png) center center no-repeat;
+@@ -54,6 +62,10 @@
+ 	-webkit-palm-mouse-target: ignore;
+ }
+ 
++.noindicators .launcher_fade_top {
++	background: none;
++}
++
+ .launcher_arrow_top {
+ 	position: absolute;
+ 	width: 100%;
+@@ -64,6 +76,10 @@
+ 	-webkit-palm-mouse-target: ignore;
+ }
+ 
++.noindicators .launcher_arrow_top {
++	background: none;
++}
++
+ #pages_container {
+ 	position:relative;
+ 	left:0px;
+@@ -140,6 +156,70 @@
+ 	z-index:5;
+ }
+ 
++.grid_small .icons_small .launcher_page .name {	
++	top: 48px;
++	width: 100px;
++	font-size: 12px;
++}
++
++.grid_small .icons_medium .launcher_page .name {	
++	top: 58px;
++	width: 100px;
++	font-size: 13px;	
++}
++
++.grid_small .icons_large .launcher_page .name {	
++	top: 64px;
++	width: 100px;
++	font-size: 14px;	
++}
++
++.grid_medium .icons_small .launcher_page .name {	
++	top: 48px;
++	width: 84px;
++	left: 8px;
++	font-size: 12px;
++}
++
++.grid_medium .icons_medium .launcher_page .name {	
++	top: 56px;
++	width: 84px;
++	left: 8px;
++	font-size: 13px;	
++}
++
++.grid_medium .icons_large .launcher_page .name {	
++	top: 64px;
++	width: 84px;
++	left: 8px;
++	font-size: 14px;	
++}
++
++.grid_large .icons_small .launcher_page .name {	
++	top: 48px;
++	width: 60px;
++	left: 18px;
++	font-size: 12px;	
++}
++
++.grid_large .icons_medium .launcher_page .name {	
++	top: 58px;
++	width: 60px;
++	left: 18px;
++	font-size: 13px;	
++}
++
++.grid_large .icons_large .launcher_page .name {	
++	top: 64px;
++	width: 60px;
++	left: 18px;
++	font-size: 14px;	
++}
++
++.notitles .launcher_page .name {	
++	display: none;
++}
++
+ .app.ghost .name {
+ 	color: #CCCCCC;
+ }
+@@ -262,7 +342,23 @@
+ 	z-index:2;
+ }
+ 
+-.draggable {
++.icons_small .draggable {
++	width:48px;
++	height:48px;
++	margin: 0 auto;
++	-webkit-user-drag: any;
++	-webkit-user-select: none;
++}
++
++.icons_medium .draggable {
++	width:56px;
++	height:56px;
++	margin: 0 auto;
++	-webkit-user-drag: any;
++	-webkit-user-select: none;
++}
++
++.icons_large .draggable {
+ 	width:64px;
+ 	height:64px;
+ 	margin: 0 auto;
+@@ -342,3 +438,87 @@
  	text-overflow: ellipsis;
  	white-space: nowrap;
  }
@@ -1991,3 +2381,50 @@
  			</tr>
  		</table>
  	</div>
+--- .orig/usr/palm/applications/com.palm.app.devmodeswitcher/appinfo.json
++++ /usr/palm/applications/com.palm.app.devmodeswitcher/appinfo.json
+@@ -1,10 +1,10 @@
+ {
+-	"title": "DeveloperMode",
++	"title": "Developer Mode",
+ 	"type": "web",
+ 	"main": "index.html",
+ 	"id": "com.palm.app.devmodeswitcher",
+ 	"icon": "icon.png",
+ 	"noWindow": false,
+-	"visible": false	
++	"visible": true	
+ }
+ 
+--- .orig/usr/palm/applications/com.palm.app.pdfviewer/appinfo.json
++++ /usr/palm/applications/com.palm.app.pdfviewer/appinfo.json
+@@ -11,6 +11,6 @@
+         "Adobe",
+         "PDF Viewer"
+     ],
+-	"removable": true
++	"removable": false
+ }
+ 
+--- .orig/usr/palm/applications/com.palm.app.phoneprefs/appinfo.json
++++ /usr/palm/applications/com.palm.app.phoneprefs/appinfo.json
+@@ -5,7 +5,7 @@
+ 	"id": "com.palm.app.phoneprefs",
+ 	"icon": "icon.png",
+ 	"splashicon": "icon-256x256.png",
+-	"visible": false,
++	"visible": true,
+ 	"version": "1.0.0",
+ 	"vendor": "Palm"
+ }
+--- .orig/usr/palm/applications/com.palm.app.usbpassthrough/appinfo.json
++++ /usr/palm/applications/com.palm.app.usbpassthrough/appinfo.json
+@@ -6,7 +6,7 @@
+ 	"icon": "icon.png",
+ 	"version": "1.0.31",
+ 	"noWindow": false,
+-	"visible": false,
++	"visible": true,
+ 	"vendor": "Palm, Inc."
+ }
+ 
