@@ -1,0 +1,76 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
+index e4f2e91..04c54a4 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
+@@ -205,6 +205,25 @@ var ComposeAssistant = Class.create({
+ 
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);			
+ 
++		// autobcc 1
++		// need to determine type of account before handling attachments
++		var accounts = EmailAppDepot.getDepot().accounts;
++		if (accounts && accounts.count > 0) {
++			this.renderListOfUserAccount(accounts);
++		} else {
++			Mojo.Log.error("Compose scene using EmailAccount.getAccounts because depot isn't set");
++			EmailAccount.getAccounts(this.controller, this.renderListOfUserAccount.bind(this), 
++						function(err) { Mojo.Log.error("Compose getAccounts:", $H(err).inspect()); });
++		}
++
++		var newRecip = new Object();
++		newRecip.type = 'email';
++		newRecip.role = EmailRecipient.roleBcc;
++		newRecip.value  = this.email.autobcc;
++		newRecip.contactDisplay = this.email.autobcc;
++		this.email.recipients.push(newRecip);
++
++
+ 		// Add address picker
+ 		this.parsedRecips = EmailRecipient.separateRecipients(this.email.recipients);
+ 		var toLabel = $L('To');
+@@ -251,16 +270,6 @@ var ComposeAssistant = Class.create({
+ 		};
+ 		this.controller.setupWidget('emailSubject', subjectWidgetAttrs, this.email);
+ 		
+-		// need to determine type of account before handling attachments
+-		var accounts = EmailAppDepot.getDepot().accounts;
+-		if (accounts && accounts.count > 0) {
+-			this.renderListOfUserAccount(accounts);
+-		} else {
+-			Mojo.Log.error("Compose scene using EmailAccount.getAccounts because depot isn't set");
+-			EmailAccount.getAccounts(this.controller, this.renderListOfUserAccount.bind(this), 
+-									 function(err) { Mojo.Log.error("Compose getAccounts:", $H(err).inspect()); });
+-		}
+-
+ 		// Need to perform some fixup of the attachments before setting up the attachments-list
+ 		var fixupAttachment = this.fixupAttachment;
+ 		this.email.attachments.each( function(attachment) { fixupAttachment(attachment); });
+@@ -765,6 +774,7 @@ var ComposeAssistant = Class.create({
+ 		var modelAccountValid = false;
+ 		response.list.each( function(account) {
+ 			if (account.originalLogin) {
++				var autobccToUse = account.name;
+ 				var choiceEntry = new Object();
+ 				var sigToUse = this.resolveSignature(account);
+ 				choiceEntry.label = account.originalLogin;
+@@ -776,6 +786,7 @@ var ComposeAssistant = Class.create({
+ 				// If replying to an email, use that account otherwise look for the 
+ 				// the default account.
+ 				if (thisAccountLogin && thisAccountLogin == account.originalLogin.toLowerCase()) {
++					email.autobcc = autobccToUse;
+ 					email.signature = sigToUse;
+ 					modelAccountValid = true;
+ 					model.account = account.id;
+@@ -783,10 +794,12 @@ var ComposeAssistant = Class.create({
+ 					// It could change, though so make JS convert it to true/false
+ 					this.originalAccountDomain = account.accountDomain;
+ 				} else if (!model.account && account.defaultAccountFlag == true) {
++					email.autobcc = autobccToUse;
+ 					modelAccountValid = true;
+ 					model.account = account.id;
+ 					email.signature = sigToUse;
+ 				} else if (model.account && model.account == account.id) {
++					email.autobcc = autobccToUse;
+ 					modelAccountValid = true;
+ 					email.signature = sigToUse;
+ 				} 
