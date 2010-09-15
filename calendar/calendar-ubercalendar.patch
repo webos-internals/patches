@@ -64,8 +64,870 @@ index a667ac9..b87f7b0 100644
  		Mojo.Log.info("$$$$$$$$ Dashboard-assistant cleanup: end ");
  	},
  	
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
+index 1bc0374..8399fec 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
+@@ -140,7 +140,511 @@ var DatetimeAssistant = Class.create({
+                 break;
+         }
+     },
+-    
++	
++	// From monthview (Feb is fixed up by hand as necessary)
++	// We try to avoid the DateJS stuff because it's indescribably slow.
++	_monthDays: [ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 ],
++	
++	rdayNames: function() {
++		var stday = 0;
++		if(this.startOfWeek==null || this.startOfWeek == 'undefined')
++			this.startOfWeek = 0;
++		stday = this.startOfWeek - 1;
++		var tday = new Date();
++		tday.moveToDayOfWeek(stday);
++		for (var i = 0; i < 7; i++) {
++			this._rdNames[i] = Mojo.Format.formatDate(tday, "E");
++			tday.addDays(1);
++		}
++	},
++	
++	radvanceWk: function(wk, month) {
++		var wkn = parseInt(wk, 10);
++		if((wkn > 8) && (wkn < 52)) {
++			return (wkn + 1);
++		} else if(wkn <= 8) {
++			wkn +=1;
++			var zd = '0';
++			return zd + wkn.toString();
++		} else if(wkn == 52 && month == 11) {
++			return 53;
++		} else if(wkn >= 52 && month == 0) {
++			var zd = '01';
++			return zd;
++		} else if (wkn == 53 && month == 11) {
++			var zd = '01';
++			return zd;
++		}
++	},
++	
++	// draw month function, expects numbers 0 based month
++	canvasRM: function(month, year, context) {
++		// date object
++		var rmon = new Date(year, month, 1);
++		
++		//setup number of days, 1st day(day of week), week number, number of weeks
++		var rd1dayOfMon = rmon.getDay();
++		var rwkNum = rmon.getISO8601Week();
++		var r1offset = rd1dayOfMon - (this.startOfWeek - 1);
++		if (r1offset < 0) {r1offset += 7;}  //num of days of prev mon
++		if(isLeapYear(year)) {
++			this._monthDays[1] = 29;
++		} else {
++			this._monthDays[1] = 28;
++		}
++		this.RM[context].maxdays = this._monthDays[month];		
++		//setup fonts and spacing
++		this.mthctx[context].fillStyle = "rgb(0, 0, 0)";
++		this.mthctx[context].font = "bold 14px Prelude";
++		this.mthctx[context].textAlign = "left";
++		this.mthctx[context].textBaseline = "top";
++		var top = 2;
++		var leftmargin = 2;
++		var left = 0 + leftmargin;
++		var txt = "";
++		this.colHW = 30;
++		var maxW = 30;
++		this.topCor = 42 + (this.colHW/2); //top margin + half-cell
++		this.leftCor = this.colHW;
++		this.RM[context].fstDayLidx = r1offset;
++		this.RM[context].fstDayTidx = 1;
++		// setup title and week header
++		var titleTxt = Mojo.Format.formatDate(rmon, $L("MMM yyyy"));
++		this.mthctx[context].strokeText(titleTxt, left + 90, top);
++		this.mthctx[context].textAlign = "center";
++		for (var i = 0; i < 7; i++) {
++			txt = this._rdNames[i];
++			left = (i * this.colHW) + this.leftCor + 13;//13 is for font &txt to ctr
++			top = 22;
++			this.mthctx[context].strokeText(txt, left, top);	
++		}
++		this.mthctx[context].fillStyle = "rgb(104, 104, 104)";
++		this.mthctx[context].font = "14px Prelude";
++		this.mthctx[context].textAlign = "left";
++		this.mthctx[context].textBaseline = "alphabetic";
++		for (var j = 0; j < 6; j++) {
++			txt = rwkNum;
++			left = leftmargin;
++			top = (j * this.colHW) + this.topCor + 3; // 3 is for font correction
++			this.mthctx[context].strokeText(txt, left, top);
++			rwkNum = this.radvanceWk(rwkNum, month);
++		}
++		//iterate through the date rows
++		var num = 1;
++		this.mthctx[context].fillStyle = "rgb(0, 0, 0)";
++		this.mthctx[context].font = "bold 14px Prelude";
++		this.mthctx[context].textAlign = "center";
++		for (var j=0; j<6; j++) {
++			if (num > this.RM[context].maxdays) {
++				break; }
++			top = (j * this.colHW) + this.topCor + 3;
++			for (var i=0; i<7; i++) {
++				if (j==0 && i ==0) {i = r1offset;}
++				txt = num;
++				left =  (i * this.colHW) + this.leftCor + 13;
++				this.mthctx[context].strokeText(txt, left, top);
++				num +=1;
++				if (num > this.RM[context].maxdays) {
++					break; }
++			}
++		}
++	},
++	
++	RMnextM: function(index) {
++		this.RM[index].month = this.RM[index - 1].month;
++		this.RM[index].year = this.RM[index - 1].year;
++		if(this.RM[index].month == 11) {
++			this.RM[index].month = 0;
++			this.RM[index].year += 1;
++		} else {
++			this.RM[index].month += 1;
++		}
++	},
++	
++	RMprevM: function(index) {
++		this.RM[index].month = this.RM[index + 1].month;
++		this.RM[index].year = this.RM[index + 1].year;
++		if(this.RM[index].month == 0) {
++			this.RM[index].month = 11;
++			this.RM[index].year -= 1;
++		} else {
++			this.RM[index].month -= 1;
++		}
++	},
++	
++	// determin calendar order for the canvas's
++	orderRM: function( stDate, eDate, isAllDay) {
++		//check first
++		if(stDate.getTime() > eDate.getTime) {
++			Mojo.Log.error ("start after end");
++			return;
++		}
++		for(var i=0; i<6; i++) {
++			this.RM[i] = {};
++			this.RM[i].month = "";
++			this.RM[i].year = "";
++			this.RM[i].fstDayLidx = 1;
++			this.RM[i].fstDayTidx = 1;
++			this.RM[i].maxdays = 1;
++		}
++		// date objects
++		var curD = new Date();
++		var curMY = {month: curD.getMonth(), year: curD.getFullYear() };
++		var stMY = {month: stDate.getMonth(), year: stDate.getFullYear() };
++		var eMY = {month: eDate.getMonth(), year: eDate.getFullYear() };
++		this.RMlast.duration = getTimePeriodParts(stDate, eDate, isAllDay);
++		var rwhen = {};
++		rwhen = getTimePeriodParts(curD, stDate, isAllDay);
++		var dura = this.RMlast.duration;
++		// determine duration case
++		if ( (dura.years == 0) && (((dura.months == 5) && (dura.days == 0)) || (dura.months < 5)) ) {
++			if ( (dura.months <=1) && ((rwhen.months <= 3) && (rwhen.years <=0)) ){
++				// we can fit in 6 months try to get today in the 6 months
++				if(curD.getTime() < stDate.getTime()) {
++					//close future start with curDate 
++					this.redlineSplit.setStyle({borderRight: '1px solid black'});
++					this.RM[0].month = curMY.month;
++					this.RM[0].year = curMY.year;
++					for (var i = 1; i < 6; i++) {
++						this.RMnextM(i);
++					}
++				} else {
++					// in close past start with stDate
++					this.redlineSplit.setStyle({borderRight: '1px solid black'});
++					this.RM[0].month = stMY.month;
++					this.RM[0].year = stMY.year;
++					for (var i = 1; i < 6; i++) {
++						this.RMnextM(i);
++					}
++				}
++			} else {
++				if((curD.getTime() < stDate.getTime()) && (((dura.months == 4) && (dura.days == 0) && (dura.years ==0)) || ((dura.months <4) && (dura.years==0)))){
++					// in 6 months, too far away for today, in future do prev 
++					this.redlineSplit.setStyle({borderRight: '1px solid black'});
++					this.RM[1].month = stMY.month;
++					this.RM[1].year = stMY.year;
++					this.RMprevM(0);
++					this.RMnextM(2);
++					this.RMnextM(3);
++					this.RMnextM(4);
++					this.RMnextM(5);
++				} else {
++					// in past or could be 6 cal months do start + 5
++					this.redlineSplit.setStyle({borderRight: '1px solid black'});
++					this.RM[0].month = stMY.month;
++					this.RM[0].year = stMY.year;
++					for (var i = 1; i < 6; i++) {
++						this.RMnextM(i);
++					}
++				}
++			}
++		} else { //duration won't fit in 6 months
++			if( ((stMY.year == curMY.year) && (stMY.month == curMY.month)) ||
++			  ((stMY.year < curMY.year) ||  ((stMY.year == curMY.year) && (stMY.month < curMY.month))) ){
++			//past or present month - do start + next + next redline split then -- prev + end + next
++				this.redlineSplit.setStyle({borderRight: '2px solid red'});
++				this.RM[0].month = stMY.month;
++				this.RM[0].year = stMY.year;
++				this.RMnextM(1);
++				this.RMnextM(2);
++				this.RM[4].month = eMY.month;
++				this.RM[4].year = eMY.year;
++				this.RMprevM(3);
++				this.RMnextM(5);
++			} else if((stMY.year > curMY.year) ||  ((stMY.year == curMY.year) && (stMY.month > curMY.month))) {
++			// future - do prev + start + next redline split prev + end + next
++				this.redlineSplit.setStyle({borderRight: '2px solid red'});
++				this.RM[1].month = stMY.month;
++				this.RM[1].year = stMY.year;
++				this.RMprevM(0);
++				this.RMnextM(2);
++				this.RM[4].month = eMY.month;
++				this.RM[4].year = eMY.year;
++				this.RMprevM(3);
++				this.RMnextM(5);
++			}
++		}	
++		// call canvasRM
++		for(var k=0; k<6; k++){
++			this.canvasRM(this.RM[k].month, this.RM[k].year, k);
++		}
++
++		// record for next time comparisons
++		this.RMlast.stMY = stMY;
++		this.RMlast.eMY = eMY;
++		this.RMlast.curMY = curMY;
++	},
++	
++	risRendered: function( year, month) {
++		for(var i=0; i<6; i++) {
++			if((this.RM[i].month == month) && (this.RM[i].year == year)) {
++				return i;
++			}
++		}
++		return -1;
++	},
++	
++	//mark days in calendar
++	markDay: function(rdate, imgsrc, color, rx, ry, rwt, rht) {
++		// determine which month, year, date
++		if (rdate instanceof Date == true) { 
++			var whatMn = rdate.getMonth();
++			var whatYr = rdate.getFullYear();
++			var whatDt = rdate.getDate();
++		} else if(rdate !== undefined) {
++			this.rtdate = new Date(rdate);
++			var whatMn = this.rtdate.getMonth();
++			var whatYr = this.rtdate.getFullYear();
++			var whatDt = this.rtdate.getDate();
++		}
++		var rmimgsrc = imgsrc;
++		var idx = this.risRendered(whatYr, whatMn);
++		if(idx == -1) { return; }
++		var fstDayLidx = this.RM[idx].fstDayLidx;
++		var fstDayTidx = this.RM[idx].fstDayTidx;
++		var rRow = Math.floor((whatDt + fstDayLidx -1) / 7);
++		var col = (whatDt + fstDayLidx - 1) % 7;
++		var itop = (rRow * this.colHW) + 40;
++		var ileft = (col * this.colHW) + this.colHW;
++		itop = (ry !== undefined) ? itop + ry : itop;
++		ileft = (rx !== undefined) ? ileft + rx : ileft;
++		if (rmimgsrc !== undefined) {
++			this.mthctx[idx].drawImage(rmimgsrc, ileft, itop, (rwt !== undefined)? rwt : this.colHW,(rht !== undefined)? rht : this.colHW);
++		} else if(color !== undefined) {
++			this.mthctx[idx].fillStyle = color;
++			this.mthctx[idx].fillRect(ileft, itop, this.colHW-2, this.colHW-2);
++		} else {
++			this.mthctx[idx].fillStyle = "rgba(232,227,124,0.5)";
++			this.mthctx[idx].fillRect(ileft, itop, this.colHW-2, this.colHW-2);
++		}
++	},
++	
++	rmMarkD: function() {
++		if(this.RMlast.duration.months > 7) {
++			return;
++		}
++		if((this.RMlast.stMY.month == this.RMlast.eMY.month) && (this.RMlast.stD.getDate() == this.RMlast.eD.getDate())) {
++			this.RMlast.HMDB = 1;
++			return;
++		}
++		var stTS = new Date(this.RMlast.stMY.year, this.RMlast.stMY.month, this.RMlast.stD.getDate(), 12).getTime();
++		var daylen = 3600000*24;
++		var end = howManyDaysBetween(this.RMlast.stD, this.RMlast.eD) +1;
++		this.RMlast.HMDB = end;
++		this.RMlast.stTS = stTS;
++		for (var z = 0; z < end; z++) {
++			this.markDay(stTS + (z*daylen),
++							this.dImg, 
++							null/*color*/,
++							null/*x adjust*/,
++							this.colHW-2/*y adjust*/ ,
++							this.colHW/*wd adjust*/,
++							2 /*ht adjust*/)
++		}
++	},
++	
++	rmRecur: function() {
++		// this function is after it is a known recurrent model
++		// time of when -- occuring each
++		var rcfrequency = this.targetEvent.rruleModel.frequency;
++		var rccount = this.targetEvent.rruleModel.count;
++		// this is week day names array
++		var rcbyday =  this.targetEvent.rruleModel.byday;
++		// this is the date of the month
++		var rcbymonthday = this.targetEvent.rruleModel.bymonthday;
++		// end day
++		var rcuntil = this.targetEvent.rruleModel.until;
++		// howmany times between
++		var rcint = this.targetEvent.rruleModel.interval;
++		// take stTS and duradays to create the base event from the curent event
++		var rcduraD = this.RMlast.HMDB;
++		var rcstTS = this.targetEvent.startTimestamp;
++		var rcstDy = new Date(rcstTS);
++		var rcstD = new Date(rcstDy.getFullYear(), rcstDy.getMonth(), rcstDy.getDate(), 12);
++		rcstTS = rcstD.getTime();
++		var stDoW = rcstD.getDay();
++		var dlen = 3600000*24;
++		var rcdaysofwk = [];
++		this.recTS = []; // array of timestamps of the recurring evt
++		switch (rcfrequency) {
++				case 'DAILY':
++					var recfreqTS = dlen;
++					break;
++				case 'WEEKLY':
++					var recfreqTS = dlen * 7;
++					break;
++				case 'MONTHLY':
++					var recfreqTS = -1;
++					break;
++				case 'YEARLY':
++					var recfreqTS = -1;
++					break;
++		}
++
++		if(rcuntil !== "" && rcuntil !== undefined) {
++			// until is in UTC jan = 1, need local for cal
++			var rcyear = rcuntil.substring(0,4);
++			var rcmon = parseInt(rcuntil.substring(4,6), 10) -1;
++			var rcday = parseInt(rcuntil.substring(6,8), 10);
++			var rchour = parseInt(rcuntil.substring(9,11), 10);
++			var rcmin = parseInt(rcuntil.substring(11, 13), 10);
++			this.RMlast.recD = new Date(Date.UTC(rcyear, rcmon, rcday, rchour, rcmin));
++		} else if(this.targetEvent.isRecurringForever) {
++			if(rcfrequency == "DAILY" || recfreqTS == -1) {
++			// go out 6 months
++				this.RMlast.recD = new Date(this.RMlast.eMY.month + 6 > 11 ? this.RMlast.eMY.year + 1 : this.RMlast.eMY.year, this.RMlast.eMY.month + 6 > 11 ? this.RMlast.eMY.month - 6 : this.RMlast.eMY.month + 6, this.RMlast.eD.getDate());
++			} else {	// go out 1 year from the end date
++				this.RMlast.recD = new Date(this.RMlast.eMY.year + 1, this.RMlast.eMY.month, this.RMlast.eD.getDate());
++			}
++		} else if((rccount !== -1) && (recfreqTS !== -1)) {
++			this.RMlast.recD = new Date(rcstTS + (recfreqTS*rcint*rccount));
++		}
++		var recHMDB = howManyDaysBetween(rcstD, this.RMlast.recD) +1;
++		// detect recurr model
++		switch (rcfrequency) {
++			case 'DAILY' : // Do Not Localize
++				// get how many intervals
++				var rcdays = Math.floor((recHMDB*dlen) / (recfreqTS*rcint));
++				for(var k=0; k < rcdays; k++) { // cycle through intervals
++					this.recTS.push((dlen*k*rcint) + rcstTS);	
++				}
++				while(this.recTS[this.recTS.length -1] > this.RMlast.recD.getTime()){
++					this.recTS.pop();
++				}
++				break;
++				
++            case 'WEEKLY': // Do NOT Localize
++				// find the day numbers from their names
++				var rci = this.targetEvent.rruleModel.byday.length;
++				var rcSundayTS = rcstTS - (stDoW*dlen); 
++				for(var i=0; i < rci; i++) {
++					rcdaysofwk[i] = this.recurrenceRule.dayMap.indexOf(rcbyday[i]);
++				}
++				if(rci > 1) {
++				// get start day dow because it has to be in rcdaysofwk
++					var rcpos = rcdaysofwk.indexOf(stDoW);
++					//need to get to the last of the array before start of next week
++					if(rcpos !== rci - 1){
++						for(var i = rcpos; i <= rci; i++) {
++							for(var j = 0; j < rcduraD; j++) {
++							// array's TS = duration days *milliseconds in a day + (sundays TS + day of week adjustment) 
++							this.recTS.push((dlen*j) + (rcSundayTS + dlen*rcdaysofwk[i]));	
++							}
++						}
++					}
++				}
++				//should be at the first day of the week after start day's week
++				// need to get how many intervals until GetHowManyDays / 7*interval
++				var rcwks = Math.floor((recHMDB*dlen) / (recfreqTS*rcint)); 
++				for(var k=1; k <= rcwks; k++) { // cycle through intervals
++					var rcwkSunTS = rcSundayTS + (rcint * recfreqTS * k);
++					for(var i = 0; i < rci; i++) { // cycle through days of week
++						for(var j = 0; j < rcduraD; j++) { //cycle duration
++						this.recTS.push((dlen*j) + (rcwkSunTS + dlen*rcdaysofwk[i]));	
++						}
++					}
++				}
++				while(this.recTS[this.recTS.length -1] > this.RMlast.recD.getTime()){
++					this.recTS.pop();
++				}
++            	break;
++                
++            case 'MONTHLY': // Do NOT Localize
++                //Monthly by date
++				var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
++                if (this.targetEvent.rruleModel.bymonthday.length > 0) {
++                    var rcmonthday = this.targetEvent.rruleModel.bymonthday[0];
++					var rcstmon = rcstD.getMonth();
++					var rcstyear = rcstD.getFullYear();
++					for(var i=0; i<rcmonths; i++) { //cycle through intervals
++						var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++						var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++						var rcmonTS = new Date(rcyear, rcmon, rcmonthday, 12).getTime();
++						for(var j=0; j<rcduraD; j++) { // cycle through duration
++							this.recTS.push(rcmonTS + (j*dlen));
++						}
++					}
++                } else {
++                    var nth = getDOWCount(this.targetEvent.startTimestamp);
++					var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
++					var rcstmon = rcstD.getMonth();
++					var rcstyear = rcstD.getFullYear();
++					var rcwantday = rcstD.getDay();
++					for(var i=0; i<rcmonths; i++) { // cycle through intervals
++						var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++						var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear;
++						var rcmonD = new Date(rcyear, rcmon, 1, 12);
++						var rcfstday = rcmonD.getDay();
++						var rcaddTS = ((rcwantday - rcfstday) < 0) ? ((rcwantday - rcfstday) + 7)*dlen : (rcwantday - rcfstday)*dlen;
++						var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth-1);
++						for(var j=0; j<rcduraD; j++) { // cycle through duration
++							this.recTS.push(rcmonTS + (j*dlen));
++						}
++					}
++				}
++				while(this.recTS[this.recTS.length -1] > this.RMlast.recD.getTime()){
++					this.recTS.pop();
++				}
++				break;
++				
++			default:                
++				break;
++		}
++		// pull out the exceptions
++		if(this.targetEvent.exdates !== undefined) {
++			if(this.targetEvent.exdates !== "") {
++				var rcexTS = [];
++				var rcexstr = this.targetEvent.exdates.split("\r\n");
++				for(var i=0; i<rcexstr.length; i++){
++					var idx = rcexstr[i].indexOf(":");
++					if(idx !== -1) {
++						rcexstr[i] = rcexstr[i].substring(idx +1);
++					}
++				}
++				for(var j=0; j<rcexstr.length; j++) {
++					var rcyear = rcexstr[j].substring(0,4);
++					var rcmon = parseInt(rcexstr[j].substring(4,6), 10) -1;
++					var rcday = parseInt(rcexstr[j].substring(6,8), 10);
++					rcexTS[j] = new Date(rcyear, rcmon, rcday, 12).getTime();
++				}
++				// pull exdates out of array
++				for(var k=0; k<rcexTS.length; k++) {
++					var idx = this.recTS.indexOf(rcexTS[k]);
++					if(idx !== -1) {
++						this.recTS.splice(idx,1);
++					}
++				}
++			}
++		}
++		// mark the recurrence days
++		var rcstop = this.recTS.length;
++		for(var k=0; k<rcstop; k++){
++			this.markDay(this.recTS[k],
++							this.rImg, 
++							null/*color*/,
++							null/*x adjust*/,
++							this.colHW-2/*y adjust*/ ,
++							this.colHW/*wd adjust*/,
++							2 /*ht adjust*/)
++		}
++		
++	},
++	
++	rmEval: function() {
++		if(this.targetModifiedTime) {			
++			this.RMlast.stD = new Date(this.targetModifiedTime.start);
++			this.RMlast.eD = new Date(this.targetModifiedTime.end);
++		} else {
++			this.RMlast.stD = new Date(this.targetEvent.startTimestamp);
++			this.RMlast.eD = new Date(this.targetEvent.endTimestamp);
++		}
++		if(this.targetEvent.rruleModel) {
++			
++			this.rmdoRec = true;
++			return;
++		}
++	},
++	
+     setup: function(){
+         //Mojo.Log.info("datetime-assistant:setup");
+         
+@@ -168,7 +672,40 @@ var DatetimeAssistant = Class.create({
+         this.startDateModel = {
+             date: new Date(this.targetModifiedTime.start)
+         };
++         var startDiv = this.controller.get("edit_startDate").parentNode.parentNode;
++        startDiv.style.paddingTop = "0px";
++        startDiv.style.marginTop = "-20px";
++        startDiv.removeChild(startDiv.firstChild);
++        startDiv.innerHTML = '<table width="100%"><tr><td width="10%"><div x-mojo-element="Button" id="popCanvasBtn2" class="popCanvas"></div></td><td width="90%"><div class="title datetime-picker"><div id="edit_startDate" x-mojo-element="DatePicker"></div></div></td></tr></table>';
++
++        var endDiv = this.controller.get("edit_endDate").parentNode.parentNode;
++        endDiv.style.paddingTop = "0px";
++        endDiv.style.marginTop = "-20px";
++        endDiv.removeChild(endDiv.firstChild);
++        endDiv.innerHTML = '<table width="100%"><tr><td width="10%"><div x-mojo-element="Button" id="popCanvasBtn" class="popCanvas"></div></td><td width="90%"><div class="title datetime-picker"><div id="edit_endDate" x-mojo-element="DatePicker"></div></div></td></tr></table>';
++
++        var parentDiv = this.controller.get("datetime_view");
++        var newDiv = this.controller.document.createElement("div");
++        newDiv.setAttribute("id", "lDrawer");
++        newDiv.setAttribute("x-mojo-element", "Drawer");
++        newDiv.setAttribute("class", "drawerClass");
++        newDiv.setAttribute("name", "DPmonth_view");
++        newDiv.innerHTML = '<div id="DPscrol" x-mojo-element="Scroller"><div id="DPscrolct">' +
++				'<div id="DPmonth_0" class="DPmv">' +
++				'<canvas id="left0" width="240" height="220" left="0"></canvas>' +
++				'</div><div id="DPmonth_1" class="DPmv">' +
++				'<canvas id="left1" width="240" height="220"></canvas>' +
++				'</div><div id="DPmonth_2" class="DPmv">' +
++				'<canvas id="left2" width="240" height="220"></canvas>' +
++				'</div><div id="DPmonth_3" class="DPmv">' +
++				'<canvas id="right0" width="240" height="220"></canvas>' +
++				'</div><div id="DPmonth_4" class="DPmv">' +
++				'<canvas id="right1" width="240" height="220"></canvas>' +
++				'</div><div id="DPmonth_5" class="DPmv">' +
++				'<canvas id="right2" width="280" height="220"></canvas></div></div></div>';
++        parentDiv.insertBefore(newDiv, parentDiv.childNodes[9]);
+         
++               
+ 	this.controller.setupWidget('edit_startDate',{label: $L('Date'),modelProperty:'date'}, this.startDateModel);
+         this.controller.listen('edit_startDate', Mojo.Event.propertyChange, this.startDateCallback.bindAsEventListener(this));
+         
+@@ -204,10 +741,133 @@ var DatetimeAssistant = Class.create({
+         this.controller.setupWidget('dtl_allday_cb', this.allDayCheckboxAttribute, this.allDayCheckboxModel);
+         
+         this.updateTimedAllDay(false);
+-        
+-        
+-    },
++		// button setup
++		this.controller.setupWidget("popCanvasBtn",
++			{},
++			{
++				label : "",
++				disabled: false
++			}
++		);
++		this.popCanvasBtn = this.controller.get('popCanvasBtn');
++		this.controller.setupWidget("popCanvasBtn2",
++			{},
++			{
++				label : "",
++				disabled: false
++			}
++		);
++		this.canvasBtnHandler = this.DPtoggleDrawer.bind(this);
++		this.popCanvasBtn2 = this.controller.get('popCanvasBtn2');
++		Mojo.Event.listen(this.popCanvasBtn, Mojo.Event.tap, this.canvasBtnHandler);
++		Mojo.Event.listen(this.popCanvasBtn2, Mojo.Event.tap, this.canvasBtnHandler);
++		// drawer setup
++		this.controller.setupWidget("DPscrol",{mode: 'horizontal'});
++		this.dModel = {open:false};
++		this.controller.setupWidget('lDrawer', {property:'open', drawerBottomOffset: 50}, this.dModel);
++		this.ldrawer = this.controller.get('lDrawer');		
++		// setup month canvas context
++		this.redlineSplit = this.controller.get("DPmonth_2");
++		this.mthctx = [];
++		this.left0 = this.controller.get("left0");
++		this.mthctx[0] = this.left0.getContext('2d');
++		this.left1 = this.controller.get("left1");
++		this.mthctx[1] = this.left1.getContext('2d');
++		this.left2 = this.controller.get("left2");
++		this.mthctx[2] = this.left2.getContext('2d');
++		this.right0 = this.controller.get("right0");
++		this.mthctx[3] = this.right0.getContext('2d');
++		this.right1 = this.controller.get("right1");
++		this.mthctx[4] = this.right1.getContext('2d');
++		this.right2 = this.controller.get("right2");
++		this.mthctx[5] = this.right2.getContext('2d');
++		// setup vars
++		this.startOfWeek = getPrefs().startOfWeek;
++		this._rdNames = [];
++		this.RMlast = {};
++		this.RMlast.duration = {years: 0, months: 0, days: 0, hours: 0, minutes: 0};
++		this.RM = [];
++		this.topCor = "";
++		this.leftCor = "";
++		this.rtdayimg = new Image();
++		this.rtdayimg.src = "./images/week-current-day.png";
++		this.rmdoRec = false;
++		this.rdayNames();
++		this.rmEval();
++		this.orderRM(this.RMlast.stD, this.RMlast.eD, this.targetEvent.allDay);
++		this.stImg = new Image();
++		this.stImg.src = "./images/day-allday-event-green-center.png";
++		this.eImg = new Image();
++		this.eImg.src = "./images/day-allday-event-red-center.png";
++		this.dImg = new Image();
++		this.dImg.src = "./images/day-event-green.png";
++		this.rImg = new Image();
++		this.rImg.src = "./images/day-event-yellow.png";
++		this.rmScroller = this.controller.get('DPscrol');
++		//this.rmScrollP = {x : 0, y : 0};
++		this.rmlastBtn = null;
++		this.rtDate = new Date();
++		this.rmcalHold = false;
++	},
+     
++	
++	// toggle drawer function:
++	DPtoggleDrawer: function(e) {
++		var curBtn = e.currentTarget.id;
++		if(curBtn == "popCanvasBtn2") {
++			this.rmScrollTo(this.RMlast.stD);
++		} else {
++			this.rmScrollTo(this.RMlast.eD);
++		}
++		if (curBtn == this.rmlastBtn)  {
++			this.ldrawer.mojo.setOpenState(false);
++			this.rmlastBtn = null;
++			if(!this.targetEvent.allDay) {
++				this.slideDown(this.controller.get('start_time_row'), 0.4);		
++				this.slideDown(this.controller.get('end_time_row'), 0.4);
++			}
++		} else {
++			this.rmlastBtn = curBtn;
++			var state = this.ldrawer.mojo.getOpenState();
++			if(!state) {
++			
++				this.ldrawer.mojo.setOpenState(true);
++				if(!this.targetEvent.allDay) {
++					this.slideUp(this.controller.get('start_time_row'), 0.4);
++					this.slideUp(this.controller.get('end_time_row'), 0.4);
++				}
++			}
++		}
++	},	
++	
++	rmScrollTo: function(x) {
++		if (x instanceof Date == true) { 
++			var whatMn = x.getMonth();
++			var whatYr = x.getFullYear();
++			var idx = this.risRendered(whatYr, whatMn);
++		} else if(x >= 0 && x <= 6) {
++			var idx = x;
++		}
++		idx = idx * 241;
++		idx = -idx;
++		this.controller.get('DPscrol').mojo.scrollTo(idx, true, true);
++	},
++	
++	rmHandleUpdate: function() {
++		// date picker model changed do redraw
++		for(var i = 0;i<6; i++) {
++			this.mthctx[i].clearRect(0, 0, 240,220);
++		}
++		this.rmEval();
++		this.orderRM(this.RMlast.stD, this.RMlast.eD, this.targetEvent.allDay);
++		this.markDay(new Date(), this.rtdayimg);
++		this.markDay(this.RMlast.stD, this.stImg , null/*color*/, 1/*x adjust*/,null/*y adjust*/ ,2 /*wd adjust*/,this.colHW /*ht adjust*/);
++		this.markDay(this.RMlast.eD, this.eImg , null/*color*/, this.colHW-2/*x adjust*/,null/*y adjust*/ ,2 /*wd adjust*/,this.colHW /*ht adjust*/);
++		this.rmMarkD();
++		if(this.rmdoRec) {this.rmRecur(); }
++		this.rmScrollTo(this.RMlast.stD);
++	},
++	
+     checktargetEventDirty: function(){
+         //construct rrule
+ 		if(this.targetEvent.rruleModel)
+@@ -431,12 +1091,47 @@ var DatetimeAssistant = Class.create({
+     },
+     
+     activate: function(){
+-    },
++		this.markDay(new Date(), this.rtdayimg);
++		this.markDay(this.RMlast.stD, this.stImg , null/*color*/,0/*x adjust*/,null/*y adjust*/ ,2 /*wd adjust*/,this.colHW /*ht adjust*/);
++		this.markDay(this.RMlast.eD, this.eImg , null/*color*/, this.colHW-2/*x adjust*/,null/*y adjust*/ ,2 /*wd adjust*/,this.colHW /*ht adjust*/);
++		this.rmMarkD();
++		if(this.rmdoRec) {this.rmRecur(); }
++		this.rmScrollTo(this.RMlast.stD);
++		//tap handlers
++		this.calTapHandler = this.handleCalTap.bind(this);
++		this.calHoldHandler = this.handleCalHold.bind(this);
++		Mojo.Event.listen(this.left0, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.listen(this.left1, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.listen(this.left2, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.listen(this.right0, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.listen(this.right1, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.listen(this.right2, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.listen(this.left0, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.listen(this.left1, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.listen(this.left2, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.listen(this.right0, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.listen(this.right1, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.listen(this.right2, Mojo.Event.hold, this.calHoldHandler);
++		},
+     
+     deactivate: function(){
+-        //Mojo.Log.info("datetime-assistant:deactivate");	
+-        this.controller.stopListening(this.controller.document, Mojo.Event.deactivate, this.blurStage);
+-    },
++		Mojo.Event.stopListening(this.popCanvasBtn, Mojo.Event.tap, this.canvasBtnHandler);
++		Mojo.Event.stopListening(this.popCanvasBtn, Mojo.Event.tap, this.canvasBtnHandler);
++		//Mojo.Log.info("datetime-assistant:deactivate");	
++		this.controller.stopListening(this.controller.document, Mojo.Event.deactivate, this.blurStage);
++		Mojo.Event.stopListening(this.left0, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.stopListening(this.left1, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.stopListening(this.left2, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.stopListening(this.right0, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.stopListening(this.right1, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.stopListening(this.right2, Mojo.Event.tap, this.calTapHandler);
++		Mojo.Event.stopListening(this.left0, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.stopListening(this.left1, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.stopListening(this.left2, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.stopListening(this.right0, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.stopListening(this.right1, Mojo.Event.hold, this.calHoldHandler);
++		Mojo.Event.stopListening(this.right2, Mojo.Event.hold, this.calHoldHandler);
++	},
+     	
+ 	//When the start date of the event is changed, WEEKLY:single day, WEEKLY:custom, MONTHLY repeating events 
+ 	//must update their rruleModel. DAILY, YEARLY, and WEEKLY:weekdays repeating events do not need to be changed.
+@@ -553,6 +1248,7 @@ var DatetimeAssistant = Class.create({
+             this.targetEvent.alldayReservedStartTimestamp = this.targetModifiedTime.start;
+             this.targetEvent.alldayReservedEndTimestamp = this.targetModifiedTime.end;
+         }
++		this.rmHandleUpdate();
+     },
+     
+     endDateSet: function(isOnBack){
+@@ -642,8 +1338,10 @@ var DatetimeAssistant = Class.create({
+ 				}
+             }
+             
+-            if (isOnBack == false) 
++            if (isOnBack == false) {
+                 this.calcDuration();
++				this.rmHandleUpdate();
++			}
+             this.targetModifiedTime.changed = true;
+             if (this.datetimeoutID) {
+                 this.controller.window.clearTimeout(this.datetimeoutID);
+@@ -751,6 +1449,7 @@ var DatetimeAssistant = Class.create({
+         this.controller.modelChanged(this.startTimeModel);
+         this.controller.modelChanged(this.endTimeModel);
+         this.targetModifiedTime.changed = false;
++		this.rmHandleUpdate();
+         //Mojo.Log.info("Old event all day %o, new Event all day %o",this.oldEvent.allDay,this.allDayCheckboxModel);
+         if (this.oldEvent.allDay != this.allDayCheckboxModel.value) {
+         
+@@ -761,6 +1460,85 @@ var DatetimeAssistant = Class.create({
+         this.targetCallBack(this.targetEvent, null);
+         
+     },
+-
++	
++	//Calendar Tap Handlers
++	handleCalHold: function(event) {
++		// set the hold var, send to tap handler
++		this.rmcalHold = true;
++		this.handleCalTap(event);
++	},
++	
++	handleCalTap: function(event) {
++		Event.stop(event);
++		var x = event.down.offsetX;
++		var y = event.down.offsetY;
++		//get rid of tap areas not in calendar day area
++		if(x <= 30 || y <= 40 ) {
++			this.rmcalHold = false;
++			return;
++		}
++		var rmcan = event.target.id;
++		switch (rmcan) {
++			case 'left0':
++				var rmindex = 0;
++				break;
++			case 'left1':
++				var rmindex = 1;
++				break;
++			case 'left2':
++				var rmindex = 2;
++				break;
++			case 'right0':
++				var rmindex = 3;
++				break;
++			case 'right1':
++				var rmindex = 4;
++				break;
++			case 'right2':
++				var rmindex = 5;
++				break;
++		}
++		// get first day index month year
++		if (x && y && (rmindex !== undefined)) {
++			var calx = x - 30;
++			var caly = y - 40;
++			var cald1idx = this.RM[rmindex].fstDayLidx;
++			var calcol = Math.floor(calx/this.colHW);
++			var calrow = Math.floor(caly/this.colHW);
++			var caldate = ((calrow * 7) + calcol +1) - cald1idx;
++			if((caldate > this.RM[rmindex].maxdays) || (caldate <= 0)) {
++				// tapped an area with invalid date
++				this.rmcalHold = false;
++				return;
++			}
++			var calmon = this.RM[rmindex].month;
++			var calyear = this.RM[rmindex].year;
++			if((calyear !== undefined) && (calmon !== undefined) && (caldate !== undefined)) {
++				if(this.rmlastBtn != null && this.rmlastBtn == "popCanvasBtn2") {
++					// start date
++					this.startDateModel.date = new Date(calyear, calmon, caldate);
++					this.controller.modelChanged(this.startDateModel);
++					Mojo.Event.send(this.controller.get('edit_startDate'), 'mojo-property-change', {value: this.startDateModel.date} )
++				} else if(this.rmlastBtn !== null && this.rmlastBtn == "popCanvasBtn") {
++					// end date
++					this.endDateModel.date = new Date(calyear, calmon, caldate);
++					this.controller.modelChanged(this.endDateModel);
++					Mojo.Event.send(this.controller.get('edit_endDate'), 'mojo-property-change', {value: this.endDateModel.date} )
++				}
++				// check whether drawer should close
++				if(this.rmcalHold == false) {
++					this.ldrawer.mojo.setOpenState(false);
++					this.rmlastBtn = null;
++					if(!this.targetEvent.allDay) {
++						this.slideDown(this.controller.get('start_time_row'), 0.4);		
++						this.slideDown(this.controller.get('end_time_row'), 0.4);
++					}
++				} else {
++					this.rmcalHold = false;
++					return;
++				}
++			}
++		}
++	},
+ 
+ });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
-index 84263c0..099fb89 100644
+index 84263c0..1d55367 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 @@ -11,8 +11,8 @@ var DayAssistant = Class.create({
@@ -160,23 +1022,24 @@ index 84263c0..099fb89 100644
  	
  		var ctx = this.divs[whichDay].ctxEvents;
  		var marginLeft = 28;
-@@ -743,6 +761,15 @@ var DayAssistant = Class.create({
+@@ -743,7 +761,15 @@ var DayAssistant = Class.create({
  		ctx.fillRect(left+1, top+height-3, width-2, 1);
  		
  		var textTop = top + 30;
+-		
 +
 +		// get more details
-+		if (event.gotFullDetails === undefined) {
++		if (!event.subject && event.gotFullDetails === undefined) {
 +			// get more infos for this event
 +			getCalendarService().getEvent(event.id,
-+					this.getEventDetails.bind(this, whichDay, event, selected, ghost),
-+					function(response) {Mojo.Log.error(response.errorText);},
-+					this.controller);
++				this.getEventDetails.bind(this, whichDay, event, selected, ghost),
++				function(response) {Mojo.Log.error(response.errorText);},
++				this.controller);
 +		}
- 		
  		// Subject
  		ctx.fillStyle = this.colors[event.calendarColor].text;
-@@ -753,8 +780,27 @@ var DayAssistant = Class.create({
+ 		if (selected)
+@@ -753,8 +779,27 @@ var DayAssistant = Class.create({
  		var subjectTop = top+15;
  		if (bottom >= (top + height))
  			subjectTop = top+17;	// no room for location or note, therefore vertically center subject text
@@ -206,7 +1069,7 @@ index 84263c0..099fb89 100644
  		// Location
  		if (event.location && (event.location.length > 0) && (textTop < (top + height))) {
  			ctx.font = "italic bold 14px Prelude";
-@@ -769,7 +815,7 @@ var DayAssistant = Class.create({
+@@ -769,7 +814,7 @@ var DayAssistant = Class.create({
  			bottom = top+height;
  			this.fillText(event.note, ctx, left+4, textTop-2, width, bottom-2, 12 /*line height*/);			
  		}
@@ -215,7 +1078,7 @@ index 84263c0..099fb89 100644
  		if (ghost) {
  			var selectedColor = "rgba(228, 228, 226, 0.85)"
  			ctx.fillStyle = selectedColor;
-@@ -789,6 +835,13 @@ var DayAssistant = Class.create({
+@@ -789,6 +834,13 @@ var DayAssistant = Class.create({
  		  ctx.fillRect(left, top, width, height);
  		}
  	},
@@ -229,13 +1092,13 @@ index 84263c0..099fb89 100644
  	
  	getAllDayDimensions: function(index, event) {
  		var marginLeft = 4;
-@@ -822,13 +875,41 @@ var DayAssistant = Class.create({
+@@ -822,13 +874,41 @@ var DayAssistant = Class.create({
  					   dim.top, 
  					   dim.width, 
  					   this.colors[event.calendarColor].allday.syCenter);
 +
 +		// get more details
-+		if (event.gotFullDetails === undefined) {
++		if (!event.subject && event.gotFullDetails === undefined) {
 +			// get more infos for this event
 +			getCalendarService().getEvent(event.id,
 +					this.getAllDayEventDetails.bind(this, whichDay, index, event, selected),
@@ -272,7 +1135,7 @@ index 84263c0..099fb89 100644
  		
  		if (selected) {
  			var selectedColor = "rgba(4, 4, 4, 0.5)"
-@@ -837,14 +918,37 @@ var DayAssistant = Class.create({
+@@ -837,14 +917,39 @@ var DayAssistant = Class.create({
  		}
  	},
  	
@@ -299,8 +1162,10 @@ index 84263c0..099fb89 100644
 +				if (day.events[0].start_decimal > 0) {
 +					day.freeTimes.push({start_decimal: 0, end_decimal: day.events[0].start_decimal, duration: day.events[0].start_decimal});
 +				}
-+				if (day.events[day.events.length-1].end_decimal < 2400) {
-+					day.freeTimes.push({start_decimal: day.events[day.events.length-1].end_decimal, end_decimal: 2400, duration: 2400 - day.events[day.events.length-1].end_decimal});
++				// sort by end times to get last time
++				var last = day.events.sortBy(function(f) { return f.end_decimal; });
++				if (last[last.length-1].end_decimal < 2400) {
++					day.freeTimes.push({start_decimal: last[last.length-1].end_decimal, end_decimal: 2400, duration: 2400 - last[last.length-1].end_decimal});
 +				}
 +			}
 +		}
@@ -311,10 +1176,13 @@ index 84263c0..099fb89 100644
  		day.animationTop = 0;
  		
  		var compressDelta = 0;
-@@ -1557,6 +1661,23 @@ var DayAssistant = Class.create({
+@@ -1556,10 +1661,31 @@ var DayAssistant = Class.create({
+ 		this.dvScratchEventsDiv = this.controller.get('dv_scratch_events');
  		this.scratchEventActive = false;
  		this.scratchEvent = null;
- 		
+-		
++		this.copyEvt = null;
++		
 +		this.imgIcons.birthday = new Image();
 +		this.imgIcons.birthday.src = "/media/internal/scrims/ubercalendar/icon-birthday.png";
 +		this.imgIcons.car = new Image();
@@ -334,8 +1202,15 @@ index 84263c0..099fb89 100644
 +
  		// Used to detect Orange key + tap to delete inline events
  		this.orangeKeyDown = false;
- 	
-@@ -1824,17 +1945,20 @@ var DayAssistant = Class.create({
+-	
++		
++		//Used to detect gesture area hold
++		this.metaKeyDown = false;
++		
+ 		this.firstActivated = true;
+ 		
+ 		this.buildViewHeader();
+@@ -1824,17 +1950,20 @@ var DayAssistant = Class.create({
  		this.menuModel = {
  			visible:true,
  			items: [
@@ -359,7 +1234,7 @@ index 84263c0..099fb89 100644
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		this.remindersUpdated(); 	// Update missed reminders menu item
-@@ -1854,6 +1978,9 @@ var DayAssistant = Class.create({
+@@ -1854,6 +1983,9 @@ var DayAssistant = Class.create({
  		this.controller.setupWidget(this.divs[this.PREV_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
  		this.controller.setupWidget(this.divs[this.NEXT_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
  
@@ -369,7 +1244,7 @@ index 84263c0..099fb89 100644
     		this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
  		
  		// IMPORTANT: Set up the height of the scrollers.  If this is not done
-@@ -2008,6 +2135,7 @@ var DayAssistant = Class.create({
+@@ -2008,6 +2140,7 @@ var DayAssistant = Class.create({
  		// Find all the EAS accounts if there are any
  		this.easAccountIds = null;
  		response.list.each(function(acct){
@@ -377,7 +1252,7 @@ index 84263c0..099fb89 100644
  			//Mojo.Log.info("acct domain %s", acct.domain);
  			if (acct.domain == 'eas') {
  				// Keep track of the list of eas accounts for Sync Accounts button
-@@ -2075,11 +2203,11 @@ var DayAssistant = Class.create({
+@@ -2075,11 +2208,11 @@ var DayAssistant = Class.create({
  				this.maybeCommitScratchEvent();
  			} else if(event.command =="newtimed"){
  				Event.stop(event);
@@ -391,7 +1266,7 @@ index 84263c0..099fb89 100644
  				this.maybeCommitScratchEvent();
  			} else if(event.command == Mojo.Menu.helpCmd){
  				this.maybeCommitScratchEvent(true);
-@@ -2087,6 +2215,13 @@ var DayAssistant = Class.create({
+@@ -2087,6 +2220,13 @@ var DayAssistant = Class.create({
  			} else if (event.command == 'jumpto') {
  				Event.stop(event);
  				this.showJumpTo(); // this may also commit the scratch event
@@ -405,7 +1280,7 @@ index 84263c0..099fb89 100644
  			} else if (event.command == 'reminders') {
  				Event.stop(event);
  				this.maybeCommitScratchEvent();
-@@ -2095,15 +2230,27 @@ var DayAssistant = Class.create({
+@@ -2095,15 +2235,27 @@ var DayAssistant = Class.create({
  				Event.stop(event);
  				this.maybeCommitScratchEvent(true);
  				this.syncAllCalendars();
@@ -437,7 +1312,92 @@ index 84263c0..099fb89 100644
  		}
  			
  	},
-@@ -3182,6 +3329,7 @@ var DayAssistant = Class.create({
+@@ -2406,7 +2558,12 @@ var DayAssistant = Class.create({
+ 		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
+     	//Mojo.Log.info("handleKeyUp detected ORANGE key");
+ 			this.orangeKeyDown = false;
+- 		} 
++ 		}
++		// getsure area up
++		if (event.originalEvent.metaKey || event.originalEvent.keyCode === 231) {
++		//Mojo.Log.info("handleKeyUp detected gesture up key");
++			this.metaKeyDown = false;
++		}		
+ 	},
+ 	
+ 	handleKeyDown: function(event) {
+@@ -2414,7 +2571,12 @@ var DayAssistant = Class.create({
+ 		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
+     	//Mojo.Log.info("handleKeyDown detected ORANGE key");
+ 			this.orangeKeyDown = true;
+- 		} 
++ 		}
++		// getsure area down
++		if (event.originalEvent.metaKey || event.originalEvent.keyCode === 231) {
++    	//Mojo.Log.info("handleKeyUp detected gesture key");
++			this.metaKeyDown = true;
++		}		
+ 	},
+ 	
+ 	updateSceneScrollerSize: function(event) {
+@@ -2941,6 +3103,18 @@ var DayAssistant = Class.create({
+ 			getReminderManager().removeReminder(this.deletedeventId);
+ 	},
+ 	
++	copiedEvent: function(response) {
++		//copied event saved open in edit scene
++		if(this.copyEvt) {
++			if(response.id == this.copyEvt.id || this.copyEvt.id == undefined || this.copyEvt.id.match(response.id)) {
++		  
++				// NOTE: Event Ids are strings NOT longs
++				if (this.copyEvt.id == undefined)	this.copyEvt.id = response.id + "";	// Do NOT Localize
++				this.controller.stageController.pushScene('edit', this.copyEvt.id, new Date(this.copyEvt.startTimestamp), false, this.copyEvt.calendarId, this.copyEvt.subject, false, this.updatingEventHandler);
++			}
++		}
++	},
++	
+ 	handleEventsTap: function(event, tapEvent) {
+ 		//Mojo.Log.info("day-assistant: handleEventsTap event_being_held " + Object.toJSON(this.event_being_held));
+ 		
+@@ -2979,6 +3153,29 @@ var DayAssistant = Class.create({
+ 				this.orangeKeyDown = false;
+ 				getCalendarService().getEvent(event.id, this.gotEventInlineDelete.bind(this),this.gotEventInlineDeleteFailed.bind(this), this.controller);
+ 			} else {
++				if (this.metaKeyDown == true) {
++					//create new from old
++					var start = new Date();
++					start.set({	minute: 0, second: 0, millisecond: 0 });
++					var startTS = start.getTime(); //set it up on today's current hour
++					var duration = event.end - event.start;
++					var endTS = startTS + duration;
++					this.metaKeyDown = false;
++					var tfParams = {
++								subject: event.subject,
++								allday: false,
++								location: event.location,
++								startTimestamp: startTS,
++								endTimestamp: endTS,
++								note: event.note
++							};
++					this.copyEvt = new CalendarEvent(tfParams);
++					this.copyEvt.calendarId = event.calendarId;
++					getCalendarService().setEvent(this.copyEvt, 
++										this.copiedEvent.bind(this),
++										this.controller,
++										function(response) {Mojo.Log.error(response.errorText)});
++				} else {
+ 				this.controller.stageController.pushScene('edit', 
+ 													  event.id, 
+ 													  new Date(event.startTimestamp), 
+@@ -2987,6 +3184,7 @@ var DayAssistant = Class.create({
+ 													  event.subject, 
+ 													  false, 
+ 													  this.updatingEventHandler);
++				}
+ 			}
+ 		}
+ 	},
+@@ -3182,6 +3380,7 @@ var DayAssistant = Class.create({
  			this.event_being_dragged = this.controller.get("dragging_event");
  			// Keep track of the initial hit point
  			this.dragLastPointY = event.down.y;
@@ -445,7 +1405,7 @@ index 84263c0..099fb89 100644
  			Event.stop(event);
  			return Mojo.Gesture.CONSUMED_EVENT;
  		}
-@@ -3197,6 +3345,21 @@ var DayAssistant = Class.create({
+@@ -3197,6 +3396,21 @@ var DayAssistant = Class.create({
  		return newTop;
  	},
  	
@@ -467,7 +1427,7 @@ index 84263c0..099fb89 100644
  	handleEventsDragging: function(event) {
  		//Mojo.Log.info("day-assistant handleEventsDragging");
  		if (this.event_being_dragged) {
-@@ -3213,6 +3376,15 @@ var DayAssistant = Class.create({
+@@ -3213,6 +3427,15 @@ var DayAssistant = Class.create({
  				this.dragLastPointY = pointerY;
  			}
  		
@@ -483,7 +1443,7 @@ index 84263c0..099fb89 100644
  			return Mojo.Gesture.CONSUMED_EVENT;
  		}
  	},
-@@ -3362,31 +3534,43 @@ var DayAssistant = Class.create({
+@@ -3362,31 +3585,43 @@ var DayAssistant = Class.create({
  		//Mojo.Log.info("day-assistant handleEventsDragEnd");
  		
  		if (this.event_being_dragged) {
@@ -697,14 +1657,15 @@ index 9ba9c70..37be245 100644
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
  			// Enable prefs menuitem for this scene.
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
-index 747fcb3..d0ae85a 100644
+index 747fcb3..8975b88 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
-@@ -5,29 +5,65 @@ var MONTH_DAY_ID_FORMAT = 'MMMM dd yyyy';	// IMPORTANT: DO NOT LOCALIZE!
+@@ -5,29 +5,66 @@ var MONTH_DAY_ID_FORMAT = 'MMMM dd yyyy';	// IMPORTANT: DO NOT LOCALIZE!
  var MonthAssistant = Class.create({
  				
  	reminderMenuItemId: 3,
-+	fullEvts: null,
++	//fullEvts: null,
++	 
  	
  	initialize: function() {
   		this.appMenuModel = { visible:true, 
@@ -725,23 +1686,23 @@ index 747fcb3..d0ae85a 100644
  				};
  				
  		this.scrollerModel = { scrollbars: false, mode: "vertical-snap", snapIndex: 0, snapElements: { y: [] } };
-+
 +		this.enhancedView = false;
++		this.updateFromScroll = false;
 +		var cookie = new Mojo.Model.Cookie('MonthViewEnhanced');
 +		if (cookie !== undefined) {
 +			this.enhancedView = cookie.get();
 +		}
  	},
 +
-+	colors: {"cal-color-blue": "#91d3ea",
-+		"cal-color-green": "#8cf08c",
-+		"cal-color-yellow": "#e8e37c",
-+		"cal-color-gray": "#c2c2c2",
-+		"cal-color-orange": "#fbb474",
-+		"cal-color-pink": "#f59cbc",
-+		"cal-color-red": "#ff9797",
-+		"cal-color-purple": "#d9b7ff",
-+		"cal-color-teal": "#72dfd2"},
++	colors: {"cal-color-blue": "rgba(145,211,234,0.5)",
++		"cal-color-green": "rgba(140,240,140,0.5)",
++		"cal-color-yellow": "rgba(232,227,124,0.5)",
++		"cal-color-gray": "rgba(194,194,194,0.5)",
++		"cal-color-orange": "rgba(251,180,116,0.5)",
++		"cal-color-pink": "rgba(245,156,188,0.5)",
++		"cal-color-red": "rgba(255,151,151,0.4)",
++		"cal-color-purple": "rgba(217,183,255,0.5)",
++		"cal-color-teal": "rgba(114,223,210,0.5)"},
 +
 +	placements: {"0": "top left",
 +		"1": "top center",
@@ -754,7 +1715,7 @@ index 747fcb3..d0ae85a 100644
  														
   	setupMonth: function(startDate, endDate, callbackfn) 
  	{
-+		getCalendarService().getEvents('all', startDate.getTime(), endDate.getTime(), this.getEventsCallback.bind(this), this.controller, this.getEventsFailCallback, {useSlices: true});
++		if (this.enhancedView) getCalendarService().getEvents(getCurrentCal(), startDate.getTime(), endDate.getTime(), this.getEventsCallback.bind(this), this.controller, this.getEventsFailCallback/*, {useSlices: true}*/);
  		getCalendarService().getBusyDays(getCurrentCal(), startDate.getTime(), endDate.getTime(), callbackfn, this.controller);
  	},
 -	
@@ -767,7 +1728,7 @@ index 747fcb3..d0ae85a 100644
  	buildViewHeader: function() 
  	{
  		//Mojo.Log.info("month-assistant: buildViewHeader");
-@@ -37,7 +73,13 @@ var MonthAssistant = Class.create({
+@@ -37,7 +74,13 @@ var MonthAssistant = Class.create({
  	
  	buildMonthTitle: function() 
  	{
@@ -782,7 +1743,111 @@ index 747fcb3..d0ae85a 100644
    	},
  
   	buildDayHeader: function() {
-@@ -362,23 +404,38 @@ var MonthAssistant = Class.create({
+@@ -161,9 +204,18 @@ var MonthAssistant = Class.create({
+ 			// Don't set CSS if the value is the same.  You'd think this wouldn't do anything
+ 			// but WebKit considers all attribute changes to have potential side effects - so this
+ 			// does much damage to performance and is best avoided
++			
+ 			for (var i = 0; i < 3; i++)
+ 			{
+ 				var cn = ochild.className;
++				if (this.updateFromScroll && this.enhancedView) {
++					if (!ochild.style || (ochild.style.length == 0)) {
++						child.style.backgroundColor = "";
++					} else if (ochild.style.length > 0) {
++						var bgcolor = ochild.style.backgroundColor;
++						child.style.backgroundColor = bgcolor;
++					}
++				}
+ 				if (child.className != cn) 
+ 				{
+ 					child.className = cn;
+@@ -181,11 +233,22 @@ var MonthAssistant = Class.create({
+ 					cls += ' weekend';
+ 				}
+ 			}
++			if (this.updateFromScroll && this.enhancedView) {
++				if (!oday.style || (oday.style.length == 0)) {
++					day.setStyle({backgroundImage: "", backgroundPosition: "", backgroundRepeat: ""});
++					//day.setStyle({backgroundPosition: ""});
++					//day.setStyle({backgroundRepeat: ""});
++				} else if (oday.style.length > 0) {
++					day.setStyle({backgroundImage: oday.getStyle("backgroundImage")});
++					day.setStyle({backgroundPosition: oday.getStyle("backgroundPosition")});
++					day.setStyle({backgroundRepeat: oday.getStyle("backgroundRepeat")});
++				}
++			}
+ 			if (day.className != cls) 
+ 			{
+ 				day.className = cls;
+ 			}
+-			
++
+ 			// Move the day forwards, allowing for month endings
+ 			if (thisday < mday.limit)
+ 			{
+@@ -227,10 +290,17 @@ var MonthAssistant = Class.create({
+ 			var child = day.firstChild;
+ 			var ochild = oday.firstChild;
+ 			var thisday = mday.day;
+-			
+ 			for (var i = 0; i < 3; i++)
+ 			{
+ 				var cn = ochild.className;
++				if (this.updateFromScroll && this.enhancedView) {
++					if (!ochild.style || (ochild.style.length == 0)) {
++						child.style.backgroundColor = "";
++					} else if (ochild.style.length > 0) {
++						var bgcolor = ochild.style.backgroundColor;
++						child.style.backgroundColor = bgcolor;
++					}
++				}
+ 				if (child.className != cn) 
+ 				{
+ 					child.className = cn;
+@@ -248,6 +318,17 @@ var MonthAssistant = Class.create({
+ 					cls += ' weekend';
+ 				}
+ 			}
++			if (this.updateFromScroll && this.enhancedView) {
++				if (!oday.style || (oday.style.length == 0)) {
++					day.setStyle({backgroundImage: "", backgroundPosition: "", backgroundRepeat: ""});
++					//day.setStyle({backgroundPosition: ""});
++					//day.setStyle({backgroundRepeat: ""});
++				} else if (oday.style.length > 0) {
++					day.setStyle({backgroundImage: oday.getStyle("backgroundImage")});
++					day.setStyle({backgroundPosition: oday.getStyle("backgroundPosition")});
++					day.setStyle({backgroundRepeat: oday.getStyle("backgroundRepeat")});
++				}
++			}
+ 			if (day.className != cls) 
+ 			{
+ 				day.className = cls;
+@@ -308,6 +389,7 @@ var MonthAssistant = Class.create({
+ 			var mday = { day: date.getDate(), limit: 0, month: date.getMonth() };
+ 			mday.limit = this._monthDays[mday.month];
+ 			mday.dayOfWeek = date.getDay();
++			this.updateFromScroll = true;
+ 		
+ 			for (r = 0; r < 18 - wdiff; r++) 
+ 			{
+@@ -324,6 +406,7 @@ var MonthAssistant = Class.create({
+ 			var mday = { day: date.getDate(), limit: 0, month: date.getMonth() };
+ 			mday.limit = this._monthDays[mday.month];
+ 			mday.dayOfWeek = date.getDay();
++			this.updateFromScroll = true;
+ 		
+ 			for (r = 17; r > -wdiff; r--)
+ 			{
+@@ -340,6 +423,7 @@ var MonthAssistant = Class.create({
+ 			var mday = { day: date.getDate(), limit: 0, month: date.getMonth() };
+ 			mday.limit = this._monthDays[mday.month];
+ 			mday.dayOfWeek = date.getDay();
++			this.updateFromScroll = false;
+ 		
+ 			for (var r = 0; r < 18; r++) 
+ 			{
+@@ -362,23 +446,40 @@ var MonthAssistant = Class.create({
  		var weekCell = this._months.rows[0];
  		var dayCell = weekCell.cells[0];
  		
@@ -793,18 +1858,20 @@ index 747fcb3..d0ae85a 100644
  		{
  			var day = this._token2state(days.charCodeAt(d));
 -			
-+
 +			var bgcolor = "";
-+			for (var k=0; k<this.fullEvts[d].allDayEvents.length; k++)
-+			{
-+				if (bgcolor == "")
++			if (this.enhancedView) {
++				var bgcolor = "";
++				for (var k=0; k<this.fullEvts[d].allDayEvents.length; k++)
 +				{
-+					bgcolor = this.colors[this.fullEvts[d].allDayEvents[k].calendarColor];
-+				}
-+				else if (bgcolor != this.colors[this.fullEvts[d].allDayEvents[k].calendarColor])
-+				{
-+					bgcolor = "gray";
-+					break;
++					if (bgcolor == "")
++					{
++						bgcolor = this.colors[this.fullEvts[d].allDayEvents[k].calendarColor];
++					}
++					else if (bgcolor != this.colors[this.fullEvts[d].allDayEvents[k].calendarColor])
++					{
++						bgcolor = "rgba(169,169,169,0.5)";
++						break;
++					}
 +				}
 +			}
 +
@@ -826,7 +1893,7 @@ index 747fcb3..d0ae85a 100644
  				}
  				else 
  				{
-@@ -390,7 +447,23 @@ var MonthAssistant = Class.create({
+@@ -390,7 +491,23 @@ var MonthAssistant = Class.create({
  				}
  				child = child.nextSibling;
  			}
@@ -836,7 +1903,7 @@ index 747fcb3..d0ae85a 100644
 +			if (this.enhancedView) {
 +				for (var k=0; k<this.fullEvts[d].events.length; k++) {
 +					// get more details
-+					if (this.fullEvts[d].events[k].gotFullDetails === undefined) {
++					if (!this.fullEvts[d].events[k].subject && this.fullEvts[d].events[k].gotFullDetails === undefined) {
 +						// get more infos for this event
 +						getCalendarService().getEvent(this.fullEvts[d].events[k].id,
 +								this.getEventDetails.bind(this, this.fullEvts[d].events, k, dayCell),
@@ -851,7 +1918,7 @@ index 747fcb3..d0ae85a 100644
  			// Advance the dayCell
  			if (d % 7 == 6) 
  			{
-@@ -404,6 +477,52 @@ var MonthAssistant = Class.create({
+@@ -404,6 +521,52 @@ var MonthAssistant = Class.create({
  			}
  		}
  	},
@@ -891,20 +1958,20 @@ index 747fcb3..d0ae85a 100644
 +							}
 +						}
 +					}
-+				} catch(e) {}
++				} catch(e) {Mojo.Log.error(bgimage);
++							Mojo.Log.error(bgrepeat);
++						Mojo.Log.error(bgplacement);
++				}
 +			}
 +		}
-+Mojo.Log.error(bgimage);
-+Mojo.Log.error(bgrepeat);
-+Mojo.Log.error(bgplacement);
-+		dayCell.setStyle({backgroundImage: bgimage});
-+		dayCell.setStyle({backgroundRepeat: bgrepeat});
-+		dayCell.setStyle({backgroundPosition: bgplacement});
++		dayCell.setStyle({backgroundImage: bgimage, backgroundRepeat: bgrepeat, backgroundPosition: bgplacement});
++		//dayCell.setStyle({backgroundRepeat: bgrepeat});
++		//dayCell.setStyle({backgroundPosition: bgplacement});
 +	},
  	
   	buildDays: function() 
  	{
-@@ -637,11 +756,16 @@ var MonthAssistant = Class.create({
+@@ -637,11 +800,16 @@ var MonthAssistant = Class.create({
          this.menuModel = 
          {
              visible: true,
@@ -922,7 +1989,7 @@ index 747fcb3..d0ae85a 100644
                  {
                      label: $L('Day'),
                      icon: 'menu-day',
-@@ -657,14 +781,19 @@ var MonthAssistant = Class.create({
+@@ -657,14 +825,19 @@ var MonthAssistant = Class.create({
                      icon: 'menu-month',
                      command: 'month'
                  }]
@@ -939,24 +2006,24 @@ index 747fcb3..d0ae85a 100644
 +		cookie.put("month");
 +		
  		this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
-+		this.getCalId = DayAssistant.getCalId();
++		//this.getCalId = DayAssistant.getCalId();
    	},
    
  	showJumpTo: function() {
-@@ -715,6 +844,12 @@ var MonthAssistant = Class.create({
+@@ -715,6 +888,12 @@ var MonthAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Event.stop(event);
  				this.controller.stageController.pushScene('prefs');
 +			} else if(event.command =="newtimed"){
 +				Event.stop(event);
-+				this.controller.stageController.pushScene('edit', 0, 0, false, this.getCalId/*calendarId*/,0/*subject*/);
++				this.controller.stageController.pushScene('edit', 0, 0, false, this.getCalId()/*calendarId*/,0/*subject*/);
 +			} else if(event.command=="newallday"){
 +				Event.stop(event);
-+				this.controller.stageController.pushScene('edit', 0, 0, true, this.getCalId,0/*subject*/);
++				this.controller.stageController.pushScene('edit', 0, 0, true, this.getCalId(),0/*subject*/);
  			}else if(event.command == Mojo.Menu.helpCmd){
  				getAppManagerService().launchHelp(this.controller);
  			} else if (event.command == 'sync') {
-@@ -726,9 +861,26 @@ var MonthAssistant = Class.create({
+@@ -726,9 +905,26 @@ var MonthAssistant = Class.create({
  			}else if (event.command == 'jumpto') {
  				Event.stop(event);
  				this.showJumpTo();
@@ -983,6 +2050,46 @@ index 747fcb3..d0ae85a 100644
  			}				
  		}
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
+@@ -788,6 +984,7 @@ var MonthAssistant = Class.create({
+ 			DayAssistant.dayCache = new Hash();
+ 			DayAssistant.cacheSubscribed = new Hash();
+ 			this.pendingCalendarSettingsUpdate = false;
++			this.fullEvts = new Hash();
+ 		}
+ 	},
+ 
+@@ -935,7 +1132,31 @@ var MonthAssistant = Class.create({
+ 			DayAssistant.cacheSize = 0;
+ 			DayAssistant.dayCache = new Hash();
+ 			DayAssistant.cacheSubscribed = new Hash();
++			this.fullEvts = new Hash();
++		}
++	},
++	
++	getCalId :function(){
++		var defaultCalId;
++		if (getCurrentCal() == 'all') {
++			// Create an event in the calendar specified by the defaultCalId preference
++			defaultCalId = getPrefsManager().getDefaultCalendar();
++			
++			if (defaultCalId == 0) {
++				defaultCalId = getCalendarsManager().getLocalCalendarId();
++			}
++			
++			// Check to see if the calendarId is a valid one
++			if (getCalendarsManager().getCalName("id"+defaultCalId) == undefined) {
++				// The default calendar doesn't exist anymore so let's just create it
++				// in Local
++				defaultCalId = getCalendarsManager().getLocalCalendarId();
++			}
++			
++		}else{
++			defaultCalId =getCurrentCal();
+ 		}
++		return "id"+defaultCalId;
+ 	},
+ 	
+ 	// ** MENU **
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 index cebe803..8f687e6 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
@@ -1434,7 +2541,7 @@ index cebe803..8f687e6 100644
  });
 \ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
-index d190fd1..40c7c87 100644
+index d190fd1..0ac68a8 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 @@ -1,7 +1,35 @@
@@ -1635,15 +2742,6 @@ index d190fd1..40c7c87 100644
  	},
  	
  	
-@@ -252,7 +393,7 @@ var ReminderAssistant = Class.create({
- 			new Mojo.Service.Request('palm://com.palm.applicationManager', {
- 					                    method: 'open',
- 					                    parameters: {
--													'id': 'com.palm.app.calendar',
-+													'id': 'com.palm.app.calendar2',
- 													'params': {'alarmsnooze': reminder.id,'dontAlert':true}
- 													},
- 					                	});
 @@ -307,6 +448,23 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant onSnooze: end: " + this.reminder.id);
  	},
@@ -1668,15 +2766,6 @@ index d190fd1..40c7c87 100644
  	removeReminder: function() {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeReminder: start: " + this.reminder.id);
  		this.reminders.removeReminder(this.reminder.id);
-@@ -322,7 +480,7 @@ var ReminderAssistant = Class.create({
- 			this.controller.serviceRequest('palm://com.palm.taskScheduler', {
- 					                    method: 'updateTask',
- 					                    parameters: {uri: 'palm://com.palm.applicationManager/open',
--													 arguments: {'id': 'com.palm.app.calendar',
-+													 arguments: {'id': 'com.palm.app.calendar2',
- 													 			 'params': {'alarmsnooze': this.reminder.id}},
- 													 key: 'calendar-snooze-' + this.reminder.id,
- 													 start: {date: new Date(this.reminder.time).toUTCString()},
 @@ -342,13 +500,23 @@ var ReminderAssistant = Class.create({
  			return;
  		}	
@@ -1764,14 +2853,7 @@ index d190fd1..40c7c87 100644
  	specialCleanup:function(){
  		//we need to do this so that cleanup cleans the reminder rightaway		
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant specialCleanup: window Name:" + this.controller.window.name);
-@@ -396,13 +604,24 @@ var ReminderAssistant = Class.create({
- 		this.controller.serviceRequest('palm://com.palm.applicationManager', {
- 					                    method: 'open',
- 					                    parameters: {
--													'id': 'com.palm.app.calendar',
-+													'id': 'com.palm.app.calendar2',
- 													'params': {'details': this.reminder.id.toString() }	
- 													},
+@@ -402,7 +610,18 @@ var ReminderAssistant = Class.create({
  					                	});
  	},
  	
@@ -1790,15 +2872,6 @@ index d190fd1..40c7c87 100644
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant scheduleAutoCloseTask: start " + this.reminder.id);
  		var minCloseTime = new Date(this.reminder.time).addMinutes(15);
  		var closeTime = new Date(this.reminder.time + this.reminder.duration);
-@@ -412,7 +631,7 @@ var ReminderAssistant = Class.create({
- 		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
- 					                    method: 'updateTask',
- 					                    parameters: {uri: 'palm://com.palm.applicationManager/open',
--													 arguments: {'id': 'com.palm.app.calendar',
-+													 arguments: {'id': 'com.palm.app.calendar2',
- 													 			 'params': {'alarmclose': this.reminder.id}},
- 													 key: 'calendar-alarmclose-'+this.reminder.id,
- 													 start: {date: closeTime.toUTCString()}}
 @@ -432,6 +651,34 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeAutoCloseTask: end " + this.reminder.id);
  	},
@@ -1835,7 +2908,7 @@ index d190fd1..40c7c87 100644
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant replaceHTML:start");
        	var range = element.ownerDocument.createRange();
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
-index 217a467..6487ed2 100644
+index 217a467..d93b2be 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
 @@ -8,11 +8,15 @@ var WeekAssistant = Class.create({
@@ -1870,7 +2943,40 @@ index 217a467..6487ed2 100644
  	},
  					
  	getEventChangeCallback: function(response) {
-@@ -103,10 +116,12 @@ var WeekAssistant = Class.create({
+@@ -80,6 +93,32 @@ var WeekAssistant = Class.create({
+ 		}
+ 	},
+ 	
++	clearEventsTapHandlers: function() {
++		if(this.eventsTapHandler !== undefined) {
++			this.eventsTapHandler.deactivate();
++			this.eventsTapHandler.removeAllHandlers();
++			// clear and hide canvas
++			this.evtapcontext.clearRect( 0, 0, 320, 850)
++			this.evtap.hide();
++		}
++	},
++	
++	whichDayCol: function (x) {
++		// determine which day column is tapped
++		var X = x;
++		var dayCol = null;
++		if (X) {
++			if ((X >= 0) && (X < 45)) {dayCol=0;}
++			else if ((X >= 45) && (X < 91))	{dayCol=1;}
++			else if ((X >= 91) && (X < 137)) {dayCol=2;}
++			else if ((X >= 137) && (X < 183)) {dayCol=3;}
++			else if ((X >= 183) && (X < 229)) {dayCol=4;}
++			else if ((X >= 229) && (X < 275)) {dayCol=5;}
++			else if ((X >= 275) && (X < 320)) {dayCol=6;}
++		}
++		return dayCol;
++	},
++	
+ 	isWeekDisplayed: function(week) {
+ 		var weekDateKey = this.keyFromDate(week);
+ 		var thisWeek = this.getFirstDayOfWeek(getCurrentDateTime());
+@@ -103,10 +142,12 @@ var WeekAssistant = Class.create({
  	buildWeekTitle: function() {
  		var today = Date.today().clearTime();
  		var dayOfWeek = this.getFirstDayOfWeek(this.weekDate);
@@ -1884,7 +2990,29 @@ index 217a467..6487ed2 100644
  		this.title.innerHTML = template.evaluate(templateModel);
  		
  		if (this.changingWeeks)
-@@ -373,6 +388,13 @@ var WeekAssistant = Class.create({
+@@ -341,8 +382,8 @@ var WeekAssistant = Class.create({
+ 							   endDay.getTime(), 
+ 							   this.getEventsCallback.bind(this), 
+ 							   this.controller,
+-							   this.getEventsFailCallback.bind(this),
+-							   {useSlices: true}));
++							   this.getEventsFailCallback.bind(this)/*,
++							   {useSlices: true}*/));
+ 	},
+ 	
+ 	updateAll: function() {
+@@ -353,8 +394,8 @@ var WeekAssistant = Class.create({
+ 						   endOfWeek.getTime(), 
+ 						   this.getEventsCallback.bind(this), 
+ 						   this.controller,
+-						   this.getEventsFailCallback.bind(this),
+-						   {useSlices: true}));
++						   this.getEventsFailCallback.bind(this)/*,
++						   {useSlices: true}*/));
+ 	},
+ 	
+ 	getEventsFailCallback: function(response) {
+@@ -373,6 +414,13 @@ var WeekAssistant = Class.create({
  		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
@@ -1898,7 +3026,7 @@ index 217a467..6487ed2 100644
  
  		// Draw marker lines
  		ctx.fillStyle = "rgb(135, 135, 134)";
-@@ -388,7 +410,27 @@ var WeekAssistant = Class.create({
+@@ -388,7 +436,27 @@ var WeekAssistant = Class.create({
  	
  	renderStartEndDayLabels: function(whichWeek) {
  		var ctx = this.weeks[whichWeek].ctxEvents;
@@ -1927,7 +3055,7 @@ index 217a467..6487ed2 100644
  		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
-@@ -401,6 +443,7 @@ var WeekAssistant = Class.create({
+@@ -401,6 +469,7 @@ var WeekAssistant = Class.create({
  		if (this.midDayMarkerPos != this.startDayMarkerPos && this.midDayMarkerPos != this.endDayMarkerPos)
  			ctx.strokeText(this.midDayMarkerTime, 12, midPos + 24);
  		ctx.strokeText(this.endDayMarkerTime, 17, endPos + 24);
@@ -1935,7 +3063,7 @@ index 217a467..6487ed2 100644
  	},
  	
  	renderEmptyWeek: function(whichWeek) {
-@@ -488,8 +531,78 @@ var WeekAssistant = Class.create({
+@@ -488,8 +557,94 @@ var WeekAssistant = Class.create({
  		
  		ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
  		ctx.fillRect(left+1, top+height-3, width-2, 1);
@@ -1946,7 +3074,23 @@ index 217a467..6487ed2 100644
 +					this.getEventDetails.bind(this, whichWeek, whichDay, event),
 +					function(response) {Mojo.Log.error(response.errorText);},
 +					this.controller);
-+		} else {
++		} else if (this.enhancedView){
++			// eventsTap handlers if not from highlight render (fromDefaultTap)
++			if ((!this.fromDefaultTap) && (whichWeek == this.THIS_WEEK)) {
++				var right = left+width;
++				var bottom = top + height;
++				this.eventsTapHandler.addHandler(left,
++													top,
++													right,
++													bottom,
++													this.handleEventsTap.bind(this, event),
++													this.showSelectedEventsTap.bind(this, left, top, width, height),
++													this.clearSelectedEventsTap.bind(this, left, top, width, height),
++													null,
++													null,
++													null,
++													null);
++			}
 +			// Subject
 +			ctx.fillStyle = this.colors[event.calendarColor].text;
 +			ctx.font = "10px Prelude";
@@ -2015,7 +3159,7 @@ index 217a467..6487ed2 100644
  	renderBusyTime: function(whichWeek, whichDay, busy) {
  		var ctx = this.weeks[whichWeek].ctxEvents;
  		var marginLeft = 1;
-@@ -508,11 +621,68 @@ var WeekAssistant = Class.create({
+@@ -508,17 +663,91 @@ var WeekAssistant = Class.create({
  	renderAllDayEvent: function(whichWeek, whichDay, row, allday) {
  		var ctx = this.weeks[whichWeek].ctxAllDay;
  		var marginLeft = 4;
@@ -2032,7 +3176,7 @@ index 217a467..6487ed2 100644
 +					this.getAllDayEventDetails.bind(this, whichWeek, whichDay, row, allday),
 +					function(response) {Mojo.Log.error(response.errorText);},
 +					this.controller);
-+		} else {
++		} else if (this.enhancedView) {
 +			// Subject
 +			ctx.fillStyle = this.colors[allday.calendarColor].text;
 +			ctx.font = "9px Prelude";
@@ -2043,15 +3187,28 @@ index 217a467..6487ed2 100644
 +			
 +			var text = allday.subject;
 +			if (text !== undefined) {
-+				var length = text.length;
-+				var metrics = ctx.measureText(text);
-+				while ((metrics.width > eventMaxWidth) && (length > 0)) {
-+					// too large, try one less
-+					length--;
-+					text = text.substring(0, length);
-+					metrics = ctx.measureText(text);
++				if ( text.charAt(text.length -1) == ")") {
++					try {
++						var start = allday.subject.indexOf("(");
++						if (start > -1) {
++							var end = allday.subject.length;
++							if ((end > start) && ( end - start <= 13)) {
++								var text = allday.subject.substring(start, end-1);
++							}
++						}
++					} catch(e) {}
++					ctx.fillText(text, left, top);
++				} else {
++					var length = text.length;
++					var metrics = ctx.measureText(text);
++					while ((metrics.width > eventMaxWidth) && (length > 0)) {
++						// too large, try one less
++						length--;
++						text = text.substring(0, length);
++						metrics = ctx.measureText(text);
++					}
++					ctx.fillText(text, left, top);
 +				}
-+				ctx.fillText(text, left, top);
 +			}
 +			// Alarm
 +			if ((allday.alarm !== undefined) && (allday.alarm != "none")) {
@@ -2086,16 +3243,50 @@ index 217a467..6487ed2 100644
  	
  	renderWeek: function(whichWeek, data) {
  		this.renderEmptyWeek(whichWeek);
-@@ -548,7 +718,7 @@ var WeekAssistant = Class.create({
+ 		
+ 		if ((data == null) || (data.days == null))
+ 			return;
++
++		if ((whichWeek==this.THIS_WEEK) && (this.enhancedView) && (!this.fromDefaultTap)){
++			this.clearEventsTapHandlers();
++		}
+ 		
+ 		// Erase any existing all day events and any selection highlighting
+ 		if (this.weeks[whichWeek].alldayHeight) {
+@@ -548,8 +777,9 @@ var WeekAssistant = Class.create({
  		if(maxRows > 5)
  			maxRows = 5;
  			
 -		this.weeks[whichWeek].alldayHeight = maxRows ? maxRows * 9 + 3 : 0;
 +		this.weeks[whichWeek].alldayHeight = maxRows ? maxRows * this.ALL_DAY_HEIGHT + 3 : 0;
  		this.updateWeekHeight(whichWeek);
++		var eventCount = 0;
  		
  		for (var whichDay = 0; whichDay < 7; whichDay++) {
-@@ -612,6 +782,23 @@ var WeekAssistant = Class.create({
+ 			var day = data.days[whichDay];
+@@ -570,6 +800,7 @@ var WeekAssistant = Class.create({
+ 			
+ 			// Events
+ 			for (i = 0; i < day.events.length; i++) {
++				if (whichWeek == this.THIS_WEEK) {eventCount += 1;}
+ 				this.renderEvent(whichWeek, whichDay, day.events[i]);
+ 			}
+ 		}
+@@ -585,6 +816,13 @@ var WeekAssistant = Class.create({
+     		ctxAllDay.fillRect(x+1, 0, 1, this.weeks[whichWeek].alldayHeight);
+ 		}
+ 		
++		if ((whichWeek == this.THIS_WEEK) && (this.enhancedView) && (!this.fromDefaultTap)){
++			if (eventCount > 0){
++				this.eventsTapHandler.setDefaultHandler(this.handleDefaultEventsTap.bind(this), null, null);
++								this.eventsTapHandler.activate();
++				this.evtap.show();
++			}
++		}
+ 		this.renderStartEndDayLabels(whichWeek);
+ 	},
+ 	
+@@ -612,6 +850,23 @@ var WeekAssistant = Class.create({
  		this.currentDay = this.controller.get('wv_current_day');
  		this.scrollMakerPos = this.controller.get('wv_scroll_marker');
  		this.scrollDataDiv = this.controller.get('wv_scroll_data');
@@ -2119,7 +3310,7 @@ index 217a467..6487ed2 100644
  		
  		this.weeks = [];
  		this.weeks = [];
-@@ -708,25 +895,31 @@ var WeekAssistant = Class.create({
+@@ -708,25 +963,56 @@ var WeekAssistant = Class.create({
  		this.menuModel = {
  			visible:true,
  			items: [ 
@@ -2149,24 +3340,49 @@ index 217a467..6487ed2 100644
      	this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
  		
  		this.scrolling = 0;
-+		this.getCalId = DayAssistant.getCalId();
++		//this.getCalId = DayAssistant.getCalId();
++		
++		//Used to detect gesture area hold
++		this.metaKeyDown = false;
++		
++		//used to copy Event
++		this.copyEvt = null;
++		this.handleEditEventsCallBack = this.editEventsCallBack.bind(this);
++		this.fromEditEventsCallBack = false;
++		//setup canvas for eventsTap
++		if (this.enhancedView) {
++			// insert canvas element
++			var container = this.controller.get('wv_eventsDay1');
++			evtapcanvas = document.createElement('canvas');
++			evtapcanvas.id = 'eventsTap';
++			evtapcanvas.width  = 320;
++			evtapcanvas.height = 850;
++			container.appendChild(evtapcanvas);
++			this.evtap = this.controller.get('eventsTap');
++			this.evtapcontext = this.controller.get('eventsTap').getContext('2d');
++			// initially hide events tap canvas
++			this.evtap.hide();
++			//setup events taphandler
++			this.fromDefaultTap = false;
++			this.eventsTapHandler = new TapHandler(this.controller.get('eventsTap'));
++		}
  	},
    
  	showJumpTo: function() {
-@@ -776,6 +969,12 @@ var WeekAssistant = Class.create({
+@@ -776,6 +1062,12 @@ var WeekAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Event.stop(event);
  				this.controller.stageController.pushScene('prefs');
 +			} else if(event.command =="newtimed"){
 +				Event.stop(event);
-+				this.controller.stageController.pushScene('edit', 0, 0, false, this.getCalId/*calendarId*/,0/*subject*/);
++				this.controller.stageController.pushScene('edit', 0, 0, false, this.getCalId()/*calendarId*/,0/*subject*/, false, this.handleEditEventsCallBack);
 +			} else if(event.command=="newallday"){
 +				Event.stop(event);
-+				this.controller.stageController.pushScene('edit', 0, 0, true, this.getCalId,0/*subject*/);
++				this.controller.stageController.pushScene('edit', 0, 0, true, this.getCalId(),0/*subject*/, false, this.handleEditEventsCallBack);
  			} else if(event.command == Mojo.Menu.helpCmd){
  				getAppManagerService().launchHelp(this.controller);
  			} else if (event.command == 'sync') {
-@@ -788,14 +987,35 @@ var WeekAssistant = Class.create({
+@@ -788,14 +1080,35 @@ var WeekAssistant = Class.create({
  			}else if (event.command == 'jumpto') {
  				Event.stop(event);
  				this.showJumpTo();
@@ -2202,6 +3418,216 @@ index 217a467..6487ed2 100644
  		}
  	},
  	
+@@ -895,8 +1208,8 @@ var WeekAssistant = Class.create({
+ 								   this.getLastDayOfWeek(beginWeekNoTime).getTime(), 
+ 								   this.getEventsCallback.bind(this), 
+ 								   this.controller,
+-								   this.getEventsFailCallback.bind(this),
+-								   {useSlices: true}));
++								   this.getEventsFailCallback.bind(this)/*,
++								   {useSlices: true}*/));
+ 				this.renderEmptyWeek(this.PREV_WEEK);
+ 			}
+ 			this.resetPos();
+@@ -937,8 +1250,8 @@ var WeekAssistant = Class.create({
+ 								   this.getLastDayOfWeek(beginWeekNoTime).getTime(), 
+ 								   this.getEventsCallback.bind(this), 
+ 								   this.controller,
+-								   this.getEventsFailCallback.bind(this),
+-								   {useSlices: true}));
++								   this.getEventsFailCallback.bind(this)/*,
++								   {useSlices: true}*/));
+ 				this.renderEmptyWeek(this.NEXT_WEEK);
+ 			}
+ 			this.resetPos();
+@@ -970,6 +1283,18 @@ var WeekAssistant = Class.create({
+ 		this.eventHandler.activate();
+ 		this.allDayEventHandler.activate();
+ 		
++		// eventsTap handler & KeyHandler only activate if enhancedview
++		if (this.enhancedView) {
++			if(this.fromEditEventsCallBack == true) { observeCurrentDateTime('week', this);}
++			this.eventsTapHandler.activate();
++			// key handlers for event meta tap and event canvas
++			this.keyUpHandler = this.handleKeyUp.bind(this);
++			this.controller.listen(this.controller.sceneElement, Mojo.Event.keyup, this.keyUpHandler);
++		
++			this.keyDownHandler = this.handleKeyDown.bind(this);
++			this.controller.listen(this.controller.sceneElement, Mojo.Event.keydown, this.keyDownHandler);
++		}
++		
+ 		// Calendar Header
+ 		this.headerTapHandler = this.showJumpTo.bindAsEventListener(this);
+ 		this.controller.get('wv_view_header').observe(Mojo.Event.tap, this.headerTapHandler);
+@@ -998,12 +1323,126 @@ var WeekAssistant = Class.create({
+ 		this.eventHandler.deactivate();
+ 		this.allDayEventHandler.deactivate();
+ 		
++		//deactivate eventsTap & key handlers
++		if (this.enhancedView) {
++			this.eventsTapHandler.deactivate();
++			// key handlers for event meta tap and event canvas
++			this.controller.stopListening(this.controller.sceneElement, Mojo.Event.keyup, this.keyUpHandler);
++			this.controller.stopListening(this.controller.sceneElement, Mojo.Event.keydown, this.keyDownHandler);
++		}
++		
+ 		this.controller.get('wv_view_header').stopObserving(Mojo.Event.tap, this.headerTapHandler);
+     	this.controller.get('wv_calendar_source').stopObserving(Mojo.Event.tap, this.CalSelectorHandler);
+ 		this.clearCacheSubscribed();
+ 		stopObservingCurrentDateTime('week');
+ 	},
+ 	
++	// *** EVENT HANDLERS ***
++	
++	handleKeyUp: function(event) {
++		// getsure area up
++		if (event.originalEvent.metaKey || event.originalEvent.keyCode === 231) {
++		//Mojo.Log.info("handleKeyUp detected gesture up key");
++			this.metaKeyDown = false;
++		}		
++	},
++	
++	handleKeyDown: function(event) {
++		// getsure area down
++		if (event.originalEvent.metaKey || event.originalEvent.keyCode === 231) {
++    	//Mojo.Log.info("handleKeyUp detected gesture key");
++			this.metaKeyDown = true;
++		}		
++	},
++	
++	copiedEvent: function(response) {
++		//copied event saved open in edit scene
++		if(this.copyEvt) {
++			if(response.id == this.copyEvt.id || this.copyEvt.id == undefined || this.copyEvt.id.match(response.id)) {
++	  
++				// NOTE: Event Ids are strings NOT longs
++				if (this.copyEvt.id == undefined)	this.copyEvt.id = response.id + "";	// Do NOT Localize
++				this.controller.stageController.pushScene('edit', this.copyEvt.id, new Date(this.copyEvt.startTimestamp), false, this.copyEvt.calendarId, this.copyEvt.subject, false, this.handleEditEventsCallBack);
++			}
++		}
++	},
++	
++	handleEventsTap: function(event, tapEvent) {
++		//copied event saved open in edit scene
++		Event.stop(tapEvent);
++		this.fromDefaultTap = false;
++		if (this.metaKeyDown == true) {
++			//create new from old
++			var start = new Date();
++			start.set({	minute: 0, second: 0, millisecond: 0 });
++			var startTS = start.getTime(); //set it up on today's current hour
++			var duration = event.end - event.start;
++			var endTS = startTS + duration;
++			this.metaKeyDown = false;
++			var tfParams = {
++						subject: event.subject,
++						allday: false,
++						location: event.location,
++						startTimestamp: startTS,
++						endTimestamp: endTS,
++						note: event.note
++						};
++			this.copyEvt = new CalendarEvent(tfParams);
++			this.copyEvt.calendarId = event.calendarId;
++			getCalendarService().setEvent(this.copyEvt, 
++								this.copiedEvent.bind(this),
++								this.controller,
++								function(response) {Mojo.Log.error(response.errorText)});
++		} else {
++			if(event.id) {
++			this.controller.stageController.pushScene('edit', event.id, new Date(event.startTimestamp), false, event.calendarId, event.subject, false, this.handleEditEventsCallBack);
++			}
++		}
++	},
++	
++	editEventsCallBack: function() {
++		// something happened in edit scene render week
++		this.fromDefaultTap = false;
++		var beginWeekNoTime = this.getFirstDayOfWeek(getCurrentDateTime()).set({hour: 0, minute: 0, second: 0, millisecond: 0});
++		var week = this.getFromCache(beginWeekNoTime.getTime());
++		this.renderWeek(this.THIS_WEEK, week);
++		this.fromEditEventsCallBack = true;
++	},
++	
++	handleDefaultEventsTap: function(event, x, y) {
++		// no eventsTap handler in this space, find col run tapHandler
++		Event.stop(event);
++		if (this.metaKeyDown == true) {
++			// nothing to copy here reset metakeydown
++			this.metaKeyDown = false;
++		}
++		if (x); {
++			var col = this.whichDayCol(x);
++			this.fromDefaultTap = true;
++			this.showSelectedHandler(col);
++			this.tapHandler(col);
++			this.selectedCol = -1;
++		}
++	},
++	
++	showSelectedEventsTap: function(left, top, width, height) {
++		// eventsTap handler highlight event
++		if ((left) && (top) && (width) && (height)) {
++			// draw shade on event
++			var selectedColor = "rgba(2, 2, 2, 0.25)";
++			this.evtapcontext.fillStyle = selectedColor;
++			this.evtapcontext.fillRect(left, top, width, height);
++		}
++	},
++	
++	clearSelectedEventsTap: function(left, top, width, height) {
++		// no eventsTap handler, clear highlight day tapHandler
++		if ((left) && (top) && (width) && (height)) {
++			// clear shade on event
++			this.evtapcontext.clearRect(left, top, width, height);
++		}
++	},
++	
+   	showSelectedHandler: function(col) {
+ 		this.selectedCol = col;
+ 		
+@@ -1021,6 +1460,12 @@ var WeekAssistant = Class.create({
+   	},
+ 	
+   	tapHandler: function(col) {
++		// see if meta tap is active
++		if (this.metaKeyDown == true) {
++			// should not do anything here with a meta + tap
++			this.metaKeyDown = false;
++			//return;
++		}
+ 		var dayofweek= this.getFirstDayOfWeek(getCurrentDateTime());
+ 		dayofweek.addDays(col);
+ 			
+@@ -1102,6 +1547,28 @@ var WeekAssistant = Class.create({
+ 	getFromCache: function(weekDate) {
+ 		return WeekAssistant.weekCache.get(this.keyFromDate(weekDate));
+ 	},	
++	getCalId :function(){
++		var defaultCalId;
++		if (getCurrentCal() == 'all') {
++			// Create an event in the calendar specified by the defaultCalId preference
++			defaultCalId = getPrefsManager().getDefaultCalendar();
++			
++			if (defaultCalId == 0) {
++				defaultCalId = getCalendarsManager().getLocalCalendarId();
++			}
++			
++			// Check to see if the calendarId is a valid one
++			if (getCalendarsManager().getCalName("id"+defaultCalId) == undefined) {
++				// The default calendar doesn't exist anymore so let's just create it
++				// in Local
++				defaultCalId = getCalendarsManager().getLocalCalendarId();
++			}
++			
++		}else{
++			defaultCalId =getCurrentCal();
++		}
++		return "id"+defaultCalId;
++	},
+ 	
+ 	isCacheEntrySubscribed: function(weekDate) {
+ 		return WeekAssistant.cacheSubscribed.get(this.keyFromDate(weekDate));
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/models/calendar-luna-service.js b/usr/palm/applications/com.palm.app.calendar/app/models/calendar-luna-service.js
 index 13176a6..11c7c57 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/models/calendar-luna-service.js
@@ -2383,279 +3809,13 @@ index 3beec78..9741133 100644
    },
    {
 diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css
-index f30cb63..b4080de 100644
+index f30cb63..adee3f7 100644
 --- a/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css
 +++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/calendar.css
-@@ -1,208 +1,220 @@
--/* @override http://172.16.110.131:8888/com.palm.app.calendar/stylesheets/calendar.css */
--
--/*
-- * Copyright 2008 Palm Inc. Confidential until public release.
-- */
--
--@import url(month.css);
--@import url(week.css);
--@import url(day.css);
--@import url(edit.css);
--@import url(datetime.css);
--@import url(alarm.css);
--@import url(repeat.css);
--@import url(participants.css);
--@import url(details.css);
--@import url(preferences.css);
--@import url(event-colors.css);
--@import url(prefs-acct.css);
--@import url(notification.css);
--@import url(accountlogin.css);
--
--/* general layout */
--
--table, tr, td {
--		-webkit-box-sizing: border-box;
--		box-sizing: border-box;
--}
--
--body {
--		font-size: 20px;
--		font-weight: normal;
--		cursor: default;
--		-webkit-user-select: none;
--}
--
--.view_header {
--		width: 100%;
--}
--
--.navBtn {
--		padding: 0px;
--		margin: 0px;
--		width: 24px;
--		display: inline;
--		vertical-align: middle;
--}
--
--/* Menu Icons */
--
--.palm-menu-icon.menu-month {
--		background-image: url(../images/menu-icon-month.png);
--}
--
--.palm-menu-icon.menu-week {
--		background-image: url(../images/menu-icon-week.png);
--}
--
--.palm-menu-icon.menu-day {
--		background-image: url(../images/menu-icon-day.png);
--}
--
--.palm-menu-icon.edit {
--		background-image: url(../images/menu-icon-compose.png);
--}
--
--.palm-menu-icon.today {
--		background-image: url(../images/menu-icon-today.png);
--}
--
--.palm-menu-icon.newevent {
--		background-image: url(../images/menu-icon-newevent.png);
--}
--
--.palm-popup-icon.menu_all {
--	width: 24px;
--  background: url(../images/menu-icon-all.png) center center no-repeat;
--}
--
--/* Calendar Selector in Month/Week/Day view headers */
--.header-cal-source {
--	position:relative;
--	float:right;
--	margin: 8px -16px 0px 0px;
--	font-size: 14px;
--	text-transform: uppercase;
--	font-weight: bold;
--	height:35px;
--	line-height: 33px;
--	border-width: 0px 22px 0px 16px;
--	-webkit-border-image: url(../images/cal-selector-header-gray.png) 0 22 0 16 stretch stretch;
--	-webkit-box-sizing: border-box;	
--}
--.header-cal-source-hit-target { 
--	/* note to self, this is a convenient way to create hit targets, because it doesn't disrupt any flow! */
--	position:absolute;
--	top:-10px;
--	left:-35px;
--	right:-25px;
--	height:52px;
--}
--.header-cal-selector {
--	margin-left:-5px;
--	padding-right: 2px;
--	background: transparent;
--	display:inline-block;
--	min-width: 12px;
--	max-width: 80px;
--	text-overflow: ellipsis;
--	white-space: nowrap;
--	overflow: hidden;
--}
--.header-down-arrow {
--	background: transparent;
--	float:right;
--	display:inline-block;
--	background: url(../images/header-arrow-down.png) right center no-repeat;
--	height:36px;
--	margin-right:-5px;
--	width:10px;
--}
--
--
--/* First Use */
--.first-use-text {
--	width: inherit;  
--	text-align: center;
--	font-size: 14px;	
--	color: #444;            
--	margin-bottom: 8px;
--}
--
--.firstuse-icon-div {
--	padding-top: 8px;
--}
--
--.first-launch-info {     
--	height: 39px;        
--	font-size: 20px;
--	line-height: 50px;	
--	color: #666;
--}   
--
--/* if you make a change to the style below, please remember to mirror it in the localized stylesheets */
--/* (to be found under /resources/xx_xx/stylesheets/) */
--.first-use-header {
--	color: #444;
--	font-size: 16px;
--	text-align: center;
--	text-transform: capitalize;
--	margin: 10px 0px 5px 0px;     
--}
--
--.firstuse-list-label,
--.add-account-button-label {
--	text-align: left;
--	vertical-align: middle;
--}
--
--.firstuse-button-div {
--	margin-top:20px;
--}
--/* Account Icons */      
--
--.account-icon {
--  width: 32px;
--  height: 32px;
--  margin: 9px 8px 9px 12px;
--  float: left;
--}                  
--
--.account-icon.first-use{
--	padding: 0px; 
--	margin:8px 4px 6px 15px;
--}
--.account-icon.button{
--  margin: 10px 8px 10px 12px;
--}                  
--
--.palm-dashboard-icon.calendar { 
--	background: url(../images/notification-large-calendar.png) center left no-repeat; 
--}
--
--.palm-page-header > .header-icon.reminder-list {
--  background: url(../images/calendar-dtl/reminder-icon.png) center left no-repeat;
--}
--
--.header-title {
--	padding-right: 5px;
--}
--
--/* Account Login ... candidate to move to accountlogin.css */
--/*.hdr-acct-icon {
--	margin-left: 16px;
--}
--
--/* candidate to move to accountlogin.css */
--/*.add-account-title {
--	margin-left: 15px;
--	line-height: 17px;
--}*/
--.reminder-palm-list {
--  padding-bottom: 50px;
--}
--
--.palm-menu.command-menu.reminder-menu > .palm-menu-text {
--  left: auto !important;
--  right: 0px;
--}
-+/* @override http://172.16.110.131:8888/com.palm.app.calendar/stylesheets/calendar.css */
-+
-+/*
-+ * Copyright 2008 Palm Inc. Confidential until public release.
-+ */
-+
-+@import url(month.css);
-+@import url(week.css);
-+@import url(day.css);
-+@import url(edit.css);
-+@import url(datetime.css);
-+@import url(alarm.css);
-+@import url(repeat.css);
-+@import url(participants.css);
-+@import url(details.css);
-+@import url(preferences.css);
-+@import url(event-colors.css);
-+@import url(prefs-acct.css);
-+@import url(notification.css);
-+@import url(accountlogin.css);
-+
-+/* general layout */
-+
-+table, tr, td {
-+		-webkit-box-sizing: border-box;
-+		box-sizing: border-box;
-+}
-+
-+body {
-+		font-size: 20px;
-+		font-weight: normal;
-+		cursor: default;
-+		-webkit-user-select: none;
-+}
-+
-+.view_header {
-+		width: 100%;
-+}
-+
-+.navBtn {
-+		padding: 0px;
-+		margin: 0px;
-+		width: 24px;
-+		display: inline;
-+		vertical-align: middle;
-+}
-+
-+/* Menu Icons */
-+
-+.palm-menu-icon.menu-month {
-+		background-image: url(../images/menu-icon-month.png);
-+}
-+
-+.palm-menu-icon.menu-week {
-+		background-image: url(../images/menu-icon-week.png);
-+}
-+
-+.palm-menu-icon.menu-day {
-+		background-image: url(../images/menu-icon-day.png);
-+}
-+
+@@ -59,6 +59,18 @@ body {
+ 		background-image: url(../images/menu-icon-day.png);
+ }
+ 
 +.palm-menu-icon.new-timed{
 +		background-image: url(../images/menu-icon-newevent.png);
 +}
@@ -2668,153 +3828,94 @@ index f30cb63..b4080de 100644
 +		background-image: url(/media/internal/scrims/ubercalendar/menu-icon-agenda.png);
 +}
 +
-+.palm-menu-icon.edit {
-+		background-image: url(../images/menu-icon-compose.png);
+ .palm-menu-icon.edit {
+ 		background-image: url(../images/menu-icon-compose.png);
+ }
+diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css
+index d49522c..604ee2a 100644
+--- a/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css
++++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css
+@@ -101,8 +101,44 @@ div.list-separator 		{
+ .item_selected {
+ 		font-weight: bold;
+ }				
+-
+-
++#DPscrol {
++	height:220px;
 +}
-+
-+.palm-menu-icon.today {
-+		background-image: url(../images/menu-icon-today.png);
++#DPscrolct {
++	position: relative;
++	width:1566;
++	height: 220px;
 +}
-+
-+.palm-menu-icon.newevent {
-+		background-image: url(../images/menu-icon-newevent.png);
++.DPmv {
++	position: absolute;
++	display: block;
++	width: 240px;
 +}
-+
-+.palm-popup-icon.menu_all {
-+	width: 24px;
-+  background: url(../images/menu-icon-all.png) center center no-repeat;
++#DPmonth_0 {
++	left: 40px;
++	border-right:1px solid black;
++	border-left:1px solid black;
 +}
-+
-+/* Calendar Selector in Month/Week/Day view headers */
-+.header-cal-source {
-+	position:relative;
-+	float:right;
-+	margin: 8px -16px 0px 0px;
-+	font-size: 14px;
-+	text-transform: uppercase;
-+	font-weight: bold;
-+	height:35px;
-+	line-height: 33px;
-+	border-width: 0px 22px 0px 16px;
-+	-webkit-border-image: url(../images/cal-selector-header-gray.png) 0 22 0 16 stretch stretch;
-+	-webkit-box-sizing: border-box;	
++#DPmonth_1{
++	left: 281px;
++	border-right:1px solid black;
 +}
-+.header-cal-source-hit-target { 
-+	/* note to self, this is a convenient way to create hit targets, because it doesn't disrupt any flow! */
-+	position:absolute;
-+	top:-10px;
-+	left:-35px;
-+	right:-25px;
-+	height:52px;
++#DPmonth_2 {
++	left: 522px;
++	border-right:1px solid black;
 +}
-+.header-cal-selector {
-+	margin-left:-5px;
-+	padding-right: 2px;
-+	background: transparent;
-+	display:inline-block;
-+	min-width: 12px;
-+	max-width: 80px;
-+	text-overflow: ellipsis;
-+	white-space: nowrap;
-+	overflow: hidden;
++#DPmonth_3 {
++	left: 763px;
++	border-right:1px solid black;
 +}
-+.header-down-arrow {
-+	background: transparent;
-+	float:right;
-+	display:inline-block;
-+	background: url(../images/header-arrow-down.png) right center no-repeat;
-+	height:36px;
-+	margin-right:-5px;
-+	width:10px;
++#DPmonth_4 {
++	left: 1004px;
++	border-right:1px solid black;
 +}
-+
-+
-+/* First Use */
-+.first-use-text {
-+	width: inherit;  
-+	text-align: center;
-+	font-size: 14px;	
-+	color: #444;            
-+	margin-bottom: 8px;
++#DPmonth_5 {
++	left: 1245px;
++	border-right:1px solid black;
 +}
-+
-+.firstuse-icon-div {
-+	padding-top: 8px;
+ #dtl_allday_cb .checkbox {
+ 	margin-right:0px;
+ }
+@@ -115,13 +151,30 @@ div.list-separator 		{
+ .calendar-dtl-timedate .icon.timedate {
+ 	background: url(../images/calendar-dtl/timedate-icon.png) center center no-repeat;
+ }
+-
++.popCanvas .palm-button
++{
++background-image:url('../images/notification-large-calendar.png');
 +}
-+
-+.first-launch-info {     
-+	height: 39px;        
-+	font-size: 20px;
-+	line-height: 50px;	
-+	color: #666;
-+}   
-+
-+/* if you make a change to the style below, please remember to mirror it in the localized stylesheets */
-+/* (to be found under /resources/xx_xx/stylesheets/) */
-+.first-use-header {
-+	color: #444;
-+	font-size: 16px;
-+	text-align: center;
-+	text-transform: capitalize;
-+	margin: 10px 0px 5px 0px;     
++.popCanvas .palm-button.selected
++{
++background-image:url('../images/notification-large.png');
 +}
-+
-+.firstuse-list-label,
-+.add-account-button-label {
-+	text-align: left;
-+	vertical-align: middle;
++.popCanvas .palm-button {
++	padding: 0px;
++	width: 50px;
++	height: 50px;
++	vertical-align: bottom;
++	margin-top: 0px;
++	margin-left: -1px;
++	margin-right: 0px;
++	margin-bottom: 0px;
++   -webkit-border-image: none; 
 +}
-+
-+.firstuse-button-div {
-+	margin-top:20px;
-+}
-+/* Account Icons */      
-+
-+.account-icon {
-+  width: 32px;
-+  height: 32px;
-+  margin: 9px 8px 9px 12px;
-+  float: left;
-+}                  
-+
-+.account-icon.first-use{
-+	padding: 0px; 
-+	margin:8px 4px 6px 15px;
-+}
-+.account-icon.button{
-+  margin: 10px 8px 10px 12px;
-+}                  
-+
-+.palm-dashboard-icon.calendar { 
-+	background: url(../images/notification-large-calendar.png) center left no-repeat; 
-+}
-+
-+.palm-page-header > .header-icon.reminder-list {
-+  background: url(../images/calendar-dtl/reminder-icon.png) center left no-repeat;
-+}
-+
-+.header-title {
-+	padding-right: 5px;
-+}
-+
-+/* Account Login ... candidate to move to accountlogin.css */
-+/*.hdr-acct-icon {
-+	margin-left: 16px;
-+}
-+
-+/* candidate to move to accountlogin.css */
-+/*.add-account-title {
-+	margin-left: 15px;
-+	line-height: 17px;
-+}*/
-+.reminder-palm-list {
-+  padding-bottom: 50px;
-+}
-+
-+.palm-menu.command-menu.reminder-menu > .palm-menu-text {
-+  left: auto !important;
-+  right: 0px;
-+}
+ /*Reduce top and bottom padding to fit more on the screen*/
+ 
+ .calendar-dtl-timedate .title.datetime-picker {
+-  padding: 0 10px 7px 14px;
++  padding: 0px 1px 4px 4px;
+ }
+-
+ .calendar-dtl-timedate .palm-row.all-day-event .title {
+   padding-bottom: 0px;
+   margin-bottom: -5px;
 diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/event-colors.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/event-colors.css
 index 3b455df..a350808 100644
 --- a/usr/palm/applications/com.palm.app.calendar/stylesheets/event-colors.css
@@ -2886,3 +3987,24 @@ index cafffaf..8dcc09b 100644
  		/*color: #FF0000;*/
  		width: 100%;
  		height: 16px;
+diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/week.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/week.css
+index 729ae53..43397ad 100644
+--- a/usr/palm/applications/com.palm.app.calendar/stylesheets/week.css
++++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/week.css
+@@ -125,6 +125,16 @@
+ #wv_eventsDay1 {
+ 	left: 321px;
+ }
++#eventsTap {
++	position: absolute;
++	top:0;
++	display:block;
++	border-right:1px solid black;
++/*  for debugging events Tap Canvas
++	border-top:3px solid red;
++	border-bottom:3px solid blue;
++*/
++}
+ #wv_eventsDay2 {
+ 	left: 642px;
+ }
