@@ -735,9 +735,9 @@
 +		
 +		this.pagingAnimating = false;
 +		
-+		this.appLauncherCfg = {header: "none", placement: "first", reset: false, wrap: false, 
-+			indicators: true, grid: "medium", icons: "small", titles: true, spacing: 6, 
-+			page: "default", pages: [], hidden: [], names: {}};
++		this.appLauncherCfg = {header: "none", placement: "first", reset: false, 
++			wrap: false, animate: true, indicators: true, grid: "medium", icons: "small", 
++			titles: true, spacing: 6, page: "default", pages: [], hidden: [], names: {}};
 +		
 +		this.quickLaunchCfg = {mode: "visible", reorder: true};
  	},
@@ -874,7 +874,7 @@
  		else if (event.type === Mojo.Event.commandEnable) {
  			switch (event.command) {
  				case Mojo.Menu.copyCmd:
-@@ -157,16 +248,811 @@
+@@ -157,16 +248,831 @@
  			}
  		}
  	},
@@ -888,7 +888,7 @@
 +				this.quickLaunchCfg = payload.quickLaunchCfg;
 +		}
 +
-+		// FIXME: remove at some point
++		// FIXME: remove at some point, or actually change this to extend stuff...
 +		
 +		if(this.appLauncherCfg) {
 +			if(this.appLauncherCfg.header == true) {
@@ -914,6 +914,13 @@
 +
 +			if(this.appLauncherCfg.titles == undefined)
 +				this.appLauncherCfg.titles = true;;
++
++			if(this.appLauncherCfg.animate == undefined) {
++				if(this.appLauncherCfg.wrap)
++					this.appLauncherCfg.animate = false;
++				else
++					this.appLauncherCfg.animate = true;
++			}
 +
 +			if(this.appLauncherCfg.spacing == undefined)
 +				this.appLauncherCfg.spacing = 6;
@@ -1074,8 +1081,8 @@
 +
 +		this.controller.modelChanged(this.viewMenuModel, this);
 +
-+		this.updatePageTabs();
 +		this.updatePageHeader();
++		this.updatePageTabs();
 +
 +		if(this.appLauncherCfg.wrap)
 +			Mojo.listen($('launcher_root'), Mojo.Event.scrollStarting, this.scrollStartingHandler);
@@ -1146,7 +1153,7 @@
 +			this.viewMenuModel.items.push({items: []}, {items: tabs}, {items: []});
 +			
 +			this.viewMenuModel.items[1].toggleCmd = 'selectpage' + (parseInt(this.activePageIndex) + 1);
-+
++			
 +			this.controller.modelChanged(this.viewMenuModel);
 +		}
 +	},
@@ -1181,6 +1188,8 @@
 +			else
 +				this.changePage(index, true);
 +		}
++
++		this.updatePageIndicators();
 +	},
 +		
 +	handleLauncherTap: function(event) {
@@ -1246,7 +1255,7 @@
 +
 +			this.controller.get('page_header').style.display = "none";
 +			this.controller.get('page_text').style.display = "none";
-+		
+ 		
 +			if(this.appLauncherCfg.header == "name") {
 +				this.controller.get('page_header').style.display = "block";
 +				this.controller.get('page_name').style.display = "block";
@@ -1474,6 +1483,9 @@
 +			if(this.appLauncherCfg.wrap)
 +				$('launcher_root').mojo.scrollTo((index) * -this.kPageWidth, undefined, false, true);
 +			else {
++				if((animate) && (!this.appLauncherCfg.animate))
++					animate = false;					
++			
 +				$('launcher_root').mojo.setSnapIndex(parseInt(index), animate);
 +			}
 +		}
@@ -1550,9 +1562,8 @@
 +
 +		this.updatePageHeader();
 +		this.updatePageTabs();
-+
 +		this.updatePageIndicators();
- 		
++		
 +		this.commandMenuModel.visible = false;
 +		this.controller.modelChanged(this.commandMenuModel);
 +		
@@ -1636,6 +1647,7 @@
 +		this.activePageIndex = Math.abs($('launcher_root').mojo.getScrollPosition().left) / this.kPageWidth;
 +			
 +		this.updatePageHeader();
++		this.updatePageTabs();
 +		this.updatePageIndicators();
 +	},	
 +
@@ -1653,10 +1665,11 @@
 +			this.activePageIndex = event.value;
 +					
 +			this.updatePageHeader();
++			this.updatePageTabs();
 +			this.updatePageIndicators();
 +		}
 +
-+		if((this.appLauncherCfg.header == "tabs")) {
++		if((!this.appLauncherCfg.wrap) && (this.appLauncherCfg.header == "tabs")) {
 +			this.viewMenuModel.items[1].toggleCmd = 'selectpage' + (event.value + 1);
 +	
 +			this.controller.modelChanged(this.viewMenuModel);
@@ -1669,7 +1682,14 @@
 +			this.changePage(this.appLauncherCfg.page, false);
 +
 +			this.updatePageHeader();
++			this.updatePageTabs();			
 +			this.updatePageIndicators();
++		}
++
++		if(this.appLauncherCfg.reset) {
++			var scroller = this.getPageScroller(this.activePageIndex);
++			
++			if (scroller && scroller.mojo) { scroller.mojo.revealTop(); }
 +		}
 +
 +		if(this.quickLaunchCfg.mode == "launcher")
@@ -1689,7 +1709,7 @@
  		this.globalSearchAssistant.deactivate();
  		
  		this.reorderController.cancel();
-@@ -174,8 +1060,18 @@
+@@ -174,8 +1080,19 @@
  		if (this.appDialog) {
  			this.appDialog.mojo.close();
  		}
@@ -1700,6 +1720,7 @@
 +			this.changePage(this.appLauncherCfg.page, false);
 +
 +			this.updatePageHeader();
++			this.updatePageTabs();
 +			this.updatePageIndicators();
 +		}
 +
@@ -1710,7 +1731,7 @@
  		
  		this.launchRequest = undefined;
  	},
-@@ -196,18 +1092,16 @@
+@@ -196,18 +1113,16 @@
  		this.kAppHeight = NaN;
  		this.kAppWidth = NaN;
  		this.kAppsPerRow = NaN;
@@ -1731,7 +1752,7 @@
  		return this.pageDivs[pageIndex].down('.page_scroller');
  	},
  	
-@@ -255,6 +1149,22 @@
+@@ -255,6 +1170,22 @@
  		
  		// tell our scroller widget that it has a new page element to snap
  		this.updatePageSnappingPoints();
@@ -1754,7 +1775,7 @@
  	},
  	
  	deletePage: function(pageIndex) {
-@@ -264,6 +1174,33 @@
+@@ -264,6 +1195,33 @@
  			return false;
  		}
  		
@@ -1788,7 +1809,7 @@
  		// move appDivs over to their new home
  		var apps = this.getAppContainer(pageIndex).select('.app');
  		var startIndex = apps.length;
-@@ -298,13 +1235,9 @@
+@@ -298,13 +1256,9 @@
  		// remove the pages indicator
  		this.deletePageIndicator();
  		
@@ -1805,7 +1826,7 @@
  		
  		this.updatePageSnappingPoints();
  	},
-@@ -326,6 +1259,10 @@
+@@ -326,6 +1280,10 @@
  			var appContainer = this.getAppContainer(location.page);
  			var content = Mojo.View.render({object:newAppInfo, template: "launcher/page-item"});
  			var children = appContainer.select('.app');
@@ -1816,7 +1837,7 @@
  			if (location.position >= children.length) {
  				appContainer.insert({bottom:content});
  			} else {
-@@ -336,9 +1273,43 @@
+@@ -336,9 +1294,43 @@
  			newAppDiv = $(newAppInfo.launchPointId);
  			Mojo.assert(newAppDiv !== undefined, "Application (%d) was inserted into the DOM but unable to be retrieved!", newAppInfo.launchPointId);
  			if (isNaN(this.kAppWidth) || isNaN(this.kAppHeight)) {
@@ -1863,7 +1884,7 @@
  			}
  			
  			Mojo.listen(newAppDiv, Mojo.Event.tap, this.onAppTapped.bindAsEventListener(this));
-@@ -348,6 +1319,15 @@
+@@ -348,6 +1340,15 @@
  			// stash the application's data in the element
  			newAppDiv._info = newAppInfo;
  
@@ -1879,7 +1900,7 @@
  			this._updateBadge(newAppDiv, newAppInfo);
  		
  			/* adjust page position and height */
-@@ -435,14 +1415,20 @@
+@@ -435,14 +1436,20 @@
  		if (elm) {
  			var newTitle = "";
  			if (newAppInfo.update && newAppInfo.update.title) {
@@ -1902,7 +1923,7 @@
  				if (elm.innerHTML !== newTitle) {
  					Mojo.Log.info("Updating title of app div, old: %d | new: %d", elm.innerHTML, newTitle);
  					elm.innerHTML = newTitle;
-@@ -535,9 +1521,21 @@
+@@ -535,9 +1542,21 @@
  	
  	/* determines the position of an app element at appIndex within a page */
  	calculateAppPosition: function(appIndex) {
@@ -1926,7 +1947,7 @@
  		};
  	},
  	
-@@ -577,17 +1575,55 @@
+@@ -577,17 +1596,55 @@
  				return;
  			}
  		}
@@ -1987,7 +2008,7 @@
  
  		this.appDialog = this.controller.showDialog({
  							template: 'launcher/dialogs/app-info',
-@@ -606,18 +1642,38 @@
+@@ -606,18 +1663,38 @@
  		for (var i=0, numPages=this.pagesModel.getNumPages(); i<numPages; i++) {
  			// create a new page
  			this.insertPage(i);
@@ -2028,7 +2049,7 @@
  		PalmSystem.launcherReady();
  	},
  	
-@@ -633,10 +1689,12 @@
+@@ -633,10 +1710,12 @@
  	 * its starting position
  	 */
  	createPageIndicator: function() {
@@ -2045,7 +2066,7 @@
  	},
  	
  	/*
-@@ -644,70 +1702,97 @@
+@@ -644,70 +1723,99 @@
  	 * the remaining page indicators
  	 */
  	deletePageIndicator: function() {
@@ -2066,11 +2087,7 @@
  	
  	/* Updates the positions of all page indicators. */
  	updatePageIndicators: function() {
-+		if(this.appLauncherCfg.indicators) {
-+			if (this.indicators.length <= 0) {
-+				return;
-+			}
- 		
+-		
 -		if (this.indicators.length <= 0) {
 -			return;
 -		}
@@ -2080,6 +2097,11 @@
 -				this.moveIndicator(i, this.indicators[i].range.left);
 -			} else {
 -				this.moveIndicator(i, this.indicators[i].range.right);
++		if(this.appLauncherCfg.indicators) {
++			if (this.indicators.length <= 0) {
++				return;
++			}
++			
 +			for (var i = 0; i < this.indicators.length; i++) {
 +				if (i < this.activePageIndex) {
 +					this.moveIndicator(i, this.indicators[i].range.left);
@@ -2116,6 +2138,8 @@
 +				var right = this.kPageWidthNoMargin - ((this.indicators.length-i-1) * indicatorWidth);
 +				this.indicators[i].range = {left: left, right: right};
 +			}
++			this.updatePageHeader();
++			this.updatePageTabs();
 +			this.updatePageIndicators();
  		}
 -		this.updatePageIndicators();
@@ -2175,7 +2199,7 @@
  		this.deleteApp(oldAppInfo.launchPointId);
  		// TODO: should we always remove empty pages?
  	},
-@@ -720,7 +1805,7 @@
+@@ -720,7 +1828,7 @@
  	onAppTapped: function(event) {
  		var target = event.currentTarget;
  		var appInfo = target._info;
