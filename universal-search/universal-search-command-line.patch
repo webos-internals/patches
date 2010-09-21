@@ -1,72 +1,1581 @@
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/TODO.txt b/usr/lib/luna/system/luna-applauncher/app/controllers/TODO.txt
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+index b9db2c2..b535662 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
+@@ -140,6 +140,7 @@ GlobalSearchAssistant = Class.create({
+ 		searchesDiv.update(Mojo.View.render({template: 'global-search/expanded-searches-div' }));
+ 		this.expandedSearchDrawer = { showExpanded: false };
+ 		this.controller.setupWidget('expanded_searches_drawer', {unstyled:true, property:'showExpanded'}, this.expandedSearchDrawer);
++
+ 		this.webDrawer = { showWeb: false };
+ 		this.controller.setupWidget('web_drawer', {unstyled:true, property:'showWeb'}, this.webDrawer);
+ 		
+@@ -175,11 +176,52 @@ GlobalSearchAssistant = Class.create({
+ 		
+ 		this.controller.listen(this.controller.document, 'paste', this.onPaste.bindAsEventListener(this), true);
+ 		
++		this.uscl = new USCL();
++		this.uscl.globalSearchAssistant = this;
++		// OMG CIRCULAR REFERENCE, but LauncherAssistant's cleanup
++		// handler *should* take care of this as a precaution.
++		
++		var searchesDivUSCL = this.controller.get('searches-list-uscl');
++		searchesDivUSCL.update(Mojo.View.render({template: 'global-search/expanded-searches-div-uscl' }));
++		this.expandedSearchDrawerUSCL = { showExpanded: false };
++		this.controller.setupWidget('expanded_searches_drawer_uscl',
++					    { unstyled:true, property:'showExpanded', 
++					      scrollDisabled: true},
++					    this.expandedSearchDrawerUSCL);
++
++		this.usclDrawer = { showUSCL: false };
++		this.controller.setupWidget('command_line_drawer', {unstyled: true, property: 'showUSCL'}, this.usclDrawer);
++
++		this.usclSearchesAttrs = {
++			listTemplate: "global-search/templates/uscl-searches-list",
++			itemTemplate: "global-search/templates/uscl-searches-item",
++			swipeToDelete: false,
++			reorderable: false,
++			renderLimit: 500
++		};
++		this.usclSearchesModel = { 
++			items: this.uscl.universalSearchList 
++		};
++		this.controller.setupWidget("usclSearches",
++					    this.usclSearchesAttrs,
++					    this.usclSearchesModel);
++
++		this.onTapUSCLHandler = this.onTapUSCL.bindAsEventListener(this);
++		this.controller.listen("usclSearches",
++				       Mojo.Event.listTap,
++				       this.onTapUSCLHandler);
++		
+ 		this.initOnServerStart("com.palm.systemservice");
+ 		
+ 		this.galInit();
+ 	},
+-  
++
++ 	onTapUSCL: function (event) {
++ 		var entry = this.usclSearchesModel.items[event.index];
++ 		this.runUSCL({ entry: entry,
++ 			       arg: this.currentFilter });
++ 	},
++   
+ 	ready: function() {
+ 		// try to force our input field to always have focus (there are some exceptions)
+ 		var input = this.searchField.querySelector('[name=searchtermInput]');
+@@ -187,6 +229,21 @@ GlobalSearchAssistant = Class.create({
+ 			input.blur = function() { this.focus();	}
+ 		}
+ 		this.enable(true);
++		this.monkeyPatch1();
++	},
++
++	// allows one to disable the scrollIntoView behavior of Mojo.Widget.Drawer.
++	// WARNING: THIS MONKEY-PATCHES A PRIVATE API
++	monkeyPatch1: function () {
++		if (this.monkeyPatched) { return; }
++		var monkey = Mojo.Widget.Drawer.prototype.scrollIntoView;
++		if (!monkey) { return; }
++		Mojo.Widget.Drawer.prototype.scrollIntoView = function () {
++			if (this.controller.attributes.scrollDisabled) {
++				return;
++			}
++			monkey.apply(this, arguments);
++		};
+ 	},
+ 	
+ 	isEnabled: function() {
+@@ -229,7 +286,8 @@ GlobalSearchAssistant = Class.create({
+ 	},
+ 	
+ 	deactivate: function() {
+-		
++		this.defaultDeactivation = true;
++
+ 		this.searchTerm = "";
+ 		this.searchPressHoldTerm = "";
+ 		
+@@ -1560,6 +1618,102 @@ GlobalSearchAssistant = Class.create({
+ 		ApplicationService.launch('com.palm.app.browser', params);		
+ 	},	
+ 	
++	deactivateWithError: function (message, allowHTMLMessage) {
++		this.controller.showAlertDialog({
++			onChoose: (function () { this.deactivate(); }).bind(this),
++			title: "Error",
++			message: message,
++			choices: [ { label: "OK", value: "ok" } ],
++			allowHTMLMessage: allowHTMLMessage
++		});
++	},
++
++	deactivateWithWarning: function (message, allowHTMLMessage) {
++		this.controller.showAlertDialog({
++			onChoose: (function () { this.deactivate(); }).bind(this),
++			title: "Warning",
++			message: message,
++			choices: [ { label: "OK", value: "ok" } ],
++			allowHTMLMessage: allowHTMLMessage
++		});
++	},
++
++	runUSCL: function (o) {
++		if (!this.uscl) {
++			this.deactivate();
++		}
++		var result;
++		try {
++			if (o instanceof Object) {
++				// when someone types something and taps
++				// one of the extended universal search
++				// items we added.
++				result = this.uscl.run(o.entry, o.arg);
++			}
++			else {
++				// We assume it's a string at this
++				// point.  This is when someone types a
++				// universal search string containing a
++				// USCL command and hits Enter.  Whether
++				// it contains a USCL command is
++				// determined by
++				// this.uscl.isCommandString() before we
++				// get to this point.
++				result = this.uscl.runString(o);
++			}
++		}
++		catch (e) {
++			if (e instanceof USCLError) {
++				// e has: message, stack, constructor, name
++				Mojo.Log.error("%s: %s", e.name, e.message);
++				Mojo.Log.error(e.stack);
++				this.deactivateWithError(e.message);
++				// remember, kids, don't deactivate
++				// right away!
++				return;
++			}
++			else {
++				Mojo.Log.error("%s: %s", e.name, e.message);
++				Mojo.Log.error(e.stack);
++				this.deactivateWithError(e.message);
++				// NOTE: We should only get to this
++				// point if there's a bug in the code.
++			}
++		}
++		if (result && result instanceof Object) {
++			this.controller.showAlertDialog({
++				onChoose: (function () {
++					this.deactivate(); 
++				}).bind(this),
++				title: result.title,
++				message: result.message,
++				choices: [ { label: "OK", value: "ok" } ]
++			});
++		}
++		else if (result && result.constructor && 
++			 result.constructor === String) {
++			this.controller.showAlertDialog({
++			 	onChoose: (function () {
++					this.deactivate();
++				}).bind(this),
++			 	title: "Result",
++			 	message: result,
++			 	choices: [ { label: "OK", value: "ok" } ]
++			});
++		}
++		else {
++			// default behavior.
++			if (this.defaultDeactivation) {
++				this.deactivate();
++			}
++		}
++	},
++
++	defaultDeactivation: true,
++	preventDefaultDeactivation: function () {
++		this.defaultDeactivation = false;
++	},
++
+ 	toggleSearchListDivs: function() {
+ 		if(!this.enterKeyActionItem){
+ 			this.enterKeyActionItem = 'search'
+@@ -1570,16 +1724,40 @@ GlobalSearchAssistant = Class.create({
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = false;
++					this.controller.modelChanged(this.usclDrawer);
++				}
++				else if (this.uscl.isCommandString(this.currentFilter)) {
++					$('uscl-text').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = true;
++					this.controller.modelChanged(this.usclDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb =  false ;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = false;
++					this.controller.modelChanged(this.usclDrawer);
+ 				}
+ 				$('find').removeClassName('single');
+ 				$('find').addClassName('first');
+ 				this.searchField.removeClassName('text-hidden');
+ 				this.expandedSearchDrawer.showExpanded = true;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				if (this.uscl.show) {
++					this.usclSearchesModel.items = 
++						this.uscl.getUniversalSearchCommandList();
++					this.controller.modelChanged(this.usclSearchesModel);
++					this.controller.get('searchesDivUSCL').show();
++					this.expandedSearchDrawerUSCL.showExpanded = true;
++				}
++				else {
++					this.controller.get('searchesDivUSCL').hide();
++					this.expandedSearchDrawerUSCL.showExpanded = false;
++				}
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
+ 			} else {//find...
+ 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
+ 					this.searchField.addClassName('text-hidden');
+@@ -1589,6 +1767,11 @@ GlobalSearchAssistant = Class.create({
+ 				}
+ 				this.expandedSearchDrawer.showExpanded = false;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				this.controller.get('searchesDivUSCL').hide();
++				this.expandedSearchDrawerUSCL.showExpanded = false;
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++
+ 				$('find').removeClassName('first');
+ 				$('find').addClassName('single');
+ 			}
+@@ -1603,16 +1786,39 @@ GlobalSearchAssistant = Class.create({
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = false;
++					this.controller.modelChanged(this.usclDrawer);
++				}
++				else if (this.uscl.isCommandString(this.currentFilter)) {
++					$('uscl-text').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = true;
++					this.controller.modelChanged(this.usclDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb = false;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = false;
++					this.controller.modelChanged(this.usclDrawer);
+ 				}
+ 				$('find').removeClassName('single');
+ 				$('find').addClassName('first');
+ 				this.searchField.removeClassName('text-hidden');
+ 				this.expandedSearchDrawer.showExpanded = true;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				if (this.uscl.show) {
++					this.usclSearchesModel.items = this.uscl.getUniversalSearchCommandList();
++					this.controller.modelChanged(this.usclSearchesModel);
++					this.controller.get('searchesDivUSCL').show();
++					this.expandedSearchDrawerUSCL.showExpanded = true;
++				}
++				else {
++					this.controller.get('searchesDivUSCL').hide();
++					this.expandedSearchDrawerUSCL.showExpanded = false;
++				}
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
+ 			} else {//find...
+ 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
+ 					this.searchField.addClassName('text-hidden');
+@@ -1622,6 +1828,11 @@ GlobalSearchAssistant = Class.create({
+ 				}
+ 				this.expandedSearchDrawer.showExpanded = false;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				this.controller.get('searchesDivUSCL').hide();
++				this.expandedSearchDrawerUSCL.showExpanded = false;
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++
+ 				$('find').removeClassName('first');
+ 				$('find').addClassName('single');
+ 			}
+@@ -1641,6 +1852,11 @@ GlobalSearchAssistant = Class.create({
+ 				this.searchExplicitlyExpanded = false;
+ 				this.expandedSearchDrawer.showExpanded = false;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				this.controller.get('searchesDivUSCL').hide();
++				this.expandedSearchDrawerUSCL.showExpanded = false;
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++
+ 				$('find').removeClassName('first');
+ 				$('find').addClassName('single');
+ 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
+@@ -1656,21 +1872,46 @@ GlobalSearchAssistant = Class.create({
+ 					$('webtext').innerHTML = this.currentFilter;
+ 					this.webDrawer.showWeb = true;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = false;
++					this.controller.modelChanged(this.usclDrawer);
++				}
++				else if (this.uscl.isCommandString(this.currentFilter)) {
++					$('uscl-text').innerHTML = this.currentFilter;
++					this.webDrawer.showWeb = false;
++					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = true;
++					this.controller.modelChanged(this.usclDrawer);
+ 				}
+ 				else {
+ 					this.webDrawer.showWeb = false;
+ 					this.controller.modelChanged(this.webDrawer);
++					this.usclDrawer.showUSCL = false;
++					this.controller.modelChanged(this.usclDrawer);
+ 				}
+ 				$('find').removeClassName('single');
+ 				$('find').addClassName('first');
+ 				this.searchField.removeClassName('text-hidden');
+ 				this.expandedSearchDrawer.showExpanded = true;
+ 				this.controller.modelChanged(this.expandedSearchDrawer);
++
++				if (this.uscl.show) {
++					this.usclSearchesModel.items = this.uscl.getUniversalSearchCommandList();
++					this.controller.modelChanged(this.usclSearchesModel);
++					this.controller.get('searchesDivUSCL').show();
++					this.expandedSearchDrawerUSCL.showExpanded = true;
++				}
++				else {
++					this.controller.get('searchesDivUSCL').hide();
++					this.expandedSearchDrawerUSCL.showExpanded = false;
++				}
++				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
+ 			}
+ 		} else {
+ 			var url = target.id;
+ 			if (url == "web")
+ 				this.launchBrowser(this.currentFilter);
++			else if (url == "uscl")
++				this.runUSCL(this.currentFilter);
+ 		}
+ 	},
+ 	
+@@ -1929,6 +2170,13 @@ GlobalSearchAssistant = Class.create({
+ 		this.gpsInfo = undefined;
+ 		if(this.highlightTarget != null)
+ 			this.highlightTarget.removeClassName('selected');
++
++ 		this.usclDrawer.showUSCL =  false ;
++ 		this.controller.modelChanged(this.usclDrawer);
++ 		this.controller.get('searchesDivUSCL').hide();
++ 		this.expandedSearchDrawerUSCL.showExpanded = false;
++ 		this.controller.modelChanged(this.expandedSearchDrawerUSCL);
++ 		$('uscl').removeClassName('selected');
+ 	},
+ 	
+   webSiteString: function(s){
+@@ -1974,6 +2222,7 @@ GlobalSearchAssistant = Class.create({
+ 	//clear search':
+ 	$(this.defaultSearchEngine).removeClassName('palm-focus');
+ 	$('web').removeClassName('palm-focus');
++	$('uscl').removeClassName('palm-focus');
+   },
+   highlightSelection: function() {
+   	
+@@ -2047,6 +2296,24 @@ GlobalSearchAssistant = Class.create({
+ 		$(this.defaultSearchEngine).removeClassName('palm-focus');
+ 		$('web').removeClassName('palm-focus');
+ 	}
++
++	if (this.enterKeyActionItem === "search") {
++		if (this.webDrawer.showWeb == true) {
++			$('uscl').removeClassName('palm-focus');
++		}
++		else if (this.usclDrawer.showUSCL == true) {
++			$(this.defaultSearchEngine).removeClassName('palm-focus');
++			$('web').removeClassName('palm-focus');
++			this.highlightTarget = $('uscl');
++			$('uscl').addClassName('palm-focus');
++		}
++		else if (this.expandedSearchDrawer.showExpanded == true) {
++			$('uscl').removeClassName('palm-focus');
++		}
++	}
++	else {
++		$('uscl').removeClassName('palm-focus');
++	}
+   },
+   
+   enterKeyAction: function(){
+@@ -2144,6 +2411,8 @@ GlobalSearchAssistant = Class.create({
+ 			}
+ 			if (this.webDrawer.showWeb == true)
+ 				this.launchBrowser(this.currentFilter);
++			else if (this.usclDrawer.showUSCL == true)
++				this.runUSCL(this.currentFilter);
+ 			else {
+ 				this.launchBrowser(this.URLs[this.defaultSearchEngine] + encodeURIComponent(this.currentFilter));
+ 			}
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+index 9057138..4b0d270 100644
+--- a/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/launcher-assistant.js
+@@ -179,7 +179,16 @@ var LauncherAssistant = Class.create({
+ 		
+ 		this.launchRequest = undefined;
+ 	},
+-	
++
++	cleanup: function () {
++		if (this.globalSearchAssistant &&
++		    this.globalSearchAssistant.uscl) {
++			delete this.globalSearchAssistant.uscl.globalSearchAssistant;
++		}
++		// because the global-search-assistant creates a OMG
++		// CIRCULAR REFERENCE.
++	},
++
+ 	onResize: function(event) {
+ 		this.adjustLayout();
+ 	},
+@@ -766,3 +775,38 @@ var LauncherAssistant = Class.create({
+ 	}
+ 	
+ });
++
++(function () {
++	var about = function () {
++		this.globalSearchAssistant.uscl.showAbout();
++	};
++	var help = function () {
++		this.globalSearchAssistant.uscl.showHelp();
++	};
++
++	LauncherAssistant.prototype.appMenuModel.items.push({
++		label: $L("USCL Help..."),
++		command: "uscl-help"
++	});
++	LauncherAssistant.prototype.appMenuModel.items.push({
++		label: $L("About USCL..."),
++		command: "uscl-about"
++	});
++
++	var handleCommand = LauncherAssistant.prototype.handleCommand;
++	var new_handleCommand = function (event) {
++		if (event.type === Mojo.Event.command &&
++		    event.command === "uscl-about") {
++			about.apply(this);
++		}
++		else if (event.type === Mojo.Event.command &&
++			 event.command === "uscl-help") {
++			help.apply(this);
++		}
++		else {
++			handleCommand.apply(this, [event]);
++		}
++	};
++	LauncherAssistant.prototype.handleCommand = new_handleCommand;
++})();
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-calc.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-calc.js
 new file mode 100644
-index 0000000..b6afd49
+index 0000000..d0ab037
 --- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/TODO.txt
-@@ -0,0 +1,2 @@
-+- make command-line options work with .task as well as .quicktask.
-+- make aliases work.  (.groceries)
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/calculator.js b/usr/lib/luna/system/luna-applauncher/app/controllers/calculator.js
-new file mode 100644
-index 0000000..b493276
---- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/calculator.js
-@@ -0,0 +1,50 @@
-+/*jslint browser: true, eqeqeq: true, undef: true */
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-calc.js
+@@ -0,0 +1,121 @@
++/*jslint browser: true, eqeqeq: true, undef: true, evil: true */
++/*global Mojo, USCL */
 +/******************************************************************************
 +Lines above are for jslint, the JavaScript verifier.
 +http://www.jslint.com/
 +******************************************************************************/
 +
-+var Calculator = function () {
-+	var abs		= Math.abs;
-+	var max		= Math.max;
-+	var min		= Math.min;
-+	var random	= Math.random;
-+	var ceil	= Math.ceil;
-+	var round	= Math.round;
-+	var floor	= Math.floor;
-+	var E		= Math.E;
-+	var LN10	= Math.LN10;
-+	var LN2		= Math.LN2;
-+	var LOG10E	= Math.LOG10E;
-+	var LOG2E	= Math.LOG2E;
-+	var PI		= Math.PI;
-+	var SQRT1_2	= Math.SQRT1_2;
-+	var SQRT2	= Math.SQRT2;
-+	var acos	= Math.acos;
-+	var asin	= Math.asin;
-+	var atan	= Math.atan;
-+	var atan2	= Math.atan2;
-+	var cos		= Math.cos;
-+	var exp		= Math.exp;
-+	var log		= Math.log;
-+	var pow		= Math.pow;
-+	var sin		= Math.sin;
-+	var sqrt	= Math.sqrt;
-+	var tan		= Math.tan;
-+	var cot         = function (x) { return 1 / tan(x); }; // cotangent
-+	var sec         = function (x) { return 1 / cos(x); }; // secant
-+	var csc         = function (x) { return 1 / sin(x); }; // cosecant
-+	var log2        = function (x) { return log(x) / LN2; };
-+	var log10       = function (x) { return log(x) / LN10; };
++(function () {
 +
-+	// I really wish we could provide a true global context
-+	// independent from Mojo or whatever environment we happen
-+	// to be in.
-+	var a, b, c, d, e, f, g, h, i, j, k, l, m;
-+	var n, o, p, q, r, s, t, u, v, w, x, y, z;
-+	
-+	this.calculate = function (string) {
-+		return eval(string);
++	var Calculator = function () {
++
++		// We define these just so you can say, for example, "abs"
++		// instead of "Math.abs".
++
++		var abs		= Math.abs;
++		var max		= Math.max;
++		var min		= Math.min;
++		var random	= Math.random;
++		var ceil	= Math.ceil;
++		var round	= Math.round;
++		var floor	= Math.floor;
++		var E		= Math.E;
++		var LN10	= Math.LN10;
++		var LN2		= Math.LN2;
++		var LOG10E	= Math.LOG10E;
++		var LOG2E	= Math.LOG2E;
++		var PI		= Math.PI;
++		var SQRT1_2	= Math.SQRT1_2;
++		var SQRT2	= Math.SQRT2;
++		var acos	= Math.acos;
++		var asin	= Math.asin;
++		var atan	= Math.atan;
++		var atan2	= Math.atan2;
++		var cos		= Math.cos;
++		var exp		= Math.exp;
++		var log		= Math.log;
++		var pow		= Math.pow;
++		var sin		= Math.sin;
++		var sqrt	= Math.sqrt;
++		var tan		= Math.tan;
++
++		// And a few extensions to make your life a little more easier.
++
++		var cot         = function (x) { return 1 / tan(x); }; // cotangent
++		var sec         = function (x) { return 1 / cos(x); }; // secant
++		var csc         = function (x) { return 1 / sin(x); }; // cosecant
++		var log2        = function (x) { return log(x) / LN2; };
++		var log10       = function (x) { return log(x) / LN10; };
++
++		// I really wish we could provide a true global context
++		// independent from Mojo or whatever environment we happen to be
++		// in.  Oh well, at least we have 26 variables.
++
++		var a, b, c, d, e, f, g, h, i, j, k, l, m;
++		var n, o, p, q, r, s, t, u, v, w, x, y, z;
++		
++		this.calculate = function (string) {
++			return eval(string);
++		};
 +	};
-+};
 +
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/getopt.js b/usr/lib/luna/system/luna-applauncher/app/controllers/getopt.js
++	Object.extend(USCL.prototype, {
++		calcCommand: function (s) {
++			// Yes, I'm aware that eval is usually evil.  The user
++			// chooses to use 'calc' at their own risk.  I'm only
++			// using it here because I'm too lazy at the moment to
++			// write an infix expression calculator.
++			if (!this.calculator) {
++				this.calculator = new Calculator();
++			}
++			var result;
++			try {
++				result = this.calculator.calculate(s);
++			}
++			catch (e) {
++				throw new USCLError(e);
++			}
++			return {
++				title: "Calculator",
++				message: s + " \u2192 " + Object.toJSON(result)
++			};
++		}
++	});
++
++	Object.extend(USCL.prototype.builtinEntries, {
++		"calc": {	// BUILTIN
++			title: "Calculator",
++			usage: "<var>expression</var>",
++			example: [".calc (37 * 1.8) + 32",
++				  ".calc sin(PI / 2)",
++				  ".calc Math.sin(Math.PI / 2)"],
++			description: 
++			("Perform a calculation. " + 
++			 "Can also evaluate other JavaScript expressions. " +
++			 "Yes, it uses <kbd>eval()</kbd>, and I&rsquo;m " + 
++			 "aware that it&rsquo;s generally recognized as evil. " + 
++			 "Use at your own risk." +
++			 "<br /><br />" +
++			 "Functions and constants in the core Math object can be " +
++			 "used with or without the <kbd>Math.</kbd> prefix. " +
++			 "More complex calculations (such as unit conversions) " +
++			 "can be sent to Google (see <kbd>.google</kbd>) " +
++			 "or Wolfram Alpha (see <kbd>.wolfram</kbd>)." +
++			 "<br /><br />" +
++			 "Additional functions available: " +
++			 "<kbd>cot()</kbd>, " + 
++			 "<kbd>sec()</kbd>, " + 
++			 "<kbd>csc()</kbd>, " + 
++			 "<kbd>log()</kbd>, " + 
++			 "<kbd>log10()</kbd>"
++			),
++			method: function (s) {
++				return this.calcCommand(s);
++			}
++		},
++		"c": "calc",
++		"eval": "calc"
++	});
++
++})();
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-maps.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-maps.js
 new file mode 100644
-index 0000000..0261218
+index 0000000..41f2d89
 --- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/getopt.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-maps.js
+@@ -0,0 +1,20 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global USCL */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype.builtinEntries, {
++	"maps": {	// BUILTIN FOR COMPLETENESS
++		excludeFromUniversalSearch: true,
++		title: "Google Maps",
++		argumentsOptional: true,
++		usage: "<var>keywords</var>",
++		description: "Opens the Google Maps application and searches for what you specify.",
++		method: function (arg) {
++			this.globalSearchAssistant.launchMap(arg);
++		}
++	}
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-notes.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-notes.js
+new file mode 100644
+index 0000000..043fbdc
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-notes.js
+@@ -0,0 +1,114 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Mojo, USCL, USCLError */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype, {
++	noteColors: ["pink", "yellow", "green", "blue"],
++
++	randomNoteColor: function () {
++		return this.noteColors[Math.floor(Math.random() *
++						  this.noteColors.length)];
++	},
++
++	newNoteTimestamp: function () {
++		return Mojo.Format.formatDate(new Date(),
++					      "short").replace(/ /, "\n");
++	},
++
++	quickNoteWarning: "Because you are running Notes and " + 
++		"do not have the latest version " + 
++		"of the USCL Notes Patch installed, " + 
++		"please close and reopen Notes.  " + 
++		"Your quicknote has been entered, " + 
++		"but <i>may</i> not be shown until " + 
++		"you close and reopen Notes.",
++
++	quickNoteCommand: function (text) {
++		var gsa = this.globalSearchAssistant;
++		gsa.preventDefaultDeactivation();
++		var onRunning = (function () {
++			if (this.apps &&
++			    this.apps.iCanBeRefreshed &&
++			    this.apps.iCanBeRefreshed["com.palm.app.notes"]) {
++				var request = new Mojo.Service.Request(
++					"palm://com.palm.applicationManager", {
++						method: "launch",
++						parameters: {
++							id: "com.palm.app.notes",
++							params: { refresh: true }
++						}
++					}
++				);
++				gsa.deactivate();
++			}
++			else {
++				gsa.deactivateWithWarning(this.quickNoteWarning, true);
++			}
++		}).bind(this);
++		var onNotRunning = function () {
++			gsa.deactivate();
++		};
++		var noteText = text + "\n\n" + this.newNoteTimestamp() + "\n";
++		var request = new Mojo.Service.Request("palm://com.palm.notes", {
++			method: "saveNote",
++			parameters: {
++				text: noteText,
++				color: this.randomNoteColor()
++			},
++			onComplete: (function () {
++				this.checkForAppRunning("com.palm.app.notes",
++							onRunning,
++							onNotRunning);
++			}).bind(this)
++		});
++	}
++});
++
++Object.extend(USCL.prototype.builtinEntries, {
++	"note": {	// BUILTIN
++		title: "New Note",
++		usage: "<var>text</var>",
++		example: "I like pie.",
++		description: "Quickly create a new note.",
++		method: function (arg) {
++			if (!(this.apps &&
++			      this.apps.iGrokTheCommandLine &&
++			      this.apps.iGrokTheCommandLine["com.palm.app.notes"])) {
++				throw new USCLError("This command will not " +
++						    "work if the USCL Memos " +
++						    "Patch is not installed.");
++			}
++			var request = new Mojo.Service.Request(
++				"palm://com.palm.applicationManager", { 
++					method: "launch",
++					parameters: {
++						id: "com.palm.app.notes",
++						params: { newNoteText: arg }
++					}
++				}
++			);
++		}
++	},
++	"memo": "note",
++	"m": "note",
++	"n": "note",
++
++	"quicknote": {	// BUILTIN
++		title: "New Note (without launch)",
++		usage: "<var>text</var>",
++		example: "I like pie.",
++		description: "Quickly create a new note, without launching the Notes application.",
++		method: function (text) {
++			return this.quickNoteCommand(text);
++		}
++	},
++	"quickmemo": "quicknote",
++	"qmemo": "quicknote",
++	"qnote": "quicknote",
++	"qm": "quicknote",
++	"qn": "quicknote"
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-quickevent.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-quickevent.js
+new file mode 100644
+index 0000000..5677bd2
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-quickevent.js
+@@ -0,0 +1,49 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Mojo, USCL */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype, {
++	launchQuickEvent: function (entry) {
++		var appId = "com.palm.net.heden.webos.quickevent";
++		if (this.appInstalled[appId]) {
++			var request = new Mojo.Service.Request(
++				"palm://com.palm.applicationManager", {
++					method: "launch",
++					parameters: {
++						id: appId,
++						params: { entry: entry }
++					}
++				}
++			);
++		}
++		else {
++			throw new USCLError("You must install Quick Event " + 
++					    "(and restart Luna) to use this.");
++		}
++	}
++});
++
++Object.extend(USCL.prototype.builtinEntries, {
++	"quickevent": {
++		title: "Quick Event",
++		usage: [ "<small>" + 
++			 ".qe <var>evt</var> <var>time</var>-[<var>time</var>] [<var>date</var>] [@|in|at <var>loc</var>]<br />" +
++			 ".qe <var>evt</var> ad- [<var>date</var>] [@|in|at <var>loc</var>]" + 
++			 "</small>" ],
++		example: [
++			".qe Lunch 11am-12:15pm next wed at Hotel Astoria",
++			".qe Haircut 1500-1600 1/30 at Fred's",
++			".qe Valentine's Day ad- 2/14"
++		],
++		description: "If the Quick Event app (available through Preware) is installed, use it to add an event to your calendar.  " + 
++			"<kbd>ad-</kbd> indicates an all-day event.",
++		method: function (arg) {
++			return this.launchQuickEvent(arg);
++		}
++	},
++	"qe": "quickevent"
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-restart.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-restart.js
+new file mode 100644
+index 0000000..0f64de7
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-restart.js
+@@ -0,0 +1,81 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Mojo, USCL, USCLError */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype, {
++	restartCommand: function (arg) {
++		var r;
++		switch (arg) {
++		case "luna":
++			Mojo.Log.info("restart luna");
++			try {
++				r = new Mojo.Service.Request(
++					'luna://org.webosinternals.ipkgservice',
++					{ method: 'restartLuna' }
++				);
++			}
++			catch (e1) {
++				Mojo.Log.error("Error Restaring Luna: %s", e1.message);
++				throw new USCLError('Error Restarting Luna: ' +
++						    e1.message);
++			}
++			break;
++		case "java":
++			Mojo.Log.info("restart java");
++			try {
++				r = new Mojo.Service.Request(
++					'palm://org.webosinternals.ipkgservice',
++					{ method: 'restartJava' }
++				);
++			}
++			catch (e2) {
++				Mojo.Log.error("Error Restaring Java: %s", e2.message);
++				throw new USCLError('Error restarting Java: ' +
++						    e2.message);
++			}
++			this.bannerNotify("Restarting Java...");
++			break;
++		}
++	},
++
++	rescanCommand: function () {
++		try {
++			var r = new Mojo.Service.Request(
++				'palm://org.webosinternals.ipkgservice',
++				{ method: 'rescan' }
++			);
++		}
++		catch (e) {
++			throw new USCLError('Error Rescanning: ' + e.message);
++		}
++		this.bannerNotify("Rescanning...");
++	}
++});
++
++Object.extend(USCL.prototype.builtinEntries, {
++	"restart": {
++		excludeFromUniversalSearch: true,
++		title: "Restart Luna or Java",
++		usage: "<b>luna</b>|<b>java</b>",
++		description: ("Restarts the Luna system manager or Java services.  " +
++			      "Restarting Luna may (or may not) solve performance issues, " + 
++			      "including the &ldquo;Too Many Cards&rdquo; error.  " + 
++			      "You may wish to try <kbd>.gc</kbd> first, though."),
++		method: function (arg) {
++			return this.restartCommand(arg);
++		}
++	},
++	"rescan": {
++		excludeFromUniversalSearch: true,
++		argumentsOptional: true,
++		title: "Rescan Applications",
++		description: "Rescans the list of applications on your device.",
++		method: function () {
++			return this.rescanCommand();
++		}
++	}
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-sites.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-sites.js
+new file mode 100644
+index 0000000..bfe4e85
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-sites.js
+@@ -0,0 +1,193 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global USCL */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.  http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype.builtinEntries, {
++
++	"imdb": {
++		title: "IMDB.com",
++		usage: "<var>query</var>",
++		example: "the big lebowski",
++		description: ("Search movies, TV shows, actors, directors, " + 
++			      "producers, and more on IMDB.com."),
++		url: "http://m.imdb.com/find?q="
++	},
++	"i": "imdb", // keytoss alias
++
++	"dict": {
++		title: "Dictionary.com",
++		usage: "<var>word</var>",
++		example: "ebullient",
++		description: "Find a word on Dictionary.com.",
++		url: "http://m.reference.com/d/search.html?q="
++	},
++	"d": "dict",
++
++	"thes": {
++		title: "Thesaurus.com",
++		usage: "<var>word</var>",
++		example: "ebullient",
++		description: "Find a word on Thesaurus.com.",
++		url: "http://m.reference.com/t/search.html?q="
++	},
++	"th": "thes",
++
++	"ebay": {
++		title: "eBay",
++		usage: "<var>item</var>",
++		example: "mp3 player",
++		description: "Find something on eBay.com.",
++		url: "http://m.ebay.com/Pages/SearchResults.aspx?emvAD=320x320&emvcc=0&sv="
++	},
++	"e": "ebay", // keytoss alias
++
++	"yahoo": {
++		title: "Yahoo!",
++		usage: "<var>keywords</var>",
++		example: "laptop reviews",
++		description: "Search Yahoo!",
++		url: "http://m.yahoo.com/w/search/oneSearch?p="
++	},
++	"y": "yahoo",
++
++	"gis": {	
++		title: "Google Images",
++		usage: "<var>keywords</var>",
++		example: "pirate hat",
++		description: "Search Google Images.",
++		url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=images&q="
++	},
++	"gi": "gis", // keytoss alias
++	
++	"shop": {	
++		title: "Google Product Search",
++		usage: "<var>keywords</var>",
++		example: "palm pre",
++		description: "Search for prices on Google Products.",
++		url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=products&q="
++	},
++	"froogle": "shop",
++	"gp": "shop", // keytoss alias
++
++	"news": {	
++		title: "Google News Search",
++		usage: "<var>keywords</var>",
++		example: "obama",
++		description: "Search Google News.",
++		url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=news&q="
++	},
++	"gn": "news", // keytoss alias
++	
++	"google": {	// BUILTIN FOR COMPLETENESS
++		excludeFromUniversalSearch: true,
++		title: "Google",
++		usage: "<var>keywords</var>",
++		example: "hummus recipe",
++		description: "Search Google.",
++		url: "www.google.com/m/search?client=ms-palm-webOS&channel=iss&q="
++	},
++	"g": "google",
++
++	"amazon": {	
++		title: "Amazon",
++		usage: "<var>keywords</var>",
++		example: "i am america and so can you",
++		description: "Search for products on Amazon.com.",
++		url: "http://www.amazon.com/gp/aw/s/ref=is_box_?k="
++	},
++	"az": "amazon",
++	"am": "amazon", // keytoss alias
++
++	"wikipedia": {	// BUILTIN FOR COMPLETENESS
++		excludeFromUniversalSearch: true,
++		title: "Wikipedia",
++		usage: "<var>keywords</var>",
++		example: "isaac newton",
++		description: "Search Wikipedia, the online encyclopedia that anyone can edit.",
++		url: "http://en.m.wikipedia.org/wiki/Special:Search?search="
++	},
++	"wiki": "wikipedia",
++	"w": "wikipedia",
++
++	"wolfram": {	
++		title: "Wolfram Alpha",
++		usage: "<var>keywords</var>",
++		example: [
++			".wa June 23, 1988",
++			".wa new york",
++			".wa IBM Apple",
++			".wa $250 + 15%",
++			".wa x**2 sin(x)"
++		],
++		description: "Query something on Wolfram Alpha.  Dates, cities, stocks, and equations.  Go nuts!",
++		url: "http://www.wolframalpha.com/input/?i="
++	},
++	"wa": "wolfram",
++	
++	"youtube": {
++		"title": "YouTube",
++		"usage": "<var>keywords</var>",
++		"example": "petra haden the who",
++		"description": "Find videos on YouTube.",
++		"url": "http://m.youtube.com/results?is_adult=True&hl=en&gl=US&client=mv-google&q="
++	},
++	"yt": "youtube",
++
++	"precentral": {
++                "title": "Pre Central",
++                "usage": "<var>keyword</var> ...",
++                "example": "universal search",
++                "description": "Search PreCentral.net's mobile site.",
++                "url": "http://m.precentral.net/search/"
++	},
++	"pc": "precentral",
++
++	"webosroundup": {
++		"title": "webOS Roundup",
++		"usage": "<var>keyword</var> ...",
++                "example": "universal search",
++                "description": "Search webOS Roundup's mobile site.",
++                "url": "http://www.webosroundup.com/?s="
++	},
++	"wor": "webosroundup",
++
++	"twitter": {
++		"excludeFromUniversalSearch": true,
++		"title": "Twitter",
++		"usage": "<var>query</var>",
++		"example": [
++			"justin bieber",
++			"#webos"
++		],
++		"description": "Search recent messages posted on Twitter and see what's happening.",
++		"url": "http://search.twitter.com/search?q="
++	},
++	"tw": "twitter",
++
++	"keytoss": {	
++		title: "KeyToss",
++		usage: [
++			".keytoss <var>command</var> <var>keywords</var>",
++			".kt <var>command</var> <var>keywords</var>",
++			"..<var>command</var> <var>keywords</var>"
++		],
++		example: [
++			".keytoss af wtf",
++			".kt af omg",
++			"..af bbq"
++		],
++		description: ("Perform a search via the KeyToss mobile portal.<br />" + 
++			      "You do not need to type the at sign (<kbd>@</kbd>) before the <i>command</i>.<br />" + 
++			      "Use <nobr><kbd>.keywords|.kt kt list</kbd></nobr> or <nobr><kbd>..kt list</kbd></nobr> " + 
++			      "to get a list of commands to pass to KeyToss."),
++		preprocess: function (s) {
++			return s.replace(/^\s*@\s*/, "");
++		},
++		url: "http://pre.keytoss.com/parse.php5?pv=131&term=%40"
++	},
++	"kt": "keytoss"
++
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-system.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-system.js
+new file mode 100644
+index 0000000..b565a1f
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-system.js
+@@ -0,0 +1,198 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global USCL, Mojo, $H, USCLError */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype, {
++	setServiceFlag: function (options) {
++		var that = this;
++
++		var parameters;
++		if ("parameters" in options) {
++			parameters = options.parameters;
++		}
++		else {
++			parameters = {};
++		}
++
++		if ("parameter" in options) {
++			parameters[options.parameter] = options.flag;
++		}
++		
++		var request = new Mojo.Service.Request(options.serviceID, {
++			method: options.method,
++			parameters: parameters,
++			onSuccess: function () {
++				that.bannerNotify("Successfully %s %s.".format(
++					options.flag ? "enabled" : "disabled",
++					options.name
++				));
++			},
++			onFailure: function (response) {
++				that.bannerNotify("Error %s %s: %s".format(
++					options.flag ? "enabling" : "disabling",
++					options.name,
++					response.errorText));
++				Mojo.Log.error("Error %s %s: %s",
++					       options.flag ? "enabling" : "disabling",
++					       options.name,
++					       response.errorText);
++			}
++		});
++	},
++	setLocationServiceFlag: function (options) {
++		return this.setServiceFlag(Object.extend({
++			serviceID: "palm://com.palm.location"
++		}, options));
++	}
++});
++
++Object.extend(USCL.prototype, {
++	setUseGps: function (flag) {
++		this.setLocationServiceFlag({
++			method: "setUseGps",
++			parameter: "useGps",
++			name: "GPS",
++			flag: flag
++		});
++	}
++});
++Object.extend(USCL.prototype.builtinEntries, {
++	"gps": {	// BUILTIN
++		excludeFromUniversalSearch: true,
++		title: "GPS On/Off",
++		usage: "on|off",
++		description: "Turns location using GPS on/off.",
++		method: function (arg) {
++			var flag = arg.toBoolean(USCLError);
++			this.setUseGps(flag);
++		}
++	}
++});
++
++Object.extend(USCL.prototype, {
++	setUseBackgroundDataCollection: function (flag) {
++		this.setLocationServiceFlag({
++			method: "setUseBackgroundDataCollection",
++			parameter: "useBackgroundDataCollection",
++			name: "Background Data Collection",
++			flag: flag
++		});
++	}
++});
++Object.extend(USCL.prototype.builtinEntries, {
++	"bgdata": {	// BUILTIN
++		excludeFromUniversalSearch: true,
++		title: "Background Data Collection On/Off",
++		usage: "on|off",
++		description: ("Turns background collection of data on/off.  " + 
++			      "This allows Google to collect anonymous location data " + 
++			      "to improve the quality of location services."),
++		method: function (arg) {
++			var flag = arg.toBoolean(USCLError);
++			this.setUseBackgroundDataCollection(flag);
++		}
++	}
++});
++
++Object.extend(USCL.prototype, {
++	setGeotagPhotos: function (flag) {
++		this.setLocationServiceFlag({
++			method: "setGeotagPhotos",
++			parameter: "geotagPhotos",
++			name: "Geotagging",
++			flag: flag
++		});
++	}
++});
++Object.extend(USCL.prototype.builtinEntries, {
++	"geotag": {	// BUILTIN
++		excludeFromUniversalSearch: true,
++		title: "Geotagging On/Off",
++		usage: "on|off",
++		description: ("Turns geotagging of photos on/off.  " + 
++			      "This only applies when Auto Locate is on."),
++		method: function (arg) {
++			var flag = arg.toBoolean(USCLError);
++			this.setGeotagPhotos(flag);
++		}
++	}
++});
++
++Object.extend(USCL.prototype, {
++	setAutoLocate: function (flag) {
++		this.setLocationServiceFlag({
++			method: "setAutoLocate",
++			parameter: "autoLocate",
++			name: "Auto-Locate",
++			flag: flag
++		});
++	}
++});
++Object.extend(USCL.prototype.builtinEntries, {
++	"autolocate": {	// BUILTIN
++		excludeFromUniversalSearch: true,
++		title: "Auto Locate On/Off",
++		usage: "on|off",
++		description: ("Turns auto location on/off.  " +
++			      "When Auto Locate is on, applications can automatically identify your location.  " +
++			      "When off, applications that use location data will ask if it's okay " + 
++			      "to identify your location for that particular session only."),
++		method: function (arg) {
++			var flag = arg.toBoolean(USCLError);
++			this.setAutoLocate(flag);
++		}
++	}
++});
++
++Object.extend(USCL.prototype, {
++	setUseGoogle: function (flag) {
++		this.setLocationServiceFlag({
++			method: "setUseGoogle",
++			parameter: "useGoogle",
++			name: "Google Location Services",
++			flag: flag
++		});
++	}
++});
++Object.extend(USCL.prototype.builtinEntries, {
++	"usegoogle": {	// BUILTIN
++		excludeFromUniversalSearch: true,
++		title: "Google Location Services On/Off",
++		usage: "on|off",
++		description: ("Turns location using Google Services on/off.  " +
++			      "This uses cell towers to roughly pinpoint your general location.  " + 
++			      "Accuracy will vary."),
++		method: function (arg) {
++			var flag = arg.toBoolean(USCLError);
++			this.setUseGoogle(flag);
++		}
++	}
++});
++
++Object.extend(USCL.prototype, {
++	garbageCollectCommand: function () {
++		this.bannerNotify("Garbage collecting...");
++		var request = new Mojo.Service.Request("palm://com.palm.lunastats", {
++			method: "gc",
++			parameters: { }
++		});
++	}
++});
++Object.extend(USCL.prototype.builtinEntries, {
++	"gc": {		// BUILTIN
++		excludeFromUniversalSearch: true,
++		argumentsOptional: true,
++		title: "Garbage Collect",
++		description: ("Garbage collect the JavaScript heap.  " + 
++			      "This may (or may not) solve performance issues, " + 
++			      "including the &ldquo;Too Many Cards&rdquo; error.  " + 
++			      "Failing that, you may wish to try <kbd>.restart luna</kbd>."),
++		method: function () {
++			return this.garbageCollectCommand();
++		}
++	}
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-tasks.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-tasks.js
+new file mode 100644
+index 0000000..eb89efa
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-tasks.js
+@@ -0,0 +1,228 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Mojo, USCL, USCLError */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype, {
++	createTaskList: function (name, callback) {
++		var that = this;
++		var request = new Mojo.Service.Request("palm://com.palm.tasks", {
++			method: "saveTaskList",
++			parameters: {
++				name: name
++			},
++			onComplete: function (response) {
++				Mojo.Log.info("NEW TASK LIST ID: %j", response.id);
++				if (callback) {
++					callback(response.id);
++				}
++			}
++		});
++	},
++
++	getOrCreateTaskList: function (name, callback) {
++		var that = this;
++		var request = new Mojo.Service.Request("palm://com.palm.tasks", {
++			method: "getTaskLists",
++			parameters: { },
++			onComplete: function (response) {
++				var list = response.list;
++				for (var i = 0; i < list.length; ++i) {
++					Mojo.Log.info("GETTASKLISTS [%j]: %j", i, list[i]);
++					if (list[i].name === name) {
++						Mojo.Log.info("EXISTING TASK LIST ID: %j", list[i].id);
++						if (callback) {
++							callback(list[i].id);
++						}
++						return;
++					}
++				}
++				that.createTaskList(name, callback);
++			}
++		});
++	},
++
++	createTask: function (taskListId, subject, callback) {
++		var request = new Mojo.Service.Request("palm://com.palm.tasks", {
++			method: "saveTask",
++			parameters: {
++				subject: subject,
++				taskListId: taskListId
++			},
++			onComplete: function (response) {
++				Mojo.Log.info("NEW TASK: taskListId = %j, id = %j, subject = %j",
++					      taskListId, response.id, subject);
++				if (callback) {
++					callback(taskListId, response.id);
++				}
++			}
++		});
++	},
++	
++	createTasks: function (taskListId, subjects, callback) {
++		var that = this;
++		var len = subjects.length;
++		var remaining = subjects.length;
++		var taskIds = [];
++		Mojo.Log.info("createTasks: remaining === %d", remaining);
++		for (var i = 0; i < len; i++) {
++			(function (i) {
++				that.createTask(taskListId, subjects[i],
++						function (taskListId, taskId) {
++							taskIds[i] = taskId;
++							Mojo.Log.info("taskIds[%d] === %d; taskIds.length = %d", i, taskId, taskIds.length);
++							remaining--;
++							Mojo.Log.info("createTasks: after decrement, remaining === %d", remaining);
++							if (remaining === 0) {
++								Mojo.Log.info("=== 0");
++								if (callback) {
++									Mojo.Log.info("there's a callback");
++									callback(taskListId, taskIds);
++								}
++							}
++						});
++			})(i);
++		}
++	},
++
++	taskCommand: function (options, args) {
++		var that = this;
++		var taskListName = (options && options.taskListName) ? 
++			options.taskListName : "Unfiled";
++		var onRunning = function (taskListId, taskIds) {
++			var params = { details: { show: {
++				taskListId: taskListId, 
++				taskId: taskIds[taskIds.length - 1]
++			} } };
++			var request = new Mojo.Service.Request(
++				"palm://com.palm.applicationManager", {
++					method: "launch",
++					parameters: {
++						id: "com.palm.app.tasks",
++						params: params
++					}
++				}
++			);
++		};
++		var onNotRunning = function (taskListId, taskIds) {
++			var params = { details: { show: {
++				taskListId: taskListId, 
++				taskId: taskIds[taskIds.length - 1]
++			} } };
++			if (options && options.launchTasks) {
++				var request = new Mojo.Service.Request(
++					"palm://com.palm.applicationManager", {
++						method: "launch",
++						parameters: {
++							id: "com.palm.app.tasks",
++							params: params
++						}
++					}
++				);
++			}
++		};
++		var onComplete = function (taskListId, taskIds) {
++			that.checkForAppRunning("com.palm.app.tasks",
++						onRunning.curry(taskListId, taskIds),
++						onNotRunning.curry(taskListId, taskIds));
++		};
++		that.getOrCreateTaskList(taskListName,
++					 function (taskListId) {
++						 that.createTasks(taskListId, args,
++								  onComplete);
++					 });
++	}
++});
++
++Object.extend(USCL.prototype.builtinEntries, {
++	"task": {
++		title: "New Task (launches Tasks app)",
++		usage: "[<var>option</var> ...] <var>task</var>; ...",
++		example: [
++			".task finish project foo; present proposal",
++			".task -s , -c Groceries skim milk, juice"
++		],
++		description: "Create one or more new tasks, and launch the Tasks application.",
++		options: [
++			{ synopsis: "-c <var>category</var>",
++			  description: "tasks are added to the specified category instead of &lsquo;Unfiled&rsquo;" },
++			{ synopsis: "-s <var>char</var>",
++			  description: "tasks are separated by the specified character (and any optional whitespace before and/or after) instead of the semicolon"
++			},
++			{ synopsis: "-s space",
++			  description: "tasks are separated by whitespace"
++			},
++			{ synopsis: "-s /<var>regex</var>/",
++			  description: "tasks are separated by the specified regular expression (you must supply the whitespace yourself)"
++			},
++			{ synopsis: "-q",
++			  description: "do not launch the Tasks application unless it&lsquo;s already launched"
++			}
++		],
++		method: function (arg) {
++			var args = arg.splitArguments();
++			var options = args.getopt("c:s:q", USCLError);
++			if ("c" in options) {
++				options.taskListName = options.c;
++				delete options.c;
++			}
++			if ("q" in options) {
++				options.launchTasks = false;
++				delete options.q;
++			}
++			else {
++				options.launchTasks = true;
++			}
++			arg = args.join(" ");
++
++			var rx;
++			if ("s" in options) {
++				if (options.s === "\\" ||
++				    options.s === "(" || options.s === ")" ||
++				    options.s === "[" || options.s === "]" ||
++				    options.s === "{" || options.s === "}" ||
++				    options.s === "." ||
++				    options.s === "|" ||
++				    options.s === "^" || options.s === "$" ||
++				    options.s === "+" || options.s === "?" ||
++				    options.s === "*") {
++					rx = new RegExp("\\s*\\" + options.s + "\\s*");
++				}
++				else if (options.s.length === 1) {
++					rx = new RegExp("\\s*" + options.s + "\\s*");
++				}
++				else if (options.s === "space") {
++					rx = /\s+/;
++				}
++				else if (/^\/(.*)\/$/) {
++					rx = RegExp.$1;
++					rx = new RegExp(rx);
++				}
++				else {
++					throw new USCLError("-s: invalid argument");
++				}
++			}
++			else {
++				rx = /\s*;\s*/;
++			}
++			args = arg.splitArguments(rx);
++			Mojo.Log.info("  re-split args: %j", args);
++			return this.taskCommand(options, args);
++		}
++	},
++	"todo": "task",
++	"t": "task",
++
++	"quicktask": {
++		title: "New Task (no launch)",
++		usage: "<var>task</var>; ...",
++		example: "finish project foo; present proposal",
++		description: "Create one or more new tasks without launching the Tasks application.  If Tasks is already launched, jump to it.  Accepts the same command-line options as <kbd>.task</kbd>.",
++		aliasedTo: ".task -q %s"
++	},
++	"quicktodo": "quicktask",
++	"qt": "quicktask"
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-wifi.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-wifi.js
+new file mode 100644
+index 0000000..c51eaa2
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/builtins/uscl-wifi.js
+@@ -0,0 +1,33 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global USCL, Mojo, $H, USCLError */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++Object.extend(USCL.prototype, {
++	setWiFi: function (flag) {
++		this.setServiceFlag({
++			serviceID: "palm://com.palm.wifi",
++			name: "Wi-Fi",
++			flag: flag,
++			method: "setstate",
++			parameters: { "state": (flag ?
++						"enabled" :
++						"disabled") }
++		});
++	}
++});
++Object.extend(USCL.prototype.builtinEntries, {
++	"wifi": {	// BUILTIN
++		excludeFromUniversalSearch: true,
++		title: "Wi-Fi On/Off",
++		usage: "on|off",
++		description: "Turns Wi-Fi on/off.",
++		method: function (arg) {
++			var flag = arg.toBoolean(USCLError);
++			this.setWiFi(flag);
++		}
++	}
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/getopt.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/getopt.js
+new file mode 100644
+index 0000000..ec7569d
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/getopt.js
 @@ -0,0 +1,121 @@
 +/*jslint browser: true, eqeqeq: false, undef: true */
 +/******************************************************************************
@@ -92,7 +1601,7 @@ index 0000000..0261218
 +function getopt(nargv, ostr)
 +{
 +	if ( typeof getopt.place == 'undefined' ) {
-+ 		getopt.place = ""; // static string, option letter processing
++		getopt.place = ""; // static string, option letter processing
 +		getopt.iplace = 0; // index into string
 +	}
 +
@@ -189,540 +1698,11 @@ index 0000000..0261218
 +getopt.optreset = false; // reset getopt
 +getopt.optarg   = "";	 // option argument
 +
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-index b9db2c2..a833a3b 100644
---- a/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/global-search-assistant.js
-@@ -140,6 +140,7 @@ GlobalSearchAssistant = Class.create({
- 		searchesDiv.update(Mojo.View.render({template: 'global-search/expanded-searches-div' }));
- 		this.expandedSearchDrawer = { showExpanded: false };
- 		this.controller.setupWidget('expanded_searches_drawer', {unstyled:true, property:'showExpanded'}, this.expandedSearchDrawer);
-+
- 		this.webDrawer = { showWeb: false };
- 		this.controller.setupWidget('web_drawer', {unstyled:true, property:'showWeb'}, this.webDrawer);
- 		
-@@ -175,11 +176,49 @@ GlobalSearchAssistant = Class.create({
- 		
- 		this.controller.listen(this.controller.document, 'paste', this.onPaste.bindAsEventListener(this), true);
- 		
-+		this.uscl = new USCL();
-+		
-+		var searchesDivUSCL = this.controller.get('searches-list-uscl');
-+		searchesDivUSCL.update(Mojo.View.render({template: 'global-search/expanded-searches-div-uscl' }));
-+		this.expandedSearchDrawerUSCL = { showExpanded: false };
-+		this.controller.setupWidget('expanded_searches_drawer_uscl',
-+					    { unstyled:true, property:'showExpanded', 
-+					      scrollDisabled: true},
-+					    this.expandedSearchDrawerUSCL);
-+
-+		this.usclDrawer = { showUSCL: false };
-+		this.controller.setupWidget('command_line_drawer', {unstyled: true, property: 'showUSCL'}, this.usclDrawer);
-+
-+		this.usclSearchesAttrs = {
-+			listTemplate: "global-search/templates/uscl-searches-list",
-+			itemTemplate: "global-search/templates/uscl-searches-item",
-+			swipeToDelete: false,
-+			reorderable: false,
-+			renderLimit: 500
-+		};
-+		this.usclSearchesModel = { 
-+			items: this.uscl.universalSearchList 
-+		};
-+		this.controller.setupWidget("usclSearches",
-+					    this.usclSearchesAttrs,
-+					    this.usclSearchesModel);
-+
-+		this.onTapUSCLHandler = this.onTapUSCL.bindAsEventListener(this);
-+		this.controller.listen("usclSearches",
-+				       Mojo.Event.listTap,
-+				       this.onTapUSCLHandler);
-+		
- 		this.initOnServerStart("com.palm.systemservice");
- 		
- 		this.galInit();
- 	},
-   
-+ 	onTapUSCL: function (event) {
-+ 		var entry = this.usclSearchesModel.items[event.index];
-+ 		this.runUSCL({ entry: entry,
-+ 			       arg: this.currentFilter });
-+ 	},
-+   
- 	ready: function() {
- 		// try to force our input field to always have focus (there are some exceptions)
- 		var input = this.searchField.querySelector('[name=searchtermInput]');
-@@ -187,6 +226,21 @@ GlobalSearchAssistant = Class.create({
- 			input.blur = function() { this.focus();	}
- 		}
- 		this.enable(true);
-+		this.monkeyPatch1();
-+	},
-+
-+	/* allows one to disable the scrollIntoView behavior of Mojo.Widget.Drawer. */
-+	/* WARNING: THIS MONKEY-PATCHES A PRIVATE API */
-+	monkeyPatch1: function () {
-+		if (this.monkeyPatched) { return; }
-+		var monkey = Mojo.Widget.Drawer.prototype.scrollIntoView;
-+		if (!monkey) { return; }
-+		Mojo.Widget.Drawer.prototype.scrollIntoView = function () {
-+			if (this.controller.attributes.scrollDisabled) {
-+				return;
-+			}
-+			monkey.apply(this, arguments);
-+		};
- 	},
- 	
- 	isEnabled: function() {
-@@ -1560,6 +1614,94 @@ GlobalSearchAssistant = Class.create({
- 		ApplicationService.launch('com.palm.app.browser', params);		
- 	},	
- 	
-+	deactivateWithError: function (message, allowHTMLMessage) {
-+		this.controller.showAlertDialog({
-+			onChoose: (function () { this.deactivate(); }).bind(this),
-+			title: "Error",
-+			message: message,
-+			choices: [ { label: "OK", value: "ok" } ],
-+			allowHTMLMessage: allowHTMLMessage
-+		});
-+	},
-+
-+	deactivateWithWarning: function (message, allowHTMLMessage) {
-+		this.controller.showAlertDialog({
-+			onChoose: (function () { this.deactivate(); }).bind(this),
-+			title: "Warning",
-+			message: message,
-+			choices: [ { label: "OK", value: "ok" } ],
-+			allowHTMLMessage: allowHTMLMessage
-+		});
-+	},
-+
-+	runUSCL: function (o) {
-+		if (!this.uscl) {
-+			this.deactivate();
-+		}
-+		var result;
-+		try {
-+			if (o instanceof Object) {
-+				// when someone types something and taps
-+				// one of the extended universal search
-+				// items we added.
-+				result = this.uscl.run(o.entry, o.arg);
-+			}
-+			else {
-+				// We assume it's a string at this
-+				// point.  This is when someone types a
-+				// universal search string containing a
-+				// USCL command and hits Enter.  Whether
-+				// it contains a USCL command is
-+				// determined by
-+				// this.uscl.isCommandString() before we
-+				// get to this point.
-+				result = this.uscl.runString(o);
-+			}
-+		}
-+		catch (e) {
-+			if (e instanceof USCLError) {
-+				this.deactivateWithError(e.message);
-+				// remember, kids, don't deactivate
-+				// right away!
-+				return;
-+			}
-+			else {
-+				throw e;
-+			}
-+		}
-+		if (result === false) {
-+			// don't deactivate; let something else do it
-+		}
-+		else if (!result) {
-+			this.deactivate();
-+		}
-+		else if (result instanceof Function) {
-+			if (!result.noDeactivate) {
-+				this.deactivate();
-+			}
-+			result.apply(this);
-+		}
-+		else if (result instanceof Object) {
-+			this.controller.showAlertDialog({
-+				onChoose: (function () { this.deactivate(); }).bind(this),
-+				title: result.title,
-+				message: result.message,
-+				choices: [ { label: "OK", value: "ok" } ]
-+			});
-+		}
-+		else if (result.constructor && result.constructor === String) {
-+			this.controller.showAlertDialog({
-+			 	onChoose: (function () { this.deactivate(); }).bind(this),
-+			 	title: "Result",
-+			 	message: result,
-+			 	choices: [ { label: "OK", value: "ok" } ]
-+			});
-+		}
-+		else {
-+			this.deactivate();
-+		}
-+	},
-+
- 	toggleSearchListDivs: function() {
- 		if(!this.enterKeyActionItem){
- 			this.enterKeyActionItem = 'search'
-@@ -1570,16 +1712,40 @@ GlobalSearchAssistant = Class.create({
- 					$('webtext').innerHTML = this.currentFilter;
- 					this.webDrawer.showWeb = true;
- 					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = false;
-+					this.controller.modelChanged(this.usclDrawer);
-+				}
-+				else if (this.uscl.isCommandString(this.currentFilter)) {
-+					$('uscl-text').innerHTML = this.currentFilter;
-+					this.webDrawer.showWeb = false;
-+					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = true;
-+					this.controller.modelChanged(this.usclDrawer);
- 				}
- 				else {
- 					this.webDrawer.showWeb =  false ;
- 					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = false;
-+					this.controller.modelChanged(this.usclDrawer);
- 				}
- 				$('find').removeClassName('single');
- 				$('find').addClassName('first');
- 				this.searchField.removeClassName('text-hidden');
- 				this.expandedSearchDrawer.showExpanded = true;
- 				this.controller.modelChanged(this.expandedSearchDrawer);
-+
-+				if (this.uscl.show) {
-+					this.usclSearchesModel.items = 
-+						this.uscl.getUniversalSearchCommandList();
-+					this.controller.modelChanged(this.usclSearchesModel);
-+					this.controller.get('searchesDivUSCL').show();
-+					this.expandedSearchDrawerUSCL.showExpanded = true;
-+				}
-+				else {
-+					this.controller.get('searchesDivUSCL').hide();
-+					this.expandedSearchDrawerUSCL.showExpanded = false;
-+				}
-+				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
- 			} else {//find...
- 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
- 					this.searchField.addClassName('text-hidden');
-@@ -1589,6 +1755,11 @@ GlobalSearchAssistant = Class.create({
- 				}
- 				this.expandedSearchDrawer.showExpanded = false;
- 				this.controller.modelChanged(this.expandedSearchDrawer);
-+
-+				this.controller.get('searchesDivUSCL').hide();
-+				this.expandedSearchDrawerUSCL.showExpanded = false;
-+				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
-+
- 				$('find').removeClassName('first');
- 				$('find').addClassName('single');
- 			}
-@@ -1603,16 +1774,39 @@ GlobalSearchAssistant = Class.create({
- 					$('webtext').innerHTML = this.currentFilter;
- 					this.webDrawer.showWeb = true;
- 					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = false;
-+					this.controller.modelChanged(this.usclDrawer);
-+				}
-+				else if (this.uscl.isCommandString(this.currentFilter)) {
-+					$('uscl-text').innerHTML = this.currentFilter;
-+					this.webDrawer.showWeb = false;
-+					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = true;
-+					this.controller.modelChanged(this.usclDrawer);
- 				}
- 				else {
- 					this.webDrawer.showWeb = false;
- 					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = false;
-+					this.controller.modelChanged(this.usclDrawer);
- 				}
- 				$('find').removeClassName('single');
- 				$('find').addClassName('first');
- 				this.searchField.removeClassName('text-hidden');
- 				this.expandedSearchDrawer.showExpanded = true;
- 				this.controller.modelChanged(this.expandedSearchDrawer);
-+
-+				if (this.uscl.show) {
-+					this.usclSearchesModel.items = this.uscl.getUniversalSearchCommandList();
-+					this.controller.modelChanged(this.usclSearchesModel);
-+					this.controller.get('searchesDivUSCL').show();
-+					this.expandedSearchDrawerUSCL.showExpanded = true;
-+				}
-+				else {
-+					this.controller.get('searchesDivUSCL').hide();
-+					this.expandedSearchDrawerUSCL.showExpanded = false;
-+				}
-+				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
- 			} else {//find...
- 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
- 					this.searchField.addClassName('text-hidden');
-@@ -1622,6 +1816,11 @@ GlobalSearchAssistant = Class.create({
- 				}
- 				this.expandedSearchDrawer.showExpanded = false;
- 				this.controller.modelChanged(this.expandedSearchDrawer);
-+
-+				this.controller.get('searchesDivUSCL').hide();
-+				this.expandedSearchDrawerUSCL.showExpanded = false;
-+				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
-+
- 				$('find').removeClassName('first');
- 				$('find').addClassName('single');
- 			}
-@@ -1641,6 +1840,11 @@ GlobalSearchAssistant = Class.create({
- 				this.searchExplicitlyExpanded = false;
- 				this.expandedSearchDrawer.showExpanded = false;
- 				this.controller.modelChanged(this.expandedSearchDrawer);
-+
-+				this.controller.get('searchesDivUSCL').hide();
-+				this.expandedSearchDrawerUSCL.showExpanded = false;
-+				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
-+
- 				$('find').removeClassName('first');
- 				$('find').addClassName('single');
- 				if (this.dialDiv.visible() || this.numberDiv.visible()) {
-@@ -1656,21 +1860,46 @@ GlobalSearchAssistant = Class.create({
- 					$('webtext').innerHTML = this.currentFilter;
- 					this.webDrawer.showWeb = true;
- 					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = false;
-+					this.controller.modelChanged(this.usclDrawer);
-+				}
-+				else if (this.uscl.isCommandString(this.currentFilter)) {
-+					$('uscl-text').innerHTML = this.currentFilter;
-+					this.webDrawer.showWeb = false;
-+					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = true;
-+					this.controller.modelChanged(this.usclDrawer);
- 				}
- 				else {
- 					this.webDrawer.showWeb = false;
- 					this.controller.modelChanged(this.webDrawer);
-+					this.usclDrawer.showUSCL = false;
-+					this.controller.modelChanged(this.usclDrawer);
- 				}
- 				$('find').removeClassName('single');
- 				$('find').addClassName('first');
- 				this.searchField.removeClassName('text-hidden');
- 				this.expandedSearchDrawer.showExpanded = true;
- 				this.controller.modelChanged(this.expandedSearchDrawer);
-+
-+				if (this.uscl.show) {
-+					this.usclSearchesModel.items = this.uscl.getUniversalSearchCommandList();
-+					this.controller.modelChanged(this.usclSearchesModel);
-+					this.controller.get('searchesDivUSCL').show();
-+					this.expandedSearchDrawerUSCL.showExpanded = true;
-+				}
-+				else {
-+					this.controller.get('searchesDivUSCL').hide();
-+					this.expandedSearchDrawerUSCL.showExpanded = false;
-+				}
-+				this.controller.modelChanged(this.expandedSearchDrawerUSCL);
- 			}
- 		} else {
- 			var url = target.id;
- 			if (url == "web")
- 				this.launchBrowser(this.currentFilter);
-+			else if (url == "uscl")
-+				this.runUSCL(this.currentFilter);
- 		}
- 	},
- 	
-@@ -1929,6 +2158,13 @@ GlobalSearchAssistant = Class.create({
- 		this.gpsInfo = undefined;
- 		if(this.highlightTarget != null)
- 			this.highlightTarget.removeClassName('selected');
-+
-+ 		this.usclDrawer.showUSCL =  false ;
-+ 		this.controller.modelChanged(this.usclDrawer);
-+ 		this.controller.get('searchesDivUSCL').hide();
-+ 		this.expandedSearchDrawerUSCL.showExpanded = false;
-+ 		this.controller.modelChanged(this.expandedSearchDrawerUSCL);
-+ 		$('uscl').removeClassName('selected');
- 	},
- 	
-   webSiteString: function(s){
-@@ -1974,6 +2210,7 @@ GlobalSearchAssistant = Class.create({
- 	//clear search':
- 	$(this.defaultSearchEngine).removeClassName('palm-focus');
- 	$('web').removeClassName('palm-focus');
-+	$('uscl').removeClassName('palm-focus');
-   },
-   highlightSelection: function() {
-   	
-@@ -2047,6 +2284,24 @@ GlobalSearchAssistant = Class.create({
- 		$(this.defaultSearchEngine).removeClassName('palm-focus');
- 		$('web').removeClassName('palm-focus');
- 	}
-+
-+	if (this.enterKeyActionItem === "search") {
-+		if (this.webDrawer.showWeb == true) {
-+			$('uscl').removeClassName('palm-focus');
-+		}
-+		else if (this.usclDrawer.showUSCL == true) {
-+			$(this.defaultSearchEngine).removeClassName('palm-focus');
-+			$('web').removeClassName('palm-focus');
-+			this.highlightTarget = $('uscl');
-+			$('uscl').addClassName('palm-focus');
-+		}
-+		else if (this.expandedSearchDrawer.showExpanded == true) {
-+			$('uscl').removeClassName('palm-focus');
-+		}
-+	}
-+	else {
-+		$('uscl').removeClassName('palm-focus');
-+	}
-   },
-   
-   enterKeyAction: function(){
-@@ -2144,6 +2399,8 @@ GlobalSearchAssistant = Class.create({
- 			}
- 			if (this.webDrawer.showWeb == true)
- 				this.launchBrowser(this.currentFilter);
-+			else if (this.usclDrawer.showUSCL == true)
-+				this.runUSCL(this.currentFilter);
- 			else {
- 				this.launchBrowser(this.URLs[this.defaultSearchEngine] + encodeURIComponent(this.currentFilter));
- 			}
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-entries.txt b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-entries.txt
-new file mode 100644
-index 0000000..d51f1a0
---- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-entries.txt
-@@ -0,0 +1,124 @@
-+Each entry in USCL#entries can be an object containing the following
-+properties:
-+
-+	title
-+
-+		String displayed in help and in the extended Universal
-+		Search menu.
-+
-+	usage
-+
-+		Either a string or an array.
-+
-+		If it's a string, you only specify the arguments.
-+		
-+		If it's an array of strings, each string also specifies
-+		the name of the command.
-+
-+		usage: "add|delete <var>word</var> ..."
-+
-+		usage: [
-+			".foo add <var>word</var> ...",
-+			".foo delete <var>word</var> ..."
-+		]
-+
-+	example
-+
-+		Either a string or an array.  
-+
-+		If it's a string, you only specify the arguments.
-+		
-+		If it's an array of strings, each string also specifies
-+		the name of the command.
-+
-+		example: "add five"
-+
-+		example: [".foo add five six seven", ".foo delete nine"]
-+
-+	description
-+
-+		A string describing what the command does.
-+
-+	ONE of the following:
-+
-+		url
-+
-+			The command simply opens a new web browser
-+			pointing to the specified url where %s is
-+			replaced with the arguments you specified,
-+			URL-encoded.
-+
-+			example: "http://www.imdb.com/find?s=all&q="
-+
-+		method
-+
-+			Usually internal.
-+
-+			Usually only used for builtins implemented by
-+			your author.
-+
-+			A function taking a single string.
-+
-+		appId and param
-+
-+			Usually internal.
-+
-+			The application specified by appId is launched
-+			with the following property:
-+
-+				parameters: {
-+					id: (appId),
-+					params: {
-+						(param): (string argument)
-+					}
-+				}
-+
-+	excludeFromUniversalSearch (optional boolean, defaults to false)
-+
-+		Usually internal.
-+
-+		If true, do not add this command to the extended
-+		Universal Search menu.
-+
-+		This is typically used for commands already built in.
-+
-+	argumentsOptional (optional)
-+
-+		Usually internal.
-+
-+		Normally, at least one argument *must* be passed to a
-+		command.  Setting this property to true dismisses that
-+		requirement.
-+
-+	preprocess (optional)
-+
-+		Usually internal.
-+	
-+		A function that takes a string and returns a string.
-+		Is applied to arguments before further work is done.
-+
-+		Usually only used this with entries that specify the url
-+		property.
-+
-+	emulatorOnly (optional boolean, defaults to false)
-+
-+		Usually internal.
-+
-+		If true, command only works in the emulator.  Usually
-+		used by your humble author for command that haven't
-+		undergone extensive testing yet.
-+
-+	noArguments
-+
-+		Usually internal.
-+
-+		Describes what to do if no arguments are supplied to the
-+		command.  Not presently used.  
-+
-+		noArguments: { appId: "com.palm.app.example" }
-+
-+or a string, in which case the entry is an alias to another entry
-+specified by the property's value.
-+
-+
-+
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-flow.txt b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-flow.txt
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/internal-docs/uscl-flow.txt b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/internal-docs/uscl-flow.txt
 new file mode 100644
 index 0000000..4023f00
 --- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-flow.txt
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/internal-docs/uscl-flow.txt
 @@ -0,0 +1,31 @@
 +USE CASE 1	USE CASE 2	USE CASE 3
 +----------------------- ----------------------- -----------------------
@@ -755,11 +1735,81 @@ index 0000000..4023f00
 +# tab-stop-list: (24 48 72 96 120 144 168) #
 +# tab-width: 24 #
 +# End: #
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-list.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-list.js
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/scratch.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/scratch.js
+new file mode 100644
+index 0000000..86b1156
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/scratch.js
+@@ -0,0 +1,44 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++/* .calc */
++return USCL.Message({
++	title: "Error",
++	message: e
++});
++
++/* .maps */
++return USCL.GlobalSearchAssistantMethod(function () {
++	this.launchMap(arg);
++});
++
++/* .note */
++return USCL.Launch({
++	id: "com.palm.app.notes",
++	parameters: {
++		newNoteText: arg
++	}
++});
++
++/* .quicknote */
++...
++
++/* .quickevent */
++var appid = "com.palm.net.heden.webos.quickevent";
++if (this.isInstalled(appid)) {
++	return USCL.Launch({
++		id: appid,
++		parameters: { entry: arg }
++	});
++}
++else {
++	throw new USCLError("You do not have Quick Event installed.");
++}
++
++/* .task */
++
++/* .quicktask */
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-about.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-about.js
+new file mode 100644
+index 0000000..221394f
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-about.js
+@@ -0,0 +1,14 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Class */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.  http://www.jslint.com/
++******************************************************************************/
++
++var UsclAboutAssistant = Class.create({
++	"setup": function () {
++		var body = (this.controller.stageController.
++			    document.getElementsByTagName("body"));
++		body[0].addClassName("uscl-body");
++	}
++});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-help-command-list.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-help-command-list.js
 new file mode 100644
 index 0000000..a74bf4b
 --- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-list.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-help-command-list.js
 @@ -0,0 +1,63 @@
 +/*jslint browser: true, eqeqeq: true, undef: true */
 +/*global Mojo */
@@ -824,11 +1874,11 @@ index 0000000..a74bf4b
 +				      this.showCommandHandler);
 +};
 +
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-view.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-view.js
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-help-command-view.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-help-command-view.js
 new file mode 100644
 index 0000000..f592d8d
 --- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl-help-command-view.js
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl-help-command-view.js
 @@ -0,0 +1,86 @@
 +/*jslint browser: true, eqeqeq: true, undef: true */
 +/*global Mojo */
@@ -916,157 +1966,18 @@ index 0000000..f592d8d
 +	body[0].addClassName("uscl-body");
 +};
 +
-diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl.js
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl.js
 new file mode 100644
-index 0000000..7e78946
+index 0000000..4801dcc
 --- /dev/null
-+++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl.js
-@@ -0,0 +1,1818 @@
-+/*jslint browser: true, eqeqeq: true, undef: true, evil: true */
-+/*global Mojo, Class, Ajax, Calculator, $H, PalmSystem, getopt */
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/uscl.js
+@@ -0,0 +1,785 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global Mojo, Class, Ajax, $H, PalmSystem */
 +/******************************************************************************
 +Lines above are for jslint, the JavaScript verifier.
 +http://www.jslint.com/
 +******************************************************************************/
-+
-+//-----------------------------------------------------------------------------
-+// Additional String Methods
-+//-----------------------------------------------------------------------------
-+
-+if (!String.prototype.trim) {
-+	String.prototype.trim = function () {
-+		return this.replace(/^\s+/, "").replace(/\s+$/, "");
-+	};
-+}
-+if (!String.prototype.normalizeSpace) {
-+	String.prototype.normalizeSpace = function () {
-+		return this.trim().replace(/\s+/g, " ");
-+	};
-+}
-+if (!String.prototype.toBoolean) {
-+	String.prototype.toBoolean = function (errorType) {
-+		var s = this.toLowerCase().normalizeSpace();
-+		var i = parseInt(s, 10);
-+		if (!isNaN(i)) {
-+			return (i !== 0);
-+		}
-+		switch (s) {
-+		case "yes":
-+		case "y":
-+		case "true":
-+		case "t":
-+		case "on":
-+		case "enable":
-+		case "enabled":
-+			return true;
-+		case "no":
-+		case "n":
-+		case "false":
-+		case "f":
-+		case "off":
-+		case "disable":
-+		case "disabled":
-+			return false;
-+		default:
-+			if (errorType) {
-+				throw new errorType("Invalid argument");
-+			}
-+			else {
-+				return undefined;
-+			}
-+		}
-+	};
-+}
-+if (!String.prototype.format) {
-+	// Implements Mojo.Log.xxx-ish formatting.  It's no sprintf, but it's
-+	// good enough for now.
-+	String.prototype.format = function () {
-+		var args = Array.prototype.slice.call(arguments, 0);
-+		var result = this.replace(/%[%jsoidf]/g, function (str) {
-+			switch (str) {
-+			case "%o":
-+				return Object.inspect(args.shift());
-+			case "%j":
-+				return Object.toJSON(args.shift());
-+			case "%%":
-+				return "%";
-+			}
-+			return args.shift();
-+		});
-+		return result;
-+	};
-+}
-+if (!String.prototype.splitArguments) {
-+	String.prototype.splitArguments = function (rx) {
-+		if (!rx) {
-+			rx = /\s+/;
-+		}
-+		if (/\S/.test(this)) {
-+			return this.normalizeSpace().split(rx);
-+		}
-+		else {
-+			return [];
-+		}
-+	};
-+}
-+if (!Array.prototype.forEach2) {
-+	// A version of Array#forEach that stops the loop if the
-+	// specified function returns false.  This special behavior is
-+	// influenced by jQuery's each() methods.  Based on MIT-licensed
-+	// code from: http://tinyurl.com/yh9nvwb
-+	// (https://developer.mozilla.org/En/Core_JavaScript_1.5_Reference/Objects/Array/ForEach)
-+	Array.prototype.forEach2 = function(fun /*, thisp*/) {
-+		var len = this.length >>> 0;
-+		if (typeof fun !== "function") {
-+			throw new TypeError();
-+		}
-+		var thisp = arguments[1];
-+		for (var i = 0; i < len; i++) {
-+			if (i in this) {
-+				var ret = fun.call(thisp, this[i], i, this);
-+				if (ret === false) {
-+					return;
-+				}
-+			}
-+		}
-+	};		
-+}
-+if (!Array.prototype.joinAnd) {
-+	Array.prototype.joinAnd = function () {
-+		if (this.length <= 2) {
-+			return this.join(" and ");
-+		}
-+		else {
-+			return this.slice(0, this.length - 1).join(", ") +
-+				", and " + this[this.length - 1];
-+		}
-+	};
-+}
-+if (!Array.prototype.getopt) {
-+	Array.prototype.getopt = function (optstr, errorType) {
-+		try {
-+			optstr = optstr.replace(/^:/, "");
-+			var result = {};
-+			var opt;
-+			getopt.optreset = true; // reinitialize
-+			getopt.opterr = true;	// reinitialize
-+			getopt.optind = 0;	// reinitialize
-+			while ((opt = getopt(this, optstr)) !== null) {
-+				if (getopt.optarg === null) {
-+					result[opt] = true;
-+				}
-+				else {
-+					result[opt] = getopt.optarg;
-+				}
-+			}
-+			this.splice(0, getopt.optind);
-+			return result;
-+		}
-+		catch (e) {
-+			throw new errorType(e.message);
-+		}
-+	};
-+}
 +
 +//-----------------------------------------------------------------------------
 +// A special exception class for errors.
@@ -1084,24 +1995,31 @@ index 0000000..7e78946
 +// The good stuff lies here.
 +//*****************************************************************************
 +
-+var USCL = Class.create({
++var USCL = Class.create({});
++
++USCL.DEFAULT_SHOW_STATE = true;
++USCL.MOJO_DEPOT_NAME = "uscl"; // "uscl";
++
++Object.extend(USCL.prototype, {
 +
 +	//---------------------------------------------------------------------
 +	// Initialization
 +	//---------------------------------------------------------------------
 +
 +	initialize: function () {
++		this.entries = Object.clone(this.builtinEntries);
 +		this.inEmulator = /desktop/.test(PalmSystem.version);
-+		this.initBuiltinFlags();
 +		this.build();
-+		this.show = false;
++		this.show = USCL.DEFAULT_SHOW_STATE;
 +		this.loadPreferences();
 +		this.hiddenFlags = {};
-+		this.updateFromLocalFile();
++		this.updateLocalCommands();
++		this.data = {};
 +	},
 +
 +	loadPreferences: function () {
-+		this.db = new Mojo.Depot({ name: "uscl", replace: false },
++		this.db = new Mojo.Depot({ name: USCL.MOJO_DEPOT_NAME,
++					   replace: false },
 +					 this.onLoadDatabase.bind(this),
 +					 function () { /* don't care */ });
 +	},
@@ -1109,8 +2027,15 @@ index 0000000..7e78946
 +	onLoadDatabase: function () {
 +		var that = this;
 +		this.db.get("show", 
-+			    function (o) { that.show = o; },
-+			    function () { that.show = false; });
++			    function (o) {
++				    if (o === null || o === undefined) {
++					    o = USCL.DEFAULT_SHOW_STATE;
++				    }
++				    that.show = o;
++			    },
++			    function () {
++				    that.show = USCL.DEFAULT_SHOW_STATE;
++			    });
 +		this.db.get("hiddenFlags", 
 +			    function (o) { that.hiddenFlags = o || {}; },
 +			    function () { that.hiddenFlags = {}; });
@@ -1192,8 +2117,8 @@ index 0000000..7e78946
 +		this.apps[keyword] = {};
 +		apps.forEach(function (app) {
 +			var id = app.id;
-+			var launchPoint = app.launchPoint;
-+			that.apps[keyword][launchPoint] = true;
++			var appid = app.launchPoint.replace(/_default$/, "");
++			that.apps[keyword][appid] = true;
 +		});
 +	},
 +
@@ -1239,18 +2164,6 @@ index 0000000..7e78946
 +	},
 +
 +	//---------------------------------------------------------------------
-+	// .quickNote functionality
-+	//---------------------------------------------------------------------
-+
-+	noteColors: ["pink", "yellow", "green", "blue"],
-+
-+	randomNoteColor: function () {
-+		return this.noteColors[Math.floor(Math.random() * this.noteColors.length)];
-+	},
-+
-+	newNoteTimestamp: function () {
-+		return Mojo.Format.formatDate(new Date(), "short").replace(/ /, "\n");
-+	},
 +
 +	checkForAppRunning: function (appid, onRunning, onNotRunning) {
 +		var checkIfRunning = function (event) {
@@ -1285,309 +2198,6 @@ index 0000000..7e78946
 +		});
 +	},
 +	
-+	quickNoteWarning: "Because you are running Notes and " + 
-+		"do not have the latest version " + 
-+		"of the USCL Notes Patch installed, " + 
-+		"please close and reopen Notes.  " + 
-+		"Your quicknote has been entered, " + 
-+		"but <i>may</i> not be shown until " + 
-+		"you close and reopen Notes.",
-+
-+	quickNoteCommand: function (text) {
-+		var that = this;
-+		var fun = function () {
-+			var globalSearch = this;
-+			var onRunning = function () {
-+				if (that.apps &&
-+				    that.apps.iCanBeRefreshed &&
-+				    that.apps.iCanBeRefreshed["com.palm.app.notes_default"]) {
-+					globalSearch.controller.serviceRequest(
-+						"palm://com.palm.applicationManager", {
-+							method: "launch",
-+							parameters: {
-+								id: "com.palm.app.notes",
-+								params: { refresh: true }
-+							}
-+						}
-+					);
-+					globalSearch.deactivate();
-+				}
-+				else {
-+					globalSearch.deactivateWithWarning(that.quickNoteWarning, true);
-+				}
-+			};
-+			var onNotRunning = function () {
-+				globalSearch.deactivate();
-+			};
-+			var noteText = text + "\n\n" + that.newNoteTimestamp() + "\n";
-+			var request = new Mojo.Service.Request("palm://com.palm.notes", {
-+				method: "saveNote",
-+				parameters: {
-+					text: noteText,
-+					color: that.randomNoteColor()
-+				},
-+				onComplete: function () {
-+					that.checkForAppRunning("com.palm.app.notes",
-+								onRunning,
-+								onNotRunning);
-+				}
-+			});
-+		};
-+		fun.noDeactivate = true;
-+		return fun;
-+	},
-+
-+	//---------------------------------------------------------------------
-+	// .task, .tasklist
-+	//---------------------------------------------------------------------
-+
-+	createTaskList: function (name, callback) {
-+		var that = this;
-+		var request = new Mojo.Service.Request("palm://com.palm.tasks", {
-+			method: "saveTaskList",
-+			parameters: {
-+				name: name
-+			},
-+			onComplete: function (response) {
-+				Mojo.Log.info("NEW TASK LIST ID: %j", response.id);
-+				if (callback) {
-+					callback(response.id);
-+				}
-+			}
-+		});
-+	},
-+
-+	getOrCreateTaskList: function (name, callback) {
-+		var that = this;
-+		var request = new Mojo.Service.Request("palm://com.palm.tasks", {
-+			method: "getTaskLists",
-+			parameters: { },
-+			onComplete: function (response) {
-+				var list = response.list;
-+				for (var i = 0; i < list.length; ++i) {
-+					Mojo.Log.info("GETTASKLISTS [%j]: %j", i, list[i]);
-+					if (list[i].name === name) {
-+						Mojo.Log.info("EXISTING TASK LIST ID: %j", list[i].id);
-+						if (callback) {
-+							callback(list[i].id);
-+						}
-+						return;
-+					}
-+				}
-+				that.createTaskList(name, callback);
-+			}
-+		});
-+	},
-+
-+	createTask: function (taskListId, subject, callback) {
-+		var request = new Mojo.Service.Request("palm://com.palm.tasks", {
-+			method: "saveTask",
-+			parameters: {
-+				subject: subject,
-+				taskListId: taskListId
-+			},
-+			onComplete: function (response) {
-+				Mojo.Log.info("NEW TASK: taskListId = %j, id = %j, subject = %j",
-+					      taskListId, response.id, subject);
-+				if (callback) {
-+					callback(taskListId, response.id);
-+				}
-+			}
-+		});
-+	},
-+	
-+	createTasks: function (taskListId, subjects,
-+			       callback, callback_each) {
-+		var that = this;
-+		var len = subjects.length;
-+		var remaining = subjects.length;
-+		var taskIds = [];
-+		Mojo.Log.info("createTasks: remaining === %d", remaining);
-+		for (var i = 0; i < len; i++) {
-+			(function (i) {
-+				that.createTask(taskListId, subjects[i],
-+						function (taskListId, taskId) {
-+							taskIds[i] = taskId;
-+							Mojo.Log.info("taskIds[%d] === %d; taskIds.length = %d", i, taskId, taskIds.length);
-+							if (callback_each) {
-+								callback_each(taskListId, taskId);
-+							}
-+							remaining--;
-+							Mojo.Log.info("createTasks: after decrement, remaining === %d", remaining);
-+							if (remaining === 0) {
-+								Mojo.Log.info("=== 0");
-+								if (callback) {
-+									Mojo.Log.info("there's a callback");
-+									callback(taskListId, taskIds);
-+								}
-+							}
-+						});
-+			})(i);
-+		}
-+	},
-+
-+	quickTaskWarning: "Because you are running Tasks and " +
-+		"do not have the USCL Tasks Patch " +
-+		"installed, please close and reopen " +
-+		"Tasks.  Your tasks have been added, " +
-+		"but <i>may</i> not be shown until " + 
-+		"you close and reopen Tasks.",
-+	
-+	taskWarning: "Your tasks have been added, " +
-+		"but because you do not have the USCL Tasks Patch installed, " +
-+		"I cannot launch Tasks and take you to the task list.",
-+
-+	taskCommand: function (options, args) {
-+		var that = this;
-+		var fun = function () {
-+			var globalSearch = this;
-+			var taskListName = (options && options.taskListName) ? 
-+				options.taskListName : "Unfiled";
-+			var onRunning = function (taskListId, taskIds) {
-+				var params = { details: { show: {
-+					taskListId: taskListId, 
-+					taskId: taskIds[taskIds.length - 1]
-+				} } };
-+				if (true || that.appWorksWithUSCL("com.palm.app.tasks")) {
-+					if (options && options.launchTasks) {
-+						globalSearch.controller.serviceRequest(
-+							"palm://com.palm.applicationManager", {
-+								method: "launch",
-+								parameters: {
-+									id: "com.palm.app.tasks",
-+									params: params
-+								}
-+							}
-+						);
-+					}
-+					else {
-+						globalSearch.controller.serviceRequest(
-+							"palm://com.palm.applicationManager", {
-+								method: "launch",
-+								parameters: {
-+									id: "com.palm.app.tasks",
-+									params: params
-+								}
-+							}
-+						);
-+					}
-+					globalSearch.deactivate();
-+				}
-+				else {
-+					globalSearch.deactivateWithWarning(that.quickTaskWarning, true);
-+				}
-+			};
-+			var onNotRunning = function (taskListId, taskIds) {
-+				var params = { details: { show: {
-+					taskListId: taskListId, 
-+					taskId: taskIds[taskIds.length - 1]
-+				} } };
-+				if (options && options.launchTasks) {
-+					if (true || that.appWorksWithUSCL("com.palm.app.tasks")) {
-+						globalSearch.controller.serviceRequest(
-+							"palm://com.palm.applicationManager", {
-+								method: "launch",
-+								parameters: {
-+									id: "com.palm.app.tasks",
-+									params: params
-+								}
-+							}
-+						);
-+						globalSearch.deactivate();
-+					}
-+					else {
-+						globalSearch.deactivateWithWarning(that.taskWarning, true);
-+					}
-+				}
-+				globalSearch.deactivate();
-+			};
-+			var onComplete = function (taskListId, taskIds) {
-+				that.checkForAppRunning("com.palm.app.tasks",
-+							onRunning.curry(taskListId, taskIds),
-+							onNotRunning.curry(taskListId, taskIds));
-+			};
-+			that.getOrCreateTaskList(taskListName, 
-+						 function (taskListId) {
-+							 that.createTasks(taskListId, args,
-+									  onComplete);
-+						 });
-+		};
-+		fun.noDeactivate = true;
-+		return fun;
-+	},
-+		
-+	//---------------------------------------------------------------------
-+	// .calc
-+	//---------------------------------------------------------------------
-+
-+	calcCommand: function (s) {
-+		// Yes, I'm aware that eval is usually evil.  The user
-+		// chooses to use 'calc' at their own risk.  I'm only
-+		// using it here because I'm too lazy at the moment to
-+		// write an infix expression calculator.
-+		if (!this.calculator) {
-+			this.calculator = new Calculator();
-+		}
-+		var result;
-+		try {
-+			result = this.calculator.calculate(s);
-+		}
-+		catch (e) {
-+			return {
-+				title: "Error",
-+				message: e
-+			};
-+		}
-+		return {
-+			title: "Calculator",
-+			message: s + " \u2192 " + Object.toJSON(result)
-+		};
-+	},
-+
-+	//---------------------------------------------------------------------
-+	// .restart, .rescan
-+	//---------------------------------------------------------------------
-+
-+	restartCommand: function (arg) {
-+		var r;
-+		switch (arg) {
-+		case "luna":
-+			try {
-+				r = new Mojo.Service.Request(
-+					'luna://org.webosinternals.ipkgservice',
-+					{ method: 'restartLuna' }
-+				);
-+			}
-+			catch (e1) {
-+				throw new USCLError('Error Restarting Luna: ' + e1.message);
-+			}
-+			break;
-+		case "java":
-+			try {
-+				r = new Mojo.Service.Request(
-+					'palm://org.webosinternals.ipkgservice',
-+					{ method: 'restartJava' }
-+				);
-+			}
-+			catch (e2) {
-+				throw new USCLError('Error restarting Java: ' + e2.message);
-+			}
-+			break;
-+		}
-+	},
-+
-+	rescanCommand: function () {
-+		try {
-+			var r = new Mojo.Service.Request(
-+				'palm://org.webosinternals.ipkgservice',
-+				{ method: 'rescan' }
-+			);
-+		}
-+		catch (e) {
-+			throw new USCLError('Error Rescanning: ' + e.message);
-+		}
-+	},
-+
 +	//---------------------------------------------------------------------
 +	// .show; .hide
 +	//---------------------------------------------------------------------
@@ -1641,440 +2251,10 @@ index 0000000..7e78946
 +	},
 +
 +	//---------------------------------------------------------------------
-+	// .update
-+	//---------------------------------------------------------------------
-+
-+	updateCommand: function () {
-+		var fun = function () {
-+			var globalSearch = this;
-+			this.uscl.updateFromLocalFile({
-+				onFailure: function (response) {
-+					if (response.status === 404) {
-+						globalSearch.deactivateWithError("uscl.json not found.");
-+					}
-+					else {
-+						globalSearch.deactivateWithError("Unexpected error updating from uscl.json.");
-+					}
-+				},
-+				onParseFailure: function (response) {
-+					globalSearch.deactivateWithError("Syntax error in uscl.json.");
-+				},
-+				onParseSuccess: function (response) {
-+					globalSearch.deactivate();
-+				}
-+			});
-+		};
-+		fun.noDeactivate = true;
-+		return fun;
-+	},
-+
-+	//---------------------------------------------------------------------
 +	// Builtin Commands
 +	//---------------------------------------------------------------------
 +
-+	categories: [
-+		// not in use yet
-+		{ name: "search", title: "Search" },
-+		{ name: "reference", title: "Reference" },
-+		{ name: "utilities", title: "Utilities" },
-+		{ name: "location", title: "Location" },
-+		{ name: "system", title: "System" }
-+	],
-+
-+	entries: {
-+		"calc": {	// BUILTIN
-+			title: "Calculator",
-+			usage: "<var>expression</var>",
-+			example: [
-+				".calc (37 * 1.8) + 32",
-+				".calc sin(PI / 2)",
-+				".calc Math.sin(Math.PI / 2)"
-+			],
-+			description: ("Perform a calculation.  " + 
-+				      "Can also evaluate other JavaScript expressions.  " +
-+				      "Use at your own risk.  " +
-+				      "Functions and constants in the core Math object " +
-+				      "can be used with or without the 'Math.' prefix.  " +
-+				      "More complex calculations (such as unit conversions) " +
-+				      "can be sent to Google (see .google) " +
-+				      "or Wolfram Alpha (see .wolfram)."),
-+			method: function (s) {
-+				return this.calcCommand(s);
-+			},
-+			noArguments: {
-+				appId: "com.palm.app.calculator"
-+			}
-+		},
-+		"c": "calc",
-+		"eval": "calc",
-+
-+		"imdb": {	// BASICS
-+			title: "IMDB.com",
-+			usage: "<var>query</var>",
-+			example: "the big lebowski",
-+			description: ("Search movies, TV shows, actors, directors, " + 
-+				      "producers, and more on IMDB.com."),
-+			url: "http://www.imdb.com/find?s=all&q=",
-+			noArguments: {
-+				url: "http://www.imdb.com/"
-+			}
-+		},
-+		"i": "imdb", // keytoss alias
-+
-+		"dict": {	// BASICS
-+			title: "Dictionary.com",
-+			usage: "<var>word</var>",
-+			example: "ebullient",
-+			description: "Find a word on Dictionary.com.",
-+			url: "http://m.reference.com/d/search.html?q=",
-+			noArguments: {
-+				url: "http://m.reference.com/d/"
-+			}
-+		},
-+		"d": "dict",
-+
-+		"thes": {	// BASICS
-+			title: "Thesaurus.com",
-+			usage: "<var>word</var>",
-+			example: "ebullient",
-+			description: "Find a word on Thesaurus.com.",
-+			url: "http://m.reference.com/t/search.html?q=",
-+			noArguments: {
-+				url: "http://m.reference.com/t/"
-+			}
-+		},
-+		"th": "thes",
-+
-+		"ebay": {	// BASICS
-+			title: "eBay",
-+			usage: "<var>item</var>",
-+			example: "mp3 player",
-+			description: "Find something on eBay.com.",
-+			url: "http://m.ebay.com/Pages/SearchResults.aspx?emvAD=320x320&emvcc=0&sv=",
-+			noArguments: {
-+				url: "http://m.ebay.com/"
-+			}
-+		},
-+		"e": "ebay", // keytoss alias
-+
-+		"yahoo": {	// BASICS
-+			title: "Yahoo!",
-+			usage: "<var>keywords</var>",
-+			example: "laptop reviews",
-+			description: "Search Yahoo!",
-+			url: "http://m.yahoo.com/w/search/oneSearch?p=",
-+			noArguments: {
-+				url: "http://m.yahoo.com/search"
-+			}
-+		},
-+		"y": "yahoo",
-+
-+		"gis": {	// BASICS
-+			title: "Google Images",
-+			usage: "<var>keywords</var>",
-+			example: "pirate hat",
-+			description: "Search Google Images.",
-+			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=images&q=",
-+			noArguments: {
-+				url: "http://images.google.com/m/"
-+			}
-+		},
-+		"gi": "gis", // keytoss alias
-+		
-+		"shop": {	// BASICS
-+			title: "Google Product Search",
-+			usage: "<var>keywords</var>",
-+			example: "palm pre",
-+			description: "Search for prices on Google Products.",
-+			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=products&q=",
-+			noArguments: {
-+				url: "http://products.google.com/m/"
-+			}
-+		},
-+		"froogle": "shop",
-+		"gp": "shop", // keytoss alias
-+
-+		"news": {	// BASICS
-+			title: "Google News Search",
-+			usage: "<var>keywords</var>",
-+			example: "obama",
-+			description: "Search Google News.",
-+			url: "http://www.google.com/m/search?client=ms-palm-webOS&channel=iss&site=news&q=",
-+			noArguments: {
-+				url: "http://news.google.com/m/"
-+			}
-+		},
-+		"gn": "news", // keytoss alias
-+		
-+		"google": {	// BUILTIN FOR COMPLETENESS
-+			excludeFromUniversalSearch: true,
-+			title: "Google",
-+			usage: "<var>keywords</var>",
-+			example: "hummus recipe",
-+			description: "Search Google.",
-+			url: "www.google.com/m/search?client=ms-palm-webOS&channel=iss&q=",
-+			noArguments: {
-+				url: "http://www.google.com/m/"
-+			}
-+		},
-+		"g": "google",
-+
-+		"amazon": {	// BASICS
-+			title: "Amazon",
-+			usage: "<var>keywords</var>",
-+			example: "i am america and so can you",
-+			description: "Search for products on Amazon.com.",
-+			url: "http://www.amazon.com/gp/aw/s/ref=is_box_?k=",
-+			noArguments: {
-+				url: "http://www.amazon.com/gp/aw"
-+			}
-+		},
-+		"az": "amazon",
-+		"am": "amazon", // keytoss alias
-+
-+		"wikipedia": {	// BUILTIN FOR COMPLETENESS
-+			excludeFromUniversalSearch: true,
-+			title: "Wikipedia",
-+			usage: "<var>keywords</var>",
-+			example: "isaac newton",
-+			description: "Search Wikipedia, the online encyclopedia that anyone can edit.",
-+			url: "http://en.m.wikipedia.org/wiki/Special:Search?search=",
-+			noArguments: {
-+				url: "http://en.m.wikipedia.org/"
-+			}
-+		},
-+		"wiki": "wikipedia",
-+		"w": "wikipedia",
-+
-+		"wolfram": {	// BASICS for now
-+			title: "Wolfram Alpha",
-+			usage: "<var>keywords</var>",
-+			example: [
-+				".wa June 23, 1988",
-+				".wa new york",
-+				".wa IBM Apple",
-+				".wa $250 + 15%",
-+				".wa x**2 sin(x)"
-+			],
-+			description: "Query something on Wolfram Alpha.  Dates, cities, stocks, and equations.  Go nuts!",
-+			url: "http://www.wolframalpha.com/input/?i=",
-+			noArguments: {
-+				url: "http://www.wolframalpha.com/"
-+			}
-+		},
-+		"wa": "wolfram",
-+	
-+		"youtube": {
-+			"title": "YouTube",
-+			"usage": "<var>keywords</var>",
-+			"example": "petra haden the who",
-+			"description": "Find videos on YouTube.",
-+			"url": "http://m.youtube.com/results?is_adult=True&hl=en&gl=US&client=mv-google&q=",
-+			"noArguments": {
-+				"url": "http://m.youtbue.com/"
-+			}
-+		},
-+		"yt": "youtube",
-+
-+		"keytoss": {	// BUILTIN
-+			title: "KeyToss",
-+			usage: [
-+				".keytoss <var>command</var> <var>keywords</var>",
-+				".kt <var>command</var> <var>keywords</var>",
-+				"..<var>command</var> <var>keywords</var>"
-+			],
-+			example: [
-+				".keytoss af wtf",
-+				".kt af omg",
-+				"..af bbq"
-+			],
-+			description: ("Perform a search via the KeyToss mobile portal.<br />" + 
-+				      "You do not need to type the at sign (<kbd>@</kbd>) before the <i>command</i>.<br />" + 
-+				      "Use <nobr><kbd>.keywords|.kt kt list</kbd></nobr> or <nobr><kbd>..kt list</kbd></nobr> " + 
-+				      "to get a list of commands to pass to KeyToss."),
-+			preprocess: function (s) {
-+				return s.replace(/^\s*@\s*/, "");
-+			},
-+			url: "http://pre.keytoss.com/parse.php5?pv=131&term=%40",
-+			noArguments: {
-+				url: "http://pre.keytoss.com/"
-+			}
-+		},
-+		"kt": "keytoss",
-+
-+		"note": {	// BUILTIN
-+			title: "New Note",
-+			usage: "<var>text</var>",
-+			example: "I like pie.",
-+			description: "Quickly create a new note.",
-+			appId: "com.palm.app.notes",
-+			param: "newNoteText",
-+			noArguments: {
-+				appId: "com.palm.app.notes"
-+			}
-+		},
-+		"memo": "note",
-+		"m": "note",
-+		"n": "note",
-+
-+		"quicknote": {	// BUILTIN
-+			title: "New Note (without launch)",
-+			usage: "<var>text</var>",
-+			example: "I like pie.",
-+			description: "Quickly create a new note, without launching the Notes application.",
-+			method: function (text) {
-+				return this.quickNoteCommand(text);
-+			}
-+		},
-+		"quickmemo": "quicknote",
-+		"qmemo": "quicknote",
-+		"qnote": "quicknote",
-+		"qm": "quicknote",
-+		"qn": "quicknote",
-+
-+		"quickevent": {
-+			title: "Quick Event",
-+			usage: [ "<small>" + 
-+				 ".qe <var>evt</var> <var>time</var>-[<var>time</var>] [<var>date</var>] [@|in|at <var>loc</var>]<br />" +
-+				 ".qe <var>evt</var> ad- [<var>date</var>] [@|in|at <var>loc</var>]" + 
-+				 "</small>" ],
-+			example: [
-+				".qe Lunch 11am-12:15pm next wed at Hotel Astoria",
-+				".qe Haircut 1500-1600 1/30 at Fred's",
-+				".qe Valentine's Day ad- 2/14"
-+			],
-+			description: "If the Quick Event app (available through Preware) is installed, use it to add an event to your calendar.  " + 
-+				"<kbd>ad-</kbd> indicates an all-day event.",
-+			method: function (arg) {
-+				return this.launchQuickEvent(arg);
-+			}
-+		},
-+		"qe": "quickevent",
-+
-+		"task": {
-+			title: "New Task (launches Tasks app)",
-+			usage: "[<var>option</var> ...] <var>task</var>; ...",
-+			example: [
-+				".task finish project foo; present proposal",
-+				".task -s , -c Groceries skim milk, juice"
-+			],
-+			description: "Create one or more new tasks, and launch the Tasks application.",
-+			options: [
-+				{ synopsis: "-c <var>category</var>",
-+				  description: "tasks are added to the specified category instead of &lsquo;Unfiled&rsquo;" },
-+				{ synopsis: "-s <var>char</var>",
-+				  description: "tasks are separated by the specified character (and any optional whitespace before and/or after) instead of the semicolon"
-+				},
-+				{ synopsis: "-s space",
-+				  description: "tasks are separated by whitespace"
-+				},
-+				{ synopsis: "-s /<var>regex</var>/",
-+				  description: "tasks are separated by the specified regular expression (you must supply the whitespace yourself)"
-+				},
-+				{ synopsis: "-q",
-+				  description: "do not launch the Tasks application unless it&lsquo;s already launched"
-+				}
-+			],
-+			method: function (arg) {
-+				var args = arg.splitArguments();
-+				var options = args.getopt("c:s:q", USCLError);
-+				if ("c" in options) {
-+					options.taskListName = options.c;
-+					delete options.c;
-+				}
-+				if ("q" in options) {
-+					options.launchTasks = false;
-+					delete options.q;
-+				}
-+				else {
-+					options.launchTasks = true;
-+				}
-+				arg = args.join(" ");
-+
-+				var rx;
-+				if ("s" in options) {
-+					if (options.s === "\\" ||
-+					    options.s === "(" || options.s === ")" ||
-+					    options.s === "[" || options.s === "]" ||
-+					    options.s === "{" || options.s === "}" ||
-+					    options.s === "." ||
-+					    options.s === "|" ||
-+					    options.s === "^" || options.s === "$" ||
-+					    options.s === "+" || options.s === "?" ||
-+					    options.s === "*") {
-+						rx = new RegExp("\\s*\\" + options.s + "\\s*");
-+					}
-+					else if (options.s.length === 1) {
-+						rx = new RegExp("\\s*" + options.s + "\\s*");
-+					}
-+					else if (options.s === "space") {
-+						rx = /\s+/;
-+					}
-+					else if (/^\/(.*)\/$/) {
-+						rx = RegExp.$1;
-+						rx = new RegExp(rx);
-+					}
-+					else {
-+						throw new USCLError("-s: invalid argument");
-+					}
-+				}
-+				else {
-+					rx = /\s*;\s*/;
-+				}
-+				args = arg.splitArguments(rx);
-+				Mojo.Log.info("  re-split args: %j", args);
-+				return this.taskCommand(options, args);
-+			}
-+		},
-+		"todo": "task",
-+		"t": "task",
-+
-+		"quicktask": {
-+			title: "New Task (no launch)",
-+			usage: "<var>task</var>; ...",
-+			example: "finish project foo; present proposal",
-+			description: "Create one or more new tasks without launching the Tasks application.  If Tasks is already launched, jump to it.  Accepts the same command-line options as <kbd>.task</kbd>.",
-+			aliasedTo: ".task -q %s"
-+		},
-+		"quicktodo": "quicktask",
-+		"qt": "quicktask",
-+
-+		"restart": {	// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			title: "Restart Luna or Java",
-+			usage: "<b>luna</b>|<b>java</b>",
-+			description: ("Restarts the Luna system manager or Java services.  " +
-+				      "Restarting Luna may (or may not) solve performance issues, " + 
-+				      "including the &ldquo;Too Many Cards&rdquo; error.  " + 
-+				      "You may wish to try <kbd>.gc</kbd> first, though."),
-+			method: function (arg) {
-+				return this.restartCommand(arg);
-+			}
-+		},
-+
-+		"rescan": {	// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			argumentsOptional: true,
-+			title: "Rescan Applications",
-+			description: "Rescans the list of applications on your device.",
-+			method: function () {
-+				return this.rescanCommand();
-+			}
-+		},
-+
-+		"gc": {		// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			argumentsOptional: true,
-+			title: "Garbage Collect",
-+			description: ("Garbage collect the JavaScript heap.  " + 
-+				      "This may (or may not) solve performance issues, " + 
-+				      "including the &ldquo;Too Many Cards&rdquo; error.  " + 
-+				      "Failing that, you may wish to try <kbd>.restart luna</kbd>."),
-+			method: function () {
-+				return this.garbageCollectCommand();
-+			}
-+		},
-+
++	builtinEntries: {
 +		"show": {	// BUILTIN
 +			excludeFromUniversalSearch: true,
 +			argumentsOptional: true,
@@ -2094,7 +2274,6 @@ index 0000000..7e78946
 +				return this.showCommand(args);
 +			}
 +		},
-+
 +		"hide": {	// BUILTIN
 +			excludeFromUniversalSearch: true,
 +			argumentsOptional: true,
@@ -2111,84 +2290,6 @@ index 0000000..7e78946
 +				return this.hideCommand(args);
 +			}
 +		},
-+
-+		"gps": {	// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			title: "GPS On/Off",
-+			usage: "on|off",
-+			description: "Turns location using GPS on/off.",
-+			method: function (arg) {
-+				var flag = arg.toBoolean(USCLError);
-+				this.setUseGps(flag);
-+			}
-+		},
-+
-+		"usegoogle": {	// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			title: "Google Location Services On/Off",
-+			usage: "on|off",
-+			description: ("Turns location using Google Services on/off.  " +
-+				      "This uses cell towers to roughly pinpoint your general location.  " + 
-+				      "Accuracy will vary."),
-+			method: function (arg) {
-+				var flag = arg.toBoolean(USCLError);
-+				this.setUseGoogle(flag);
-+			}
-+		},
-+
-+		"autolocate": {	// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			title: "Auto Locate On/Off",
-+			usage: "on|off",
-+			description: ("Turns auto location on/off.  " +
-+				      "When Auto Locate is on, applications can automatically identify your location.  " +
-+				      "When off, applications that use location data will ask if it's okay " + 
-+				      "to identify your location for that particular session only."),
-+			method: function (arg) {
-+				var flag = arg.toBoolean(USCLError);
-+				this.setAutoLocate(flag);
-+			}
-+		},
-+
-+		"geotag": {	// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			title: "Geotagging On/Off",
-+			usage: "on|off",
-+			description: ("Turns geotagging of photos on/off.  " + 
-+				      "This only applies when Auto Locate is on."),
-+			method: function (arg) {
-+				var flag = arg.toBoolean(USCLError);
-+				this.setGeotagPhotos(flag);
-+			}
-+		},
-+
-+		"bgdata": {	// BUILTIN
-+			excludeFromUniversalSearch: true,
-+			title: "Background Data Collection On/Off",
-+			usage: "on|off",
-+			description: ("Turns background collection of data on/off.  " + 
-+				      "This allows Google to collect anonymous location data " + 
-+				      "to improve the quality of location services."),
-+			method: function (arg) {
-+				var flag = arg.toBoolean(USCLError);
-+				this.setUseBackgroundDataCollection(flag);
-+			}
-+		},
-+
-+		"maps": {	// BUILTIN FOR COMPLETENESS
-+			excludeFromUniversalSearch: true,
-+			title: "Google Maps",
-+			argumentsOptional: true,
-+			usage: "<var>keywords</var>",
-+			description: "Opens the Google Maps application and searches for what you specify.",
-+			method: function (arg) {
-+				// must be run from within global search.
-+				return function () {
-+					this.launchMap(arg);
-+				};
-+			}
-+		},
-+
 +		"update": {	// BUILTIN
 +			excludeFromUniversalSearch: true,
 +			title: "Update User-Defined Commands",
@@ -2196,10 +2297,9 @@ index 0000000..7e78946
 +			description: ("If <tt>uscl.json</tt> on the root directory of the USB Drive partition " + 
 +				      "on this device is modified, added, or removed, use this command to update Universal Search Command Line."),
 +			method: function () {
-+				return this.updateCommand();
++				this.updateLocalCommands();
 +			}
 +		},
-+
 +		"help": {	// BUILTIN
 +			excludeFromUniversalSearch: true,
 +			title: "Help",
@@ -2209,124 +2309,153 @@ index 0000000..7e78946
 +				var args = arg.splitArguments();
 +				this.showHelp(args.length ? args[0] : undefined);
 +			}
++		},
++		"about": {
++			excludeFromUniversalSearch: true,
++			title: "About USCL",
++			description: "Displays information about Universal Search Command Line.",
++			argumentsOptional: true,
++			method: function () {
++				this.showAbout();
++			}
 +		}
 +	},
 +
 +	//---------------------------------------------------------------------
-+	// Quick Event
++	// For handling /media/internal/uscl.json and
++	// /media/internal/uscl/sources.json
 +	//---------------------------------------------------------------------
 +
-+	launchQuickEvent: function (entry) {
++	LOCAL_FILE:   "/media/internal/uscl.json", // v.1
++	SOURCES_FILE: "/media/internal/uscl/sources.json", // v.2
++
++	updateLocalCommands: function () {
 +		var that = this;
-+		var fun = function () {
-+			var globalSearch = this;
-+			var appId = "com.palm.net.heden.webos.quickevent";
-+			if (that.appInstalled[appId]) {
-+				var request = new Mojo.Service.Request("palm://com.palm.applicationManager", {
-+					method: "launch",
-+					parameters: {
-+						id: appId,
-+						params: { entry: entry }
-+					}
-+				});
-+				globalSearch.deactivate();
-+			}
-+			else {
-+				globalSearch.deactivateWithWarning("You must install the Quick Event app (and restart Luna) to use this.");
++		var reqs = 2;
++
++		this.deleteLocalCommands();
++
++		var onCompleteAll = function () {
++			Mojo.Log.info("USCL#updateLocalCommands: ALL REQUESTS COMPLETE\n");
++			that.fixTitles();
++		};
++		var onComplete = function (file, response) {
++			Mojo.Log.info("USCL#updateLocalCommands: COMPLETED: %s", file);
++			reqs -= 1;
++			if (reqs === 0) {
++				onCompleteAll();
 +			}
 +		};
-+		fun.noDeactivate = true;
-+		return fun;
-+	},
-+
-+	//---------------------------------------------------------------------
-+	// Builtin flags populated on initialization.
-+	//---------------------------------------------------------------------
-+
-+	isBuiltin: {},
-+
-+	/* This must be done as early as possible upon initialization. */
-+	initBuiltinFlags: function () {
-+		var command;
-+		for (command in this.entries) {
-+			if (this.entries.hasOwnProperty(command)) {
-+				this.isBuiltin[command] = true;
-+			}
-+		}
-+	},
-+
-+	//---------------------------------------------------------------------
-+	// /media/internal/uscl.json
-+	//---------------------------------------------------------------------
-+
-+	updateFromLocalFile: function (options) {
-+		var that = this;
-+		var request = new Ajax.Request("/media/internal/uscl.json", {
++		var onFailure = function (file, response) {
++			Mojo.Log.error("USCL#updateLocalCommands: FAILURE: %s: %s", file, response.statusText);
++		};
++		
++		Mojo.Log.info("USCL#updateLocalCommands: STARTING REQUESTS\n");
++		Mojo.Log.info("USCL#updateLocalCommands: requesting %s", this.SOURCES_FILE);
++		var r1 = new Ajax.Request(this.SOURCES_FILE, {
 +			method: "get",
 +			onSuccess: function (response) {
-+				that.localFileSuccess(response, options);
-+				if (options && options.onSuccess) {
-+					options.onSuccess(response);
++				if (response.responseText === "") {
++					Mojo.Log.info("USCL#updateLocalCommands: NOT FOUND OR EMPTY: %s", that.SOURCES_FILE); // ugh
++					return;
 +				}
++				Mojo.Log.info("USCL#updateLocalCommands: SUCCESS: %s", that.SOURCES_FILE);
++				var result;
++				try {
++					result = response.responseText.evalJSON({ sanitize: true });
++				}
++				catch (e) {
++					Mojo.Log.error("USCL#updateLocalCommands: EXCEPTION: %s: %s",
++						       that.SOURCES_FILE, e);
++				}
++				if (!result) {
++					return;
++				}
++
++				reqs += result.length;
++				result.forEach(function (entry) {
++					var source = entry.source;
++					Mojo.Log.info("USCL#updateLocalCommands: requesting %s", source);
++
++					var r = new Ajax.Request(source, {
++						method: "get",
++						onSuccess: function (response) {
++							if (response.responseText === "") {
++								Mojo.Log.info("USCL#updateLocalCommands: NOT FOUND OR EMPTY: %s", source); // ugh
++								return;
++							}
++							Mojo.Log.info("USCL#updateLocalCommands: SUCCESS: %s", source);
++							var addEntries = that.addEntries.bind(that);
++							try {
++								var evil = function () {
++									eval(response.responseText);
++								};	
++								evil.apply(that);
++							}
++							catch (e) {
++								Mojo.Log.error("USCL#updateLocalCommands: EXCEPTION: %s: %s",
++									       source, e);
++							}
++						},
++						onFailure:  onFailure.curry(source),
++						onComplete: onComplete.curry(source)
++					});
++				});
 +			},
-+			onFailure: function (response) {
-+				that.localFileFailure(response, options);
-+				if (options && options.onFailure) {
-+					options.onFailure(response);
++			onFailure:  onFailure.curry(this.SOURCES_FILE),
++			onComplete: onComplete.curry(this.SOURCES_FILE)
++		});
++
++		Mojo.Log.info("USCL#updateLocalCommands: requesting %s", this.LOCAL_FILE);
++		var r2 = new Ajax.Request(this.LOCAL_FILE, {
++			method: "get",
++			onSuccess: function (response) {
++				if (response.responseText === "") {
++					Mojo.Log.info("USCL#updateLocalCommands: NOT FOUND OR EMPTY: %s", that.LOCAL_FILE); // ugh
++					return;
 +				}
++				Mojo.Log.info("USCL#updateLocalCommands: SUCCESS: %s", that.LOCAL_FILE);
++				var result;
++				try {
++					result = response.responseText.evalJSON({ sanitize: true });
++				}
++				catch (e) {
++					Mojo.Log.error("USCL#updateLocalCommands: EXCEPTION: %s: %s",
++						       that.LOCAL_FILE, e);
++				}
++				if (!result) {
++					return;
++				}
++				that.mergeLocalCommands(result);
 +			},
-+			onComplete: function (response) {
-+				that.fixTitles();
-+				if (options && options.onComplete) {
-+					options.onComplete(response);
-+				}
-+			}
++			onFailure:  onFailure.curry(this.LOCAL_FILE),
++			onComplete: onComplete.curry(this.LOCAL_FILE)
 +		});
 +	},
-+
-+	localFileSuccess: function (response, options) {
-+		var o;
-+		this.deleteLocalCommands();
-+		try {
-+			o = response.responseText.evalJSON({
-+				sanitize: true
-+			});
-+		}
-+		catch (e) {
-+			this.deleteLocalCommands();
-+			options.onParseFailure(response);
-+		}
-+		if (o) {
-+			this.mergeLocalCommands(o);
-+		}
-+		options.onParseSuccess(response);
-+	},
-+
-+	localFileFailure: function (response, options) {
-+		this.deleteLocalCommands();
-+	},
-+
++	
 +	deleteLocalCommands: function () {
-+		var nonBuiltins = [];
-+		var command;
-+		for (command in this.entries) {
-+			if (this.entries.hasOwnProperty(command)) {
-+				if (!this.isBuiltin[command]) {
-+					nonBuiltins.push(command);
-+				}
-+			}
-+		}
-+		nonBuiltins.forEach(function (command) {
-+			delete this.entries[command];
-+		}, this);
++		this.entries = Object.clone(this.builtinEntries);
 +	},
 +
 +	mergeLocalCommands: function (o) {
-+		if (!o.entries) { return; }
-+		for (var command in o.entries) {
-+			if (o.entries.hasOwnProperty(command)) {
-+				if (!(command in this.entries)) {
-+					this.entries[command] = o.entries[command];
++		if (o && o.entries) {
++			this.addEntries(o.entries);
++		}
++		else {
++			this.addEntries(o);
++		}
++	},
++
++	addEntries: function (o) {
++		for (var command in o) {
++			if (o.hasOwnProperty(command)) {
++				if (command in this.builtinEntries) {
++					// don't override builtins.
++					Mojo.Log.info("USCL#mergeLocalCommands: not merging %s", command);
++				}
++				else {
++					Mojo.Log.info("USCL#mergeLocalCommands: merging %s", command);
++					this.entries[command] = o[command];
 +				}
 +			}
 +		}
@@ -2367,12 +2496,6 @@ index 0000000..7e78946
 +		return commandName;
 +	},
 +
-+	appWorksWithUSCL: function (appId) {
-+		return (this.apps &&
-+			this.apps.iGrokTheCommandLine &&
-+			this.apps.iGrokTheCommandLine[appId + "_default"]);
-+	},
-+
 +	runEntry: function (entry, arg) {
 +		if (entry.preprocess) {
 +			arg = entry.preprocess.apply(this, [arg]);
@@ -2380,48 +2503,14 @@ index 0000000..7e78946
 +		if (!/\S/.test(arg) && !entry.argumentsOptional) {
 +			throw new USCLError("No arguments specified.");
 +		}
++
 +		if (entry.method) {
 +			var result = entry.method.apply(this, [arg]);
 +			return result;
 +		}
-+		else if (entry.appId) {
-+			if (!this.appWorksWithUSCL(entry.appId)) {
-+				var message =
-+					"The application " + entry.appId +
-+					" is not installed or" +
-+					" has not been patched to work with the " + 
-+					"Universal Search Command Line.";
-+				if (entry.appId === "com.palm.app.notes") {
-+					message += "  Please install the USCL Memos Patch" +
-+						" via Preware (or by other means).";
-+				}
-+				throw new USCLError(message);
-+			}
-+			var params = { };
-+			params[entry.param] = arg;
-+			// We return a function, which will be called
-+			// with this set to the global search assistant
-+			// object.  I don't remember why we can't just
-+			// start the serviceRequest here.
-+			return function () {
-+				this.controller.serviceRequest(
-+					"palm://com.palm.applicationManager", {
-+						method: "launch",
-+						parameters: {
-+							id: entry.appId,
-+							params: params
-+						}
-+					}
-+				);
-+			};
-+		}
 +		else if (entry.url) {
-+			// We returns a function, which will be called
-+			// with this set to the global search assistant
-+			// object.
-+			return function () {
-+				this.launchBrowser(entry.url + encodeURIComponent(arg.trim()));
-+			};
++			var url = entry.url + encodeURIComponent(arg.trim());
++			this.globalSearchAssistant.launchBrowser(url);
 +		}
 +		else if (entry.aliasedTo) {
 +			return this.runString(entry.aliasedTo.replace(/\%s/, arg));
@@ -2461,48 +2550,45 @@ index 0000000..7e78946
 +		}
 +	},
 +
-+	runString: function (s, /* optional */ justCheck) {
++	parseString: function (s) {
 +		var arg, commandName;
-+		if (/^\s*\.\.(\S.*)$/.test(s)) { // ..<keytoss-command> <args>
-+			if (justCheck) {
-+				return true;
-+			}
++		if (/^\s*\.\.(\S.*)$/.test(s)) {
++			// ..<keytoss-command> <args>
 +			arg = RegExp.$1;
-+			return this.run("keytoss", arg);
++			return ["keytoss", arg];
 +		}
-+		else if (/^\s*\.(\S+)\s*(.*)$/.test(s)) { // .<uscl-command> <args>
-+			if (justCheck) {
-+				return true;
-+			}
++		else if (/^\s*\.(\S+)\s*(.*)$/.test(s)) {
++			// .<uscl-command> <args>
 +			commandName = RegExp.$1;
 +			arg         = RegExp.$2;
-+			return this.run(commandName, arg);
++			return [commandName, arg];
 +		}
-+		else if (/^(.*?)\s+\.\.(\S+)\s*$/.test(s)) { // <args> ..<keytoss-command>
-+			if (justCheck) {
-+				return true;
-+			}
++		else if (/^(.*?)\s+\.\.(\S+)\s*$/.test(s)) {
++			// <args> ..<keytoss-command>
 +			arg = RegExp.$2 + " " + RegExp.$1;
-+			return this.run("keytoss", arg);
++			return ["keytoss", arg];
 +		}
-+		else if (/^(.*?)\s+\.(\S+)\s*$/.test(s)) { // <args> .<uscl-command>
-+			if (justCheck) {
-+				return true;
-+			}
++		else if (/^(.*?)\s+\.(\S+)\s*$/.test(s)) {
++			// <args> .<uscl-command>
 +			commandName = RegExp.$2;
 +			arg         = RegExp.$1;
-+			return this.run(commandName, arg);
++			return [commandName, arg];
 +		}
 +		else {
-+			if (justCheck) {
-+				return false;
-+			}
++			return false;
++		}
++	},
++
++	runString: function (s) {
++		var parsed = this.parseString(s);
++		if (!parsed) {
 +			throw new USCLError("No command supplied.");
 +		}
++		return this.run(parsed[0], parsed[1]);
 +	},
 +	
 +	isCommandString: function (s) {
-+		return this.runString(s, /* justCheck */ true);
++		return !!this.parseString(s);
 +	},
 +
 +	//---------------------------------------------------------------------
@@ -2559,6 +2645,25 @@ index 0000000..7e78946
 +		return result;
 +	},
 +
++	showAbout: function () {
++		var stageController = (Mojo.Controller.appController.
++				       getStageController("uscl-about"));
++		if (stageController) {
++			stageController.activate();
++		}
++		else {
++			var stageArguments = {
++				name: "uscl-about",
++				lightweight: true
++			};
++			var pushScene = function (stageController) {
++				stageController.pushScene("uscl-about");
++			};
++			Mojo.Controller.appController.createStageWithCallback(
++				stageArguments, pushScene, "card");
++		}
++	},
++
 +	showHelp: function (command) {
 +		var that = this;
 +		var stageController = Mojo.Controller.appController.getStageController("uscl-help");
@@ -2607,10 +2712,6 @@ index 0000000..7e78946
 +		}
 +	},
 +
-+	//---------------------------------------------------------------------
-+	// Additional Universal Search Options
-+	//---------------------------------------------------------------------
-+
 +	getUniversalSearchCommandList: function () {
 +		Mojo.Log.info("USCL: getUniversalSearchCommandList");
 +		var commandName;
@@ -2645,91 +2746,7 @@ index 0000000..7e78946
 +	},
 +
 +	//---------------------------------------------------------------------
-+	// .gps, etc.
-+	//---------------------------------------------------------------------
-+
-+	setUseGps: function (flag) {
-+		this.setLocationServiceFlag({
-+			method: "setUseGps",
-+			parameter: "useGps",
-+			name: "GPS",
-+			flag: flag
-+		});
-+	},
-+
-+	setUseBackgroundDataCollection: function (flag) {
-+		this.setLocationServiceFlag({
-+			method: "setUseBackgroundDataCollection",
-+			parameter: "useBackgroundDataCollection",
-+			name: "Background Data Collection",
-+			flag: flag
-+		});
-+	},
-+
-+	setGeotagPhotos: function (flag) {
-+		this.setLocationServiceFlag({
-+			method: "setGeotagPhotos",
-+			parameter: "geotagPhotos",
-+			name: "Geotagging",
-+			flag: flag
-+		});
-+	},
-+
-+	setAutoLocate: function (flag) {
-+		this.setLocationServiceFlag({
-+			method: "setAutoLocate",
-+			parameter: "autoLocate",
-+			name: "Auto-Locate",
-+			flag: flag
-+		});
-+	},
-+
-+	setUseGoogle: function (flag) {
-+		this.setLocationServiceFlag({
-+			method: "setUseGoogle",
-+			parameter: "useGoogle",
-+			name: "Google Location Services",
-+			flag: flag
-+		});
-+	},
-+
-+	setLocationServiceFlag: function (options) {
-+		var that = this;
-+
-+		var flag = options.flag;
-+
-+		var parameters = {};
-+		parameters[options.parameter] = flag;
-+
-+		var request = new Mojo.Service.Request("palm://com.palm.location", {
-+			method: options.method,
-+			parameters: parameters,
-+			onSuccess: function () {
-+				that.bannerNotify("Successfully %s %s.".format(
-+					flag ? "enabled" : "disabled",
-+					options.name
-+				));
-+			},
-+			onFailure: function (response) {
-+				that.bannerNotify("Error %s %s: %j".format(
-+					flag ? "enabling" : "disabling",
-+					options.name,
-+					$H(response)
-+				));
-+			}
-+		});
-+	},
-+
-+	garbageCollectCommand: function () {
-+		this.bannerNotify("Garbage collecting...");
-+		var request = new Mojo.Service.Request("palm://com.palm.lunastats", {
-+			method: "gc",
-+			parameters: { }
-+		});
-+	},
-+	
-+	//---------------------------------------------------------------------
-+	// Utilities
++	// Utility
 +	//---------------------------------------------------------------------
 +
 +	bannerNotify: function (message) {
@@ -2739,6 +2756,161 @@ index 0000000..7e78946
 +	}
 +
 +});
++
+diff --git a/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/utilities.js b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/utilities.js
+new file mode 100644
+index 0000000..868779f
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/controllers/uscl/utilities.js
+@@ -0,0 +1,149 @@
++/*jslint browser: true, eqeqeq: true, undef: true */
++/*global getopt */
++/******************************************************************************
++Lines above are for jslint, the JavaScript verifier.
++http://www.jslint.com/
++******************************************************************************/
++
++if (!String.prototype.trim) {
++	String.prototype.trim = function () {
++		return this.replace(/^\s+/, "").replace(/\s+$/, "");
++	};
++}
++
++if (!String.prototype.normalizeSpace) {
++	String.prototype.normalizeSpace = function () {
++		return this.trim().replace(/\s+/g, " ");
++	};
++}
++
++if (!String.prototype.toBoolean) {
++	String.prototype.toBoolean = function (errorType) {
++		var s = this.toLowerCase().normalizeSpace();
++		var i = parseInt(s, 10);
++		if (!isNaN(i)) {
++			return (i !== 0);
++		}
++		switch (s) {
++		case "yes":
++		case "y":
++		case "true":
++		case "t":
++		case "on":
++		case "enable":
++		case "enabled":
++			return true;
++		case "no":
++		case "n":
++		case "false":
++		case "f":
++		case "off":
++		case "disable":
++		case "disabled":
++			return false;
++		default:
++			if (errorType) {
++				throw new errorType("Invalid argument");
++			}
++			else {
++				return undefined;
++			}
++		}
++	};
++}
++
++if (!String.prototype.format) {
++	// Implements Mojo.Log.xxx-ish formatting.  It's no sprintf, but it's
++	// good enough for now.
++	String.prototype.format = function () {
++		var args = Array.prototype.slice.call(arguments, 0);
++		var result = this.replace(/%[%jsoidf]/g, function (str) {
++			switch (str) {
++			case "%o":
++				return Object.inspect(args.shift());
++			case "%j":
++				return Object.toJSON(args.shift());
++			case "%%":
++				return "%";
++			}
++			return args.shift();
++		});
++		return result;
++	};
++}
++
++if (!String.prototype.splitArguments) {
++	String.prototype.splitArguments = function (rx) {
++		if (!rx) {
++			rx = /\s+/;
++		}
++		if (/\S/.test(this)) {
++			return this.normalizeSpace().split(rx);
++		}
++		else {
++			return [];
++		}
++	};
++}
++
++// A version of Array#forEach that stops the loop if the specified
++// function returns false.  This special behavior is influenced by
++// jQuery's each() methods.  Based on MIT-licensed code from:
++// http://tinyurl.com/yh9nvwb
++// (https://developer.mozilla.org/En/Core_JavaScript_1.5_Reference/Objects/Array/ForEach)
++if (!Array.prototype.forEach2) {
++	Array.prototype.forEach2 = function(fun /*, thisp*/) {
++		var len = this.length >>> 0;
++		if (typeof fun !== "function") {
++			throw new TypeError();
++		}
++		var thisp = arguments[1];
++		for (var i = 0; i < len; i++) {
++			if (i in this) {
++				var ret = fun.call(thisp, this[i], i, this);
++				if (ret === false) {
++					return;
++				}
++			}
++		}
++	};		
++}
++
++if (!Array.prototype.joinAnd) {
++	Array.prototype.joinAnd = function () {
++		if (this.length <= 2) {
++			return this.join(" and ");
++		}
++		else {
++			return this.slice(0, this.length - 1).join(", ") +
++				", and " + this[this.length - 1];
++		}
++	};
++}
++
++if (!Array.prototype.getopt) {
++	Array.prototype.getopt = function (optstr, errorType) {
++		try {
++			optstr = optstr.replace(/^:/, "");
++			var result = {};
++			var opt;
++			getopt.optreset = true; // reinitialize
++			getopt.opterr = true;	// reinitialize
++			getopt.optind = 0;	// reinitialize
++			while ((opt = getopt(this, optstr)) !== null) {
++				if (getopt.optarg === null) {
++					result[opt] = true;
++				}
++				else {
++					result[opt] = getopt.optarg;
++				}
++			}
++			this.splice(0, getopt.optind);
++			return result;
++		}
++		catch (e) {
++			throw new errorType(e.message);
++		}
++	};
++}
 +
 diff --git a/usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div-uscl.html b/usr/lib/luna/system/luna-applauncher/app/views/global-search/expanded-searches-div-uscl.html
 new file mode 100644
@@ -2803,6 +2975,37 @@ index d34a6a5..929c2b2 100644
  		<div class="palm-header-spacer strut"></div>
  	</div>
  	
+diff --git a/usr/lib/luna/system/luna-applauncher/app/views/uscl-about/uscl-about-scene.html b/usr/lib/luna/system/luna-applauncher/app/views/uscl-about/uscl-about-scene.html
+new file mode 100644
+index 0000000..6f4da07
+--- /dev/null
++++ b/usr/lib/luna/system/luna-applauncher/app/views/uscl-about/uscl-about-scene.html
+@@ -0,0 +1,25 @@
++<div id="uscl-about" class="uscl-help uscl-help-about">
++	<div class="palm-page-header multi-line">
++		<div class="palm-page-header-wrapper">
++			<div class="title left un-capitalize" id="title">
++				About Universal Search Command Line
++			</div>
++		</div>
++	</div>
++	<div class="palm-body-text">
++
++		<h1><a target="_blank" href="http://webonastick.com/uscl/">Universal Search Command Line</a></h1>
++
++		<p>Copyright &copy; 2009&ndash;2010
++		<a href="mailto:dse@webonastick.com?subject=USCL">Darren Embry</a></p>
++
++		<p>You may copy and redistribute this patch under an <a target="_blank"
++		href="http://webonastick.com/uscl/#license">MIT-Style License</a>.</p>
++
++		<p>Includes BSD-licensed <a target="_blank"
++		href="http://blog.fpmurphy.com/2010/02/javascript-shell-command-line-processing.html">getopt
++		code by Finnbarr P. Murphy</a></p>
++
++	</div>
++</div>
++
 diff --git a/usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/item.html b/usr/lib/luna/system/luna-applauncher/app/views/uscl-help-command-list/templates/item.html
 new file mode 100644
 index 0000000..3aa3781
@@ -2887,38 +3090,35 @@ index 16f4269..73ec764 100644
  <body>
  </body>
 diff --git a/usr/lib/luna/system/luna-applauncher/sources.json b/usr/lib/luna/system/luna-applauncher/sources.json
-index 3b29d8d..5866231 100644
+index 3b29d8d..123dab8 100644
 --- a/usr/lib/luna/system/luna-applauncher/sources.json
 +++ b/usr/lib/luna/system/luna-applauncher/sources.json
-@@ -13,6 +13,28 @@
+@@ -12,6 +12,25 @@
+ 		"source": "app\/controllers\/global-search-assistant.js"
  	},
  	
++	{ "source": "app\/controllers\/uscl\/getopt.js" },
++	{ "source": "app\/controllers\/uscl\/utilities.js" },
++	{ "source": "app\/controllers\/uscl\/uscl.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-system.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-maps.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-calc.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-notes.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-quickevent.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-tasks.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-sites.js" },
++	{ "source": "app\/controllers\/uscl\/builtins\/uscl-restart.js" },
++
++	{ "source": "app\/controllers\/uscl\/uscl-help-command-list.js",
++	  "scenes": "uscl-help-command-list" },
++	{ "source": "app\/controllers\/uscl\/uscl-help-command-view.js",
++	  "scenes": "uscl-help-command-view" },
++	{ "source": "app\/controllers\/uscl\/uscl-about.js",
++	  "scenes": "uscl-about" },
++	
  	{
-+		"source": "app\/controllers\/uscl.js"
-+	},
-+
-+	{
-+		"source": "app\/controllers\/getopt.js"
-+	},
-+
-+	{
-+		"source": "app\/controllers\/calculator.js"
-+	},
-+	
-+	{
-+		"source": "app\/controllers\/uscl-help-command-list.js",
-+		"scenes": "uscl-help-command-list"
-+	},
-+	
-+	{
-+		"source": "app\/controllers\/uscl-help-command-view.js",
-+		"scenes": "uscl-help-command-view"
-+	},
-+	
-+	{
  		"source": "app\/controllers\/app-info-assistant.js"
  	},
- 
 diff --git a/usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css b/usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
 index 85f217b..5c7bbd8 100644
 --- a/usr/lib/luna/system/luna-applauncher/stylesheets/global-search.css
@@ -2946,19 +3146,35 @@ index 85f217b..5c7bbd8 100644
  }                       
 diff --git a/usr/lib/luna/system/luna-applauncher/stylesheets/uscl.css b/usr/lib/luna/system/luna-applauncher/stylesheets/uscl.css
 new file mode 100644
-index 0000000..61614ff
+index 0000000..3a8a3bd
 --- /dev/null
 +++ b/usr/lib/luna/system/luna-applauncher/stylesheets/uscl.css
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,95 @@
++/******************************************************************************
++Command List, Command View, About Screen
++******************************************************************************/
++
 +body.uscl-body {
 +	background-image: none;
 +	background-color: #555555; /* roughly equivalent to the scrim */
 +	color: white;
 +}
-+
-+/******************************************************************************
-+Command List, Command View
-+******************************************************************************/
++body.uscl-body .palm-body-text {
++	color: white;
++}
++body.uscl-body .palm-body-text a:link,
++body.uscl-body .palm-body-text a:visited {
++	color: yellow;
++}
++body.uscl-body .palm-body-text p {
++	padding: 0;
++	margin: 0.5em 0;
++}
++body.uscl-body .palm-body-text h1 {
++	padding: 0;
++	margin: 0.3125em 0;
++	font-size: 160%;
++}
 +
 +kbd {
 +	font-weight: bold;
