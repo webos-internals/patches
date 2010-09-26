@@ -805,7 +805,7 @@
  		// pre-calculate commonly used measurements
  		this.kPageWidth = $('launcher_root').getWidth();
  		this.kPageWidthNoMargin = (this.kPageWidth - this.kPageMargin * 2);
-@@ -121,23 +176,69 @@
+@@ -121,23 +176,77 @@
  				case 'defaultapps':
  					ApplicationService.launch(this.deviceInfo.id, this.deviceInfo.defaultAppParams);
  					break;
@@ -868,12 +868,20 @@
  			}
  		}
 +		else if(event.type == Mojo.Event.back) {
++			event.stop();
++
 +			if(this.previousPageIndex != -1) {
-+				event.stop();
-+				
++				var currentPageIndex = this.activePageIndex;
++			
 +				this.changePage(this.previousPageIndex, true);
 +				
-+				this.previousPageIndex = -1;
++				if(this.appLauncherCfg.wrap) {
++					this.updatePageHeader();
++					this.updatePageTabs();
++					this.updatePageIndicators();
++				}
++				
++				this.previousPageIndex = currentPageIndex;
 +			}
 +		}			
 +		else if(event.type == Mojo.Event.forward) {
@@ -884,7 +892,7 @@
  		else if (event.type === Mojo.Event.commandEnable) {
  			switch (event.command) {
  				case Mojo.Menu.copyCmd:
-@@ -157,16 +258,841 @@
+@@ -157,16 +266,835 @@
  			}
  		}
  	},
@@ -1307,7 +1315,7 @@
 +
 +			if(this.setPreferencesRequest)
 +				this.setPreferencesRequest.cancel();
-+		
+ 		
 +			this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
 +				method: 'setPreferences', parameters: {'appLauncherCfg': this.appLauncherCfg} });
 +		}	
@@ -1580,7 +1588,7 @@
 +		this.updatePageHeader();
 +		this.updatePageTabs();
 +		this.updatePageIndicators();
- 		
++		
 +		this.commandMenuModel.visible = false;
 +		this.controller.modelChanged(this.commandMenuModel);
 +		
@@ -1685,12 +1693,6 @@
 +			this.updatePageTabs();
 +			this.updatePageIndicators();
 +		}
-+
-+		if((!this.appLauncherCfg.wrap) && (this.appLauncherCfg.header == "tabs")) {
-+			this.viewMenuModel.items[1].toggleCmd = 'selectpage' + (event.value + 1);
-+	
-+			this.controller.modelChanged(this.viewMenuModel);
-+		}
 +	},
 +
 +	/* hide quick launch */
@@ -1729,7 +1731,7 @@
  		this.globalSearchAssistant.deactivate();
  		
  		this.reorderController.cancel();
-@@ -174,8 +1100,22 @@
+@@ -174,8 +1102,22 @@
  		if (this.appDialog) {
  			this.appDialog.mojo.close();
  		}
@@ -1754,7 +1756,7 @@
  		
  		this.launchRequest = undefined;
  	},
-@@ -196,18 +1136,16 @@
+@@ -196,18 +1138,16 @@
  		this.kAppHeight = NaN;
  		this.kAppWidth = NaN;
  		this.kAppsPerRow = NaN;
@@ -1775,7 +1777,7 @@
  		return this.pageDivs[pageIndex].down('.page_scroller');
  	},
  	
-@@ -255,6 +1193,22 @@
+@@ -255,6 +1195,22 @@
  		
  		// tell our scroller widget that it has a new page element to snap
  		this.updatePageSnappingPoints();
@@ -1798,7 +1800,7 @@
  	},
  	
  	deletePage: function(pageIndex) {
-@@ -264,6 +1218,33 @@
+@@ -264,6 +1220,33 @@
  			return false;
  		}
  		
@@ -1832,7 +1834,7 @@
  		// move appDivs over to their new home
  		var apps = this.getAppContainer(pageIndex).select('.app');
  		var startIndex = apps.length;
-@@ -298,13 +1279,9 @@
+@@ -298,13 +1281,9 @@
  		// remove the pages indicator
  		this.deletePageIndicator();
  		
@@ -1849,7 +1851,7 @@
  		
  		this.updatePageSnappingPoints();
  	},
-@@ -326,6 +1303,10 @@
+@@ -326,6 +1305,10 @@
  			var appContainer = this.getAppContainer(location.page);
  			var content = Mojo.View.render({object:newAppInfo, template: "launcher/page-item"});
  			var children = appContainer.select('.app');
@@ -1860,7 +1862,7 @@
  			if (location.position >= children.length) {
  				appContainer.insert({bottom:content});
  			} else {
-@@ -336,9 +1317,43 @@
+@@ -336,9 +1319,43 @@
  			newAppDiv = $(newAppInfo.launchPointId);
  			Mojo.assert(newAppDiv !== undefined, "Application (%d) was inserted into the DOM but unable to be retrieved!", newAppInfo.launchPointId);
  			if (isNaN(this.kAppWidth) || isNaN(this.kAppHeight)) {
@@ -1907,7 +1909,7 @@
  			}
  			
  			Mojo.listen(newAppDiv, Mojo.Event.tap, this.onAppTapped.bindAsEventListener(this));
-@@ -348,6 +1363,15 @@
+@@ -348,6 +1365,15 @@
  			// stash the application's data in the element
  			newAppDiv._info = newAppInfo;
  
@@ -1923,7 +1925,7 @@
  			this._updateBadge(newAppDiv, newAppInfo);
  		
  			/* adjust page position and height */
-@@ -435,14 +1459,20 @@
+@@ -435,14 +1461,20 @@
  		if (elm) {
  			var newTitle = "";
  			if (newAppInfo.update && newAppInfo.update.title) {
@@ -1946,7 +1948,7 @@
  				if (elm.innerHTML !== newTitle) {
  					Mojo.Log.info("Updating title of app div, old: %d | new: %d", elm.innerHTML, newTitle);
  					elm.innerHTML = newTitle;
-@@ -535,9 +1565,21 @@
+@@ -535,9 +1567,21 @@
  	
  	/* determines the position of an app element at appIndex within a page */
  	calculateAppPosition: function(appIndex) {
@@ -1970,7 +1972,7 @@
  		};
  	},
  	
-@@ -577,17 +1619,55 @@
+@@ -577,17 +1621,55 @@
  				return;
  			}
  		}
@@ -2031,7 +2033,7 @@
  
  		this.appDialog = this.controller.showDialog({
  							template: 'launcher/dialogs/app-info',
-@@ -606,18 +1686,38 @@
+@@ -606,18 +1688,38 @@
  		for (var i=0, numPages=this.pagesModel.getNumPages(); i<numPages; i++) {
  			// create a new page
  			this.insertPage(i);
@@ -2072,7 +2074,7 @@
  		PalmSystem.launcherReady();
  	},
  	
-@@ -633,10 +1733,12 @@
+@@ -633,10 +1735,12 @@
  	 * its starting position
  	 */
  	createPageIndicator: function() {
@@ -2089,7 +2091,7 @@
  	},
  	
  	/*
-@@ -644,70 +1746,99 @@
+@@ -644,70 +1748,99 @@
  	 * the remaining page indicators
  	 */
  	deletePageIndicator: function() {
@@ -2222,7 +2224,7 @@
  		this.deleteApp(oldAppInfo.launchPointId);
  		// TODO: should we always remove empty pages?
  	},
-@@ -720,7 +1851,7 @@
+@@ -720,7 +1853,7 @@
  	onAppTapped: function(event) {
  		var target = event.currentTarget;
  		var appInfo = target._info;
