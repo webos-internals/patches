@@ -1,22 +1,158 @@
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
-index 5375929..8bd6ffd 100644
+index 5375929..83b4060 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
-@@ -399,9 +399,9 @@ var AppAssistant = Class.create({
+@@ -8,6 +8,27 @@ var AppAssistant = Class.create({
+ 		this.appController = appController;
+ 		this.openReminderAlert = null;
+ 		
++		//get snooze cookie -- renamed because of bug in cookie names
++		this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");	
++		if (this.snoozeCookie) {
++			var snzcookie = this.snoozeCookie.get();
++			if (snzcookie) {			
++				if(snzcookie.showReminderDashboard !== undefined) {
++					this.showReminderDashboard = snzcookie.showReminderDashboard;
++				} else {
++					this.showReminderDashboard = false;
++				}
++				if(snzcookie.snoozethrob !== undefined) {
++					this.snoozeThrob = snzcookie.snoozethrob;
++				} else {
++					this.snoozeThrob = false;
++				}
++			}
++		} else {
++			this.snoozeThrob = false;
++			this.showReminderDashboard = false;
++		}
++		
+ 		// CURRENT DATE & TIME - Keeps track of the current day/month/time in view
+ 		this.currentDateTime = new Date();
+ 		this.currentDateTimeObservers = new Hash();
+@@ -77,9 +98,9 @@ var AppAssistant = Class.create({
+ 		// TEMP Ignore the first time we get called which is at boot time. We need this until framework
+ 		// gives us a flag to let us now if this being called at boot.
+ 		this.handlelaunchCount++;
+-		if (this.handlelaunchCount <= 1)
++		if (this.handlelaunchCount <= 1) {
+ 	  	 	return;	
+-			
++		}
+ 		//if this failed during initialization, try again	
+ 		if (!this.calendarsManager.accounts) {			
+ 			this.calendarsManager.getCalendarsByAccount();
+@@ -116,7 +137,10 @@ var AppAssistant = Class.create({
+ 		else if (launchParams.alarmclose){
+ 			Mojo.Log.info("$$$$$$$$ AppAssistant handleLaunch : alarmclose");
+ 			this.closeReminder(launchParams.alarmclose);
+-		} 
++		}
++		else if (launchParams.playalarmsound){
++			this.playAlarmSound();
++		}
+ 		else if (launchParams.dayChange){
+ 			this.dayChange();
+ 		}
+@@ -267,6 +291,13 @@ var AppAssistant = Class.create({
+ 		Mojo.Log.info("$$$$$$$$ AppAssistant closeReminder:end");
+ 	},
+ 	
++	playAlarmSound: function() {
++		if (this.openReminderAlert) {
++			this.openReminderAlert.playAlarmSound();
++			this.openReminderAlert = null;
++		}
++	},
++
+ 	scheduleNextReminder: function(eventId) {
+ 		Mojo.Log.info("$$$$$$$$ AppAssistant scheduleNextReminder: for event:"+eventId);
+ 		new Mojo.Service.Request('palm://com.palm.calendar', {
+@@ -398,10 +429,15 @@ var AppAssistant = Class.create({
+ 		var height;
  		var reminder = getReminderManager().getReminder(eventId);
  		reminder.userClosed = false;
- 		if (reminder.attendees.length > 1 /*now we include the organizer in attendee list*/)
+-		if (reminder.attendees.length > 1 /*now we include the organizer in attendee list*/)
 -			height = 203;
-+			height = 280; //203 orig; 74 + a couple to get more choices
- 		else
+-		else
 -		  	height = 149;
-+		  	height = 226; //149 orig;
++		if(reminder.attendees) {
++			if (reminder.attendees.length > 1 /*now we include the organizer in attendee list*/) {
++				height = 280; //203 orig; 74 + a couple to get more choices
++			} else {
++		  	height = 160; //149 orig;
++			}
++		} else {
++			height = 160;
++		}
  		
  		var needThrobbing =(hasNewContent || !isSnoozedReminder) ? true:false;
  		Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:createStageWithCallback for stage: "+this.createAlarmStageName(eventId)+", stage height is: "+height);
-@@ -489,7 +489,15 @@ var AppAssistant = Class.create({
+@@ -435,23 +471,25 @@ var AppAssistant = Class.create({
+ 				}, pushReminderScene.bind(this, eventId, needThrobbing), 'popupalert');
+ 			}
+ 		}
+-		
+-		Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:calling getStageController for calendar-dashboard");
+-		var dashboardStageController = Mojo.Controller.getAppController().getStageController("calendar-dashboard");
+-		if (!dashboardStageController) {
+-			Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:calling getStageProxy for calendar-dashboard");
+-			dashboardStageController = Mojo.Controller.getAppController().getStageProxy("calendar-dashboard");
+-		}
+-		if (!dashboardStageController) {
+-			var pushDashboardScene = function(stageController){
+-				stageController.pushScene('dashboard');
++		//Optionally disable reminder dashboard
++		if(this.showReminderDashboard || this.snoozeThrob) {
++			Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:calling getStageController for calendar-dashboard");
++			var dashboardStageController = Mojo.Controller.getAppController().getStageController("calendar-dashboard");
++			if (!dashboardStageController) {
++				Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:calling getStageProxy for calendar-dashboard");
++				dashboardStageController = Mojo.Controller.getAppController().getStageProxy("calendar-dashboard");
++			}
++			if (!dashboardStageController) {
++				var pushDashboardScene = function(stageController){
++					stageController.pushScene('dashboard');
++				}
++				Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:calling createStageWithCallback for calendar-dashboard");
++				Mojo.Controller.getAppController().createStageWithCallback({
++					name: "calendar-dashboard",
++					lightweight: true,
++					applicationStylesheets: ["stylesheets/notification.css"],
++				}, pushDashboardScene, "dashboard");
+ 			}
+-			Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm:calling createStageWithCallback for calendar-dashboard");
+-			Mojo.Controller.getAppController().createStageWithCallback({
+-				name: "calendar-dashboard",
+-				lightweight: true,
+-				applicationStylesheets: ["stylesheets/notification.css"],
+-			}, pushDashboardScene, "dashboard");
+ 		}
+ 		Mojo.Log.info("$$$$$$$$ AppAssistant doAlarm :end");
+ 	},
+@@ -488,8 +526,38 @@ var AppAssistant = Class.create({
+ 			// If this is the first use of Calendar, show the first use scene
  			this.firstUseManager = new FirstUseManager(stageController);
  		} else {
++			this.uberOpenInView = 'last';
++			this.snoozeThrob = false;
++			this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");	
++			if (this.snoozeCookie) {
++				var snzcookie = this.snoozeCookie.get();
++				if (snzcookie) {
++					if(snzcookie.uberopeninview !== undefined) {
++						this.uberOpenInView = snzcookie.uberopeninview;
++					} else {
++						this.uberOpenInView = 'last';
++					}
++					if(snzcookie.snoozethrob !== undefined) {
++						this.snoozeThrob = snzcookie.snoozethrob;
++					} else {
++						this.snoozeThrob = false;
++					}
++				}
++			}
++		
  			// Otherwise show the Day View
 -			stageController.pushScene({name: "day", transition: Mojo.Transition.crossFade, disableSceneScroller: true});
 +			var view = "day";
@@ -27,11 +163,14 @@ index 5375929..8bd6ffd 100644
 +			if ((view != "month") && (view != "week")) {
 +				view = "day";
 +			}
++			if(this.uberOpenInView !== 'last' && this.uberOpenInView !== undefined) {
++				view = this.uberOpenInView;
++			}
 +			stageController.pushScene({name: view, transition: Mojo.Transition.crossFade, disableSceneScroller: true});
  		}
  	},
  	
-@@ -863,7 +871,15 @@ function notifyTimeFormatObservers() {
+@@ -863,7 +931,15 @@ function notifyTimeFormatObservers() {
  }
  
  function getTimeFormat() {
@@ -49,10 +188,32 @@ index 5375929..8bd6ffd 100644
  // **System  Time Change
  function observeTimeChange(sceneName, controller){
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/dashboard-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/dashboard-assistant.js
-index a667ac9..b87f7b0 100644
+index a667ac9..81ac2a6 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/dashboard-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/dashboard-assistant.js
-@@ -24,7 +24,10 @@ var DashboardAssistant = Class.create({
+@@ -14,6 +14,21 @@ var DashboardAssistant = Class.create({
+ 		
+ 		this.service = getCalendarService();
+ 		
++		this.snoozeThrob = false;
++		
++		//get default snooze duration from cookie
++		this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");
++
++		if (this.snoozeCookie) {
++			var snzcookie = this.snoozeCookie.get();
++			if (snzcookie) {
++				if(snzcookie.snoozethrob)	{
++					this.snoozeThrob = snzcookie.snoozethrob;
++				} else {
++					this.snoozeThrob = false;
++				}
++			}
++		}
+ 		this.controller.get('calendar-dashboard').addEventListener(Mojo.Event.tap, this.tapHandler.bindAsEventListener(this));
+ 		this.controller.get('dashboard-icon').addEventListener(Mojo.Event.tap, this.reminderList.bindAsEventListener(this));
+ 		this.controller.get('dashboard-count').addEventListener(Mojo.Event.tap, this.reminderList.bindAsEventListener(this));
+@@ -24,7 +39,10 @@ var DashboardAssistant = Class.create({
  	cleanup: function() {
  		Mojo.Log.info("$$$$$$$$ Dashboard-assistant cleanup: start ");
  		this.reminders.stopObservingReminders('dashboard');
@@ -64,11 +225,19 @@ index a667ac9..b87f7b0 100644
  		Mojo.Log.info("$$$$$$$$ Dashboard-assistant cleanup: end ");
  	},
  	
+@@ -35,6 +53,7 @@ var DashboardAssistant = Class.create({
+ 			Mojo.Log.info("$$$$$$$$ Dashboard-assistant updateMostRecentReminder: recent Reminder is "+this.reminder.id);
+ 			this.updateHTML(this.controller.get('dashboard-subject'), (this.reminder.subject != null) ? this.reminder.subject : '');
+ 			this.updateHTML(this.controller.get('dashboard-timeloc'), (this.reminder.subtitle != null) ? this.reminder.subtitle : '');
++			if(this.snoozeThrob) {this.controller.stageController.indicateNewContent(true);}
+ 		}
+ 		else
+ 		{
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
-index 1bc0374..8399fec 100644
+index 1bc0374..57cf2cb 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
-@@ -140,7 +140,511 @@ var DatetimeAssistant = Class.create({
+@@ -140,10 +140,540 @@ var DatetimeAssistant = Class.create({
                  break;
          }
      },
@@ -81,7 +250,7 @@ index 1bc0374..8399fec 100644
 +	rdayNames: function() {
 +		var stday = 0;
 +		if(this.startOfWeek==null || this.startOfWeek == 'undefined')
-+			this.startOfWeek = 0;
++			this.startOfWeek = 1;
 +		stday = this.startOfWeek - 1;
 +		var tday = new Date();
 +		tday.moveToDayOfWeek(stday);
@@ -91,20 +260,18 @@ index 1bc0374..8399fec 100644
 +		}
 +	},
 +	
-+	radvanceWk: function(wk, month) {
++	radvanceWk: function(wk, month, year, maxwkn) {
 +		var wkn = parseInt(wk, 10);
-+		if((wkn > 8) && (wkn < 52)) {
++		if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++			var maxwkn = this.weekModulusNum;
++		}
++		if((wkn > 8) && (wkn < maxwkn)) {
 +			return (wkn + 1);
-+		} else if(wkn <= 8) {
++		} else if((wkn <= 8) && (wkn < maxwkn)) {
 +			wkn +=1;
 +			var zd = '0';
 +			return zd + wkn.toString();
-+		} else if(wkn == 52 && month == 11) {
-+			return 53;
-+		} else if(wkn >= 52 && month == 0) {
-+			var zd = '01';
-+			return zd;
-+		} else if (wkn == 53 && month == 11) {
++		} else if(wkn == maxwkn) {
 +			var zd = '01';
 +			return zd;
 +		}
@@ -118,6 +285,16 @@ index 1bc0374..8399fec 100644
 +		//setup number of days, 1st day(day of week), week number, number of weeks
 +		var rd1dayOfMon = rmon.getDay();
 +		var rwkNum = rmon.getISO8601Week();
++		var maxwkn = new Date(year, 11, 31).getISO8601Week();
++		if(this.weekNumOffset !== undefined && this.weekNumOffset !=0) {
++			var wkNum = parseInt(rwkNum,10) + this.weekNumOffset;
++			rwkNum = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			rwkNum = rwkNum < 10 ? '0' + rwkNum : rwkNum;
++		}
++		if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++			rwkNum = (parseInt(rwkNum, 10) % this.weekModulusNum) + 1;
++			rwkNum = rwkNum < 10 ? '0' + rwkNum : rwkNum;
++		}
 +		var r1offset = rd1dayOfMon - (this.startOfWeek - 1);
 +		if (r1offset < 0) {r1offset += 7;}  //num of days of prev mon
 +		if(isLeapYear(year)) {
@@ -160,7 +337,7 @@ index 1bc0374..8399fec 100644
 +			left = leftmargin;
 +			top = (j * this.colHW) + this.topCor + 3; // 3 is for font correction
 +			this.mthctx[context].strokeText(txt, left, top);
-+			rwkNum = this.radvanceWk(rwkNum, month);
++			rwkNum = this.radvanceWk(rwkNum, month, year, maxwkn);
 +		}
 +		//iterate through the date rows
 +		var num = 1;
@@ -432,12 +609,13 @@ index 1bc0374..8399fec 100644
 +		} else if((rccount !== -1) && (recfreqTS !== -1)) {
 +			this.RMlast.recD = new Date(rcstTS + (recfreqTS*rcint*rccount));
 +		}
++		this.RMlast.recD.setHours(12); // set end to noon local to match start, UTC get's the right day
 +		var recHMDB = howManyDaysBetween(rcstD, this.RMlast.recD) +1;
 +		// detect recurr model
 +		switch (rcfrequency) {
 +			case 'DAILY' : // Do Not Localize
 +				// get how many intervals
-+				var rcdays = Math.floor((recHMDB*dlen) / (recfreqTS*rcint));
++				var rcdays = 1 + Math.floor((recHMDB*dlen) / (recfreqTS*rcint));
 +				for(var k=0; k < rcdays; k++) { // cycle through intervals
 +					this.recTS.push((dlen*k*rcint) + rcstTS);	
 +				}
@@ -468,7 +646,7 @@ index 1bc0374..8399fec 100644
 +				}
 +				//should be at the first day of the week after start day's week
 +				// need to get how many intervals until GetHowManyDays / 7*interval
-+				var rcwks = Math.floor((recHMDB*dlen) / (recfreqTS*rcint)); 
++				var rcwks = 1 + Math.floor((recHMDB*dlen) / (recfreqTS*rcint)); 
 +				for(var k=1; k <= rcwks; k++) { // cycle through intervals
 +					var rcwkSunTS = rcSundayTS + (rcint * recfreqTS * k);
 +					for(var i = 0; i < rci; i++) { // cycle through days of week
@@ -580,8 +758,29 @@ index 1bc0374..8399fec 100644
 +	
      setup: function(){
          //Mojo.Log.info("datetime-assistant:setup");
-         
-@@ -168,7 +672,40 @@ var DatetimeAssistant = Class.create({
+-        
++        this.weekModulusNum = 1;
++		this.weekNumOffset = 0;
++		this.weekCookie = new Mojo.Model.Cookie('WeekViewEnhanced');
++		if (this.weekCookie) {
++			var weekcookie = this.weekCookie.get();
++			if(weekcookie) {
++				if(weekcookie.weeknumoffset !== undefined) {
++						this.weekNumOffset = weekcookie.weeknumoffset;
++				} else {
++						this.weekNumOffset = 0;
++				}
++				if(weekcookie.weekmodulusnum !== undefined) {
++						this.weekModulusNum = weekcookie.weekmodulusnum;
++				} else {
++						this.weekModulusNum = 1;
++				}
++			}
++		}
+ 		this.appMenuModel= { visible:true, 
+             label: $L('Calendar'),
+ 							items: [ Mojo.Menu.editItem,
+@@ -168,7 +698,40 @@ var DatetimeAssistant = Class.create({
          this.startDateModel = {
              date: new Date(this.targetModifiedTime.start)
          };
@@ -596,7 +795,7 @@ index 1bc0374..8399fec 100644
 +        endDiv.style.marginTop = "-20px";
 +        endDiv.removeChild(endDiv.firstChild);
 +        endDiv.innerHTML = '<table width="100%"><tr><td width="10%"><div x-mojo-element="Button" id="popCanvasBtn" class="popCanvas"></div></td><td width="90%"><div class="title datetime-picker"><div id="edit_endDate" x-mojo-element="DatePicker"></div></div></td></tr></table>';
-+
++		var startdatePalmListDiv = this.controller.get("start_date_row").parentNode;
 +        var parentDiv = this.controller.get("datetime_view");
 +        var newDiv = this.controller.document.createElement("div");
 +        newDiv.setAttribute("id", "lDrawer");
@@ -616,13 +815,13 @@ index 1bc0374..8399fec 100644
 +				'<canvas id="right1" width="240" height="220"></canvas>' +
 +				'</div><div id="DPmonth_5" class="DPmv">' +
 +				'<canvas id="right2" width="280" height="220"></canvas></div></div></div>';
-+        parentDiv.insertBefore(newDiv, parentDiv.childNodes[9]);
++        parentDiv.insertBefore(newDiv, startdatePalmListDiv.nextSibling);
          
 +               
  	this.controller.setupWidget('edit_startDate',{label: $L('Date'),modelProperty:'date'}, this.startDateModel);
          this.controller.listen('edit_startDate', Mojo.Event.propertyChange, this.startDateCallback.bindAsEventListener(this));
          
-@@ -204,10 +741,133 @@ var DatetimeAssistant = Class.create({
+@@ -204,10 +767,133 @@ var DatetimeAssistant = Class.create({
          this.controller.setupWidget('dtl_allday_cb', this.allDayCheckboxAttribute, this.allDayCheckboxModel);
          
          this.updateTimedAllDay(false);
@@ -759,7 +958,7 @@ index 1bc0374..8399fec 100644
      checktargetEventDirty: function(){
          //construct rrule
  		if(this.targetEvent.rruleModel)
-@@ -431,12 +1091,47 @@ var DatetimeAssistant = Class.create({
+@@ -431,12 +1117,47 @@ var DatetimeAssistant = Class.create({
      },
      
      activate: function(){
@@ -811,7 +1010,7 @@ index 1bc0374..8399fec 100644
      	
  	//When the start date of the event is changed, WEEKLY:single day, WEEKLY:custom, MONTHLY repeating events 
  	//must update their rruleModel. DAILY, YEARLY, and WEEKLY:weekdays repeating events do not need to be changed.
-@@ -553,6 +1248,7 @@ var DatetimeAssistant = Class.create({
+@@ -553,6 +1274,7 @@ var DatetimeAssistant = Class.create({
              this.targetEvent.alldayReservedStartTimestamp = this.targetModifiedTime.start;
              this.targetEvent.alldayReservedEndTimestamp = this.targetModifiedTime.end;
          }
@@ -819,7 +1018,7 @@ index 1bc0374..8399fec 100644
      },
      
      endDateSet: function(isOnBack){
-@@ -642,8 +1338,10 @@ var DatetimeAssistant = Class.create({
+@@ -642,8 +1364,10 @@ var DatetimeAssistant = Class.create({
  				}
              }
              
@@ -831,7 +1030,7 @@ index 1bc0374..8399fec 100644
              this.targetModifiedTime.changed = true;
              if (this.datetimeoutID) {
                  this.controller.window.clearTimeout(this.datetimeoutID);
-@@ -751,6 +1449,7 @@ var DatetimeAssistant = Class.create({
+@@ -751,6 +1475,7 @@ var DatetimeAssistant = Class.create({
          this.controller.modelChanged(this.startTimeModel);
          this.controller.modelChanged(this.endTimeModel);
          this.targetModifiedTime.changed = false;
@@ -839,7 +1038,7 @@ index 1bc0374..8399fec 100644
          //Mojo.Log.info("Old event all day %o, new Event all day %o",this.oldEvent.allDay,this.allDayCheckboxModel);
          if (this.oldEvent.allDay != this.allDayCheckboxModel.value) {
          
-@@ -761,6 +1460,85 @@ var DatetimeAssistant = Class.create({
+@@ -761,6 +1486,85 @@ var DatetimeAssistant = Class.create({
          this.targetCallBack(this.targetEvent, null);
          
      },
@@ -857,7 +1056,7 @@ index 1bc0374..8399fec 100644
 +		var x = event.down.offsetX;
 +		var y = event.down.offsetY;
 +		//get rid of tap areas not in calendar day area
-+		if(x <= 30 || y <= 40 ) {
++		if(x <= 30 || y <= 40 || x>= 241) {
 +			this.rmcalHold = false;
 +			return;
 +		}
@@ -927,7 +1126,7 @@ index 1bc0374..8399fec 100644
  
  });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
-index 84263c0..1d55367 100644
+index 84263c0..4381545 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 @@ -11,8 +11,8 @@ var DayAssistant = Class.create({
@@ -941,24 +1140,49 @@ index 84263c0..1d55367 100644
  	                													 				
  											},											
  											{label:$L('Sync Now'), command:'sync', id: 2},
-@@ -20,8 +20,16 @@ var DayAssistant = Class.create({
+@@ -20,8 +20,41 @@ var DayAssistant = Class.create({
  											{label:$L('Jump to...'), command:'jumpto', id: 4},
  											{label:$L('Missed reminders...'), command:'reminders', id: 5},
  											{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, disabled: false},
-+											this.compressedMenuItem = {label:$L('Compressed View'), command:'compressed', chosen: true},
++											//this.compressedMenuItem = {label:$L('Compressed View'), command:'compressed', chosen: true},
  											{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
  								};
 +
 +		this.compressedView = false;
-+		var cookie = new Mojo.Model.Cookie('DayViewCompressed');
-+		if (cookie !== undefined) {
-+			this.compressedView = cookie.get();
++		this.enhancedView = false;
++		this.weekNumOffset = 0;
++		this.weekModulusNum = 1;
++		this.dayCookie = new Mojo.Model.Cookie('DayEnhanced');
++		if (this.dayCookie !== undefined) {
++			var daycookie = this.dayCookie.get();
++			if(daycookie !== undefined) {
++				if(daycookie.dayviewcompressed !== undefined) {
++					this.compressedView = daycookie.dayviewcompressed;
++				} else {
++					this.compressedView = false;
++				}
++				if(daycookie.dayviewenhanced !== undefined) {
++					this.enhancedView = daycookie.dayviewenhanced;
++				} else {
++					this.enhancedView = false;
++				}
++				if(daycookie.weeknumoffset !== undefined) {
++					this.weekNumOffset = daycookie.weeknumoffset;
++				} else {
++					this.weekNumOffset = 0;
++				}
++				if(daycookie.weekmodulusnum !== undefined) {
++					this.weekModulusNum = daycookie.weekmodulusnum;
++				} else {
++					this.weekModulusNum = 1;
++				}
++			}
 +		}
 +
  		this.colors = {
  				'cal-color-blue': 	{background: 'rgb(145, 211, 234)', border: 'rgb(99, 165, 188)',	text: 'rgb(5, 32, 41)'},
  				'cal-color-green': 	{background: 'rgb(140, 240, 140)', border: 'rgb(77, 206, 77)',	text: 'rgb(1, 52, 1)'},
-@@ -31,7 +39,7 @@ var DayAssistant = Class.create({
+@@ -31,7 +64,7 @@ var DayAssistant = Class.create({
  				'cal-color-pink': 	{background: 'rgb(245, 156, 188)', border: 'rgb(209, 104, 147)',text: 'rgb(40, 0, 0)'},
  				'cal-color-red': 	{background: 'rgb(255, 151, 151)', border: 'rgb(224, 98, 98)',	text: 'rgb(45, 8, 21)'},
  				'cal-color-purple': {background: 'rgb(217, 183, 255)', border: 'rgb(177, 128, 232)',text: 'rgb(38, 22, 56)'},
@@ -967,7 +1191,7 @@ index 84263c0..1d55367 100644
  			};
  			
  		this.PREV_DAY = 1;
-@@ -42,7 +50,9 @@ var DayAssistant = Class.create({
+@@ -42,7 +75,9 @@ var DayAssistant = Class.create({
  		this.pendingCalendarSettingsUpdate = false;
  		//this.pendingOpenScratchEventInDetails = false;
  		this.snapEffectCount = 0;
@@ -978,11 +1202,23 @@ index 84263c0..1d55367 100644
  		
  		this.hourHeight = 48;
  		this.halfHourHeight = 24;
-@@ -212,17 +222,23 @@ var DayAssistant = Class.create({
+@@ -211,18 +246,35 @@ var DayAssistant = Class.create({
+ 		
  	buildDayTitle: function(doScrim) {
  		var today = Date.today().clearTime();
++		var year = new Date(this.dayDate).getFullYear();
++		var maxwkn = new Date(year, 11, 31).getISO8601Week();
  		var dayDateNoTime = new Date(this.dayDate).clearTime();
 +		var weekNumber = new Date(this.dayDate).getISO8601Week();
++		if(this.weekNumOffset !== undefined && this.weekNumOffset !=0) {
++			var wkNum = parseInt(weekNumber,10) + this.weekNumOffset;
++			weekNumber = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			weekNumber = weekNumber < 10 ? '0' + weekNumber : weekNumber;
++		}
++		if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++			modNumber = (parseInt(weekNumber, 10) % this.weekModulusNum) + 1;
++			weekNumber = weekNumber + ' (' + modNumber +')';
++		}
  		
  		if (dayDateNoTime.compareTo(today) == 0) {
 -			var template = new Template($L("#{todayStr}, #{dateStr}"));
@@ -1004,7 +1240,7 @@ index 84263c0..1d55367 100644
  		}
  		
  		if (doScrim) {
-@@ -504,7 +520,7 @@ var DayAssistant = Class.create({
+@@ -504,7 +556,7 @@ var DayAssistant = Class.create({
  		return {left: left, top: top, width: width, height: height};
  	},
  
@@ -1013,7 +1249,7 @@ index 84263c0..1d55367 100644
  		var buf2;
  		var index=0;
  		
-@@ -702,6 +718,8 @@ var DayAssistant = Class.create({
+@@ -702,6 +754,8 @@ var DayAssistant = Class.create({
  		//Mojo.Log.info("day-assistant: renderEvent");
  		if (this.animating && !event.animatible)
  			return;
@@ -1022,7 +1258,7 @@ index 84263c0..1d55367 100644
  	
  		var ctx = this.divs[whichDay].ctxEvents;
  		var marginLeft = 28;
-@@ -743,7 +761,15 @@ var DayAssistant = Class.create({
+@@ -743,7 +797,15 @@ var DayAssistant = Class.create({
  		ctx.fillRect(left+1, top+height-3, width-2, 1);
  		
  		var textTop = top + 30;
@@ -1039,7 +1275,7 @@ index 84263c0..1d55367 100644
  		// Subject
  		ctx.fillStyle = this.colors[event.calendarColor].text;
  		if (selected)
-@@ -753,8 +779,27 @@ var DayAssistant = Class.create({
+@@ -753,8 +815,27 @@ var DayAssistant = Class.create({
  		var subjectTop = top+15;
  		if (bottom >= (top + height))
  			subjectTop = top+17;	// no room for location or note, therefore vertically center subject text
@@ -1069,7 +1305,7 @@ index 84263c0..1d55367 100644
  		// Location
  		if (event.location && (event.location.length > 0) && (textTop < (top + height))) {
  			ctx.font = "italic bold 14px Prelude";
-@@ -769,7 +814,7 @@ var DayAssistant = Class.create({
+@@ -769,7 +850,7 @@ var DayAssistant = Class.create({
  			bottom = top+height;
  			this.fillText(event.note, ctx, left+4, textTop-2, width, bottom-2, 12 /*line height*/);			
  		}
@@ -1078,7 +1314,7 @@ index 84263c0..1d55367 100644
  		if (ghost) {
  			var selectedColor = "rgba(228, 228, 226, 0.85)"
  			ctx.fillStyle = selectedColor;
-@@ -789,6 +834,13 @@ var DayAssistant = Class.create({
+@@ -789,6 +870,13 @@ var DayAssistant = Class.create({
  		  ctx.fillRect(left, top, width, height);
  		}
  	},
@@ -1092,7 +1328,7 @@ index 84263c0..1d55367 100644
  	
  	getAllDayDimensions: function(index, event) {
  		var marginLeft = 4;
-@@ -822,13 +874,41 @@ var DayAssistant = Class.create({
+@@ -822,13 +910,41 @@ var DayAssistant = Class.create({
  					   dim.top, 
  					   dim.width, 
  					   this.colors[event.calendarColor].allday.syCenter);
@@ -1135,7 +1371,7 @@ index 84263c0..1d55367 100644
  		
  		if (selected) {
  			var selectedColor = "rgba(4, 4, 4, 0.5)"
-@@ -837,14 +917,39 @@ var DayAssistant = Class.create({
+@@ -837,14 +953,39 @@ var DayAssistant = Class.create({
  		}
  	},
  	
@@ -1155,7 +1391,7 @@ index 84263c0..1d55367 100644
  		day.events = day.events.sortBy(function(e) { return e.start_decimal; })
  		day.busyTimes = day.busyTimes.sortBy(function(b) { return b.start_decimal; })
  
-+		if (this.compressedView) {
++		if (this.compressedView && this.enhancedView) {
 +			if (day.events.length == 0) {
 +				day.freeTimes.push({start_decimal: 0, end_decimal: 2400, duration: 2400});
 +			} else {
@@ -1176,7 +1412,7 @@ index 84263c0..1d55367 100644
  		day.animationTop = 0;
  		
  		var compressDelta = 0;
-@@ -1556,10 +1661,31 @@ var DayAssistant = Class.create({
+@@ -1556,10 +1697,31 @@ var DayAssistant = Class.create({
  		this.dvScratchEventsDiv = this.controller.get('dv_scratch_events');
  		this.scratchEventActive = false;
  		this.scratchEvent = null;
@@ -1210,7 +1446,7 @@ index 84263c0..1d55367 100644
  		this.firstActivated = true;
  		
  		this.buildViewHeader();
-@@ -1824,17 +1950,20 @@ var DayAssistant = Class.create({
+@@ -1824,17 +1986,20 @@ var DayAssistant = Class.create({
  		this.menuModel = {
  			visible:true,
  			items: [
@@ -1229,12 +1465,12 @@ index 84263c0..1d55367 100644
  					]};
 -			
 +
-+		this.compressedMenuItem.chosen = this.compressedView;
++		//this.compressedMenuItem.chosen = this.compressedView;
 +
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		this.remindersUpdated(); 	// Update missed reminders menu item
-@@ -1854,6 +1983,9 @@ var DayAssistant = Class.create({
+@@ -1854,6 +2019,9 @@ var DayAssistant = Class.create({
  		this.controller.setupWidget(this.divs[this.PREV_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
  		this.controller.setupWidget(this.divs[this.NEXT_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
  
@@ -1244,7 +1480,7 @@ index 84263c0..1d55367 100644
     		this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
  		
  		// IMPORTANT: Set up the height of the scrollers.  If this is not done
-@@ -2008,6 +2140,7 @@ var DayAssistant = Class.create({
+@@ -2008,6 +2176,7 @@ var DayAssistant = Class.create({
  		// Find all the EAS accounts if there are any
  		this.easAccountIds = null;
  		response.list.each(function(acct){
@@ -1252,7 +1488,7 @@ index 84263c0..1d55367 100644
  			//Mojo.Log.info("acct domain %s", acct.domain);
  			if (acct.domain == 'eas') {
  				// Keep track of the list of eas accounts for Sync Accounts button
-@@ -2075,11 +2208,11 @@ var DayAssistant = Class.create({
+@@ -2075,11 +2244,11 @@ var DayAssistant = Class.create({
  				this.maybeCommitScratchEvent();
  			} else if(event.command =="newtimed"){
  				Event.stop(event);
@@ -1266,21 +1502,21 @@ index 84263c0..1d55367 100644
  				this.maybeCommitScratchEvent();
  			} else if(event.command == Mojo.Menu.helpCmd){
  				this.maybeCommitScratchEvent(true);
-@@ -2087,6 +2220,13 @@ var DayAssistant = Class.create({
+@@ -2087,6 +2256,13 @@ var DayAssistant = Class.create({
  			} else if (event.command == 'jumpto') {
  				Event.stop(event);
  				this.showJumpTo(); // this may also commit the scratch event
-+			} else if (event.command == 'compressed') {
-+				Event.stop(event);
-+				this.compressedView = !this.compressedView;
-+				var cookie = new Mojo.Model.Cookie('DayViewCompressed');
-+				cookie.put(this.compressedView);
-+				this.compressedMenuItem.chosen = this.compressedView;
-+				this.controller.modelChanged(this.appMenuModel);
++			//} else if (event.command == 'compressed') {
++			//	Event.stop(event);
++			//	this.compressedView = !this.compressedView;
++			//	var cookie = new Mojo.Model.Cookie('DayViewCompressed');
++			//	cookie.put(this.compressedView);
++			//	this.compressedMenuItem.chosen = this.compressedView;
++			//	this.controller.modelChanged(this.appMenuModel);
  			} else if (event.command == 'reminders') {
  				Event.stop(event);
  				this.maybeCommitScratchEvent();
-@@ -2095,15 +2235,27 @@ var DayAssistant = Class.create({
+@@ -2095,15 +2271,27 @@ var DayAssistant = Class.create({
  				Event.stop(event);
  				this.maybeCommitScratchEvent(true);
  				this.syncAllCalendars();
@@ -1312,7 +1548,7 @@ index 84263c0..1d55367 100644
  		}
  			
  	},
-@@ -2406,7 +2558,12 @@ var DayAssistant = Class.create({
+@@ -2406,7 +2594,12 @@ var DayAssistant = Class.create({
  		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
      	//Mojo.Log.info("handleKeyUp detected ORANGE key");
  			this.orangeKeyDown = false;
@@ -1326,7 +1562,7 @@ index 84263c0..1d55367 100644
  	},
  	
  	handleKeyDown: function(event) {
-@@ -2414,7 +2571,12 @@ var DayAssistant = Class.create({
+@@ -2414,7 +2607,12 @@ var DayAssistant = Class.create({
  		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
      	//Mojo.Log.info("handleKeyDown detected ORANGE key");
  			this.orangeKeyDown = true;
@@ -1340,7 +1576,26 @@ index 84263c0..1d55367 100644
  	},
  	
  	updateSceneScrollerSize: function(event) {
-@@ -2941,6 +3103,18 @@ var DayAssistant = Class.create({
+@@ -2865,14 +3063,14 @@ var DayAssistant = Class.create({
+ 	
+ 	handleAllDayTap: function(index, event) {
+ 		this.deletedeventId = undefined;
+-		if (this.orangeKeyDown == true) {
++		if (this.metaKeyDown == true) {
+ 			// Confirm with the user they want to delete the event
+ 			this.eventToBeDeleted = event;
+ 			this.allDayEventToBeDeletedIndex = index;
+ 			this.deletedeventId = event.id;
+-			// Reset the orangeKeyDown to handle the case the user lets go
+-			// of the Orange key when the Delete confirmation dialog is up
+-			this.orangeKeyDown = false;
++			// Reset the metaKeyDown to handle the case the user lets go
++			// of the meta key when the Delete confirmation dialog is up
++			this.metaKeyDown = false;
+ 			getCalendarService().getEvent(event.id, this.gotEventInlineDelete.bind(this),this.gotEventInlineDeleteFailed.bind(this), this.controller);
+ 		} else {
+ 			// Show the Event Details for the tapped all day event
+@@ -2941,6 +3139,18 @@ var DayAssistant = Class.create({
  			getReminderManager().removeReminder(this.deletedeventId);
  	},
  	
@@ -1359,18 +1614,35 @@ index 84263c0..1d55367 100644
  	handleEventsTap: function(event, tapEvent) {
  		//Mojo.Log.info("day-assistant: handleEventsTap event_being_held " + Object.toJSON(this.event_being_held));
  		
-@@ -2979,6 +3153,29 @@ var DayAssistant = Class.create({
- 				this.orangeKeyDown = false;
+@@ -2967,18 +3177,41 @@ var DayAssistant = Class.create({
+ 				}
+ 			}
+ 		} else {
+-			if (this.orangeKeyDown == true) {
++			if (this.metaKeyDown == true) {
+ 				// Confirm with the user they want to delete the event
+-				//Mojo.Log.info("handleEventsTap: Orange key + tap = Delete event " + Object.toJSON(event));
++				//Mojo.Log.info("handleEventsTap: meta key + tap = Delete event " + Object.toJSON(event));
+ 				// Retrieve the event from the calendar service so we can figure
+ 				// out whether it's recurring or not
+ 				this.eventToBeDeleted = event;
+ 				this.deletedeventId = event.id;
+-				// Reset the orangeKeyDown to handle the case the user lets go
+-				// of the Orange key when the Delete confirmation dialog is up
+-				this.orangeKeyDown = false;
++				// Reset the metaKeyDown to handle the case the user lets go
++				// of the meta key when the Delete confirmation dialog is up
++				this.metaKeyDown = false;
  				getCalendarService().getEvent(event.id, this.gotEventInlineDelete.bind(this),this.gotEventInlineDeleteFailed.bind(this), this.controller);
  			} else {
-+				if (this.metaKeyDown == true) {
++				if (this.orangeKeyDown == true) {
 +					//create new from old
 +					var start = new Date();
 +					start.set({	minute: 0, second: 0, millisecond: 0 });
 +					var startTS = start.getTime(); //set it up on today's current hour
 +					var duration = event.end - event.start;
 +					var endTS = startTS + duration;
-+					this.metaKeyDown = false;
++					this.orangeKeyDown = false;
 +					var tfParams = {
 +								subject: event.subject,
 +								allday: false,
@@ -1389,7 +1661,7 @@ index 84263c0..1d55367 100644
  				this.controller.stageController.pushScene('edit', 
  													  event.id, 
  													  new Date(event.startTimestamp), 
-@@ -2987,6 +3184,7 @@ var DayAssistant = Class.create({
+@@ -2987,6 +3220,7 @@ var DayAssistant = Class.create({
  													  event.subject, 
  													  false, 
  													  this.updatingEventHandler);
@@ -1397,7 +1669,7 @@ index 84263c0..1d55367 100644
  			}
  		}
  	},
-@@ -3182,6 +3380,7 @@ var DayAssistant = Class.create({
+@@ -3182,6 +3416,7 @@ var DayAssistant = Class.create({
  			this.event_being_dragged = this.controller.get("dragging_event");
  			// Keep track of the initial hit point
  			this.dragLastPointY = event.down.y;
@@ -1405,7 +1677,7 @@ index 84263c0..1d55367 100644
  			Event.stop(event);
  			return Mojo.Gesture.CONSUMED_EVENT;
  		}
-@@ -3197,6 +3396,21 @@ var DayAssistant = Class.create({
+@@ -3197,6 +3432,21 @@ var DayAssistant = Class.create({
  		return newTop;
  	},
  	
@@ -1427,7 +1699,7 @@ index 84263c0..1d55367 100644
  	handleEventsDragging: function(event) {
  		//Mojo.Log.info("day-assistant handleEventsDragging");
  		if (this.event_being_dragged) {
-@@ -3213,6 +3427,15 @@ var DayAssistant = Class.create({
+@@ -3213,6 +3463,15 @@ var DayAssistant = Class.create({
  				this.dragLastPointY = pointerY;
  			}
  		
@@ -1443,7 +1715,7 @@ index 84263c0..1d55367 100644
  			return Mojo.Gesture.CONSUMED_EVENT;
  		}
  	},
-@@ -3362,31 +3585,43 @@ var DayAssistant = Class.create({
+@@ -3362,31 +3621,43 @@ var DayAssistant = Class.create({
  		//Mojo.Log.info("day-assistant handleEventsDragEnd");
  		
  		if (this.event_being_dragged) {
@@ -1512,7 +1784,7 @@ index 84263c0..1d55367 100644
  	},
  	
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
-index 9ba9c70..37be245 100644
+index 9ba9c70..1188336 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 @@ -8,6 +8,7 @@ var EditAssistant = Class.create({
@@ -1606,7 +1878,37 @@ index 9ba9c70..37be245 100644
  					 ]
  					}
  		};
-@@ -664,22 +721,33 @@ var EditAssistant = Class.create({
+@@ -512,7 +569,8 @@ var EditAssistant = Class.create({
+ 			modelProperty: 'location',
+ 			hintText: $L('Event location'),
+ 			acceptBack:true,
+-			runTextLinker:true
++			runTextLinker:true,
++			multiline: true
+ 	
+ 		};
+ 		 this.locationmodel = {
+@@ -644,6 +702,19 @@ var EditAssistant = Class.create({
+ 		if (this.eventCalendarId) {
+ 			this.updateContentCalendarType(this.eventCalendarId.sub('id',''));
+ 		}
++		if (!this.isReadOnlyEvent) {
++			this.controller.setupWidget(Mojo.Menu.commandMenu,
++				this.attrCommand = {
++					menuClass: 'fade'
++				},
++				this.modelCommand = {
++					visible: true,
++					items: [
++					{icon: "make-vip", command: 'toggle_participantrow'},
++					{icon: "delete", command:'deleteEvent'}]
++				}
++			);
++		}
+ 	 },
+ 	 
+ 	 setUpWidgetListeners: function(){
+@@ -664,22 +735,35 @@ var EditAssistant = Class.create({
  	 },
  	 handleCommand: function(event) {
  		if(event.type == Mojo.Event.command) {
@@ -1651,16 +1953,27 @@ index 9ba9c70..37be245 100644
 +					getAppManagerService().launchMaps(this.controller,this.targetEvent.location,false);
 +				}else if(event.command == 'direction'){
 +					getAppManagerService().launchMaps(this.controller,this.targetEvent.location,true);								
++				}else if(event.command == 'toggle_participantrow'){
++					this.controller.get('edit_participantrow').toggle();
 +				}
 +			} catch (e) {}
  		}
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
  			// Enable prefs menuitem for this scene.
+@@ -1100,7 +1184,7 @@ var EditAssistant = Class.create({
+ 
+ 	alarmChoose: function(val) {
+ 		
+-		var value = parseInt(val);
++		var value = parseInt(val, 10);
+ 		this.selectedAlarmOption = value;
+ 		if (val != undefined) {
+ 			if (value == 999) {
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
-index 747fcb3..8975b88 100644
+index 747fcb3..11060b4 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
-@@ -5,29 +5,66 @@ var MONTH_DAY_ID_FORMAT = 'MMMM dd yyyy';	// IMPORTANT: DO NOT LOCALIZE!
+@@ -5,29 +5,91 @@ var MONTH_DAY_ID_FORMAT = 'MMMM dd yyyy';	// IMPORTANT: DO NOT LOCALIZE!
  var MonthAssistant = Class.create({
  				
  	reminderMenuItemId: 3,
@@ -1680,29 +1993,54 @@ index 747fcb3..8975b88 100644
  						{label:$L('Jump to...'), command:'jumpto', id: 2},
  						{label:$L('Missed reminders...'), command:'reminders', id: 3},
  						{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, checkEnabled: true},
-+						this.enhancedMenuItem = {label:$L('Enhanced View'), command:'enhanced', chosen: true},
++						//this.enhancedMenuItem = {label:$L('Enhanced View'), command:'enhanced', chosen: true},
  						{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}
  					]
  				};
  				
  		this.scrollerModel = { scrollbars: false, mode: "vertical-snap", snapIndex: 0, snapElements: { y: [] } };
 +		this.enhancedView = false;
++		this.monthAllDayColors = false;
 +		this.updateFromScroll = false;
-+		var cookie = new Mojo.Model.Cookie('MonthViewEnhanced');
-+		if (cookie !== undefined) {
-+			this.enhancedView = cookie.get();
++		this.weekNumOffset = 0;
++		this.weekModulusNum = 1;
++		this.monthCookie = new Mojo.Model.Cookie('MonthViewEnhanced');
++		if (this.monthCookie) {
++			var monthcookie = this.monthCookie.get();
++			if(monthcookie) {
++				if(monthcookie.monthalldaycolors !== undefined) {
++					this.monthAllDayColors = monthcookie.monthalldaycolors;
++				} else {
++					this.monthAllDayColors = false;
++				}
++				if(monthcookie.monthviewenhanced !== undefined) {
++					this.enhancedView = monthcookie.monthviewenhanced;
++				} else {
++					this.enhancedView = false;
++				}
++				if(monthcookie.weeknumoffset !== undefined) {
++						this.weekNumOffset = monthcookie.weeknumoffset;
++				} else {
++						this.weekNumOffset = 0;
++				}
++				if(monthcookie.weekmodulusnum !== undefined) {
++						this.weekModulusNum = monthcookie.weekmodulusnum;
++				} else {
++						this.weekModulusNum = 1;
++				}
++			}
 +		}
  	},
 +
-+	colors: {"cal-color-blue": "rgba(145,211,234,0.5)",
-+		"cal-color-green": "rgba(140,240,140,0.5)",
-+		"cal-color-yellow": "rgba(232,227,124,0.5)",
-+		"cal-color-gray": "rgba(194,194,194,0.5)",
-+		"cal-color-orange": "rgba(251,180,116,0.5)",
-+		"cal-color-pink": "rgba(245,156,188,0.5)",
++	colors: {"cal-color-blue": "rgba(145,211,234,0.4)",
++		"cal-color-green": "rgba(140,240,140,0.4)",
++		"cal-color-yellow": "rgba(232,227,124,0.4)",
++		"cal-color-gray": "rgba(194,194,194,0.4)",
++		"cal-color-orange": "rgba(251,180,116,0.4)",
++		"cal-color-pink": "rgba(245,156,188,0.4)",
 +		"cal-color-red": "rgba(255,151,151,0.4)",
-+		"cal-color-purple": "rgba(217,183,255,0.5)",
-+		"cal-color-teal": "rgba(114,223,210,0.5)"},
++		"cal-color-purple": "rgba(217,183,255,0.4)",
++		"cal-color-teal": "rgba(114,223,210,0.4)"},
 +
 +	placements: {"0": "top left",
 +		"1": "top center",
@@ -1728,22 +2066,44 @@ index 747fcb3..8975b88 100644
  	buildViewHeader: function() 
  	{
  		//Mojo.Log.info("month-assistant: buildViewHeader");
-@@ -37,7 +74,13 @@ var MonthAssistant = Class.create({
+@@ -37,7 +99,35 @@ var MonthAssistant = Class.create({
  	
  	buildMonthTitle: function() 
  	{
 -		this.mvTitle.innerText = Mojo.Format.formatDate(this.monthDate, $L("MMM yyyy")); // Localize this date format string
 +		var wn = new Date(this.monthDate);
 +		wn.setDate(1);
-+		var firstWeek = wn.getISO8601Week();	
++		var year = wn.getFullYear;
++		var maxwkn = new Date(year, 11, 31).getISO8601Week();
++		var firstWeek = wn.getISO8601Week();
++		if(this.weekNumOffset !== undefined && this.weekNumOffset !=0) {
++			var wkNum = parseInt(firstWeek,10) + this.weekNumOffset;
++			firstWeek = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			firstWeek = firstWeek < 10 ? '0' + firstWeek : firstWeek;
++		}
++		//if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++		//	firstWeek = (parseInt(firstWeek, 10) % this.weekModulusNum) + 1;
++		//	firstWeek = firstWeek < 10 ? '0' + firstWeek : firstWeek;
++		//}
 +		wn.setMonth(wn.getMonth()+1);
 +		wn.setDate(wn.getDate()-1);
++		var year = wn.getFullYear;
++		var maxwkn = new Date(year, 11, 31).getISO8601Week();
 +		var lastWeek = wn.getISO8601Week();
++		if(this.weekNumOffset !== undefined && this.weekNumOffset !=0) {
++			var wkNum = parseInt(lastWeek,10) + this.weekNumOffset;
++			lastWeek = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			lastWeek = lastWeek < 10 ? '0' + lastWeek : lastWeek;
++		}
++		//if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++		//	lastWeek = (parseInt(lastWeek, 10) % this.weekModulusNum) + 1;
++		//	lastWeek = lastWeek < 10 ? '0' + lastWeek : lastWeek;
++		//}
 +		this.mvTitle.innerText = Mojo.Format.formatDate(this.monthDate, $L("MMM yyyy")) + ", " + $L("Week") + " " + firstWeek + "-" + lastWeek; // Localize this date format string
    	},
  
   	buildDayHeader: function() {
-@@ -161,9 +204,18 @@ var MonthAssistant = Class.create({
+@@ -161,9 +251,18 @@ var MonthAssistant = Class.create({
  			// Don't set CSS if the value is the same.  You'd think this wouldn't do anything
  			// but WebKit considers all attribute changes to have potential side effects - so this
  			// does much damage to performance and is best avoided
@@ -1751,18 +2111,33 @@ index 747fcb3..8975b88 100644
  			for (var i = 0; i < 3; i++)
  			{
  				var cn = ochild.className;
-+				if (this.updateFromScroll && this.enhancedView) {
++			/*	if (this.updateFromScroll && this.enhancedView) {
 +					if (!ochild.style || (ochild.style.length == 0)) {
 +						child.style.backgroundColor = "";
 +					} else if (ochild.style.length > 0) {
 +						var bgcolor = ochild.style.backgroundColor;
 +						child.style.backgroundColor = bgcolor;
 +					}
-+				}
++				} */
  				if (child.className != cn) 
  				{
  					child.className = cn;
-@@ -181,11 +233,22 @@ var MonthAssistant = Class.create({
+@@ -171,6 +270,14 @@ var MonthAssistant = Class.create({
+ 				child = child.nextSibling;
+ 				ochild = ochild.nextSibling;
+ 			}
++			if (this.updateFromScroll && this.enhancedView && this.monthAllDayColors) {
++					if (!oday.style || (oday.style.length == 0)) {
++						day.style.backgroundColor = "";
++					} else if (oday.style.length > 0) {
++						var bgcolor = oday.style.backgroundColor;
++						day.style.backgroundColor = bgcolor;
++					}
++				}
+ 			child.innerText = thisday;
+ 			
+ 			var cls = 'day ' + (thisday <= 7 ? this._days[thisday - 1] : '');
+@@ -181,11 +288,22 @@ var MonthAssistant = Class.create({
  					cls += ' weekend';
  				}
  			}
@@ -1786,7 +2161,7 @@ index 747fcb3..8975b88 100644
  			// Move the day forwards, allowing for month endings
  			if (thisday < mday.limit)
  			{
-@@ -227,10 +290,17 @@ var MonthAssistant = Class.create({
+@@ -227,10 +345,17 @@ var MonthAssistant = Class.create({
  			var child = day.firstChild;
  			var ochild = oday.firstChild;
  			var thisday = mday.day;
@@ -1794,18 +2169,33 @@ index 747fcb3..8975b88 100644
  			for (var i = 0; i < 3; i++)
  			{
  				var cn = ochild.className;
-+				if (this.updateFromScroll && this.enhancedView) {
++			/*	if (this.updateFromScroll && this.enhancedView) {
 +					if (!ochild.style || (ochild.style.length == 0)) {
 +						child.style.backgroundColor = "";
 +					} else if (ochild.style.length > 0) {
 +						var bgcolor = ochild.style.backgroundColor;
 +						child.style.backgroundColor = bgcolor;
 +					}
-+				}
++				}	*/
  				if (child.className != cn) 
  				{
  					child.className = cn;
-@@ -248,6 +318,17 @@ var MonthAssistant = Class.create({
+@@ -238,6 +363,14 @@ var MonthAssistant = Class.create({
+ 				child = child.nextSibling;
+ 				ochild = ochild.nextSibling;
+ 			}
++			if (this.updateFromScroll && this.enhancedView && this.monthAllDayColors) {
++				if (!oday.style || (oday.style.length == 0)) {
++					day.style.backgroundColor = "";
++				} else if (oday.style.length > 0) {
++					var bgcolor = oday.style.backgroundColor;
++					day.style.backgroundColor = bgcolor;
++				}
++			}
+ 			child.innerText = thisday;
+ 			
+ 			var cls = 'day ' + (thisday <= 7 ? this._days[thisday - 1] : '');
+@@ -248,6 +381,17 @@ var MonthAssistant = Class.create({
  					cls += ' weekend';
  				}
  			}
@@ -1823,7 +2213,7 @@ index 747fcb3..8975b88 100644
  			if (day.className != cls) 
  			{
  				day.className = cls;
-@@ -308,6 +389,7 @@ var MonthAssistant = Class.create({
+@@ -308,6 +452,7 @@ var MonthAssistant = Class.create({
  			var mday = { day: date.getDate(), limit: 0, month: date.getMonth() };
  			mday.limit = this._monthDays[mday.month];
  			mday.dayOfWeek = date.getDay();
@@ -1831,7 +2221,7 @@ index 747fcb3..8975b88 100644
  		
  			for (r = 0; r < 18 - wdiff; r++) 
  			{
-@@ -324,6 +406,7 @@ var MonthAssistant = Class.create({
+@@ -324,6 +469,7 @@ var MonthAssistant = Class.create({
  			var mday = { day: date.getDate(), limit: 0, month: date.getMonth() };
  			mday.limit = this._monthDays[mday.month];
  			mday.dayOfWeek = date.getDay();
@@ -1839,7 +2229,7 @@ index 747fcb3..8975b88 100644
  		
  			for (r = 17; r > -wdiff; r--)
  			{
-@@ -340,6 +423,7 @@ var MonthAssistant = Class.create({
+@@ -340,6 +486,7 @@ var MonthAssistant = Class.create({
  			var mday = { day: date.getDate(), limit: 0, month: date.getMonth() };
  			mday.limit = this._monthDays[mday.month];
  			mday.dayOfWeek = date.getDay();
@@ -1847,7 +2237,7 @@ index 747fcb3..8975b88 100644
  		
  			for (var r = 0; r < 18; r++) 
  			{
-@@ -362,23 +446,40 @@ var MonthAssistant = Class.create({
+@@ -362,23 +509,40 @@ var MonthAssistant = Class.create({
  		var weekCell = this._months.rows[0];
  		var dayCell = weekCell.cells[0];
  		
@@ -1859,7 +2249,7 @@ index 747fcb3..8975b88 100644
  			var day = this._token2state(days.charCodeAt(d));
 -			
 +			var bgcolor = "";
-+			if (this.enhancedView) {
++			if (this.enhancedView && this.monthAllDayColors) {
 +				var bgcolor = "";
 +				for (var k=0; k<this.fullEvts[d].allDayEvents.length; k++)
 +				{
@@ -1869,31 +2259,31 @@ index 747fcb3..8975b88 100644
 +					}
 +					else if (bgcolor != this.colors[this.fullEvts[d].allDayEvents[k].calendarColor])
 +					{
-+						bgcolor = "rgba(169,169,169,0.5)";
++						bgcolor = "rgba(169,169,169,0.4)";
 +						break;
 +					}
 +				}
 +			}
-+
++			if(this.monthAllDayColors) {dayCell.style.backgroundColor = bgcolor; }
  			var child = dayCell.firstChild;
 -			var cls;
  			for (var i = 1; i < 8; i <<= 1)
  			{
 -				if (day & (i << 3)) 
-+				child.style.backgroundColor = bgcolor;
++				//child.style.backgroundColor = bgcolor;
 +				if (day & (i << 3))
  				{
 -					cls = "monthview-busy-time " + calStyle;
-+					cls = "monthview-partly-busy-time " + calStyle;
++					cls = ((child.offsetHeight > 12) ? "monthview-partly-busy-time " : "monthview-partly-busy-time-pixi ") + calStyle;
  				}
  				else if (day & i) 
  				{
 -					cls = "monthview-busy-time";
-+					cls = "monthview-partly-busy-time";
++					cls = (child.offsetHeight > 12) ? "monthview-partly-busy-time" : "monthview-partly-busy-time-pixi";
  				}
  				else 
  				{
-@@ -390,7 +491,23 @@ var MonthAssistant = Class.create({
+@@ -390,7 +554,23 @@ var MonthAssistant = Class.create({
  				}
  				child = child.nextSibling;
  			}
@@ -1918,7 +2308,7 @@ index 747fcb3..8975b88 100644
  			// Advance the dayCell
  			if (d % 7 == 6) 
  			{
-@@ -404,6 +521,52 @@ var MonthAssistant = Class.create({
+@@ -404,6 +584,52 @@ var MonthAssistant = Class.create({
  			}
  		}
  	},
@@ -1971,7 +2361,7 @@ index 747fcb3..8975b88 100644
  	
   	buildDays: function() 
  	{
-@@ -637,11 +800,16 @@ var MonthAssistant = Class.create({
+@@ -637,11 +863,16 @@ var MonthAssistant = Class.create({
          this.menuModel = 
          {
              visible: true,
@@ -1989,7 +2379,7 @@ index 747fcb3..8975b88 100644
                  {
                      label: $L('Day'),
                      icon: 'menu-day',
-@@ -657,14 +825,19 @@ var MonthAssistant = Class.create({
+@@ -657,14 +888,19 @@ var MonthAssistant = Class.create({
                      icon: 'menu-month',
                      command: 'month'
                  }]
@@ -1998,7 +2388,7 @@ index 747fcb3..8975b88 100644
          };
  		
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
-+		this.enhancedMenuItem.chosen = this.enhancedView;
++		//this.enhancedMenuItem.chosen = this.enhancedView;
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		this.remindersUpdated(); 	// Update missed reminders menu item
  		
@@ -2010,7 +2400,7 @@ index 747fcb3..8975b88 100644
    	},
    
  	showJumpTo: function() {
-@@ -715,6 +888,12 @@ var MonthAssistant = Class.create({
+@@ -715,6 +951,12 @@ var MonthAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Event.stop(event);
  				this.controller.stageController.pushScene('prefs');
@@ -2023,17 +2413,17 @@ index 747fcb3..8975b88 100644
  			}else if(event.command == Mojo.Menu.helpCmd){
  				getAppManagerService().launchHelp(this.controller);
  			} else if (event.command == 'sync') {
-@@ -726,9 +905,26 @@ var MonthAssistant = Class.create({
+@@ -726,9 +968,26 @@ var MonthAssistant = Class.create({
  			}else if (event.command == 'jumpto') {
  				Event.stop(event);
  				this.showJumpTo();
-+			} else if (event.command == 'enhanced') {
-+				Event.stop(event);
-+				this.enhancedView = !this.enhancedView;
-+				var cookie = new Mojo.Model.Cookie('MonthViewEnhanced');
-+				cookie.put(this.enhancedView);
-+				this.enhancedMenuItem.chosen = this.enhancedView;
-+				this.controller.modelChanged(this.appMenuModel);
++			//} else if (event.command == 'enhanced') {
++			//	Event.stop(event);
++			//	this.enhancedView = !this.enhancedView;
++			//	var cookie = new Mojo.Model.Cookie('MonthViewEnhanced');
++			//	cookie.put(this.enhancedView);
++			//	this.enhancedMenuItem.chosen = this.enhancedView;
++			//	this.controller.modelChanged(this.appMenuModel);
  			} else if (event.command == 'reminders') {
  				Event.stop(event);
  				this.controller.stageController.pushScene('reminder-list');
@@ -2050,7 +2440,7 @@ index 747fcb3..8975b88 100644
  			}				
  		}
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
-@@ -788,6 +984,7 @@ var MonthAssistant = Class.create({
+@@ -788,6 +1047,7 @@ var MonthAssistant = Class.create({
  			DayAssistant.dayCache = new Hash();
  			DayAssistant.cacheSubscribed = new Hash();
  			this.pendingCalendarSettingsUpdate = false;
@@ -2058,7 +2448,7 @@ index 747fcb3..8975b88 100644
  		}
  	},
  
-@@ -935,7 +1132,31 @@ var MonthAssistant = Class.create({
+@@ -935,7 +1195,31 @@ var MonthAssistant = Class.create({
  			DayAssistant.cacheSize = 0;
  			DayAssistant.dayCache = new Hash();
  			DayAssistant.cacheSubscribed = new Hash();
@@ -2091,7 +2481,7 @@ index 747fcb3..8975b88 100644
  	
  	// ** MENU **
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
-index cebe803..8f687e6 100644
+index cebe803..230bfc8 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 @@ -3,7 +3,7 @@
@@ -2099,11 +2489,35 @@ index cebe803..8f687e6 100644
  var ONE_HOUR = $L("1 hour");
  var TWO_HOURS = $L("2 hours");
 -var numTimedAlarm = 7;		
-+var numTimedAlarm = 42; //7;		
++var numTimedAlarm = 42;	
  var PrefsAssistant = Class.create({
  				 
  	initialize: function() {
-@@ -189,19 +189,21 @@ var PrefsAssistant = Class.create({
+@@ -43,12 +43,20 @@ var PrefsAssistant = Class.create({
+ 	renderNewEventDuration: function() {
+ 		var ned = {};
+ 		
+-		if (this.prefs.defaultEventDuration == 30) {
++		if (this.prefs.defaultEventDuration <= 30) {
+ 			ned.duration = THIRTY_MINUTES;
+-		} else if (this.prefs.defaultEventDuration == 60) {
++		} else if (this.prefs.defaultEventDuration <= 60) {
+ 			ned.duration = ONE_HOUR;
+-		} else {
++		} else if (this.prefs.defaultEventDuration <= 90) {
++			ned.duration = "90 minutes";
++		} else if (this.prefs.defaultEventDuration <= 120) {
+ 			ned.duration = TWO_HOURS;
++		} else if (this.prefs.defaultEventDuration <= 180) {
++			ned.duration = "3 hours";
++		} else if (this.prefs.defaultEventDuration <= 240) {
++			ned.duration = "4 hours";
++		} else {
++			ned.duration = "8 hours";
+ 		}
+ 		
+ 		this.controller.get('pv_new_event_duration').update(ned.duration);
+@@ -189,19 +197,21 @@ var PrefsAssistant = Class.create({
  	
  	getCurrentAllDayAlarmString: function() {
  		var index = 0;
@@ -2128,7 +2542,7 @@ index cebe803..8f687e6 100644
  		for (index = 0; index < this.alarms.size() + this.allDayAlarms.size() - 1; index++) {
  			alarmStr = response[index];
  			
-@@ -234,6 +236,7 @@ var PrefsAssistant = Class.create({
+@@ -234,6 +244,7 @@ var PrefsAssistant = Class.create({
  	
  	buildAlarmsMenu: function() {
  		//Mojo.Log.info('prefs-assistant: buildAlarmsMenu');
@@ -2136,7 +2550,7 @@ index cebe803..8f687e6 100644
  		var params =[this.alarms[0].command, 
  					 this.alarms[1].command, 
  					 this.alarms[2].command,
-@@ -247,7 +250,14 @@ var PrefsAssistant = Class.create({
+@@ -247,7 +258,14 @@ var PrefsAssistant = Class.create({
  					 this.allDayAlarms[2].command,
  					 this.allDayAlarms[3].command,
  					 this.allDayAlarms[4].command];
@@ -2152,35 +2566,125 @@ index cebe803..8f687e6 100644
  		/*this.request = new Mojo.Service.Request(CalendarMojoService.identifier + '/formatter', {
  			method: 'formatAlarmStrings',
  			parameters: params,
-@@ -377,6 +387,113 @@ var PrefsAssistant = Class.create({
+@@ -377,6 +395,543 @@ var PrefsAssistant = Class.create({
  	setup: function() {
  		// Retrieve the prefs from the service
  		this.prefs = getPrefs();
 +
 +		//get default snooze duration from cookie
-+		this.snoozeCookie = new Mojo.Model.Cookie("com.palm.app.calendar.defaultsnoozeduration");
++		this.showSnoozedForBanner = true;
++		this.showReminderDashboard = true;
++		this.stopAutoClose = false;
++		this.uberOpenInView = 'last';
++		this.dayViewCompressed = false;
++		this.dayViewEnhanced = false;
++		this.weekNumOffset = 0;
++		this.weekModulusNum = 1;
++		this.dayCookie = new Mojo.Model.Cookie("DayEnhanced");
++		if (this.dayCookie) {
++			var daycookie = this.dayCookie.get();
++			if (daycookie) {
++				if(daycookie.dayviewcompressed !== undefined) {
++						this.dayViewCompressed = daycookie.dayviewcompressed;
++				} else {
++						this.dayViewCompressed = false;
++				}
++				if(daycookie.dayviewenhanced !== undefined) {
++						this.dayViewEnhanced = daycookie.dayviewenhanced;
++				} else {
++						this.dayViewEnhanced = false;
++				}
++			}
++		}
++		this.monthViewEnhanced = false;
++		this.monthAllDayColors = false;
++		this.monthCookie = new Mojo.Model.Cookie("MonthViewEnhanced");
++		if (this.monthCookie) {
++			var monthcookie = this.monthCookie.get();
++			if (monthcookie) {
++				if(monthcookie.monthalldaycolors !== undefined) {
++						this.monthAllDayColors = monthcookie.monthalldaycolors;
++				} else {
++						this.monthAllDayColors = false;
++				}
++				if(monthcookie.monthviewenhanced !== undefined) {
++						this.monthViewEnhanced = monthcookie.monthviewenhanced;
++				} else {
++						this.monthViewEnhanced = false;
++				}
++			}
++		}
++		this.weekViewEnhanced = false;
++		this.weekCookie = new Mojo.Model.Cookie("WeekViewEnhanced");
++		if (this.weekCookie) {
++			var weekcookie = this.weekCookie.get();
++			if (weekcookie) {
++				if(weekcookie.weekviewenhanced !== undefined) {
++						this.weekViewEnhanced = weekcookie.weekviewenhanced;
++				} else {
++						this.weekViewEnhanced = false;
++				}
++				if(weekcookie.weeknumoffset !== undefined) {
++						this.weekNumOffset = weekcookie.weeknumoffset;
++				} else {
++						this.weekNumOffset = 0;
++				}
++				if(weekcookie.weekmodulusnum !== undefined) {
++						this.weekModulusNum = weekcookie.weekmodulusnum;
++				} else {
++						this.weekModulusNum = 1;
++				}
++			}
++		}
++		this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");
 +		if (this.snoozeCookie) {
-+			var cookie = this.snoozeCookie.get();
-+			if (cookie) {			
-+				if (cookie.defaultSnoozeDuration) {
-+					this.prefs.defaultSnoozeDuration = cookie.defaultSnoozeDuration;
++			var snzcookie = this.snoozeCookie.get();
++			if (snzcookie) {			
++				if (snzcookie.defaultSnoozeDuration !== undefined) {
++					this.prefs.defaultSnoozeDuration = snzcookie.defaultSnoozeDuration;
++				}
++				if(snzcookie.showSnoozedForBanner !== undefined) {
++						this.showSnoozedForBanner = snzcookie.showSnoozedForBanner;
++				} else {
++						this.showSnoozedForBanner = true;
++				}
++				if(snzcookie.showReminderDashboard !== undefined) {
++					this.showReminderDashboard = snzcookie.showReminderDashboard;
++				} else {
++					this.showReminderDashboard = true;
++				}
++				if (snzcookie.stopAutoClose !== undefined) {
++					this.stopAutoClose = snzcookie.stopAutoClose;
++				} else {
++					//set default value to true
++					this.stopAutoClose = false;
++				}
++				if (snzcookie.uberopeninview !== undefined) {
++					this.uberOpenInView = snzcookie.uberopeninview;
++				} else {
++					this.uberOpenInView = 'last';
++				}
++				if (snzcookie.snoozethrob !== undefined) {
++					this.snoozeThrob = snzcookie.snoozethrob;
++				} else {
++					this.snoozeThrob = false;
 +				}
 +			}
 +		}
 +
 +		//get notification repeat interval and max repeat values from cookie
-+		this.notificationCookie = new Mojo.Model.Cookie("com.palm.app.calendar.notificationrepeat");
++		this.notificationCookie = new Mojo.Model.Cookie("notificationCookie");
 +		if (this.notificationCookie) {
 +			var notificationCookie = this.notificationCookie.get();
 +			if (notificationCookie) {
-+				if(notificationCookie.notificationRepeatInterval) {
++				if(notificationCookie.notificationRepeatInterval !== undefined) {
 +					this.prefs.notificationRepeatInterval = notificationCookie.notificationRepeatInterval;
 +				} else {
 +					//set default value to 2 minutes
 +					this.prefs.notificationRepeatInterval = '2';
 +				}
 +				
-+				if (notificationCookie.notificationMaxRepeat) {
++				if (notificationCookie.notificationMaxRepeat !== undefined) {
 +					this.prefs.notificationMaxRepeat = notificationCookie.notificationMaxRepeat;
 +				} else {
 +					//set default value to unlimited
@@ -2190,47 +2694,313 @@ index cebe803..8f687e6 100644
 +		}
 +
 +		// prepare some additional widgets (on the fly to prevent editing of translated resources)
-+		var newDiv11 = document.createElement('div');
++		var newGroup1 = document.createElement('div');
++		var newGroup2 = document.createElement('div');
++		newGroup1.setAttribute('class', 'palm-group');
++		newGroup1.setAttribute('id', 'pv_ubercalendar_div');
++		newGroup2.setAttribute('class', 'palm-group-title');
++		newGroup2.setAttribute('x-mojo-loc', '""');
++		var localTemplateModel = {};
++		var localTemplate = new Template($L('Enhanced Features'));
++		var localText=localTemplate.evaluate(localTemplateModel);
++		newGroup2.innerHTML = localText;
++		newGroup1.appendChild(newGroup2);
++		
++		var newList1 = document.createElement('div');
++		var dList = document.createElement('div');
++		dList.setAttribute('class', "palm-list");
++		newList1.setAttribute('class', "palm-list");
++		var newDiv01 = document.createElement('div');
++		var newDiv02 = document.createElement('div');
++		var newDiv03 = document.createElement('div');
++		var newDiv04 = document.createElement('div');
++		newDiv01.setAttribute('class', 'palm-row single');
++		newDiv01.setAttribute('id', 'uberCprefsbutton');
++		newDiv01.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv02.setAttribute('class', 'palm-row-wrapper');
++		newDiv03.setAttribute('style', 'float:left; border-width: 24px 20px; max-width:80%; padding-top:15px; padding-left:20px; margin:0; font-size:18px;');
++		newDiv03.innerHTML='UberCalendar Prefs';
++		newDiv04.setAttribute('style', 'float:right; margin-top:25px; margin-right:15px; width:10px; height:10px; background: ' +'url(/usr/palm/frameworks/mojo/submissions/'+Mojo.Environment.build+'/images/list-selector-triangle.png)' + ' top no-repeat;');
++		newDiv02.appendChild(newDiv03);
++		newDiv02.appendChild(newDiv04);
++		newDiv01.appendChild(newDiv02);	// create button row
++		newList1.appendChild(newDiv01);	// add button to first list  
++		var newDrawer1 = document.createElement('div');
++		newDrawer1.setAttribute('class', 'drawer');
++		newDrawer1.setAttribute('id', 'uberCaldrawer');
++		newDrawer1.setAttribute('x-mojo-element', 'Drawer');
++		
 +		var newDiv12 = document.createElement('div');
 +		var newDiv13 = document.createElement('div');
 +		var newDiv14 = document.createElement('div');
-+		newDiv11.setAttribute('class', "palm-list");
 +		newDiv12.setAttribute('class', "palm-row");
-+		newDiv12.setAttribute('style', "margin-top:15px;");
 +		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
 +		newDiv13.setAttribute('class', "palm-row-wrapper");
 +		newDiv14.setAttribute('id', "pv_default_snooze_duration");
 +		newDiv14.setAttribute('x-mojo-element', "ListSelector");
 +		newDiv13.appendChild(newDiv14);
 +		newDiv12.appendChild(newDiv13);
++		dList.appendChild(newDiv12); // add snooze dur to drawer list
++
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv13.setAttribute('class', "palm-row-wrapper");
++		newDiv14.setAttribute('id', "pv_notification_repeat_interval");
++		newDiv14.setAttribute('x-mojo-element', "ListSelector");
++		newDiv13.appendChild(newDiv14);
++		newDiv12.appendChild(newDiv13);
++		dList.appendChild(newDiv12); // add repeat to drawer list
++
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv13.setAttribute('class', "palm-row-wrapper");
++		newDiv14.setAttribute('id', "pv_notification_max_repeat");
++		newDiv14.setAttribute('x-mojo-element', "ListSelector");
++		newDiv13.appendChild(newDiv14);
++		newDiv12.appendChild(newDiv13);
++		dList.appendChild(newDiv12); // add max repeat to drawer list
++		
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv13.setAttribute('class', "palm-row-wrapper");
++		newDiv14.setAttribute('id', "pv_uber_open_in_view");
++		newDiv14.setAttribute('x-mojo-element', "ListSelector");
++		newDiv13.appendChild(newDiv14);
++		newDiv12.appendChild(newDiv13);
++		dList.appendChild(newDiv12); // add open in view to drawer list
++
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv13.setAttribute('class', "palm-row-wrapper");
++		newDiv14.setAttribute('id', "pv_uber_weeknumber_offset");
++		newDiv14.setAttribute('x-mojo-element', "ListSelector");
++		newDiv13.appendChild(newDiv14);
++		newDiv12.appendChild(newDiv13);
++		dList.appendChild(newDiv12); // add weeknumber offset to drawer list
++
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv13.setAttribute('class', "palm-row-wrapper");
++		newDiv14.setAttribute('id', "pv_uber_weeknumber_modulus");
++		newDiv14.setAttribute('x-mojo-element', "ListSelector");
++		newDiv13.appendChild(newDiv14);
++		newDiv12.appendChild(newDiv13);
++		dList.appendChild(newDiv12); // add weeknumber modulus to drawer list
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-showsnoozedforbanner-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Snoozed for Banner');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
 +		newDiv11.appendChild(newDiv12);
++		dList.appendChild(newDiv11); // add snooze banner to drawer list
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-showreminderdashboard-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Reminder Dashboard');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		dList.appendChild(newDiv11); // add reminder dash to drawer list
 +
-+		var newDiv22 = document.createElement('div');
-+		var newDiv23 = document.createElement('div');
-+		var newDiv24 = document.createElement('div');
-+		newDiv22.setAttribute('class', "palm-row");
-+		//newDiv22.setAttribute('style', "margin-top:15px;");
-+		newDiv22.setAttribute('x-mojo-tap-highlight', "momentary");
-+		newDiv23.setAttribute('class', "palm-row-wrapper");
-+		newDiv24.setAttribute('id', "pv_notification_repeat_interval");
-+		newDiv24.setAttribute('x-mojo-element', "ListSelector");
-+		newDiv23.appendChild(newDiv24);
-+		newDiv22.appendChild(newDiv23);
-+		newDiv11.appendChild(newDiv22);
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-stopautoclose-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Stop') +' '+ $L('Auto')+' '+$L('Close');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		dList.appendChild(newDiv11); // add stop auto to drawer list
++		
++		var d2List = document.createElement('div');  // list for 2nd level drawer
++		d2List.setAttribute('class', "palm-list");
++		var newDiv01 = document.createElement('div'); 
++		newDiv01.setAttribute('class', 'palm-row');
++		newDiv01.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv01.setAttribute('id', 'dayuberCprefsbutton'); // button for 2nd level drawer
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-dayviewenhanced-toggle"); //toggle
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Day') +' '+ $L('Views')+' '+$L('Enhanced');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14); //toggle
++		newDiv01.appendChild(newDiv12); // toggle in btn
++		dList.appendChild(newDiv01); // toggle+Drawer2 btn to drawer1 list
++		var newDrawer2 = document.createElement('div');
++		newDrawer2.setAttribute('class', 'drawer');
++		newDrawer2.setAttribute('id', 'dayuberCaldrawer');
++		newDrawer2.setAttribute('x-mojo-element', 'Drawer');
++		dList.appendChild(newDrawer2); // add drawer2 to drawer1 list
++		newDrawer2.appendChild(d2List); // add second list to second drawer
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-dayviewcompressed-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Day') +' '+ $L('Compress')+' '+$L('All')+' '+$L('Free');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		d2List.appendChild(newDiv11); // add day view compression to second drawer list
 +
-+		var newDiv32 = document.createElement('div');
-+		var newDiv33 = document.createElement('div');
-+		var newDiv34 = document.createElement('div');
-+		newDiv32.setAttribute('class', "palm-row last");
-+		//newDiv32.setAttribute('style', "margin-top:15px;");
-+		newDiv32.setAttribute('x-mojo-tap-highlight', "momentary");
-+		newDiv33.setAttribute('class', "palm-row-wrapper");
-+		newDiv34.setAttribute('id', "pv_notification_max_repeat");
-+		newDiv34.setAttribute('x-mojo-element', "ListSelector");
-+		newDiv33.appendChild(newDiv34);
-+		newDiv32.appendChild(newDiv33);
-+		newDiv11.appendChild(newDiv32);
-+		this.controller.get('pv_alarmsound_div').appendChild(newDiv11);
++		var d3List = document.createElement('div');  // list for 3rd level drawer
++		d3List.setAttribute('class', "palm-list");
++		var newDiv01 = document.createElement('div'); 
++		newDiv01.setAttribute('class', 'palm-row');
++		newDiv01.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv01.setAttribute('id', 'monthuberCprefsbutton'); // button for 3rd level drawer
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-monthviewenhanced-toggle"); //toggle
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Month') +' '+ $L('Views')+' '+$L('Enhanced');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14); //toggle
++		newDiv01.appendChild(newDiv12); // toggle in btn
++		dList.appendChild(newDiv01); // toggle+Drawer3 btn to drawer1 list
++		var newDrawer3 = document.createElement('div');
++		newDrawer3.setAttribute('class', 'drawer');
++		newDrawer3.setAttribute('id', 'monthuberCaldrawer');
++		newDrawer3.setAttribute('x-mojo-element', 'Drawer');
++		dList.appendChild(newDrawer3); // add drawer3 to drawer1 list
++		newDrawer3.appendChild(d3List); // add 3 list to 3 drawer
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-monthalldaycolors-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Show')+' '+$L('All')+' '+ $L('Day')+' '+$L('Color');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		d3List.appendChild(newDiv11); // add all day color to drawer3 list
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-weekviewenhanced-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Week') +' '+ $L('Views')+' '+$L('Enhanced');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		dList.appendChild(newDiv11); // add week view to drawer list
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row last");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-snoozethrob-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Blink') +' '+ $L('for')+' '+$L('Alert');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		dList.appendChild(newDiv11); // add blink to drawer list
++		
++		
++		newDrawer1.appendChild(dList); // add 1st drawer list to drawer1
++		newList1.appendChild(newDrawer1);  // add drawer1 to first list
++		newGroup1.appendChild(newList1);
++		
++		
++		this.controller.get('pv_alarmsound_div').parentNode.insertBefore(newGroup1, this.controller.get('pv_accounts_div')); //add first list to prefs
++		
++		this.uberCalendarPrefs = {
++			showsnoozedforbanner: { id: "ShowSnoozedForBanner", value: this.showSnoozedForBanner },
++			showreminderdashboard: { id: "ShowReminderDashboard", value: this.showReminderDashboard },
++			stopautoclose: {id: "StopAutoClose", value: this.stopAutoClose},
++			dayviewcompressed: {id: "DayViewCompressed", value: this.dayViewCompressed},
++			weekviewenhanced: {id: "WeekViewEnhanced", value: this.weekViewEnhanced},
++			dayviewenhanced: {id: "DayViewEnhanced", value: this.dayViewEnhanced},
++			monthviewenhanced: {id: "MonthViewEnhanced", value: this.monthViewEnhanced},
++			monthalldaycolors: {id: "MonthAllDayColors", value: this.monthAllDayColors},
++			snoozethrob: {id: "SnoozeThrob", value: this.snoozeThrob}
++		};
++
++		var uberCalendarAttributes = {
++			modelProperty: "value",
++			trueValue: true,
++			falseValue: false
++		};
++		
++		this.controller.setupWidget('prefs-showsnoozedforbanner-toggle', uberCalendarAttributes, this.uberCalendarPrefs.showsnoozedforbanner);
++		this.controller.setupWidget('prefs-showreminderdashboard-toggle', uberCalendarAttributes, this.uberCalendarPrefs.showreminderdashboard);
++		this.controller.setupWidget('prefs-stopautoclose-toggle', uberCalendarAttributes, this.uberCalendarPrefs.stopautoclose);
++		this.controller.setupWidget('prefs-snoozethrob-toggle', uberCalendarAttributes, this.uberCalendarPrefs.snoozethrob);
++		this.controller.setupWidget('prefs-dayviewcompressed-toggle', uberCalendarAttributes, this.uberCalendarPrefs.dayviewcompressed);
++		this.controller.setupWidget('prefs-weekviewenhanced-toggle', uberCalendarAttributes, this.uberCalendarPrefs.weekviewenhanced);
++		this.controller.setupWidget('prefs-dayviewenhanced-toggle', uberCalendarAttributes, this.uberCalendarPrefs.dayviewenhanced);
++		this.controller.setupWidget('prefs-monthviewenhanced-toggle', uberCalendarAttributes, this.uberCalendarPrefs.monthviewenhanced);
++		this.controller.setupWidget('prefs-monthalldaycolors-toggle', uberCalendarAttributes, this.uberCalendarPrefs.monthalldaycolors);
 +
 +		this.controller.setupWidget('pv_default_snooze_duration',
 +									this.snoozeAttrs = {
@@ -2262,11 +3032,85 @@ index cebe803..8f687e6 100644
 +										value: this.prefs.notificationMaxRepeat
 +									}
 +		);
-+
++		this.controller.setupWidget('pv_uber_open_in_view',
++									this.uberOpenInViewAttrs = {
++										modelProperty: 'value',
++										label: $L("Open In View"),
++								      	choices: this.uberOpenInViewOptions
++									},
++									this.uberOpenInViewModel = {
++										value: this.uberOpenInView
++									}
++		);
++		this.controller.setupWidget("pv_uber_weeknumber_offset",
++									this.weekNumOffsetAttrs = {
++										modelProperty: 'value',
++										label: $L("Wk-No Shift"),
++										choices: this.uberWeekNumberOffset
++									},
++									this.weekNumOffsetModel = {
++										value: this.weekNumOffset
++									}
++		);
++		this.controller.setupWidget("pv_uber_weeknumber_modulus",
++									this.weekModulusAttrs = {
++										modelProperty: 'value',
++										label: $L("Wk-No Modulo"),
++										choices: this.uberWeekNumberModulo
++									},
++									this.weekModulusModel = {
++										value: this.weekModulusNum
++									}
++		);
++		this.controller.setupWidget("uberCaldrawer",
++									this.uberCalAttrs = {
++										modelProperty: 'open',
++										unstyled: false,
++										drawerOpenerOffset: 0
++									},
++									this.uberCalDrawerModel = {open: false}
++		);
++		this.controller.setupWidget("dayuberCaldrawer",
++									this.uberCalAttrs = {
++										modelProperty: 'open',
++										unstyled: false,
++										drawerOpenerOffset: -500
++									},
++									this.uberCalDrawerModel = {open: false}
++		);
++		this.controller.setupWidget("monthuberCaldrawer",
++									this.uberCalAttrs = {
++										modelProperty: 'open',
++										unstyled: false,
++										drawerOpenerOffset: -500
++									},
++									this.uberCalDrawerModel = {open: false}
++		);
++		this.controller.setupWidget("uberCprefsbutton",
++			{},
++			{
++				label : "",
++				disabled: false
++			}
++		);
++		this.controller.setupWidget("dayuberCprefsbutton",
++			{},
++			{
++				label : "",
++				disabled: false
++			}
++		);
++		this.controller.setupWidget("monthuberCprefsbutton",
++			{},
++			{
++				label : "",
++				disabled: false
++			}
++		);
  		this.requests = [];
  		this.syncSources = [];
  		this.dirty = false;
-@@ -399,7 +516,7 @@ var PrefsAssistant = Class.create({
+@@ -399,7 +954,7 @@ var PrefsAssistant = Class.create({
  		};
  	    this.controller.setupWidget('pv_startofday_timepicker', {label: $L("Start")}, this.startTimeModel);
  	    this.controller.listen('pv_startofday_timepicker',Mojo.Event.propertyChange, this.startOfDayCallback.bindAsEventListener(this));
@@ -2275,7 +3119,7 @@ index cebe803..8f687e6 100644
  		var endTime = new Date(this.prefs.endTimeOfDay);
  		endTime.addMinutes(endTime.getTimezoneOffset());
  		var utcEndTime = endTime.getTime();
-@@ -408,7 +525,7 @@ var PrefsAssistant = Class.create({
+@@ -408,7 +963,7 @@ var PrefsAssistant = Class.create({
  		};
  	    this.controller.setupWidget('pv_endofday_timepicker', {label: $L("End")}, this.endTimeModel);
  	    this.controller.listen('pv_endofday_timepicker',Mojo.Event.propertyChange, this.endOfDayCallback.bindAsEventListener(this));
@@ -2284,7 +3128,7 @@ index cebe803..8f687e6 100644
  		var soundSelections = {
        	modelProperty: 'value',
        	label: $L("Alert"),
-@@ -419,7 +536,6 @@ var PrefsAssistant = Class.create({
+@@ -419,7 +974,6 @@ var PrefsAssistant = Class.create({
  			{label: $L('Mute'),value:"4"}
        		]
        	};
@@ -2292,26 +3136,33 @@ index cebe803..8f687e6 100644
  		
  		this.notificationSoundModel = {
          	value:this.convertSoundDBToPopupVal(this.prefs.alarmSoundOn)
-@@ -473,6 +589,18 @@ var PrefsAssistant = Class.create({
+@@ -452,8 +1006,6 @@ var PrefsAssistant = Class.create({
+ 					{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
+ 		}
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
+-
+-				
+ 	},
+ 
+ 	setCalendarPrefsCallback: function(response) {
+@@ -473,6 +1025,8 @@ var PrefsAssistant = Class.create({
  		
  		if (this.dirty)
  			this.savePrefs();
 +			
-+		//save default snooze duration to cookie	
-+		if (this.snoozeCookie) {
-+			this.snoozeCookie.put({defaultSnoozeDuration: this.prefs.defaultSnoozeDuration});
-+		}
-+		//save notification repeat preferences
-+		if (this.notificationCookie) {
-+			this.notificationCookie.put({
-+										notificationRepeatInterval: this.prefs.notificationRepeatInterval,
-+										notificationMaxRepeat: this.prefs.notificationMaxRepeat
-+										});
-+		}
++
  	},
  	
  	syncAllCallback: function(response) {
-@@ -504,7 +632,7 @@ var PrefsAssistant = Class.create({
+@@ -496,7 +1050,6 @@ var PrefsAssistant = Class.create({
+ 	activate: function() {
+ 		//Mojo.Log.info('prefs-assistant: activate');
+ 		getPrefsManager().validateDefaultCalPref();
+-		
+ 		this.startOfWeekClickHandler = this.handleStartOfWeekClick.bindAsEventListener(this);
+ 		this.controller.get('pv_start_of_week').observe('mojo-tap', this.startOfWeekClickHandler);
+ 		
+@@ -504,7 +1057,7 @@ var PrefsAssistant = Class.create({
  		this.controller.get('pv_default_evt_alarm').observe('mojo-tap', this.defaultEventAlarmClickHandler);
  		this.defaultAllDayEventAlarmClickHandler = this.handleDefaultAllDayEventAlarmClick.bindAsEventListener(this);
  		this.controller.get('pv_default_allday_evt_alarm').observe('mojo-tap', this.defaultAllDayEventAlarmClickHandler);
@@ -2320,58 +3171,224 @@ index cebe803..8f687e6 100644
  		this.newEventDurationClickHandler = this.handleNewEventDurationClick.bindAsEventListener(this);
  		this.controller.get('pv_new_event_duration').observe('mojo-tap', this.newEventDurationClickHandler);	
  	
-@@ -529,7 +657,12 @@ var PrefsAssistant = Class.create({
+@@ -529,7 +1082,34 @@ var PrefsAssistant = Class.create({
  		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
  		this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
--
 +		this.snoozeDurationSelectionHandler = this.handleSnoozeDurationSelection.bindAsEventListener(this);
 +		this.controller.get('pv_default_snooze_duration').observe(Mojo.Event.propertyChange, this.snoozeDurationSelectionHandler);
 +		this.repeatIntervalSelectionHandler = this.handleRepeatIntervalSelection.bindAsEventListener(this);
 +		this.controller.get('pv_notification_repeat_interval').observe(Mojo.Event.propertyChange, this.repeatIntervalSelectionHandler);
 +		this.maxRepeatSelectionHandler = this.handleMaxRepeatSelection.bindAsEventListener(this);
 +		this.controller.get('pv_notification_max_repeat').observe(Mojo.Event.propertyChange, this.maxRepeatSelectionHandler);
++		this.uberOpenInViewSelectionHandler = this.handleUberOpenInViewSelection.bindAsEventListener(this);
++		this.controller.get('pv_uber_open_in_view').observe(Mojo.Event.propertyChange, this.uberOpenInViewSelectionHandler);
++		this.uberWkNumOffsetHandler = this.handleUberWkNumOffset.bindAsEventListener(this);
++		this.controller.get('pv_uber_weeknumber_offset').observe(Mojo.Event.propertyChange, this.uberWkNumOffsetHandler);
++		this.uberWkModulusNumHandler = this.handleUberWkModulusNum.bindAsEventListener(this);
++		this.controller.get('pv_uber_weeknumber_modulus').observe(Mojo.Event.propertyChange, this.uberWkModulusNumHandler);
+ 
++		this.uberTogglePrefsHandler = this.handleUberTogglePrefs.bindAsEventListener(this);
++		this.controller.listen('prefs-showsnoozedforbanner-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-showreminderdashboard-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-stopautoclose-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-snoozethrob-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-dayviewcompressed-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-weekviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-dayviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-monthviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-monthalldaycolors-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		
++		this.ucDrawerBtnHandler = this.toggleUCdrawer.bindAsEventListener(this);
++		this.controller.get('uberCprefsbutton').observe('mojo-tap', this.ucDrawerBtnHandler);
++		this.controller.get('dayuberCprefsbutton').observe('mojo-tap', this.ucDrawerBtnHandler);
++		this.controller.get('monthuberCprefsbutton').observe('mojo-tap', this.ucDrawerBtnHandler);
  	},
  	
  	handleViewOptionBtnTap :function(){
-@@ -562,6 +695,9 @@ var PrefsAssistant = Class.create({
+@@ -538,6 +1118,47 @@ var PrefsAssistant = Class.create({
+ 	},
+ 	
+ 	deactivate: function() {
++		//save default snooze duration to cookie	
++		if (this.snoozeCookie) {
++			this.snoozeCookie.put({ 
++									defaultSnoozeDuration: this.prefs.defaultSnoozeDuration,
++									showSnoozedForBanner: this.showSnoozedForBanner,
++									showReminderDashboard: this.showReminderDashboard,
++									stopAutoClose: this.stopAutoClose,
++									uberopeninview: this.uberOpenInView,
++									snoozethrob: this.snoozeThrob
++									});
++		}
++		if (this.dayCookie) {
++			this.dayCookie.put({ 
++									dayviewcompressed: this.dayViewCompressed,
++									dayviewenhanced: this.dayViewEnhanced,
++									weeknumoffset: this.weekNumOffset,
++									weekmodulusnum: this.weekModulusNum
++									});
++		}
++		if (this.monthCookie) {
++			this.monthCookie.put({ 
++									monthalldaycolors: this.monthAllDayColors,
++									monthviewenhanced: this.monthViewEnhanced,
++									weeknumoffset: this.weekNumOffset,
++									weekmodulusnum: this.weekModulusNum
++									});
++		}
++		if (this.weekCookie) {
++			this.weekCookie.put({ 
++									weekviewenhanced: this.weekViewEnhanced,
++									weeknumoffset: this.weekNumOffset,
++									weekmodulusnum: this.weekModulusNum
++									});
++		}
++		//save notification repeat preferences
++		if (this.notificationCookie) {
++			this.notificationCookie.put({
++										notificationRepeatInterval: this.prefs.notificationRepeatInterval,
++										notificationMaxRepeat: this.prefs.notificationMaxRepeat
++										});
++		}
+ 		//Mojo.Log.info('prefs-assistant: deactivate');
+ 		this.controller.get('pv_start_of_week').stopObserving('mojo-tap', this.startOfWeekClickHandler);
+ 		
+@@ -562,6 +1183,25 @@ var PrefsAssistant = Class.create({
  		
  		this.controller.stopListening('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
 +		this.controller.get('pv_default_snooze_duration').stopObserving(Mojo.Event.propertyChange, this.snoozeDurationSelectionHandler);
 +		this.controller.get('pv_notification_repeat_interval').stopObserving(Mojo.Event.propertyChange, this.repeatIntervalSelectionHandler);
 +		this.controller.get('pv_notification_max_repeat').stopObserving(Mojo.Event.propertyChange, this.maxRepeatSelectionHandler);
++		this.controller.get('pv_uber_open_in_view').stopObserving(Mojo.Event.propertyChange, this.uberOpenInViewSelectionHandler);
++		this.controller.get('pv_uber_weeknumber_offset').stopObserving(Mojo.Event.propertyChange, this.uberWkNumOffsetHandler);
++		this.controller.get('pv_uber_weeknumber_modulus').stopObserving(Mojo.Event.propertyChange, this.uberWkModulusNumHandler);
++		
++		this.controller.stopListening('prefs-showsnoozedforbanner-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-showreminderdashboard-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-stopautoclose-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-snoozethrob-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-dayviewcompressed-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-weekviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-dayviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-monthviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-monthalldaycolors-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.get('uberCprefsbutton').stopObserving('mojo-tap', this.ucDrawerBtnHandler);
++		this.controller.get('dayuberCprefsbutton').stopObserving('mojo-tap', this.ucDrawerBtnHandler);
++		this.controller.get('monthuberCprefsbutton').stopObserving('mojo-tap', this.ucDrawerBtnHandler);
  	},
  	
  	// *** EVENT HANDLERS ***
-@@ -595,6 +731,21 @@ var PrefsAssistant = Class.create({
+@@ -595,6 +1235,73 @@ var PrefsAssistant = Class.create({
  			//this.renderDefaultCalendar();
  		}
  	},
 +
 +	handleSnoozeDurationSelection: function(event) {
 +		this.prefs.defaultSnoozeDuration = this.snoozeModel.command;
-+Mojo.Log.error("this.prefs.defaultSnoozeDuration", this.prefs.defaultSnoozeDuration);
++		Mojo.Log.info("this.prefs.defaultSnoozeDuration", this.prefs.defaultSnoozeDuration);
 +	},
 +	
 +	handleRepeatIntervalSelection: function(event) {
 +		this.prefs.notificationRepeatInterval = this.repeatIntervalModel.value;
-+Mojo.Log.error("this.prefs.notificationRepeatInterval", this.prefs.notificationRepeatInterval);
++		Mojo.Log.info("this.prefs.notificationRepeatInterval", this.prefs.notificationRepeatInterval);
 +	},
 +	
 +	handleMaxRepeatSelection: function(event) {
 +		this.prefs.notificationMaxRepeat = this.maxRepeatModel.value;
-+Mojo.Log.error("this.prefs.notificationMaxRepeat", this.prefs.notificationMaxRepeat);
++		Mojo.Log.info("this.prefs.notificationMaxRepeat", this.prefs.notificationMaxRepeat);
++	},
++	
++	handleUberOpenInViewSelection: function(event) {
++		this.uberOpenInView = this.uberOpenInViewModel.value;
++		Mojo.Log.info("this.uberOpenInView", this.uberOpenInView);
++	},
++	
++	handleUberWkNumOffset: function(event) {
++		this.weekNumOffset = this.weekNumOffsetModel.value;
++	},
++	
++	handleUberWkModulusNum: function(event) {
++		this.weekModulusNum = this.weekModulusModel.value;
++	},
++	
++	handleUberTogglePrefs: function(event) {
++		//this.dirty = true;
++		if(event.model.id == "ShowSnoozedForBanner") {
++			this.showSnoozedForBanner = event.model.value;
++		} else if(event.model.id == "ShowReminderDashboard") {
++			this.showReminderDashboard = event.model.value;
++			getAppAssistant().showReminderDashboard = this.showReminderDashboard;
++		} else if(event.model.id == "StopAutoClose") {
++			this.stopAutoClose = event.model.value;
++		} else if(event.model.id == "SnoozeThrob") {
++			this.snoozeThrob = event.model.value;
++			getAppAssistant().snoozeThrob = this.snoozeThrob;
++		} else if(event.model.id == "DayViewCompressed") {
++			this.dayViewCompressed = event.model.value;
++		} else if(event.model.id == "WeekViewEnhanced") {
++			this.weekViewEnhanced = event.model.value;
++		} else if(event.model.id == "DayViewEnhanced") {
++			this.dayViewEnhanced = event.model.value;
++			if(event.model.value) {
++				// true open drawer
++				this.controller.get('dayuberCaldrawer').mojo.setOpenState(true);
++			} else {
++				// close the drawer and turn off day features
++				this.controller.get('dayuberCaldrawer').mojo.setOpenState(false);
++			}
++		} else if(event.model.id == "MonthAllDayColors") {
++			this.monthAllDayColors = event.model.value;
++		} else if(event.model.id == "MonthViewEnhanced") {
++			this.monthViewEnhanced = event.model.value;
++			if(event.model.value) {
++				// true open drawer
++				this.controller.get('monthuberCaldrawer').mojo.setOpenState(true);
++			} else {
++				// close the drawer and turn off day features
++				this.controller.get('monthuberCaldrawer').mojo.setOpenState(false);
++			}
++		}
 +	},
  	
  	handleAcctsListSelection: function(event) {
  		var id = event.item.accountId;
-@@ -743,35 +894,159 @@ var PrefsAssistant = Class.create({
- 				items: this.allDayAlarms
+@@ -698,8 +1405,20 @@ var PrefsAssistant = Class.create({
+ 					label: ONE_HOUR,
+ 					command: 60
+ 				}, {
++				label: "90 minutes",
++					command: 90
++				}, {
+ 					label: TWO_HOURS,
+ 					command: 120
++				}, {
++					label: "3 hours",
++					command: 180
++				}, {
++					label: "4 hours",
++					command: 240
++				}, {
++					label: "8 hours",
++					command: 480
+ 				}]
  			});
  	},
--	
-+
+@@ -744,34 +1463,282 @@ var PrefsAssistant = Class.create({
+ 			});
+ 	},
+ 	
++	toggleUCdrawer: function(e) {
++		var curBtn = e.currentTarget.id;
++		if(curBtn == "uberCprefsbutton") {
++			this.controller.get('uberCaldrawer').mojo.setOpenState(!this.controller.get('uberCaldrawer').mojo.getOpenState());
++		} else if(curBtn == "dayuberCprefsbutton") {
++			this.controller.get('dayuberCaldrawer').mojo.setOpenState(!this.controller.get('dayuberCaldrawer').mojo.getOpenState());
++		} else if(curBtn == "monthuberCprefsbutton") {
++			this.controller.get('monthuberCaldrawer').mojo.setOpenState(!this.controller.get('monthuberCaldrawer').mojo.getOpenState());
++		}
++	},
 +
  	// *** WIDGET ATTRS & MODELS
  
@@ -2430,7 +3447,12 @@ index cebe803..8f687e6 100644
 +		{label:$L('10 Minutes'), value:'10'},
 +		{label:$L('15 Minutes'), value:'15'}
 +	],
-+	
++	uberOpenInViewOptions: [
++		{label:$L('Last'), value:'last'},
++		{label:$L('Day'), value:'day'},
++		{label:$L('Week'), value:'week'},
++		{label:$L('Month'), value:'month'}
++	],
 +	notificationMaxRepeats: [
 +		{label:$L('Unlimited'), value:'99999'}, //this should be a large enough value to be conisdered unlimited for our purpose.
 +		{label:$L('1'), value:'1'},
@@ -2457,6 +3479,115 @@ index cebe803..8f687e6 100644
 +		{label:$L('90'), value:'90'},
 +		{label:$L('95'), value:'95'},
 +		{label:$L('100'), value:'100'}
++	],
++	uberWeekNumberModulo: [
++		{label:$L('1'), value:'1'},
++		{label:$L('2'), value:'2'},
++		{label:$L('3'), value:'3'},
++		{label:$L('4'), value:'4'},
++		{label:$L('5'), value:'5'},
++		{label:$L('6'), value:'6'},
++		{label:$L('7'), value:'7'},
++		{label:$L('8'), value:'8'},
++		{label:$L('9'), value:'9'},
++		{label:$L('10'), value:'10'},
++		{label:$L('11'), value:'11'},
++		{label:$L('12'), value:'12'},
++		{label:$L('13'), value:'13'},
++		{label:$L('14'), value:'14'},
++		{label:$L('15'), value:'15'},
++		{label:$L('16'), value:'16'},
++		{label:$L('17'), value:'17'},
++		{label:$L('18'), value:'18'},
++		{label:$L('19'), value:'19'},
++		{label:$L('20'), value:'20'},
++		{label:$L('21'), value:'21'},
++		{label:$L('22'), value:'22'},
++		{label:$L('23'), value:'23'},
++		{label:$L('24'), value:'24'},
++		{label:$L('25'), value:'25'},
++		{label:$L('26'), value:'26'},
++		{label:$L('27'), value:'27'},
++		{label:$L('28'), value:'28'},
++		{label:$L('29'), value:'29'},
++		{label:$L('30'), value:'30'},
++		{label:$L('31'), value:'31'},
++		{label:$L('32'), value:'32'},
++		{label:$L('33'), value:'33'},
++		{label:$L('34'), value:'34'},
++		{label:$L('35'), value:'35'},
++		{label:$L('36'), value:'36'},
++		{label:$L('37'), value:'37'},
++		{label:$L('38'), value:'38'},
++		{label:$L('39'), value:'39'},
++		{label:$L('40'), value:'40'},
++		{label:$L('41'), value:'41'},
++		{label:$L('42'), value:'42'},
++		{label:$L('43'), value:'43'},
++		{label:$L('44'), value:'44'},
++		{label:$L('45'), value:'45'},
++		{label:$L('46'), value:'46'},
++		{label:$L('47'), value:'47'},
++		{label:$L('48'), value:'48'},
++		{label:$L('49'), value:'49'},
++		{label:$L('50'), value:'50'},
++		{label:$L('51'), value:'51'},
++		{label:$L('52'), value:'52'}
++	],
++	uberWeekNumberOffset: [
++		{label:$L('0'), value:'0'},
++		{label:$L('1'), value:'1'},
++		{label:$L('2'), value:'2'},
++		{label:$L('3'), value:'3'},
++		{label:$L('4'), value:'4'},
++		{label:$L('5'), value:'5'},
++		{label:$L('6'), value:'6'},
++		{label:$L('7'), value:'7'},
++		{label:$L('8'), value:'8'},
++		{label:$L('9'), value:'9'},
++		{label:$L('10'), value:'10'},
++		{label:$L('11'), value:'11'},
++		{label:$L('12'), value:'12'},
++		{label:$L('13'), value:'13'},
++		{label:$L('14'), value:'14'},
++		{label:$L('15'), value:'15'},
++		{label:$L('16'), value:'16'},
++		{label:$L('17'), value:'17'},
++		{label:$L('18'), value:'18'},
++		{label:$L('19'), value:'19'},
++		{label:$L('20'), value:'20'},
++		{label:$L('21'), value:'21'},
++		{label:$L('22'), value:'22'},
++		{label:$L('23'), value:'23'},
++		{label:$L('24'), value:'24'},
++		{label:$L('25'), value:'25'},
++		{label:$L('26'), value:'26'},
++		{label:$L('27'), value:'27'},
++		{label:$L('28'), value:'28'},
++		{label:$L('29'), value:'29'},
++		{label:$L('30'), value:'30'},
++		{label:$L('31'), value:'31'},
++		{label:$L('32'), value:'32'},
++		{label:$L('33'), value:'33'},
++		{label:$L('34'), value:'34'},
++		{label:$L('35'), value:'35'},
++		{label:$L('36'), value:'36'},
++		{label:$L('37'), value:'37'},
++		{label:$L('38'), value:'38'},
++		{label:$L('39'), value:'39'},
++		{label:$L('40'), value:'40'},
++		{label:$L('41'), value:'41'},
++		{label:$L('42'), value:'42'},
++		{label:$L('43'), value:'43'},
++		{label:$L('44'), value:'44'},
++		{label:$L('45'), value:'45'},
++		{label:$L('46'), value:'46'},
++		{label:$L('47'), value:'47'},
++		{label:$L('48'), value:'48'},
++		{label:$L('49'), value:'49'},
++		{label:$L('50'), value:'50'},
++		{label:$L('51'), value:'51'},
++		{label:$L('52'), value:'52'}
 +	],
 +
  	alarms: [
@@ -2541,7 +3672,7 @@ index cebe803..8f687e6 100644
  });
 \ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
-index d190fd1..0ac68a8 100644
+index d190fd1..6a9f363 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 @@ -1,7 +1,35 @@
@@ -2552,48 +3683,65 @@ index d190fd1..0ac68a8 100644
  var ReminderAssistant = Class.create({
 +
 +	snoozeDurationOptions: [
-+		{label:$L('30 Minutes before start'), value:'-30'},
-+		{label:$L('15 Minutes before start'), value:'-15'},
-+		{label:$L('10 Minutes before start'), value:'-10'},
-+		{label:$L('5 Minutes before start'), value:'-5'},
-+		{label:$L('At start time'), value:'0'},
-+		{label:$L('5 Minutes'), value:'5'},
-+		{label:$L('10 Minutes'), value:'10'},
-+		{label:$L('15 Minutes'), value:'15'},
-+		{label:$L('30 Minutes'), value:'30'},
-+		{label:$L('1 Hour'), value:'60'},
-+		{label:$L('2 Hours'), value:'120'},
-+		{label:$L('4 Hours'), value:'240'},
-+		{label:$L('8 Hours'), value:'480'},
-+		{label:$L('10 Hours'), value:'600'},
-+		{label:$L('12 Hours'), value:'720'},
-+		{label:$L('1 Day'), value:'1440'},
-+		{label:$L('2 Days'), value:'2880'},
-+		{label:$L('3 Days'), value:'4320'},
-+		{label:$L('4 Days'), value:'5760'},
-+		{label:$L('5 Days'), value:'7200'},
-+		{label:$L('6 Days'), value:'8640'},
-+		{label:$L('1 Week'), value:'10080'},
-+		{label:$L('2 Weeks'), value:'20160'}
++		{label:$L('30 minutes before') + ' ' +$L('start'), value:'-30'},
++		{label:$L('15 minutes before') + ' ' +$L('start'), value:'-15'},
++		{label:$L('10 minutes before') + ' ' +$L('start'), value:'-10'},
++		{label:$L('5 minutes before') + ' ' +$L('start'), value:'-5'},
++		{label:$L('At Start Time'), value:'0'},
++		{label:'5 '+ $L('minute(s)'), value:'5'},
++		{label:'10 '+ $L('minute(s)'), value:'10'},
++		{label:'15 '+ $L('minute(s)'), value:'15'},
++		{label:$L('30 minutes'), value:'30'},
++		{label:$L('1 hour'), value:'60'},
++		{label:'2 '+ $L('hour(s)'), value:'120'},
++		{label:'4 '+ $L('hour(s)'), value:'240'},
++		{label:'8 '+ $L('hour(s)'), value:'480'},
++		{label:'10 '+ $L('hour(s)'), value:'600'},
++		{label:'10 '+ $L('hour(s)'), value:'720'},
++		{label:'1 '+$L('day(s)'), value:'1440'},
++		{label:'2 '+$L('day(s)'), value:'2880'},
++		{label:'3 '+$L('day(s)'), value:'4320'},
++		{label:'4 '+$L('day(s)'), value:'5760'},
++		{label:'5 '+$L('day(s)'), value:'7200'},
++		{label:'6 '+$L('day(s)'), value:'8640'},
++		{label:'1 '+$L('week(s)'), value:'10080'},
++		{label:'2 '+$L('week(s)'), value:'20160'}
 +	],
 +
  	initialize: function(eventId,needThrobbing) {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant initialize: start: "+eventId);
  		this.DEFAULT_SNOOZE = 5;
-@@ -14,6 +42,72 @@ var ReminderAssistant = Class.create({
+@@ -13,20 +41,183 @@ var ReminderAssistant = Class.create({
+ 		this.eventId = eventId;	
  		this.doThrob =needThrobbing;
  		this.autoSnoozed = false;
++		this.snoozeThrob = false;
  		
 +		//get default snooze duration from cookie
-+		this.cookie = new Mojo.Model.Cookie("com.palm.app.calendar.defaultsnoozeduration");
++		this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");
 +
-+		if (this.cookie) {
-+			var cookie = this.cookie.get();
-+			if (cookie) {
-+				if(cookie.defaultSnoozeDuration) {
-+					this.DEFAULT_SNOOZE = parseInt(cookie.defaultSnoozeDuration);
++		if (this.snoozeCookie) {
++			var snzcookie = this.snoozeCookie.get();
++			if (snzcookie) {
++				if(snzcookie.defaultSnoozeDuration !== undefined) {
++					this.DEFAULT_SNOOZE = parseInt(snzcookie.defaultSnoozeDuration, 10);
 +				} else {
-+					this.DEFAULT_SNOOZE = -15;
++					this.DEFAULT_SNOOZE = 5;
++				}
++				if(snzcookie.showSnoozedForBanner !== undefined)	{
++					this.showSnoozedForBanner = snzcookie.showSnoozedForBanner;
++				} else {
++					this.showSnoozedForBanner = false;
++				}
++				if(snzcookie.stopAutoClose !== undefined)	{
++					this.stopAutoClose = snzcookie.stopAutoClose;
++				} else {
++					this.stopAutoClose = true;
++				}
++				if(snzcookie.snoozethrob)	{
++					this.snoozeThrob = snzcookie.snoozethrob;
++				} else {
++					this.snoozeThrob = false;
 +				}
 +			}
 +		}
@@ -2601,18 +3749,18 @@ index d190fd1..0ac68a8 100644
 +		//load the notification repeat preferences.
 +		//doing this here instead of in initialze to avoid conflict with snooze duration patch
 +		//get notification repeat interval and max repeat values from cookie
-+		this.notificationCookie = new Mojo.Model.Cookie("com.palm.app.calendar.notificationrepeat");
++		this.notificationCookie = new Mojo.Model.Cookie("notificationCookie");
 +		if (this.notificationCookie) {
 +			var notificationCookie = this.notificationCookie.get();
 +			if (notificationCookie) {
-+				if(notificationCookie.notificationRepeatInterval) {
++				if(notificationCookie.notificationRepeatInterval !== undefined) {
 +					this.notificationRepeatInterval = notificationCookie.notificationRepeatInterval;
 +				} else {
 +					//set default value to 2 minutes
 +					this.notificationRepeatInterval = '2';
 +				}
 +			
-+				if(notificationCookie.notificationMaxRepeat) {
++				if(notificationCookie.notificationMaxRepeat !== undefined) {
 +					this.notificationMaxRepeat = notificationCookie.notificationMaxRepeat;
 +				} else {
 +					//set default value to unlimited
@@ -2630,67 +3778,134 @@ index d190fd1..0ac68a8 100644
 +		this.reminder = this.reminders.getReminder(this.eventId);
 +		
 +		var curDate = new Date();
++		var curDateTS = curDate.getTime();
 +		var defSnooze = this.snoozeOptions[0].value;
-+		
-+		var testDate = new Date(this.reminder.time).addMinutes(defSnooze);
-+		
-+		while(testDate <= curDate && defSnooze <= 0)
++		var defSnoozeTS = defSnooze * 60*1000; //put in millisec
++		//var testDate = new Date(this.reminder.time).addMinutes(defSnooze);
++		var testDateTS = this.reminder.time + defSnoozeTS;
++		while(testDateTS <= curDateTS && defSnooze <= 0)
 +		{
 +			//remove the invalid option
 +			var tmp = this.snoozeOptions.shift();
-+	
 +			defSnooze = parseInt(this.snoozeOptions[0].value);
-+
-+			testDate = new Date(this.reminder.time).addMinutes(defSnooze);
++			defSnoozeTS = defSnooze * 60*1000;
++			testDateTS = this.reminder.time + defSnoozeTS;
 +		}
-+
++		for(var i=0; i<this.snoozeOptions.length; i++) {
++			if(this.snoozeOptions[i].value == this.DEFAULT_SNOOZE) {
++				this.snzIndex = i;
++				return;
++			}
++		}
 +		//if the DEFAULT_SNOOZE < defSnooze then it is no longer a valid snooze option so use the next valide value
 +		if( this.DEFAULT_SNOOZE < defSnooze )
 +		{
 +			this.DEFAULT_SNOOZE = defSnooze;
++			this.snzIndex= 0;
 +		}
 +
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant initialize:end");
  	},
  
-@@ -27,6 +121,36 @@ var ReminderAssistant = Class.create({
+ 	activate:function(){
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant activate:start");
+ 		if (this.doThrob) {
+-			Mojo.Log.info("$$$$$$$$ Reminder-assistant doThrob:true");
++			//Mojo.Log.info("$$$$$$$$ Reminder-assistant doThrob:true");
+ 			this.controller.stageController.indicateNewContent(true);
+ 		}
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant activate:end");
  	},
  	
  	setup: function() {
 +		
 +		// prepare an additional widget (on the fly to prevent editing of translated resources)
-+		var newDiv1 = document.createElement('div');
-+		var newDiv2 = document.createElement('div');
-+		var newDiv3 = document.createElement('div');
-+		var newDiv4 = document.createElement('div');
-+		newDiv1.setAttribute('class', "palm-list");
-+		newDiv2.setAttribute('class', "palm-row last");
-+		newDiv2.setAttribute('style', "margin-top:15px;");
-+		newDiv2.setAttribute('x-mojo-tap-highlight', "momentary");
-+		newDiv3.setAttribute('class', "palm-row-wrapper");
-+		newDiv4.setAttribute('id', "snoozeSelector");
-+		newDiv4.setAttribute('x-mojo-element', "ListSelector");
-+		newDiv1.appendChild(newDiv2);
-+		newDiv2.appendChild(newDiv3);
-+		newDiv3.appendChild(newDiv4);
-+		this.controller.topContainer().appendChild(newDiv1);
++		var newTextDiv = document.createElement('div');
++		newTextDiv.setAttribute('class', "palm-dashboard-text");
++		newTextDiv.setAttribute('style', "margin-top: 10px position:relative -webkit-palm-mouse-target:ignore");
++		newTextDiv.setAttribute('id', "reminder-chosen-snz-text");
++		newTextDiv.innerHTML = this.snoozeOptions[this.snzIndex].label;
++		// first button row
++		var newButtonRow1 = document.createElement('div');
++		newButtonRow1.setAttribute('id', "reminder-snz-button-row1");
++		newButtonRow1.setAttribute('style', "position:relative; width:320px");
++		var setSnoozeBtn = document.createElement('div');
++		setSnoozeBtn.setAttribute('id', "reminder-setsnooze");
++		var ssbtnwrapper = document.createElement('div');
++		ssbtnwrapper.setAttribute('x-mojo-loc', '""');
++		ssbtnwrapper.setAttribute('class', "button-wrapper");
++		ssbtnwrapper.innerHTML = '+ / -';
++		setSnoozeBtn.appendChild(ssbtnwrapper);
++		var remSnooze = this.controller.get('reminder-snooze').cloneNode(true); 
++		var remDismiss = this.controller.get('reminder-dismiss').cloneNode(true);
++		this.controller.get('reminder-dismiss').parentNode.removeChild(this.controller.get('reminder-dismiss'));
++		this.controller.get('reminder-snooze').parentNode.removeChild(this.controller.get('reminder-snooze'));
++		newButtonRow1.appendChild(remDismiss);
++		newButtonRow1.appendChild(remSnooze);
++		newButtonRow1.appendChild(setSnoozeBtn);
++		
++		// second row of buttons
++		var newButtonRow2 = document.createElement('div');
++		newButtonRow2.setAttribute('id', "reminder-snz-button-row2");
++		newButtonRow2.setAttribute('style', "position:relative; width:320px");
++		var newBtnWrapDiv1 = document.createElement('div');
++		var newBtnWrapDiv2 = document.createElement('div');
++		var newBtnWrapDiv3 = document.createElement('div');
++		newBtnWrapDiv1.setAttribute('class', "button-wrapper");
++		newBtnWrapDiv2.setAttribute('class', "button-wrapper");
++		newBtnWrapDiv3.setAttribute('class', "button-wrapper");
++		newBtnWrapDiv1.setAttribute('x-mojo-loc', '""');
++		newBtnWrapDiv2.setAttribute('x-mojo-loc', '""');
++		newBtnWrapDiv3.setAttribute('x-mojo-loc', '""');
++		newBtnWrapDiv1.innerHTML = '+';
++		newBtnWrapDiv2.innerHTML = '-';
++		var templateModel = {};
++		var template = new Template($L("Snooze"));
++		var snoozeText=template.evaluate(templateModel);
++		newBtnWrapDiv3.innerHTML = $L("Snooze");
++		var snzAdvanceBtn = document.createElement('div');
++		var snzPreviousBtn = document.createElement('div');
++		var snzChosenBtn = document.createElement('div');
++		snzAdvanceBtn.setAttribute('id', "reminder-snz-advance-button");
++		snzPreviousBtn.setAttribute('id', "reminder-snz-previous-button");
++		snzChosenBtn.setAttribute('id', "reminder-snz-chosen-button");
++		snzAdvanceBtn.appendChild(newBtnWrapDiv1);
++		snzPreviousBtn.appendChild(newBtnWrapDiv2);
++		snzChosenBtn.appendChild(newBtnWrapDiv3);
++		newButtonRow2.appendChild(snzPreviousBtn);
++		newButtonRow2.appendChild(snzChosenBtn);
++		newButtonRow2.appendChild(snzAdvanceBtn);
 +
++		
++
++		var panelDiv = this.controller.get('reminder-email').parentNode;
++		panelDiv.appendChild(newTextDiv);
++		panelDiv.appendChild(newButtonRow1);
++		panelDiv.appendChild(newButtonRow2);
++		newButtonRow2.setAttribute('style', "display:none");
 +		//setup the snooze duration selector list
 +		this.selectorChoices = this.snoozeOptions;
-+		this.selectorAttributes = { label: "Snooze Duration", labelPlacement: "left", choices: this.selectorChoices, modelProperty:'value' };
-+
-+		//Need to figure out how to remember previous selected snooze value.
-+		//set the default duration to match the default snooze value
-+		this.selectorModel = {value:'' + this.DEFAULT_SNOOZE};
-+		this.selectorModel.value = '' + this.DEFAULT_SNOOZE;
-+		this.controller.setupWidget('snoozeSelector', this.selectorAttributes, this.selectorModel);
-+
++		this.selectorAttributes = {label: "Snooze", modelProperty:'value' };
++		this.setSnzBtn = this.controller.get('reminder-setsnooze');
++		this.buttonRow1 = this.controller.get('reminder-snz-button-row1');
++		this.buttonRow2 = this.controller.get('reminder-snz-button-row2');
++		this.buttonRow2.style.display = 'none';
++		this.snzChosenText = this.controller.get('reminder-chosen-snz-text');
 +		this.onSnoozeDurationChangedHandler = this.onSnoozeDurationChanged.bindAsEventListener(this);
 +
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant setup:start");
  		this.service = getCalendarService();
  
-@@ -43,6 +167,10 @@ var ReminderAssistant = Class.create({
+@@ -36,13 +227,18 @@ var ReminderAssistant = Class.create({
+ 		this.onDismissHandler = this.onDismiss.bindAsEventListener(this);
+ 		this.onEmailHandler = this.onEmail.bindAsEventListener(this);
+ 		this.onSnoozeHandler = this.onSnooze.bindAsEventListener(this);
+-	
++		this.setSnoozeHandler = this.handleSetSnoozeTap.bindAsEventListener(this);
++		this.snzPlusMinusHandler = this.handleSnzPlusMinus.bindAsEventListener(this);
+ 		this.updateMostRecentReminder();
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant setup:end");
+ 	},
      
  	cleanup: function() {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant cleanup:start:");
@@ -2701,7 +3916,7 @@ index d190fd1..0ac68a8 100644
  		this.reminders.stopObservingReminders('alert');
  		
  		getAppAssistant().openReminderAlert = null;
-@@ -60,6 +188,9 @@ var ReminderAssistant = Class.create({
+@@ -60,6 +256,9 @@ var ReminderAssistant = Class.create({
  			}
  		}
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant cleanup:end:");
@@ -2711,7 +3926,16 @@ index d190fd1..0ac68a8 100644
  	},
  	
  	remindersUpdated: function() {
-@@ -95,6 +226,9 @@ var ReminderAssistant = Class.create({
+@@ -78,6 +277,8 @@ var ReminderAssistant = Class.create({
+ 			this.updateMostRecentReminder();
+ 		}
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant remindersUpdated: end");
++		//setup the notification repeat task
++		this.schedulePlayAlarmSoundTask();
+ 	},
+ 
+ 	updateMostRecentReminder: function() {
+@@ -95,6 +296,9 @@ var ReminderAssistant = Class.create({
  		this.scheduleAutoCloseTask();
  		this.updateDisplay();
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant updateMostRecentReminder:end");
@@ -2721,28 +3945,80 @@ index d190fd1..0ac68a8 100644
  	},
  
  	updateDisplay: function() {
-@@ -150,6 +284,9 @@ var ReminderAssistant = Class.create({
+@@ -142,6 +346,41 @@ var ReminderAssistant = Class.create({
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant updateDisplay:end");
+ 	},
+ 	
++	handleSetSnoozeTap: function() {
++		//deactivate & animate
++		var btnR1 = this.buttonRow1;
++		btnR1.absolutize();
++		var btnR2 = this.buttonRow2;
++		Mojo.Animation.animateStyle(btnR1, 'left', 'bezier', {
++				from:0,
++					to: 330,
++					duration: 0.5,
++					curve:'over-easy',
++					onComplete: function() {btnR2.style.display="";}
++					}
++		);
++		this.snzAdvanceBtn = this.controller.get('reminder-snz-advance-button');
++		this.snzPreviousBtn = this.controller.get('reminder-snz-previous-button');
++		this.snzChosenBtn = this.controller.get('reminder-snz-chosen-button');
++		this.snzAdvanceBtn.addEventListener(Mojo.Event.tap, this.snzPlusMinusHandler);
++		this.snzPreviousBtn.addEventListener(Mojo.Event.tap, this.snzPlusMinusHandler);
++		this.snzChosenBtn.addEventListener(Mojo.Event.tap, this.onSnoozeDurationChangedHandler);
++	},
++	
++	handleSnzPlusMinus: function(e) {
++		var targetBtn = e.currentTarget.id;
++		var length = this.snoozeOptions.length;
++		if(targetBtn == 'reminder-snz-advance-button') {
++			//advance in time in snz options
++			this.snzIndex = (this.snzIndex + 1) < length ? (this.snzIndex + 1) : 0;
++			this.snzChosenText.innerHTML = this.snoozeOptions[this.snzIndex].label;
++		} else if(targetBtn == 'reminder-snz-previous-button') {
++			//back in time in snz options
++			this.snzIndex = (this.snzIndex - 1) < 0 ? (length - 1) :(this.snzIndex - 1);
++			this.snzChosenText.innerHTML = this.snoozeOptions[this.snzIndex].label;
++		}
++	},
++	
+ 	addListeners: function() {
+ 		this.controller.get('notification-event-title').addEventListener(Mojo.Event.tap, this.onEventHandler);
+ 		this.controller.get('notification-event-subtitle').addEventListener(Mojo.Event.tap, this.onEventHandler);
+@@ -150,6 +389,7 @@ var ReminderAssistant = Class.create({
  		
  		this.controller.get('reminder-dismiss').addEventListener(Mojo.Event.tap, this.onDismissHandler);
  		this.controller.get('reminder-snooze').addEventListener(Mojo.Event.tap, this.onSnoozeHandler);
-+
-+		//add snoozeDuration event listners
-+		this.controller.get('snoozeSelector').addEventListener(Mojo.Event.propertyChange, this.onSnoozeDurationChangedHandler);
++		this.setSnzBtn.addEventListener(Mojo.Event.tap, this.setSnoozeHandler);
  	},
  
  	removeListeners: function() {
-@@ -167,6 +304,10 @@ var ReminderAssistant = Class.create({
+@@ -167,6 +407,15 @@ var ReminderAssistant = Class.create({
  		if (email) email.removeEventListener(Mojo.Event.tap, this.onEmailHandler);
  		var snooze = this.controller.get('reminder-snooze');
  		if (snooze) snooze.removeEventListener(Mojo.Event.tap, this.onSnoozeHandler);
-+
 +		//remove snoozeDuration event listners
-+		var snoozeDuration = this.controller.get('snoozeSelector');
-+		if (snoozeDuration) snoozeDuration.removeEventListener(Mojo.Event.propertyChange, this.onSnoozeDurationChangedHandler);
++		var setSnooze = this.controller.get('reminder-setsnooze');
++		if (setSnooze) setSnooze.removeEventListener(Mojo.Event.tap, this.setSnoozeHandler);
++		var snoozeAdvance = this.controller.get('reminder-snz-advance-button');
++		if (snoozeAdvance) snoozeAdvance.removeEventListener(Mojo.Event.tap, this.snzPlusMinusHandler);
++		var snoozePrevious = this.controller.get('reminder-snz-previous-button');
++		if (snoozePrevious) snoozePrevious.removeEventListener(Mojo.Event.tap, this.snzPlusMinusHandler);
++		var snoozeChosen = this.controller.get('reminder-snz-chosen-button');
++		if (snoozeChosen) snoozeChosen.removeEventListener(Mojo.Event.tap, this.onSnoozeDurationChangedHandler);
  	},
  	
  	
-@@ -307,6 +448,23 @@ var ReminderAssistant = Class.create({
+@@ -304,9 +553,34 @@ var ReminderAssistant = Class.create({
+ 		this.reminder.userClosed = true;
+ 		this.reminder.scheduleStartTime = true;
+ 		this.reissueAutoSnoozedAlerts();
++		
++		//Since we are using the Power TimeOut instead of the taskscheduler we need to remove the 
++		//AtStartTime alarm that was scheduled.
++		this.removeAtStartTime();
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant onSnooze: end: " + this.reminder.id);
  	},
  	
@@ -2753,31 +4029,58 @@ index d190fd1..0ac68a8 100644
 +	 */
 +	onSnoozeDurationChanged: function(value) {
 +		Mojo.Log.info("$$$$$$$$ Reminder-assistant onSnoozeDurationChanged: start: " + this.reminder.id);
-+		this.DEFAULT_SNOOZE = this.selectorModel.value;
++		this.DEFAULT_SNOOZE = parseInt(this.snoozeOptions[this.snzIndex].value, 10);
 +		this.snoozed =true;
 +		this.closeAlert();
 +		this.autoSnoozed = false;
 +		this.reminder.userClosed = true;
 +		this.reminder.scheduleStartTime = true;
 +		this.reissueAutoSnoozedAlerts();
++		
++		//Since we are using the Power TimeOut instead of the taskscheduler we need to remove the 
++		//AtStartTime alarm that was scheduled.
++		this.removeAtStartTime();
 +		Mojo.Log.info("$$$$$$$$ Reminder-assistant onSnoozeDurationChanged: end: " + this.reminder.id);
 +	},
 +
  	removeReminder: function() {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeReminder: start: " + this.reminder.id);
  		this.reminders.removeReminder(this.reminder.id);
-@@ -342,13 +500,23 @@ var ReminderAssistant = Class.create({
+@@ -333,6 +607,17 @@ var ReminderAssistant = Class.create({
+ 		this.reminder.scheduleStartTime = false;
+ 	},
+ 	
++	removeAtStartTime: function() {
++		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeAtStartTime: start " + this.reminder.id);
++		
++		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: removeAtStartTime: calendar-snooze-" + this.reminder.id);
++		this.controller.serviceRequest('palm://com.palm.taskScheduler', {
++					                    method: 'removeTask',
++					                    parameters: {key: 'calendar-snooze-' + this.reminder.id}
++					                	});
++		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeAtStartTime: end " + this.reminder.id);
++	},
++	
+ 	snooze: function(minutes) {
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: start: " + this.reminder.id);
+ 		
+@@ -342,13 +627,28 @@ var ReminderAssistant = Class.create({
  			return;
  		}	
  		
 -		var snooze = new Date().addMinutes(minutes);
 +		var snooze;
-+		if( minutes > 0 )
-+		{
++		if( minutes == 0) {
++			if( this.snoozed ) {
++				//snoozed as at start time
++				snooze = new Date(this.reminder.time);
++			} else {
++				//this is for the notification repeat
++				snooze = new Date().addMinutes(minutes);
++			}
++		} else if( minutes > 0 ) {
 +			snooze = new Date().addMinutes(minutes);
-+		}
-+		else
-+		{
++		} else {
 +			snooze = new Date(this.reminder.time).addMinutes(minutes);
 +		}
 +		
@@ -2792,12 +4095,19 @@ index d190fd1..0ac68a8 100644
  													 			 'params': {'alarmsnooze': this.reminder.id}},
  													 key: 'calendar-snooze-' + this.reminder.id,
  													 start: {date: snooze.toUTCString()},
-@@ -356,6 +524,34 @@ var ReminderAssistant = Class.create({
+@@ -356,15 +656,45 @@ var ReminderAssistant = Class.create({
  													 misfirePolicy: {executeNow: true}}
  					                	});
  
 ++*/
-+
+ 
+-		var templateModel = {};
+-		var templateStr = $L("Snoozed for #{num} minutes");
+-		templateModel.num =minutes;
+-		var template = new Template(templateStr);
+-		var snoozeText=template.evaluate(templateModel);
+-		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: showBanner" + this.reminder.id);
+-		Mojo.Controller.appController.showBanner({messageText: snoozeText}, null /*launchArguments*/, "calendar-snooze");
 +		//use a powered/timeout alarm so that the reminder survives a reboot
 +		var alarmLaunchParams = '{"id":"com.palm.app.calendar","params":{"alarmsnooze":"' + this.reminder.id + '"}}';
 +
@@ -2805,7 +4115,7 @@ index d190fd1..0ac68a8 100644
 +		newParams.params.id = this.reminder.id;
 +
 +		var newParamsJSON = Object.toJSON(newParams);
-+
+ 
 +		var at = this.dateFormatForScheduler(snooze);
 +
 +        this.controller.serviceRequest("luna://com.palm.power/timeout/", {
@@ -2824,10 +4134,21 @@ index d190fd1..0ac68a8 100644
 +				Mojo.Log.error("****************** Reminder-assistant snooze failed: " );
 +			}.bind(this)
 +		});
- 
- 		var templateModel = {};
- 		var templateStr = $L("Snoozed for #{num} minutes");
-@@ -374,6 +570,11 @@ var ReminderAssistant = Class.create({
++
++		//Disable the Snoozed For Banner
++		if(this.showSnoozedForBanner) {
++			var templateModel = {};
++			var templateStr = $L("Snoozed for #{num} minutes");
++			templateModel.num =this.snoozeOptions[this.snzIndex].value;
++			var template = new Template(templateStr);
++			var snoozeText=template.evaluate(templateModel);
++			Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: showBanner" + this.reminder.id);
++			Mojo.Controller.appController.showBanner({messageText: snoozeText}, null /*launchArguments*/, "calendar-snooze");
++		}
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: end" + this.reminder.id);
+ 	},
+ 	
+@@ -374,6 +704,11 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant closeAlert: window.close() ");
  		this.controller.window.close();
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant closeAlert: end ");
@@ -2839,21 +4160,22 @@ index d190fd1..0ac68a8 100644
  	},
  	
  	autoCloseAlert: function() {
-@@ -383,6 +584,13 @@ var ReminderAssistant = Class.create({
+@@ -383,6 +718,14 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant autoCloseAlert: end " + this.reminder.id);
  	},
  	
 +	playAlarmSound: function() {
 +		//temporarily set the snooze to 0 will immediately re-trigger allert to get our attention.
++		this.showSnoozedForBanner = false; // banner is disabled because we are not snoozing
 +		this.dismissed = false;
 +		this.DEFAULT_SNOOZE = 0;
 +		this.closeAlert();
 +	},
-+
++	
  	specialCleanup:function(){
  		//we need to do this so that cleanup cleans the reminder rightaway		
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant specialCleanup: window Name:" + this.controller.window.name);
-@@ -402,7 +610,18 @@ var ReminderAssistant = Class.create({
+@@ -402,7 +745,18 @@ var ReminderAssistant = Class.create({
  					                	});
  	},
  	
@@ -2863,16 +4185,16 @@ index d190fd1..0ac68a8 100644
 +		function twoChars(x) { return ((x>9)?"":"0")+x; }
 +		
 +		return twoChars(d.getUTCMonth()+1) + "/" + twoChars(d.getUTCDate()) + "/" + twoChars(d.getUTCFullYear()) 
-+					+ " " + twoChars(d.getUTCHours()) + ":" + twoChars(d.getUTCMinutes()) + ":00" 
++					+ " " + twoChars(d.getUTCHours()) + ":" + twoChars(d.getUTCMinutes()) + ":00" ;
 +	},
 +	
  	scheduleAutoCloseTask: function() {
-+//disable autoclose, we want to know what we missed.
-+return;	
++		//disable autoclose, we want to know what we missed.
++		if(this.stopAutoClose) {return;}	
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant scheduleAutoCloseTask: start " + this.reminder.id);
  		var minCloseTime = new Date(this.reminder.time).addMinutes(15);
  		var closeTime = new Date(this.reminder.time + this.reminder.duration);
-@@ -432,6 +651,34 @@ var ReminderAssistant = Class.create({
+@@ -432,6 +786,34 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeAutoCloseTask: end " + this.reminder.id);
  	},
  	
@@ -2908,7 +4230,7 @@ index d190fd1..0ac68a8 100644
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant replaceHTML:start");
        	var range = element.ownerDocument.createRange();
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
-index 217a467..d93b2be 100644
+index 217a467..e8bb4f6 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
 @@ -8,11 +8,15 @@ var WeekAssistant = Class.create({
@@ -2923,11 +4245,11 @@ index 217a467..d93b2be 100644
  											{label:$L('Jump to...'), command:'jumpto', id: 2},
  											{label:$L('Missed reminders...'), command:'reminders', id: 3},
  											{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, checkEnabled: true},
-+											this.enhancedMenuItem = {label:$L('Enhanced View'), command:'enhanced', chosen: true},
++											//this.enhancedMenuItem = {label:$L('Enhanced View'), command:'enhanced', chosen: true},
  											{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
  								};
  
-@@ -42,6 +46,15 @@ var WeekAssistant = Class.create({
+@@ -42,6 +46,34 @@ var WeekAssistant = Class.create({
  		this.COL_POS = [0, 45, 91, 137, 183, 229, 275];
  		this.pendingRender = false;
  		this.pendingCalendarSettingsUpdate = false;
@@ -2936,14 +4258,33 @@ index 217a467..d93b2be 100644
 +		this.imgIcons = new Object();
 +		this.ALL_DAY_HEIGHT = 12;
 +		this.enhancedView = false;
-+		var cookie = new Mojo.Model.Cookie('WeekViewEnhanced');
-+		if (cookie !== undefined) {
-+			this.enhancedView = cookie.get();
++		this.weekModulusNum = 1;
++		this.weekNumOffset = 0;
++		this.weekCookie = new Mojo.Model.Cookie('WeekViewEnhanced');
++		if (this.weekCookie) {
++			var weekcookie = this.weekCookie.get();
++			if(weekcookie) {
++				if(weekcookie.weekviewenhanced !== undefined) {
++						this.enhancedView = weekcookie.weekviewenhanced;
++				} else {
++						this.enhancedView = false;
++				}
++				if(weekcookie.weeknumoffset !== undefined) {
++						this.weekNumOffset = weekcookie.weeknumoffset;
++				} else {
++						this.weekNumOffset = 0;
++				}
++				if(weekcookie.weekmodulusnum !== undefined) {
++						this.weekModulusNum = weekcookie.weekmodulusnum;
++				} else {
++						this.weekModulusNum = 1;
++				}
++			}
 +		}
  	},
  					
  	getEventChangeCallback: function(response) {
-@@ -80,6 +93,32 @@ var WeekAssistant = Class.create({
+@@ -80,6 +112,32 @@ var WeekAssistant = Class.create({
  		}
  	},
  	
@@ -2976,11 +4317,22 @@ index 217a467..d93b2be 100644
  	isWeekDisplayed: function(week) {
  		var weekDateKey = this.keyFromDate(week);
  		var thisWeek = this.getFirstDayOfWeek(getCurrentDateTime());
-@@ -103,10 +142,12 @@ var WeekAssistant = Class.create({
+@@ -103,10 +161,23 @@ var WeekAssistant = Class.create({
  	buildWeekTitle: function() {
  		var today = Date.today().clearTime();
  		var dayOfWeek = this.getFirstDayOfWeek(this.weekDate);
 +		var weekNumber = new Date(this.weekDate).getISO8601Week();
++		var year = new Date(this.weekDate).getFullYear();
++		var maxwkn = new Date(year, 11, 31).getISO8601Week();
++		if(this.weekNumOffset !== undefined && this.weekNumOffset !=0) {
++			var wkNum = parseInt(weekNumber,10) + this.weekNumOffset;
++			weekNumber = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			weekNumber = weekNumber < 10 ? '0' + weekNumber : weekNumber;
++		}
++		if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++			modNumber = (parseInt(weekNumber, 10) % this.weekModulusNum) + 1;
++			weekNumber = weekNumber + ' (' + modNumber + ')';
++		}
  		
 -		var template = new Template($L("Week of #{dateStr}"));
 +		var template = new Template($L("Week") + " #{weekStr}, " + $L("#{dateStr}"));
@@ -2990,7 +4342,7 @@ index 217a467..d93b2be 100644
  		this.title.innerHTML = template.evaluate(templateModel);
  		
  		if (this.changingWeeks)
-@@ -341,8 +382,8 @@ var WeekAssistant = Class.create({
+@@ -341,8 +412,8 @@ var WeekAssistant = Class.create({
  							   endDay.getTime(), 
  							   this.getEventsCallback.bind(this), 
  							   this.controller,
@@ -3001,7 +4353,7 @@ index 217a467..d93b2be 100644
  	},
  	
  	updateAll: function() {
-@@ -353,8 +394,8 @@ var WeekAssistant = Class.create({
+@@ -353,8 +424,8 @@ var WeekAssistant = Class.create({
  						   endOfWeek.getTime(), 
  						   this.getEventsCallback.bind(this), 
  						   this.controller,
@@ -3012,7 +4364,7 @@ index 217a467..d93b2be 100644
  	},
  	
  	getEventsFailCallback: function(response) {
-@@ -373,6 +414,13 @@ var WeekAssistant = Class.create({
+@@ -373,6 +444,13 @@ var WeekAssistant = Class.create({
  		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
@@ -3026,7 +4378,7 @@ index 217a467..d93b2be 100644
  
  		// Draw marker lines
  		ctx.fillStyle = "rgb(135, 135, 134)";
-@@ -388,7 +436,27 @@ var WeekAssistant = Class.create({
+@@ -388,7 +466,28 @@ var WeekAssistant = Class.create({
  	
  	renderStartEndDayLabels: function(whichWeek) {
  		var ctx = this.weeks[whichWeek].ctxEvents;
@@ -3048,14 +4400,15 @@ index 217a467..d93b2be 100644
 +			}
 +			for (var i=0; i<12; i+=2) {
 +				var endPos = (i + 12) * this.HOUR_HEIGHT - 1;
-+				ctx.strokeText(i + " PM", 12, endPos + 24);
++				var num = (i==0) ? 12 : i;
++				ctx.strokeText(num + " PM", 12, endPos + 24);
 +			}
 +		}
 +		/*
  		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
-@@ -401,6 +469,7 @@ var WeekAssistant = Class.create({
+@@ -401,6 +500,7 @@ var WeekAssistant = Class.create({
  		if (this.midDayMarkerPos != this.startDayMarkerPos && this.midDayMarkerPos != this.endDayMarkerPos)
  			ctx.strokeText(this.midDayMarkerTime, 12, midPos + 24);
  		ctx.strokeText(this.endDayMarkerTime, 17, endPos + 24);
@@ -3063,7 +4416,7 @@ index 217a467..d93b2be 100644
  	},
  	
  	renderEmptyWeek: function(whichWeek) {
-@@ -488,8 +557,94 @@ var WeekAssistant = Class.create({
+@@ -488,8 +588,94 @@ var WeekAssistant = Class.create({
  		
  		ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
  		ctx.fillRect(left+1, top+height-3, width-2, 1);
@@ -3159,7 +4512,7 @@ index 217a467..d93b2be 100644
  	renderBusyTime: function(whichWeek, whichDay, busy) {
  		var ctx = this.weeks[whichWeek].ctxEvents;
  		var marginLeft = 1;
-@@ -508,17 +663,91 @@ var WeekAssistant = Class.create({
+@@ -508,17 +694,91 @@ var WeekAssistant = Class.create({
  	renderAllDayEvent: function(whichWeek, whichDay, row, allday) {
  		var ctx = this.weeks[whichWeek].ctxAllDay;
  		var marginLeft = 4;
@@ -3253,7 +4606,7 @@ index 217a467..d93b2be 100644
  		
  		// Erase any existing all day events and any selection highlighting
  		if (this.weeks[whichWeek].alldayHeight) {
-@@ -548,8 +777,9 @@ var WeekAssistant = Class.create({
+@@ -548,8 +808,9 @@ var WeekAssistant = Class.create({
  		if(maxRows > 5)
  			maxRows = 5;
  			
@@ -3264,7 +4617,7 @@ index 217a467..d93b2be 100644
  		
  		for (var whichDay = 0; whichDay < 7; whichDay++) {
  			var day = data.days[whichDay];
-@@ -570,6 +800,7 @@ var WeekAssistant = Class.create({
+@@ -570,6 +831,7 @@ var WeekAssistant = Class.create({
  			
  			// Events
  			for (i = 0; i < day.events.length; i++) {
@@ -3272,7 +4625,7 @@ index 217a467..d93b2be 100644
  				this.renderEvent(whichWeek, whichDay, day.events[i]);
  			}
  		}
-@@ -585,6 +816,13 @@ var WeekAssistant = Class.create({
+@@ -585,11 +847,19 @@ var WeekAssistant = Class.create({
      		ctxAllDay.fillRect(x+1, 0, 1, this.weeks[whichWeek].alldayHeight);
  		}
  		
@@ -3286,7 +4639,13 @@ index 217a467..d93b2be 100644
  		this.renderStartEndDayLabels(whichWeek);
  	},
  	
-@@ -612,6 +850,23 @@ var WeekAssistant = Class.create({
+ 	setup: function() {
+ 		this.clearCache();
++		this.service = getCalendarService();
+ 		this.reminders = getReminderManager();
+ 		this.reminders.observeReminders('week', this);
+ 		this.prevScrollPos=100000; //some high value for the intial scrolling
+@@ -612,6 +882,23 @@ var WeekAssistant = Class.create({
  		this.currentDay = this.controller.get('wv_current_day');
  		this.scrollMakerPos = this.controller.get('wv_scroll_marker');
  		this.scrollDataDiv = this.controller.get('wv_scroll_data');
@@ -3310,7 +4669,7 @@ index 217a467..d93b2be 100644
  		
  		this.weeks = [];
  		this.weeks = [];
-@@ -708,25 +963,56 @@ var WeekAssistant = Class.create({
+@@ -708,25 +995,57 @@ var WeekAssistant = Class.create({
  		this.menuModel = {
  			visible:true,
  			items: [ 
@@ -3330,7 +4689,7 @@ index 217a467..d93b2be 100644
  			};
  			
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
-+		this.enhancedMenuItem.chosen = this.enhancedView;
++		//this.enhancedMenuItem.chosen = this.enhancedView;
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		this.remindersUpdated(); 	// Update missed reminders menu item
 +
@@ -3344,6 +4703,7 @@ index 217a467..d93b2be 100644
 +		
 +		//Used to detect gesture area hold
 +		this.metaKeyDown = false;
++		this.orangeKeyDown = false;
 +		
 +		//used to copy Event
 +		this.copyEvt = null;
@@ -3369,7 +4729,7 @@ index 217a467..d93b2be 100644
  	},
    
  	showJumpTo: function() {
-@@ -776,6 +1062,12 @@ var WeekAssistant = Class.create({
+@@ -776,6 +1095,12 @@ var WeekAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Event.stop(event);
  				this.controller.stageController.pushScene('prefs');
@@ -3382,17 +4742,17 @@ index 217a467..d93b2be 100644
  			} else if(event.command == Mojo.Menu.helpCmd){
  				getAppManagerService().launchHelp(this.controller);
  			} else if (event.command == 'sync') {
-@@ -788,14 +1080,35 @@ var WeekAssistant = Class.create({
+@@ -788,14 +1113,35 @@ var WeekAssistant = Class.create({
  			}else if (event.command == 'jumpto') {
  				Event.stop(event);
  				this.showJumpTo();
-+			} else if (event.command == 'enhanced') {
-+				Event.stop(event);
-+				this.enhancedView = !this.enhancedView;
-+				var cookie = new Mojo.Model.Cookie('WeekViewEnhanced');
-+				cookie.put(this.enhancedView);
-+				this.enhancedMenuItem.chosen = this.enhancedView;
-+				this.controller.modelChanged(this.appMenuModel);
++			//} else if (event.command == 'enhanced') {
++			//	Event.stop(event);
++			//	this.enhancedView = !this.enhancedView;
++			//	var cookie = new Mojo.Model.Cookie('WeekViewEnhanced');
++			//	cookie.put(this.enhancedView);
++			//	this.enhancedMenuItem.chosen = this.enhancedView;
++			//	this.controller.modelChanged(this.appMenuModel);
  			} else if (event.command == 'reminders') {
  				Event.stop(event);
  				this.controller.stageController.pushScene('reminder-list');
@@ -3418,7 +4778,7 @@ index 217a467..d93b2be 100644
  		}
  	},
  	
-@@ -895,8 +1208,8 @@ var WeekAssistant = Class.create({
+@@ -895,8 +1241,8 @@ var WeekAssistant = Class.create({
  								   this.getLastDayOfWeek(beginWeekNoTime).getTime(), 
  								   this.getEventsCallback.bind(this), 
  								   this.controller,
@@ -3429,7 +4789,7 @@ index 217a467..d93b2be 100644
  				this.renderEmptyWeek(this.PREV_WEEK);
  			}
  			this.resetPos();
-@@ -937,8 +1250,8 @@ var WeekAssistant = Class.create({
+@@ -937,8 +1283,8 @@ var WeekAssistant = Class.create({
  								   this.getLastDayOfWeek(beginWeekNoTime).getTime(), 
  								   this.getEventsCallback.bind(this), 
  								   this.controller,
@@ -3440,7 +4800,7 @@ index 217a467..d93b2be 100644
  				this.renderEmptyWeek(this.NEXT_WEEK);
  			}
  			this.resetPos();
-@@ -970,6 +1283,18 @@ var WeekAssistant = Class.create({
+@@ -970,6 +1316,18 @@ var WeekAssistant = Class.create({
  		this.eventHandler.activate();
  		this.allDayEventHandler.activate();
  		
@@ -3459,13 +4819,13 @@ index 217a467..d93b2be 100644
  		// Calendar Header
  		this.headerTapHandler = this.showJumpTo.bindAsEventListener(this);
  		this.controller.get('wv_view_header').observe(Mojo.Event.tap, this.headerTapHandler);
-@@ -998,12 +1323,126 @@ var WeekAssistant = Class.create({
+@@ -998,12 +1356,152 @@ var WeekAssistant = Class.create({
  		this.eventHandler.deactivate();
  		this.allDayEventHandler.deactivate();
  		
 +		//deactivate eventsTap & key handlers
 +		if (this.enhancedView) {
-+			this.eventsTapHandler.deactivate();
++			if(this.eventsTapHandler) {this.eventsTapHandler.deactivate();}
 +			// key handlers for event meta tap and event canvas
 +			this.controller.stopListening(this.controller.sceneElement, Mojo.Event.keyup, this.keyUpHandler);
 +			this.controller.stopListening(this.controller.sceneElement, Mojo.Event.keydown, this.keyDownHandler);
@@ -3484,7 +4844,12 @@ index 217a467..d93b2be 100644
 +		if (event.originalEvent.metaKey || event.originalEvent.keyCode === 231) {
 +		//Mojo.Log.info("handleKeyUp detected gesture up key");
 +			this.metaKeyDown = false;
-+		}		
++		}
++		// Check for Orange key
++		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
++    	//Mojo.Log.info("handleKeyUp detected ORANGE key");
++			this.orangeKeyDown = false;
++ 		}		
 +	},
 +	
 +	handleKeyDown: function(event) {
@@ -3492,7 +4857,12 @@ index 217a467..d93b2be 100644
 +		if (event.originalEvent.metaKey || event.originalEvent.keyCode === 231) {
 +    	//Mojo.Log.info("handleKeyUp detected gesture key");
 +			this.metaKeyDown = true;
-+		}		
++		}
++		// Check for Orange key
++		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
++    	//Mojo.Log.info("handleKeyUp detected ORANGE key");
++			this.orangeKeyDown = true;
++ 		}		
 +	},
 +	
 +	copiedEvent: function(response) {
@@ -3511,14 +4881,14 @@ index 217a467..d93b2be 100644
 +		//copied event saved open in edit scene
 +		Event.stop(tapEvent);
 +		this.fromDefaultTap = false;
-+		if (this.metaKeyDown == true) {
++		if (this.orangeKeyDown == true) {
 +			//create new from old
 +			var start = new Date();
 +			start.set({	minute: 0, second: 0, millisecond: 0 });
 +			var startTS = start.getTime(); //set it up on today's current hour
 +			var duration = event.end - event.start;
 +			var endTS = startTS + duration;
-+			this.metaKeyDown = false;
++			this.orangeKeyDown = false;
 +			var tfParams = {
 +						subject: event.subject,
 +						allday: false,
@@ -3533,8 +4903,20 @@ index 217a467..d93b2be 100644
 +								this.copiedEvent.bind(this),
 +								this.controller,
 +								function(response) {Mojo.Log.error(response.errorText)});
++		} else if(this.metaKeyDown == true) {
++				// Confirm with the user they want to delete the event
++				//Mojo.Log.info("handleEventsTap: meta key + tap = Delete event " + Object.toJSON(event));
++				// Retrieve the event from the calendar service so we can figure
++				// out whether it's recurring or not
++				this.eventToBeDeleted = event;
++				this.deletedeventId = event.id;
++				// Reset the metaKeyDown to handle the case the user lets go
++				// of the meta key when the Delete confirmation dialog is up
++				this.metaKeyDown = false;
++				getCalendarService().getEvent(event.id, this.gotEventInlineDelete.bind(this),this.gotEventInlineDeleteFailed.bind(this), this.controller);
 +		} else {
 +			if(event.id) {
++			this.fromEditEventsCallBack = true;
 +			this.controller.stageController.pushScene('edit', event.id, new Date(event.startTimestamp), false, event.calendarId, event.subject, false, this.handleEditEventsCallBack);
 +			}
 +		}
@@ -3555,6 +4937,10 @@ index 217a467..d93b2be 100644
 +		if (this.metaKeyDown == true) {
 +			// nothing to copy here reset metakeydown
 +			this.metaKeyDown = false;
++		}
++		if (this.orangeKeyDown == true) {
++			// nothing to copy here reset metakeydown
++			this.orangeKeyDown = false;
 +		}
 +		if (x); {
 +			var col = this.whichDayCol(x);
@@ -3586,8 +4972,54 @@ index 217a467..d93b2be 100644
    	showSelectedHandler: function(col) {
  		this.selectedCol = col;
  		
-@@ -1021,6 +1460,12 @@ var WeekAssistant = Class.create({
+@@ -1019,8 +1517,65 @@ var WeekAssistant = Class.create({
+ 		var week = this.getFromCache(beginWeekNoTime.getTime());
+ 		this.renderWeek(this.THIS_WEEK, week);
    	},
++
++	// Handles taps for events
++	gotEventInlineDelete: function(response) {
++		//Mojo.Log.info("gotEventInlineDelete");
++		var targetEvent = response;
++		// If the user is trying to delete a new event (cancelling the new event) 
++		// [new event's parentId equals 0]
++		// or
++		// if the event is NOT a recurring event, show the standard delete warning
++		if ((!targetEvent.rrule || targetEvent.rrule == "") && targetEvent.parentId <=0){
++			this.controller.showDialog({
++				template: 'shared/confirm-deleteevent',
++				assistant: new DeleteEventConfirmDialogAssistant(this, targetEvent, targetEvent.startTimestamp),
++				preventCancel: true
++			});
++		} else {
++			// If the event is a recurring event, show the warning allowing users to
++			// delete the series, the single event, or cancel
++			var eventToBeDeletedStartime = parseFromId(this.deletedeventId);
++			this.controller.showDialog({
++				template: 'shared/confirm-deleterecurringevent',
++				assistant: new DeleteEventConfirmDialogAssistant(this, targetEvent, eventToBeDeletedStartime.start),
++				preventCancel: true
++			});
++		}
++		// Re-render the week
++		this.eventToBeDeleted = null;
++		this.editEventsCallBack();
++	},
++	
++	gotEventInlineDeleteFailed: function(response) {
++		//Mojo.Log.info("gotEventInlineDeleteFailed " + Object.toJSON(response));
++		// Re-render the week
++		this.eventToBeDeleted = null;
++		this.editEventsCallBack();
++	},
++	
++	deletedEvent: function(response) {
++		//Mojo.Log.info("deletedEvent " + Object.toJSON(response));
++		// Remove the reminder for this event
++		if (this.deletedeventId != undefined)
++			getReminderManager().removeReminder(this.deletedeventId);
++	},
++
  	
    	tapHandler: function(col) {
 +		// see if meta tap is active
@@ -3596,10 +5028,17 @@ index 217a467..d93b2be 100644
 +			this.metaKeyDown = false;
 +			//return;
 +		}
++		// see if orange key is active
++		if (this.orangeKeyDown == true) {
++			// should not do anything here with a orange key + tap
++			this.orangeKeyDown = false;
++			//return;
++		}
++
  		var dayofweek= this.getFirstDayOfWeek(getCurrentDateTime());
  		dayofweek.addDays(col);
  			
-@@ -1102,6 +1547,28 @@ var WeekAssistant = Class.create({
+@@ -1102,6 +1657,28 @@ var WeekAssistant = Class.create({
  	getFromCache: function(weekDate) {
  		return WeekAssistant.weekCache.get(this.keyFromDate(weekDate));
  	},	
@@ -3665,7 +5104,7 @@ index ead7ff3..f95ee78 100644
  					val = $L('2 days before');
  					break;
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js b/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js
-index c2619fe..a9fa2f4 100644
+index c2619fe..9924e5e 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js
 @@ -7,6 +7,35 @@ var ReminderManager = Class.create ({
@@ -3677,7 +5116,7 @@ index c2619fe..a9fa2f4 100644
 +		//Reload reminders
 +		try
 +		{
-+			this.cookie = new Mojo.Model.Cookie("com.palm.app.calendar.reminders");
++			this.cookie = new Mojo.Model.Cookie("remindersCookie");
 +
 +			if (this.cookie) 
 +			{
@@ -3957,10 +5396,10 @@ index 3b455df..a350808 100644
  /* Week View: Events */
  .wv_event.cal-color-blue,
 diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css
-index cafffaf..8dcc09b 100644
+index cafffaf..24b0ea7 100644
 --- a/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css
 +++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/month.css
-@@ -124,12 +124,24 @@
+@@ -124,12 +124,36 @@
  		float: left;
  }
  
@@ -3976,6 +5415,18 @@ index cafffaf..8dcc09b 100644
 +		float: left;
 +}
 +
++.monthview-partly-busy-time-pixi {
++		background: none;
++		background-image: url(../images/busy-time.png);
++		background-repeat: no-repeat;
++		background-attachment: fixed;
++		background-position: left center;
++		/*color: #FF0000;*/
++		width: 100%;
++		height: 10px;
++		float: left;
++}
++
  .monthview-busy-time {
  		background: none;
  		background-image: url(../images/busy-time.png);
@@ -3987,6 +5438,87 @@ index cafffaf..8dcc09b 100644
  		/*color: #FF0000;*/
  		width: 100%;
  		height: 16px;
+diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/notification.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/notification.css
+index 4a84218..6c74f07 100644
+--- a/usr/palm/applications/com.palm.app.calendar/stylesheets/notification.css
++++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/notification.css
+@@ -15,9 +15,13 @@
+ 
+ #reminder-email,
+ #reminder-dismiss,
+-#reminder-snooze {
+-    height: 45px;
+-	position: fixed;
++#reminder-snooze,
++#reminder-setsnooze,
++#reminder-snz-advance-button,
++#reminder-snz-previous-button,
++#reminder-snz-chosen-button {
++	height: 45px;
++	overflow: hidden;
+ 	-webkit-box-sizing: border-box;
+ 	line-height: 45px;
+ 	text-align: center;
+@@ -36,22 +40,50 @@
+ #reminder-email .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 0 15 45 15 repeat repeat; }
+ #reminder-email:active .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 45 15 0 15 repeat repeat; }
+ 
++#reminder-setsnooze .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 0 15 45 15 repeat repeat; }
++#reminder-setsnooze:active .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 45 15 0 15 repeat repeat; }
++
++#reminder-snz-advance-button .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 0 15 45 15 repeat repeat; }
++#reminder-snz-advance-button:active .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 45 15 0 15 repeat repeat; }
++
++#reminder-snz-previous-button .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 0 15 45 15 repeat repeat; }
++#reminder-snz-previous-button:active .button-wrapper { -webkit-border-image:url(../images/button-contact.png) 45 15 0 15 repeat repeat; }
++
++#reminder-snz-chosen-button .button-wrapper { -webkit-border-image:url(../images/button-snooze.png) 0 15 45 15 repeat repeat; }
++#reminder-snz-chosen-button:active .button-wrapper { -webkit-border-image:url(../images/button-snooze.png) 45 15 0 15 repeat repeat; }
++
+ #reminder-dismiss,
+-#reminder-snooze {
++#reminder-snooze
++{
++	width: 40%;
++	float:left; 
++ 	padding-left: 5px;
++}
++
++#reminder-setsnooze {
++	width: 20%;
++	float:left; 
++ 	padding-left: 5px;
++}
++
++#reminder-snz-advance-button,
++#reminder-snz-previous-button {
++	width: 25%;
++}
++
++#reminder-snz-chosen-button {
+ 	width: 50%;
+-    bottom: 10px;
+ }
+ 
+ #reminder-dismiss .button-wrapper { -webkit-border-image:url(../images/button-dismiss.png) 0 15 45 15 repeat repeat; }
+ #reminder-dismiss:active .button-wrapper { -webkit-border-image:url(../images/button-dismiss.png) 45 15 0 15 repeat repeat; }
+ 
+-#reminder-snooze {
+- 	right: 0px; 
+- 	padding-left: 5px;
+-}
+-
+-#reminder-dismiss {
+-    padding-right: 5px;
++#reminder-snz-advance-button,
++#reminder-snz-chosen-button,
++#reminder-snz-previous-button
++{
++ 	float:left;
++	padding-left: 5px;
+ }
+ 
+ #reminder-snooze .button-wrapper { -webkit-border-image:url(../images/button-snooze.png) 0 15 45 15 repeat repeat; }
 diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/week.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/week.css
 index 729ae53..43397ad 100644
 --- a/usr/palm/applications/com.palm.app.calendar/stylesheets/week.css
