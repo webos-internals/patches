@@ -221,6 +221,8 @@
  		this.renderLabels();
  		this.setupContact();
  		if (this.contact.readOnly) {
+--- .orig/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
++++ /usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
 --- .orig/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
 +++ /usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
 @@ -19,7 +19,7 @@
@@ -1193,7 +1195,7 @@
  NotificationAssistant.prototype.subscribeToNotifications = function(){
  	this.messageNotificationRequest = MessagingMojoService.registerForIncomingMessages({onSuccess: this.sendNotification.bind(this, this.Messaging.notificationTypes.newMessage)});
  	this.sendErrorNotificationRequest = MessagingMojoService.registerForSendFailures(this.sendNotification.bind(this, this.Messaging.notificationTypes.sendFailure));
-@@ -35,6 +43,61 @@
+@@ -35,6 +43,69 @@
  	this.airplaneModeNotificationRequest = MessagingMojoService.registerForAirplaneModeNotifications(this.sendAirplaneModeNotification.bind(this));
  };
  
@@ -1203,9 +1205,14 @@
 +	this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
 +		method: 'vibrate', parameters: { 'period': 0,'duration': this.notifyPrefs.vibrationLength } });
 +
-+	if((contact.ringtoneLoc) && (contact.ringtoneLoc != "") && (this.notifyPrefs.messageType == "SMS"))
-+		bannerParams.soundFile = contact.ringtoneLoc;
++	this.setNotificationSound(bannerParams, this.notifyPrefs);
 +
++	if((contact.ringtoneLoc) && (contact.ringtoneLoc != "") && 
++		((this.notifyPrefs.messageType == "SMS") || (this.notifyPrefs.messageType == "MMS")))
++	{
++		bannerParams.soundFile = contact.ringtoneLoc;
++	}
++	
 +	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
 +};
 +
@@ -1218,8 +1225,11 @@
 +	var notifParams = {};
 +	this.setNotificationSound(notifParams, msgPrefs);
 +
-+	if((contact.ringtoneLoc) && (contact.ringtoneLoc != "") && (msgPrefs.messageType == "SMS"))
++	if((contact.ringtoneLoc) && (contact.ringtoneLoc != "") && 
++		((msgPrefs.messageType == "SMS") || (msgPrefs.messageType == "MMS")))
++	{
 +		this.controller.playSoundNotification(notifParams.soundClass, contact.ringtoneLoc);
++	}
 +	else
 +		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
 +};
@@ -1255,7 +1265,7 @@
  NotificationAssistant.prototype.sendNotification = function(notificationType, resp){
  	if (window.PalmSystem && !resp.returnValue) {
  		try {
-@@ -142,28 +205,81 @@
+@@ -142,28 +213,81 @@
  };
  
  NotificationAssistant.prototype.considerForNotification = function(notificationData){
@@ -1273,7 +1283,7 @@
 +	this.notifyPrefs.notificationRingtoneName = "";
 +	this.notifyPrefs.notificationRingtonePath = "";
 +
-+	if(notificationData.messageType == "SMS") {
++	if((notificationData.messageType == "SMS") || (notificationData.messageType == "MMS")) {
 +		this.notifyPrefs.enableNotification = this.Messaging.messagingPrefs.enableNotification;
 +		this.notifyPrefs.enableNotificationSound = this.Messaging.messagingPrefs.enableNotificationSound;
 +		this.notifyPrefs.notificationRingtonePath = this.Messaging.messagingPrefs.notificationRingtonePath;
@@ -1341,7 +1351,7 @@
  		} else if (notificationType == this.Messaging.notificationTypes.connectionFailure) {
  			this.sendErrorNotificationAndUpdateDashboard(notificationData);
  		} else if (notificationType == this.Messaging.notificationTypes.sendFailure) {
-@@ -195,7 +311,7 @@
+@@ -195,7 +319,7 @@
  	if(class0Stage) {
  		class0Stage.swapScene('class0Alert', this.class0AlertData);
  		if (playSound){
@@ -1350,7 +1360,7 @@
  		}
  	} else {
  		var soundClass = 'none';
-@@ -284,9 +400,15 @@
+@@ -284,9 +408,14 @@
  		chatThreadId: chatThreadId,
  		clearBanner: true		
  	};
@@ -1360,7 +1370,6 @@
 +
 +	if (this.notifyPrefs.enableNotificationSound) {
 +		var smsid = notificationData.address;
-+		bannerParams.soundClass = "alerts";
 +		MessagingMojoService.rLookup(smsid,contact,this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'),this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'));
 +	} else {
 +		Mojo.Log.error("Setting banner params");
@@ -1369,7 +1378,7 @@
  	// Store the data so it can be used in the dashboard
  	var data = {
  		chatThreadId: chatThreadId,
-@@ -323,11 +445,11 @@
+@@ -323,11 +452,11 @@
  	var dashboard = this.controller.getStageController(DashboardMessageStageName);
  	
  	if (dashboard) {
@@ -1383,7 +1392,7 @@
  		}.bind(this);
  		var params = {
  			name: DashboardMessageStageName,
-@@ -343,13 +465,9 @@
+@@ -343,13 +472,9 @@
  		// delay creating the dashboard window for the case where the banner is clicked on
  		// to take you to the chat view.  This will likely result in the dashboard data
  		// being cleared.  If the dashboard data is empty, we do not need to create the dashboard.		
@@ -1400,7 +1409,7 @@
  		}
  	}
  };
-@@ -385,7 +503,7 @@
+@@ -385,7 +510,7 @@
  	var bannerParams = {
  		messageText: notificationText.escapeHTML()
  	};
@@ -1409,7 +1418,7 @@
  		bannerParams.soundClass = "alerts";	
  	var bannerLaunchParams =  {
  		clearBanner: true,
-@@ -652,6 +770,9 @@
+@@ -652,6 +777,9 @@
  
  NotificationAssistant.prototype.resetNewMessages = function(){
  	this.messageDashboardData = {};
@@ -1419,7 +1428,7 @@
  };
  
  NotificationAssistant.prototype.clearMessageDashboard = function(){
-@@ -690,15 +811,18 @@
+@@ -690,15 +818,18 @@
  	}
  };
  
@@ -2845,6 +2854,22 @@
  			}
  			this.puckConnected = response.connected;
  		}
+@@ -452,6 +468,15 @@
+ 		this.exitStatus = "rejected";
+ 		
+       	this.closeWindow();
++      
++      if(this.phonePrefs.rejectedAction == "autoreply") {	
++			this.controller.serviceRequest('palm://com.palm.applicationManager/', {
++				method: 'launch', parameters: { id: 'com.palm.app.messaging',
++					params: {composeRecipients: [{address: this.number}],
++					messageText: this.phonePrefs.rejectedTemplate
++					}
++				}});
++		}
+     },
+ 	
+ 	// hide alert and instruct blur handler to show ignore UI
 --- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 +++ /usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 @@ -131,4 +131,14 @@
@@ -2877,16 +2902,18 @@
  				} else {
  					return;
  				}
-@@ -500,7 +504,7 @@
+@@ -500,7 +504,9 @@
  		}
  		
  		if (this.isPendingOrActive()) {
 -			if (scenario == "phone_front_speaker") {
-+			if (scenario == "phone_front_speaker" || scenario == "phone_back_speaker") {
++			if (scenario == "phone_front_speaker" || ((scenario == "phone_back_speaker") &&
++				(this.appAssistant.phonePrefs.speakerphoneMode == "proximity")))
++			{
  				this.proxOn();
  			} else {
  				QDLogger.log( "TEL#enableProxOnCallAndAudio", "not enabled: " , scenario);
-@@ -514,6 +518,7 @@
+@@ -514,6 +520,7 @@
  	proxOn: function() {
  		if (!(this.proxSubscription)) {
  			this.proxSubscription = TelephonyCommands.proxSet(true, this.onProxOn);
@@ -2894,7 +2921,7 @@
  		} else {
  			QDLogger.log( "TEL#proxOn", "already on");
  		}
-@@ -524,6 +529,9 @@
+@@ -524,6 +531,9 @@
  		if (this.proxSubscription) {
  			this.proxSubscription.cancel();
  			delete this.proxSubscription;
@@ -2904,7 +2931,7 @@
  		}
  	},
  	
-@@ -715,7 +723,15 @@
+@@ -715,7 +725,15 @@
  		contact.cnapName = cnapName;
  		
  		QDLogger.log( "TelephonyEventListener#onIncomingLookupComplete", "namefromcontacts?:" , !!(contact.name));
