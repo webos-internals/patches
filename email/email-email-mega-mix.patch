@@ -328,7 +328,7 @@ index e66f292..e880d1e 100644
    updateFolderStatusModel: function(response) {
  	if (!response.folders) {
 diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
-index 761069e..3018fca 100644
+index 761069e..672c41c 100644
 --- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
 +++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
 @@ -61,23 +61,32 @@ var MessageAssistant = Class.create({
@@ -340,16 +340,18 @@ index 761069e..3018fca 100644
  
  	setup: function() {
  		this.setupMessage(); // get message details and setup message webview widget
+-		
 +		// move-to menu
 +		this.moveToMenuModel = {
 +			items: []
-+			};
- 		
++			};	
++	
  		// setup menu	
  		this.cmdMenuModel = {
  				visible:true,
  				items: [
 +					{label:$L('Move'),      icon:'file',      submenu:'move-to', disabled: true},
++					{label:$L('Set Flag'),  icon:'make-vip',      command:'flag'},
  					{label:$L('Reply'),     icon:'reply',     command:'reply'},
  					{label:$L('Reply all'), icon:'reply-all', command:'replyAll'},
  					{label:$L('Forward'),   icon:'forward-email', command:'forward'},
@@ -357,30 +359,30 @@ index 761069e..3018fca 100644
  					{label:$L('Delete'),    icon:'delete',    command:'delete'}
  				]};
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
+-		
+-		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread, shortcut:'k', command:'mark-unread'};
 +		this.controller.setupWidget('move-to', undefined, this.moveToMenuModel);
 +
- 		
--		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread, shortcut:'k', command:'mark-unread'};
 +		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread, shortcut:'u', command:'mark-unread'};
  		this.markSetFlagMenuItem =    {label:MessageAssistant.kAppMenuSetFlag, shortcut:'g', command:'flag'};
  		this.showRecipientsMenuItem = {label:MessageAssistant.kAppMenuShowRecipients, shortcut:'s', command:'show-recipients'};
  		
-@@ -143,7 +152,8 @@ var MessageAssistant = Class.create({
+@@ -143,6 +152,7 @@ var MessageAssistant = Class.create({
  		Mojo.Event.listen(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
  
  		Mojo.Event.listen(this.controller.getSceneScroller(), Mojo.Event.scrollStarting, this.addAsScrollListener.bind(this));
--		
 +		Mojo.Event.listen(this.controller.document, Mojo.Event.flick, this.flickHandler.bind(this));
-+
+ 		
  		this.subjectElement = this.controller.get('email_subject');
  		this.readViewContainer = this.controller.get('email-readview-content-container');
- 		
-@@ -175,7 +185,26 @@ var MessageAssistant = Class.create({
+@@ -175,9 +185,27 @@ var MessageAssistant = Class.create({
  		Mojo.Event.stopListening(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
  		//  This currently does nothing. Commenting out
  		//  Message.closeMessage(this.controller, this.data.id);
 +		this.requests.each(function (r) { r.cancel();});
  	},
+-
+-	aboutToActivate: function(callback) {
 +	
 +	renderFolderList: function(data) {
 +		var padding = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
@@ -399,10 +401,11 @@ index 761069e..3018fca 100644
 +			this.controller.modelChanged(this.cmdMenuModel);
 +		}
 +},
- 
- 	aboutToActivate: function(callback) {
++ aboutToActivate: function(callback) {
  		if (this.delayActivate === true) {
-@@ -376,6 +405,8 @@ var MessageAssistant = Class.create({
+ 			this.readyToActivateCallback = callback;
+ 		} else {
+@@ -376,6 +404,8 @@ var MessageAssistant = Class.create({
  		var assistant = Mojo.Controller.getAppController().assistant;
  		assistant.notificationAssistant.clear(resp.account, resp.folder, this.data.id);
  		assistant.clearDebounce('m'+this.data.id);
@@ -411,16 +414,18 @@ index 761069e..3018fca 100644
  	},
  
  	updateRecipientStatus: function() {
-@@ -1442,7 +1473,20 @@ var MessageAssistant = Class.create({
+@@ -1442,8 +1472,21 @@ var MessageAssistant = Class.create({
  	handleCommand: function(event) {
  		if (event.type == Mojo.Event.command) {
  			try {
+-				switch (event.command) {
+-					case 'copyAll':
 +				var targetId = null;
 +				if (event.command.substring(0, 11) === 'move-to-cmd') {
 +					targetId = event.command.substring(event.command.lastIndexOf('_')+1);
 +					event.command = 'move-to-cmd';
 +				}
- 				switch (event.command) {
++			switch (event.command) {
 +					case 'move-to-cmd':
 +						if (targetId) {
 +							Mojo.Log.error('moving to folder: %s', targetId);
@@ -429,10 +434,11 @@ index 761069e..3018fca 100644
 +						}
 +						break;
 +
- 					case 'copyAll':
++				case 'copyAll':
  						this.copyAll(event);
  						break;
-@@ -1473,14 +1517,9 @@ var MessageAssistant = Class.create({
+ 						
+@@ -1473,14 +1516,10 @@ var MessageAssistant = Class.create({
  						var currentLabel = this.markUnreadMenuItem.label;
  						var markRead = (currentLabel == MessageAssistant.kAppMenuMarkRead);
  						Message.setRead(this.data.id, markRead);
@@ -442,6 +448,7 @@ index 761069e..3018fca 100644
 -							this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkRead;
 -						}
 -						
++
 +						this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkUnread;
  						this.updateMessageInParentScene();
 -						
@@ -464,6 +471,29 @@ index 761069e..3018fca 100644
  
  	gotoNextEmail: function(direction) {
  		if (this.nextMessages !== undefined && this.nextMessages[direction] !== undefined) {
+@@ -2142,10 +2189,18 @@ var MessageAssistant = Class.create({
+ 		});
+ 	},
+ 
+-	deleteEmail: function() {
+-		Message.setDeleted(this.data.id, true);
+-		this.controller.stageController.popScene();
+-	}
++	
++       deleteEmail: function() {                                  
++                Message.setDeleted(this.data.id, true);       
++                if(this.nextMessages["older"] !== undefined){       
++                        this.gotoNextEmail("older");       
++                }else if(this.nextMessages["newer"] !== undefined){
++                	this.gotoNextEmail("newer");
++                }else{
++                        this.controller.stageController.popScene();
++                }                 
++                                              
++        }  
+ });
+ 
+ MessageAssistant.kAppMenuMarkRead = $L('Mark as Read');
 diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
 index e6af5d5..7d3578e 100644
 --- a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
