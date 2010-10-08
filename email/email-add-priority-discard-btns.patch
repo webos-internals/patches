@@ -58,3 +58,170 @@ index e4f2e91..e55dff6 100644
  					break;
  						
  				case 'priority':
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+index 761069e..672c41c 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -61,23 +61,32 @@ var MessageAssistant = Class.create({
+ 		if (focusStage === true) {
+ 			this.focusStageTimer = this.focusEmailStage.bind(this).delay(0.6);
+ 		}
++		this.requests = [];
+ 	},
+ 
+ 	setup: function() {
+ 		this.setupMessage(); // get message details and setup message webview widget
+-		
++		// move-to menu
++		this.moveToMenuModel = {
++			items: []
++			};	
++	
+ 		// setup menu	
+ 		this.cmdMenuModel = {
+ 				visible:true,
+ 				items: [
++					{label:$L('Move'),      icon:'file',      submenu:'move-to', disabled: true},
++					{label:$L('Set Flag'),  icon:'make-vip',      command:'flag'},
+ 					{label:$L('Reply'),     icon:'reply',     command:'reply'},
+ 					{label:$L('Reply all'), icon:'reply-all', command:'replyAll'},
+ 					{label:$L('Forward'),   icon:'forward-email', command:'forward'},
++					{label:$L('MarkUnread'),   icon:'back', command:'mark-unread'},
+ 					{label:$L('Delete'),    icon:'delete',    command:'delete'}
+ 				]};
+ 		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
+-		
+-		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread, shortcut:'k', command:'mark-unread'};
++		this.controller.setupWidget('move-to', undefined, this.moveToMenuModel);
++
++		this.markUnreadMenuItem =     {label:MessageAssistant.kAppMenuMarkUnread, shortcut:'u', command:'mark-unread'};
+ 		this.markSetFlagMenuItem =    {label:MessageAssistant.kAppMenuSetFlag, shortcut:'g', command:'flag'};
+ 		this.showRecipientsMenuItem = {label:MessageAssistant.kAppMenuShowRecipients, shortcut:'s', command:'show-recipients'};
+ 		
+@@ -143,6 +152,7 @@ var MessageAssistant = Class.create({
+ 		Mojo.Event.listen(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
+ 
+ 		Mojo.Event.listen(this.controller.getSceneScroller(), Mojo.Event.scrollStarting, this.addAsScrollListener.bind(this));
++		Mojo.Event.listen(this.controller.document, Mojo.Event.flick, this.flickHandler.bind(this));
+ 		
+ 		this.subjectElement = this.controller.get('email_subject');
+ 		this.readViewContainer = this.controller.get('email-readview-content-container');
+@@ -175,9 +185,27 @@ var MessageAssistant = Class.create({
+ 		Mojo.Event.stopListening(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
+ 		//  This currently does nothing. Commenting out
+ 		//  Message.closeMessage(this.controller, this.data.id);
++		this.requests.each(function (r) { r.cancel();});
+ 	},
+-
+-	aboutToActivate: function(callback) {
++	
++	renderFolderList: function(data) {
++		var padding = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
++		if (data.list) {
++			this.moveToMenuModel.items = [];
++			data.list.each(function(folder) {
++				var name = padding.substring(0, folder.depth*24) + folder.name;
++				var icon = 'server-folder-icon';
++				if (this.account.folder === folder.id) {
++					icon = 'server-folder-checkmark checked';
++				}
++				this.moveToMenuModel.items.push({label: name, command: 'move-to-cmd_' + folder.id, icon: icon});
++			}.bind(this));
++			this.cmdMenuModel.items[0].disabled = false;
++			this.controller.modelChanged(this.moveToMenuModel);
++			this.controller.modelChanged(this.cmdMenuModel);
++		}
++},
++ aboutToActivate: function(callback) {
+ 		if (this.delayActivate === true) {
+ 			this.readyToActivateCallback = callback;
+ 		} else {
+@@ -376,6 +404,8 @@ var MessageAssistant = Class.create({
+ 		var assistant = Mojo.Controller.getAppController().assistant;
+ 		assistant.notificationAssistant.clear(resp.account, resp.folder, this.data.id);
+ 		assistant.clearDebounce('m'+this.data.id);
++		this.requests.push(Folder.subscribeAccountFolderList(this.account.account, undefined, this.renderFolderList.bind(this)));
++
+ 	},
+ 
+ 	updateRecipientStatus: function() {
+@@ -1442,8 +1472,21 @@ var MessageAssistant = Class.create({
+ 	handleCommand: function(event) {
+ 		if (event.type == Mojo.Event.command) {
+ 			try {
+-				switch (event.command) {
+-					case 'copyAll':
++				var targetId = null;
++				if (event.command.substring(0, 11) === 'move-to-cmd') {
++					targetId = event.command.substring(event.command.lastIndexOf('_')+1);
++					event.command = 'move-to-cmd';
++				}
++			switch (event.command) {
++					case 'move-to-cmd':
++						if (targetId) {
++							Mojo.Log.error('moving to folder: %s', targetId);
++							Message.moveMessage(this.controller, this.account.emailId, targetId);
++							this.controller.stageController.popScene();
++						}
++						break;
++
++				case 'copyAll':
+ 						this.copyAll(event);
+ 						break;
+ 						
+@@ -1473,14 +1516,10 @@ var MessageAssistant = Class.create({
+ 						var currentLabel = this.markUnreadMenuItem.label;
+ 						var markRead = (currentLabel == MessageAssistant.kAppMenuMarkRead);
+ 						Message.setRead(this.data.id, markRead);
+-						if (markRead) {
+-							this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkUnread;
+-						} else {
+-							this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkRead;
+-						}
+-						
++
++						this.markUnreadMenuItem.label = MessageAssistant.kAppMenuMarkUnread;
+ 						this.updateMessageInParentScene();
+-						
++						this.controller.stageController.popScene();
+ 						break;
+ 
+ 					case 'flag':
+@@ -1854,6 +1893,14 @@ var MessageAssistant = Class.create({
+ 			}
+ 		}
+ 	},
++	flickHandler: function(event) {
++	    if (event.velocity.x > 0) {
++	        this.boundGotoNextEmailNewer();
++        }
++        else {
++            this.boundGotoNextEmailOlder();
++        }
++	},
+ 
+ 	gotoNextEmail: function(direction) {
+ 		if (this.nextMessages !== undefined && this.nextMessages[direction] !== undefined) {
+@@ -2142,10 +2189,18 @@ var MessageAssistant = Class.create({
+ 		});
+ 	},
+ 
+-	deleteEmail: function() {
+-		Message.setDeleted(this.data.id, true);
+-		this.controller.stageController.popScene();
+-	}
++	
++       deleteEmail: function() {                                  
++                Message.setDeleted(this.data.id, true);       
++                if(this.nextMessages["older"] !== undefined){       
++                        this.gotoNextEmail("older");       
++                }else if(this.nextMessages["newer"] !== undefined){
++                	this.gotoNextEmail("newer");
++                }else{
++                        this.controller.stageController.popScene();
++                }                 
++                                              
++        }  
+ });
+ 
+ MessageAssistant.kAppMenuMarkRead = $L('Mark as Read');
