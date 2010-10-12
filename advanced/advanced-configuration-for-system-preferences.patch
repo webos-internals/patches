@@ -57,16 +57,18 @@
  
 --- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
 +++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-@@ -17,6 +17,8 @@
+@@ -17,6 +17,10 @@
  		this.carrierTextEnglish = "Palm";
  		this.stringTable = null;
  		this.minBatThresholdForUpdate = 5;
 +		this.batteryNotification = "notifications";
-+		this.chargerNotification = "notifications";
++		this.chargerNotification = "none";
++		this.batteryNotificationFile = undefined;
++		this.chargerNotificationFile = undefined;
  		
  		this.bluetoothState = 'Off';
  		this.wifiState = 'Off';	
-@@ -99,6 +101,15 @@
+@@ -99,6 +103,25 @@
  		this.setStageControllerActiveToFalse.bind(this).delay(5);	
  		
  		this.currentLocale = Mojo.Locale.getCurrentLocale();				
@@ -75,32 +77,44 @@
 +			method: 'getPreferences', parameters: {'subscribe': true, 'keys':["notifications"]}, 
 +			onSuccess: function(response) {
 +				if((response) && (response.notifications)) {
-+					this.batteryNotification = response.notifications.lowBattery;
-+					this.chargerNotification = response.notifications.chargerConnected;
++					if(response.notifications.lowBattery == "ringtone")
++						this.batteryNotification = "notifications";
++					else
++						this.batteryNotification = response.notifications.lowBattery;
++
++					if(response.notifications.chargerConnected == "ringtone")
++						this.chargerNotification = "notifications";
++					else
++						this.chargerNotification = response.notifications.chargerConnected;
++
++					this.batteryNotificationFile = response.notifications.lowBatteryRingtonePath;
++					this.chargerNotificationFile = response.notifications.chargerConnectedRingtonePath;
 +				}
 +			}.bind(this)});
  },
  
  refreshCarrierText: function() {
-@@ -1813,7 +1824,7 @@
+@@ -1813,7 +1836,8 @@
  					this.controller.showBanner({
  						messageText: batteryalert,
  						icon: "/usr/lib/luna/system/luna-systemui/images/battery-"+i+'.png',
 -						soundClass: "notifications"
-+						soundClass: this.batteryNotification
++						soundClass: this.batteryNotification,
++						soundFile: this.batteryNotificationFile
  					},{}, 'batteryAlert');
  				}				
  				else if(this.batteryLevel > 10 && this.batteryLevel <= 20 && !this.batteryLevel20Shown) {
-@@ -1822,7 +1833,7 @@
+@@ -1822,7 +1846,8 @@
  					this.controller.showBanner({
  						messageText: batteryalert,
  						icon: "/usr/lib/luna/system/luna-systemui/images/battery-"+i+'.png',
 -						soundClass: "notifications"
-+						soundClass: this.batteryNotification
++						soundClass: this.batteryNotification,
++						soundFile: this.batteryNotificationFile						
  					},{}, 'batteryAlert');	
  				}
  				
-@@ -1883,7 +1894,7 @@
+@@ -1883,11 +1908,12 @@
  			
  			if(!this.chargingBannerShown && payload.name && (payload.name == "wall" || payload.name == "puck")) {
  				var batteryalert = this.$L("Charging Battery");
@@ -109,6 +123,12 @@
  				this.controller.showBanner({
  						messageText: batteryalert,
  						icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-charging.png",
+-						soundClass: soundClassName
++						soundClass: soundClassName,
++						soundFile: this.chargerNotificationFile
+ 					},{}, 'chargingAlert'); 				
+ 			}
+ 			this.chargingBannerShown = true;			
 --- .orig/usr/palm/applications/com.palm.app.contacts/javascripts/MenuHandler.js
 +++ /usr/palm/applications/com.palm.app.contacts/javascripts/MenuHandler.js
 @@ -8,7 +8,6 @@
@@ -223,6 +243,25 @@
  		if (this.contact.readOnly) {
 --- .orig/usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
 +++ /usr/palm/applications/com.palm.app.contacts/app/controllers/list-assistant.js
+@@ -287,6 +287,9 @@
+ 				items: [Mojo.Menu.editItem,{
+ 					label:$L("Send All to Car Kit"),
+ 					command:"sendcontacts"
++				}, {
++					label: $LL('Contact Preferences'),
++					command: "unknowncontact"
+ 				}, prefsItem, {
+ 					label: $LL('Help'),
+ 					command: Mojo.Menu.helpCmd
+@@ -464,6 +467,8 @@
+ 			});
+ 		}else if (event.type == Mojo.Event.command && event.command === Mojo.Menu.prefsCmd) {
+ 			this.controller.stageController.pushScene('prefs');
++		}else if (event.type == Mojo.Event.command && event.command == "unknowncontact") {
++			this.controller.stageController.pushScene('contactprefs');
+ 		}else if (event.type == Mojo.Event.command && event.command == "sendcontacts") {
+ 			this.sendContacts();
+ 		}
 --- .orig/usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
 +++ /usr/palm/applications/com.palm.app.contacts/app/views/edit/lists-fake.html
 @@ -19,7 +19,7 @@
@@ -315,7 +354,7 @@
 +		if(this.emailPrefs[this.accountDetails.id] == undefined) {
 +			this.emailPrefs[this.accountDetails.id] = {
 +				blinkNotify: false,
-+				vibrationLength: 500,
++				vibrationLength: 0,
 +				notificationRepeat: 0,
 +				notificationTimes: 3 };
 +		}
@@ -330,7 +369,7 @@
  		this.imapServerSent = this.controller.get('imap-sent');
  		this.imapServerDrafts = this.controller.get('imap-drafts');
  		this.imapServerTrash = this.controller.get('imap-trash');
-@@ -54,6 +70,106 @@
+@@ -54,6 +70,107 @@
  		this.controller.listen('edit-account-imap-sent', Mojo.Event.tap, this.handleChangeServerFolder.bind(this, "sent"));
  		this.controller.listen('edit-account-imap-drafts', Mojo.Event.tap, this.handleChangeServerFolder.bind(this, "drafts"));
  		this.controller.listen('edit-account-imap-trash', Mojo.Event.tap, this.handleChangeServerFolder.bind(this, "trash"));
@@ -348,6 +387,7 @@
 +			this.savePreferences.bind(this));
 +			
 +		this.choicesVibrationLength = [
++			{label: $L("Disabled"), value: 0},
 +			{label: $L("Short (0.5s)"), value: 500},
 +			{label: $L("Medium (1.0s)"), value: 1000},
 +			{label: $L("Long (1.5s)"), value: 1500} ];
@@ -437,7 +477,7 @@
  	},
  
  	activate: function() {
-@@ -125,11 +241,13 @@
+@@ -125,11 +242,13 @@
  			this.deleteButtonModel.buttonLabel = $L("Removing account...");
  			this.deleteButtonModel.disabled = true;
  			this.controller.modelChanged(this.deleteButtonModel);
@@ -454,7 +494,7 @@
  			this.isAccountDeleted = true;
  			this.broadcastAccountDeleted(this.accountDetails.id);
  		}
-@@ -194,31 +312,52 @@
+@@ -194,31 +313,52 @@
  		if (this.accountDetails.name) {
  			this.accountDetails.name = this.accountDetails.name.unescapeHTML();
  		}
@@ -515,7 +555,7 @@
  		}
  
  		// Update the model to show or hide the drawer
-@@ -253,6 +392,22 @@
+@@ -253,6 +393,22 @@
  		if (event.type == Mojo.Event.command) {
  			Mojo.Log.info("Got command: " + event.command);
  			switch (event.command) {
@@ -538,7 +578,7 @@
  				case 'delete':
  					this.handleDeleteAccount();
  					break;
-@@ -392,17 +547,19 @@
+@@ -392,17 +548,19 @@
  		Mojo.Event.listen(signatureElem, 'blur', function() { signatureElem.removeClassName('focused'); }, true);
  
  		// Setup the drawer here so that it doesn't animate once the scene is rendered
@@ -798,7 +838,7 @@
  			}
  			
  			// Any old notifications that don't exist in the most updated notification
-@@ -363,16 +396,14 @@
+@@ -363,16 +396,15 @@
  		return params; 
  	},
  
@@ -810,19 +850,21 @@
 -			 else 
 -				this.appController.playSoundNotification(param.soundClass, param.soundFile);
 -		}.bind(this);
+-		
+-		soundParams.each(func);
 +	playNotificationSound: function() {
 +		Mojo.Log.info("NotificationAssistant: playing sound notification=%j", this.notifySoundParams);
 +
-+		this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
-+			method: 'vibrate', parameters: {'period': 0, 'duration': this.notifySoundParams.vibrationLength} });
- 		
--		soundParams.each(func);
-+		if (this.notifySoundParams.soundClass != "vibrate") 
-+			this.appController.playSoundNotification(this.notifySoundParams.soundClass, this.notifySoundParams.soundFile);
++		this.appController.playSoundNotification(this.notifySoundParams.soundClass, this.notifySoundParams.soundFile);
++
++		if(this.notifySoundParams.vibrationLength > 0) {
++			this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
++				method: 'vibrate', parameters: {'period': 0, 'duration': this.notifySoundParams.vibrationLength} });
++		}
  	},
  
  	showNewEmailDashboard: function() {
-@@ -695,8 +726,32 @@
+@@ -695,8 +727,32 @@
  		this.allInboxesSubscription = Folder.subscribeAllInboxesFolder(function(resp) {
  			this.toggleEmailNotification(resp.list[0].flags == 1);
  		}.bind(this));
@@ -835,10 +877,10 @@
 +
 +		if(this.notifyRepeatCount < this.notifySoundParams.notificationTimes) {
 +			this.notifyRepeatCount++;
-+
+ 
 +			var playSoundTime = new Date();
 +			playSoundTime = new Date(playSoundTime.getTime() + this.notifySoundParams.notificationRepeat*1000);
- 
++
 +			this.updateTaskRequest = new Mojo.Service.Request('palm://com.palm.taskScheduler', {
 +				method: 'updateTask', parameters: {uri: 'palm://com.palm.applicationManager/open',
 +				arguments: {'id': 'com.palm.app.email', 'params': {'playNotificationSound': true}},
@@ -1044,13 +1086,15 @@
  </div>
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
-@@ -25,12 +25,26 @@
+@@ -25,12 +25,39 @@
  	initialize: function(appController){
  		this.appController = appController;
  		this.appController.Messaging = new Messaging();
 +
++		this.contactPrefs = {};
 +		this.msgDrafts = {};
 +		this.msgPrefs = {};
++		this.appController.contactPrefs = this.contactPrefs;
 +		this.appController.msgDrafts = this.msgDrafts;
 +		this.appController.msgPrefs = this.msgPrefs;
 +
@@ -1061,17 +1105,28 @@
  		this.considerForNotification = appController.notificationAssistant.considerForNotification.bind(appController.notificationAssistant);
  			
 +		this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+			method: 'getPreferences', parameters: {'keys': ["msgPrefs", "msgDrafts"], subscribe: true},
++			method: 'getPreferences', parameters: {'keys': ["msgPrefs", "msgDrafts", "contactPrefs"], subscribe: true},
 +			onSuccess: function(response) {
 +				if((response) && (response.msgPrefs))
 +					Object.extend(this.msgPrefs, response.msgPrefs);
++				
 +				if((response) && (response.msgDrafts))
 +					Object.extend(this.msgDrafts, response.msgDrafts);
++					
++				if((response) && (response.contactPrefs)) {
++					if(this.contactPrefs.blocked)
++						delete this.contactPrefs.blocked;
++
++					if(this.contactPrefs.unknown)
++						delete this.contactPrefs.unknown;
++						
++					Object.extend(this.contactPrefs, response.contactPrefs);
++				}
 +			}.bind(this) });	
  	},
  	
  	handleLaunch: function(param){
-@@ -71,6 +85,9 @@
+@@ -71,6 +98,9 @@
  		} else if (launchParams.messageText || launchParams.attachment || launchParams.composeAddress || (launchParams.composeRecipients && launchParams.composeRecipients.length)) {
  			
  			this.launchCompose(stageController,launchParams);
@@ -1081,7 +1136,7 @@
  		// Launch listview - make sure the listview is the current scene, don't just focus the window
  		} else if (launchParams.launchListView) {
  			this.launchListView(stageController,launchParams.forceListView);
-@@ -85,6 +102,7 @@
+@@ -85,6 +115,7 @@
  		} else if (launchParams.target !== undefined) {
  			this.handleTargetParam(launchParams.target, stageController);
  		} else {
@@ -1091,15 +1146,16 @@
  	},
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-@@ -6,6 +6,7 @@
+@@ -6,6 +6,8 @@
  		Mojo.Log.info("ChatView %j", params)
  		this.appController = Mojo.Controller.getAppController();
  		this.Messaging = this.appController.Messaging;
 +		this.msgDrafts = this.appController.msgDrafts;
++		this.msgPrefs = this.appController.msgPrefs;
  		this.chatData = {};
  		this.chatThreadId = chatThreadId;
  		this.focusWindow = false;
-@@ -363,7 +364,7 @@
+@@ -363,7 +365,7 @@
  		if (this.isScreenOn && data.chatThreadId == this.chatThreadId) {
  			Mojo.Log.info("[CV] ****** chatview considerForNotification --- screen is on!");
  			if (data.notificationType == this.Messaging.notificationTypes.newMessage) {
@@ -1108,7 +1164,7 @@
  			} else if (data.notificationType == this.Messaging.notificationTypes.sendFailure) {
  				data = {}; // wipe out the notification because we are in the chat
  			}
-@@ -440,7 +441,11 @@
+@@ -440,9 +442,25 @@
  		}
  		
  		if (response.record.draftText) {
@@ -1120,7 +1176,115 @@
 +				this.controller.stageController.setClipboard(response.record.draftText);
  		}
  		
++		if(this.messageTextElement.value == "") {
++			if((this.msgPrefs["sms"].messageGreeting != undefined) && (this.msgPrefs["sms"].messageSignature != undefined)) {
++				var msg = this.msgPrefs["sms"].messageGreeting + " " + this.msgPrefs["sms"].messageSignature;
++				
++				if((response.record.serviceName == undefined) && (msg.length > 1)) {
++					var curPos = this.msgPrefs["sms"].messageGreeting.length;
++					this.setTextFieldValue(msg);
++					this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++				}
++			}
++		}
++				
  		// If this async request comes back after the list had loaded, fix the scroll position because
+ 		// we may have just changed the hieght of the text box by setting the draft text
+ 		if (this.initialLoadComplete) {
+@@ -766,6 +784,8 @@
+ 	handleTransportSelection: function(selectedValue, tapTarget) {
+ 		if (!selectedValue) 
+ 			return;
++
++		this.messageTextElement.focus();
+ 		
+ 		if (tapTarget && tapTarget.id.startsWith(ChatviewAssistant.quickDialIdPrefix)) {
+ 			try {
+@@ -788,13 +808,26 @@
+ 			var that = this;
+ 			this.transports.each(function(transport) {
+ 				if ("transport" + transport.id == selectedValue) {
++					if((this.msgPrefs["sms"].messageGreeting != undefined) && (this.msgPrefs["sms"].messageSignature != undefined)) {
++						var msg = this.msgPrefs["sms"].messageGreeting + " " + this.msgPrefs["sms"].messageSignature;
++				
++						if(msg.length > 1) {
++							if((transport.serviceName == undefined) && (this.messageTextElement.value == "")) {
++								var curPos = this.msgPrefs["sms"].messageGreeting.length;
++								this.setTextFieldValue(msg);
++								this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++							}
++							else if((transport.serviceName != undefined) && (this.messageTextElement.value == msg)) {
++								this.setTextFieldValue("");
++							}
++						}
++					}			
++
+ 					that.setSelectedTransport(transport.id, transport.value, transport.serviceName, transport.accountTag, transport.availability);
+ 					throw $break;
+ 				}
+-			});
++			}.bind(this));
+ 		}
+-
+-		this.messageTextElement.focus();
+ 	},
+ 	
+ 	setSelectedTransportFromId: function(transportId) {
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+@@ -4,6 +4,8 @@
+ 	initialize : function(params) {
+ 		this.appController = Mojo.Controller.getAppController();
+ 		this.Messaging = this.appController.Messaging;
++		this.msgPrefs = this.appController.msgPrefs;
++		this.msgDrafts = this.appController.msgDrafts;
+ 		this.attachment;
+ 		this.messageTextElement;
+ 		this.prePopulatedRecipients = [];
+@@ -441,9 +443,22 @@
+ 		}
+ 	}
+     // Hide the attach button if there is an IM contact
+-    if(hasIM == true) {         
++
++	if((this.msgPrefs["sms"].messageGreeting != undefined) && (this.msgPrefs["sms"].messageSignature != undefined))
++		var msg = this.msgPrefs["sms"].messageGreeting + " " + this.msgPrefs["sms"].messageSignature;
++	 
++    if(hasIM == true) {
++    	if((msg != undefined) && (this.messageTextWidgetModel.value == msg))
++			this.setTextFieldValue("");
++    
+       this.hideAttachButton();
+     } else {                  
++		if((msg != undefined) && ((this.messageTextWidgetModel.value == undefined) || (this.messageTextWidgetModel.value == ""))) {
++			var curPos = this.msgPrefs["sms"].messageGreeting.length;
++			this.setTextFieldValue(msg);
++			this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++		}
++		
+       this.showAttachButton();
+     }
+ 	this.setCharacterCounterMaxLength();
+@@ -585,10 +600,15 @@
+ 				parameters: {},
+ 				onSuccess: function(resp) {
+ 					Mojo.Log.info("restoreFromDraft %j", resp);
+-					this.controller.get('searchList').mojo.updateRecipients(resp.recipientJSONArray);
+-					this.setTextFieldValue(resp.messageText);
+-					if (resp.attachment && resp.attachment.length > 0) {
+-						this.attachFile(resp.attachment);
++					if(this.msgDrafts.automatic) {
++						this.controller.get('searchList').mojo.updateRecipients(resp.recipientJSONArray);
++						this.setTextFieldValue(resp.messageText);
++						if (resp.attachment && resp.attachment.length > 0) {
++							this.attachFile(resp.attachment);
++						}
++					}					
++					if(this.msgDrafts.clipboard) {
++						this.controller.stageController.setClipboard(resp.messageText);
+ 					}
+ 				}.bind(this)
+ 			});
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
 @@ -1,15 +1,16 @@
@@ -1173,11 +1337,12 @@
  		return data;
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
-@@ -4,6 +4,12 @@
+@@ -4,6 +4,13 @@
  	Mojo.Log.info("Initializing Messaging NotificationAssistant");
  	this.controller = controller;
  	this.Messaging = this.controller.Messaging;
 +	this.msgPrefs = this.controller.msgPrefs;
++	this.contactPrefs = this.controller.contactPrefs;
 +
 +	this.notifyPrefs = {};
 +	this.repeatPrefs = {};
@@ -1186,7 +1351,7 @@
  	// a reference to this is passed to the dashboard assistant
  	this.messageDashboardData = {}; 
  	this.class0AlertData = {
-@@ -27,6 +33,8 @@
+@@ -27,6 +34,8 @@
  	};
  }
  
@@ -1195,47 +1360,53 @@
  NotificationAssistant.prototype.subscribeToNotifications = function(){
  	this.messageNotificationRequest = MessagingMojoService.registerForIncomingMessages({onSuccess: this.sendNotification.bind(this, this.Messaging.notificationTypes.newMessage)});
  	this.sendErrorNotificationRequest = MessagingMojoService.registerForSendFailures(this.sendNotification.bind(this, this.Messaging.notificationTypes.sendFailure));
-@@ -35,6 +43,69 @@
+@@ -35,6 +44,75 @@
  	this.airplaneModeNotificationRequest = MessagingMojoService.registerForAirplaneModeNotifications(this.sendAirplaneModeNotification.bind(this));
  };
  
-+NotificationAssistant.prototype.doB = function(bannerParams,bannerLaunchParams,bannerType,contact) {
++NotificationAssistant.prototype.doB = function(bannerParams,bannerLaunchParams,bannerType,number,contact) {
 +	Mojo.Log.error("Banner Ringtone: %j",contact.ringtoneLoc);
-+
-+	this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
-+		method: 'vibrate', parameters: { 'period': 0,'duration': this.notifyPrefs.vibrationLength } });
-+
++	
 +	this.setNotificationSound(bannerParams, this.notifyPrefs);
-+
-+	if((contact.ringtoneLoc) && (contact.ringtoneLoc != "") && 
-+		((this.notifyPrefs.messageType == "SMS") || (this.notifyPrefs.messageType == "MMS")))
-+	{
-+		bannerParams.soundFile = contact.ringtoneLoc;
++	
++	if((this.notifyPrefs.messageType == "SMS") || (this.notifyPrefs.messageType == "MMS")) {
++		if((contact.id != undefined) && (contact.ringtoneLoc) && (contact.ringtoneLoc != ""))
++			bannerParams.soundFile = contact.ringtoneLoc;
++		else if((contact.id == undefined) && (this.contactPrefs.unknown) && (this.contactPrefs.unknown.messagingRingtoneLoc))
++			bannerParams.soundFile = this.contactPrefs.unknown.messagingRingtoneLoc;
 +	}
 +	
 +	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
++
++	if(this.notifyPrefs.vibrationLength > 0) {
++		this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
++			method: 'vibrate', parameters: { 'period': 0,'duration': this.notifyPrefs.vibrationLength } });
++	}
 +};
 +
-+NotificationAssistant.prototype.playmsgtone = function(msgPrefs, contact){
++NotificationAssistant.prototype.playmsgtone = function(msgPrefs, number, contact){
 +	Mojo.Log.error("Playmsgtone Ringtone: %j",contact.ringtoneLoc);
-+
-+	this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
-+		method: 'vibrate', parameters: { 'period': 0,'duration': this.notifyPrefs.vibrationLength } });
 +
 +	var notifParams = {};
 +	this.setNotificationSound(notifParams, msgPrefs);
 +
-+	if((contact.ringtoneLoc) && (contact.ringtoneLoc != "") && 
-+		((msgPrefs.messageType == "SMS") || (msgPrefs.messageType == "MMS")))
-+	{
-+		this.controller.playSoundNotification(notifParams.soundClass, contact.ringtoneLoc);
++	if((msgPrefs.messageType == "SMS") || (msgPrefs.messageType == "MMS")) {
++		if((contact.id != undefined) && (contact.ringtoneLoc) && (contact.ringtoneLoc != ""))
++			notifParams.soundFile = contact.ringtoneLoc;
++		else if((contact.id == undefined) && (this.contactPrefs.unknown) && (this.contactPrefs.unknown.messagingRingtoneLoc))
++			notifParams.soundFile = this.contactPrefs.unknown.messagingRingtoneLoc;
 +	}
-+	else
-+		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++	
++	this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++
++	if(this.notifyPrefs.vibrationLength > 0) {
++		this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
++			method: 'vibrate', parameters: { 'period': 0,'duration': this.notifyPrefs.vibrationLength } });
++	}
 +};
 +
 +NotificationAssistant.prototype.playNotificationSound = function() {
-+	MessagingMojoService.rLookup(this.repeatPrefs.messageAddress,contact,this.playmsgtone.bind(this, this.repeatPrefs),this.playmsgtone.bind(this, this.repeatPrefs));
++	MessagingMojoService.rLookup(this.repeatPrefs.messageAddress,contact,this.playmsgtone.bind(this, this.repeatPrefs, this.repeatPrefs.messageAddress),this.playmsgtone.bind(this, this.repeatPrefs, this.repeatPrefs.messageAddress));
 +};
 +
 +NotificationAssistant.prototype.schedulePlayNotificationSoundTask = function() {
@@ -1265,7 +1436,7 @@
  NotificationAssistant.prototype.sendNotification = function(notificationType, resp){
  	if (window.PalmSystem && !resp.returnValue) {
  		try {
-@@ -142,28 +213,81 @@
+@@ -142,28 +220,81 @@
  };
  
  NotificationAssistant.prototype.considerForNotification = function(notificationData){
@@ -1330,7 +1501,7 @@
  		this.setNotificationSound(notifParams);
 -		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
 +		var smsid = notificationData.address;
-+		MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this, this.notifyPrefs),this.playmsgtone.bind(this, this.notifyPrefs));
++		MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this, this.notifyPrefs, smsid),this.playmsgtone.bind(this, this.notifyPrefs, smsid));
  		return; // don't display any visual notification
  	}	
  	
@@ -1351,16 +1522,16 @@
  		} else if (notificationType == this.Messaging.notificationTypes.connectionFailure) {
  			this.sendErrorNotificationAndUpdateDashboard(notificationData);
  		} else if (notificationType == this.Messaging.notificationTypes.sendFailure) {
-@@ -195,7 +319,7 @@
+@@ -195,7 +326,7 @@
  	if(class0Stage) {
  		class0Stage.swapScene('class0Alert', this.class0AlertData);
  		if (playSound){
 -			this.controller.playSoundNotification('alerts','');
-+			MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this, this.notifyPrefs),this.playmsgtone.bind(this, this.notifyPrefs));
++			MessagingMojoService.rLookup(smsid,contact,this.playmsgtone.bind(this, this.notifyPrefs, smsid),this.playmsgtone.bind(this, this.notifyPrefs, smsid));
  		}
  	} else {
  		var soundClass = 'none';
-@@ -284,9 +408,14 @@
+@@ -284,9 +415,14 @@
  		chatThreadId: chatThreadId,
  		clearBanner: true		
  	};
@@ -1370,7 +1541,7 @@
 +
 +	if (this.notifyPrefs.enableNotificationSound) {
 +		var smsid = notificationData.address;
-+		MessagingMojoService.rLookup(smsid,contact,this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'),this.doB.bind(this,bannerParams,bannerLaunchParams,'chat'));
++		MessagingMojoService.rLookup(smsid,contact,this.doB.bind(this,bannerParams,bannerLaunchParams,'chat',smsid),this.doB.bind(this,bannerParams,bannerLaunchParams,'chat',smsid));
 +	} else {
 +		Mojo.Log.error("Setting banner params");
 +		this.controller.showBanner(bannerParams, bannerLaunchParams, 'chat');
@@ -1378,7 +1549,7 @@
  	// Store the data so it can be used in the dashboard
  	var data = {
  		chatThreadId: chatThreadId,
-@@ -323,11 +452,11 @@
+@@ -323,11 +459,11 @@
  	var dashboard = this.controller.getStageController(DashboardMessageStageName);
  	
  	if (dashboard) {
@@ -1392,7 +1563,7 @@
  		}.bind(this);
  		var params = {
  			name: DashboardMessageStageName,
-@@ -343,13 +472,9 @@
+@@ -343,13 +479,9 @@
  		// delay creating the dashboard window for the case where the banner is clicked on
  		// to take you to the chat view.  This will likely result in the dashboard data
  		// being cleared.  If the dashboard data is empty, we do not need to create the dashboard.		
@@ -1409,7 +1580,7 @@
  		}
  	}
  };
-@@ -385,7 +510,7 @@
+@@ -385,7 +517,7 @@
  	var bannerParams = {
  		messageText: notificationText.escapeHTML()
  	};
@@ -1418,7 +1589,7 @@
  		bannerParams.soundClass = "alerts";	
  	var bannerLaunchParams =  {
  		clearBanner: true,
-@@ -652,6 +777,9 @@
+@@ -652,6 +784,9 @@
  
  NotificationAssistant.prototype.resetNewMessages = function(){
  	this.messageDashboardData = {};
@@ -1428,7 +1599,7 @@
  };
  
  NotificationAssistant.prototype.clearMessageDashboard = function(){
-@@ -690,15 +818,18 @@
+@@ -690,15 +825,18 @@
  	}
  };
  
@@ -1438,7 +1609,7 @@
 +	if(msgPrefs == undefined)
 +		msgPrefs = this.notifyPrefs;
 +
-+	switch (msgPrefs.enableNotificationSound) {
++	switch (parseInt(msgPrefs.enableNotificationSound)) {
  		case 1: // standard alert
  			bannerParams.soundClass = "notifications";
  			bannerParams.soundFile = undefined;
@@ -1739,7 +1910,7 @@
          this.params = params || {}
          this.requests = [];
  		this.saveAccountFn;
-@@ -118,7 +119,246 @@
+@@ -118,7 +119,247 @@
  		};
  		this.controller.setupWidget('saveAccountButton', saveButtonAttributes, this.saveButtonModel);
  		this.controller.listen('saveAccountButton', Mojo.Event.tap, this.saveAccountFn);
@@ -1762,7 +1933,7 @@
 +		if(this.msgPrefs[this.params.domain] == undefined) {
 +			this.msgPrefs[this.params.domain] = {
 +				blinkNotify: false, 
-+				vibrationLength: 500, 
++				vibrationLength: 0, 
 +				notificationRepeat: 0, 
 +				notificationTimes: 3,
 +				enableNotification: true,
@@ -1826,6 +1997,7 @@
 +	    this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone.bind(this));
 +  
 +		this.choicesVibrationLength = [
++			{label: $L("Disabled"), value: 0},			
 +			{label: $L("Short (0.5s)"), value: 500},
 +			{label: $L("Medium (1.0s)"), value: 1000},
 +			{label: $L("Long (1.5s)"), value: 1500} ];
@@ -1931,7 +2103,7 @@
 +		this.msgPrefs[this.params.domain].notificationRepeat = parseInt(this.modelNotificationRepeat.value);
 +		this.msgPrefs[this.params.domain].notificationTimes = parseInt(this.modelNotificationTimes.value);				
 +		this.msgPrefs[this.params.domain].enableNotification = this.notificationModel.value;
-+		this.msgPrefs[this.params.domain].enableNotificationSound = this.notificationSoundModel.value;
++		this.msgPrefs[this.params.domain].enableNotificationSound = parseInt(this.notificationSoundModel.value);
 +		this.msgPrefs[this.params.domain].notificationRingtoneName = this.ringtone.name;
 +		this.msgPrefs[this.params.domain].notificationRingtonePath = this.ringtone.path;
 +
@@ -1986,7 +2158,7 @@
  	
  	ready: function() {
  		this.passwordElement  = this.controller.get('password').querySelector('[name=password]');
-@@ -402,7 +642,16 @@
+@@ -402,7 +643,16 @@
  	
  	handleRemoveAccountSuccess: function() {
  		this.stopRemoveSpinner();
@@ -2163,15 +2335,16 @@
    {
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/app-assistant.js
-@@ -31,6 +31,7 @@
+@@ -31,6 +31,8 @@
  	this.experimentalMode = false;
  	this.puckMode = true;
  	this.hideCallLogCallDuration = false;
 +	this.phonePrefs = {};
++	this.contactPrefs = {};
  	
  	this.quickDial ={};
  	this.registerPhoneprefsForQuickdial();
-@@ -182,6 +183,10 @@
+@@ -182,6 +184,10 @@
  			this.createLockStage();
  			this.loadSettings();
  			return;
@@ -2182,7 +2355,7 @@
  		} else {
  			// when in first use, always default to doing nothing for invalid args; 
  			// otherwise default to showing dialpad
-@@ -198,9 +203,10 @@
+@@ -198,9 +204,10 @@
  				var appControl = Mojo.Controller.getAppController();
      			var stageController = appControl.getStageController(this.stageName);
  					
@@ -2195,7 +2368,7 @@
  				
  				this.focusStage();
  			} else {
-@@ -216,6 +222,22 @@
+@@ -216,6 +223,22 @@
      }
  };
  
@@ -2218,7 +2391,7 @@
  // parse URI and dial number in it
  AppAssistant.prototype.launchURI = function(uri){
  	var offset = -1;
-@@ -497,9 +519,14 @@
+@@ -497,9 +520,14 @@
  			voicemailCountDisplayClass = '';
  		}
  		
@@ -2234,7 +2407,7 @@
  			templateModel: {
  				voicemailCount: voicemailCount,
  				voicemailCountDisplayClass: voicemailCountDisplayClass
-@@ -522,6 +549,10 @@
+@@ -522,6 +550,10 @@
  			if ( type == "missed" ) {
  				stageController.delegateToSceneAssistant("onMissedCallsTap", true);
  			}
@@ -2245,7 +2418,7 @@
  		}
  	}
  };
-@@ -771,16 +802,20 @@
+@@ -771,16 +803,20 @@
  	
  	var stageController = this.appController.getStageController(this.stageName);
  	if (stageController !== undefined) {
@@ -2275,22 +2448,32 @@
  	} else {
  		QDLogger.log( "popActiveCall", "undefined stage");
  	}
-@@ -1098,6 +1133,12 @@
+@@ -1098,6 +1134,22 @@
  		this.useCarrierVerificationMMSCURL = !!value;
  	}.bind(this));
  	
 +	this.getPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
-+			method: 'getPreferences', parameters: {keys: ["phonePrefs"], subscribe: true},
++			method: 'getPreferences', parameters: {keys: ["phonePrefs", "contactPrefs"], subscribe: true},
 +			onSuccess: function(response) {
 +				if((response) && (response.phonePrefs))
 +					Object.extend(this.phonePrefs, response.phonePrefs);
++	
++				if((response) && (response.contactPrefs)) {
++					if(this.contactPrefs.blocked)
++						delete this.contactPrefs.blocked;
++
++					if(this.contactPrefs.unknown)
++						delete this.contactPrefs.unknown;
++						
++					Object.extend(this.contactPrefs, response.contactPrefs);
++				}
 +			}.bind(this) });
  }
  
  // gets phone number mask enabled; defaults to false
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
-@@ -25,15 +25,23 @@
+@@ -25,15 +25,24 @@
  	
  	initialize: function(params){
  	    this.appAssistant = Mojo.Controller.getAppController().assistant;
@@ -2305,6 +2488,7 @@
 +			onSuccess: this.getSliderPos.bind(this)});
 +
 +		this.sliderSubscription = TelephonyCommands.sliderSubscribe(this.onSliderEventDuringCall.bind(this));
++		this.powerButtonSubscription = TelephonyCommands.powerButtonSubscribe(true, 'activecall', this.onPowerButtonEventDuringCall.bind(this));
         	
  		this.lastLines = [];
  		this.pauseWaitDigits = [];
@@ -2314,7 +2498,7 @@
  		
  		// select multicall rules
  		if (PlatformType.isGSM() == true) {
-@@ -52,6 +60,8 @@
+@@ -52,6 +61,8 @@
  		
  		this.puckConnected = this.eventListener.puckConnected;
  		this.puckSubscription = TelephonyCommands.puckStatusSubscribe(this.onPuckEvent.bind(this));
@@ -2323,7 +2507,28 @@
  		
  		this.onBlur = this.onBlur.bind(this);
  		this.onFocus = this.onFocus.bind(this);
-@@ -150,6 +160,44 @@
+@@ -138,25 +149,89 @@
+ 		
+ 		var appMenuModel = {
+ 			visible: true,
+-            items: [{
+-                label: $L('Sounds & Ringtones'),
+-                command: 'ringtones'
+-            }]
++            items: [
++            	Mojo.Menu.editItem,
++					{label: $L('Preferences'), command: 'preferences'},
++					{label: $L('Phone Services'), command: 'services'},
++					{label: $L('Sound Settings'), command: 'ringtones'},
++					{label: $L('Show Call History'), command: 'calllog'},
++					Mojo.Menu.helpItem
++				]
+ 		}; 
+-		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems: false}, appMenuModel);
++		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems: true}, appMenuModel);
+ 		if (!this.abridged && this.appAssistant.focusOnActiveCallSceneCreation === true) {
+ 			this.appAssistant.focusStage();
+ 		}
  		
      },
  
@@ -2334,20 +2539,14 @@
 +	},
 +
 +	onSliderEventDuringCall: function(response) {
-+		if((!response) || (!response.key) || (!response.state))
++		if (!response || !response.key || !response.state)
 +			return;
 +
-+		if(this.phonePrefs.sliderCloseAction == "nothing")
++		if (this.phonePrefs.sliderCloseAction == "nothing")
 +			return;
 +
-+		var scenarios = this.appAssistant.telephonyEventListener.getAvailableAudioScenarios();
-+		var frontSpeaker = false;
-+
-+		if(this.audioActiveProfile == "phone_front_speaker")
-+			frontSpeaker = true;
-+
-+		if((response.key == "slider") && (frontSpeaker)) {
-+			if(this.sliderPos=='up'&&response.state == "down") {
++		if (response.key == "slider" && this.audioActiveProfile == "phone_front_speaker") {
++			if (this.sliderPos=='up' && response.state == "down") {
 +				// First, "tap" each Disconnect Button.
 +
 +				for(i = 0; i < 3; i++) {
@@ -2365,10 +2564,46 @@
 +		} 
 +	},
 +
++	onPowerButtonEventDuringCall: function(response) {
++		if (!response || !response.powerKey)
++			return;
++
++		if (this.phonePrefs.powerButtonAction != "hangupcall")
++			return;
++
++		if (response.powerKey == 'released' && this.audioActiveProfile !== "phone_back_speaker") {
++			// First, "tap" each Disconnect Button.
++
++			for(i = 0; i < 3; i++) {
++				if(this.controller.get("disc_button_" + i))
++					Mojo.Event.send(this.controller.get("disc_button_" + i), Mojo.Event.tap);
++			}
++
++			// In case there are calls not disconnected, just call the function to disconnect all calls.
++			// The reason we don't just do this one function is that the screen redraw is not pretty.
++
++			this.eventListener.disconnectAllCalls();
++		}
++	},
++
  	handleCommand: function(event) {
  		if (event.type == Mojo.Event.command) {
  			switch (event.command) {
-@@ -232,6 +280,7 @@
++				case 'preferences':
++					this.controller.stageController.pushScene("prefs", this.appAssistant.phonePrefs);
++					break;
++				case 'calllog':
++					this.appAssistant.showCallLog();
++					break;		
+ 				case 'ringtones':
+ 					MenuController.showRingtones(this.controller.stageController);
+ 					break;
+-				case Mojo.Menu.prefsCmd:
++				case 'services':
+ 					MenuController.showPrefs(this.controller.stageController);
+ 					break;
+ 					
+@@ -232,6 +307,7 @@
  						QDLogger.log( "processpauseWaitDigits", "pause ", this.pauseWaitDigits[linenumber].charAt(i));
  						this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  						this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 2500);
@@ -2376,17 +2611,20 @@
  						return;
  					}
  break;
-@@ -261,6 +310,9 @@
+@@ -261,6 +337,12 @@
  							this.showWaitButtonOnActive[linenumber] = false;
  							this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  							this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 600);
 +							if(this.phonePrefs.onCallView == "dialpad" && i == len-1 && this.pauseWaitActive == true) {
 +								this.toggleDTMF();
 +							}
++							else if(this.phonePrefs.onCallView == "calllog" && i == len-1 && this.pauseWaitActive == true) {
++								this.appAssistant.showCallLog();
++							}
  							return;
  						}
  				}
-@@ -273,6 +325,7 @@
+@@ -273,6 +355,7 @@
  						QDLogger.log( "processpauseWaitDigits", "pause " , this.pauseWaitDigits[linenumber].charAt(i));
  						this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  						this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 2500);
@@ -2394,27 +2632,35 @@
  						return;
  					}
  break;
-@@ -301,6 +354,9 @@
+@@ -301,6 +384,12 @@
  							this.showWaitButtonOnActive[linenumber] = false;
  							this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  							this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 600);
 +							if(this.phonePrefs.onCallView == "dialpad" && i == len-1 && this.pauseWaitActive == true) {
 +								this.toggleDTMF();
 +							}
++							else if(this.phonePrefs.onCallView == "calllog" && i == len-1 && this.pauseWaitActive == true) {
++								this.appAssistant.showCallLog();								
++							}
  							return;
  						}
  				}
-@@ -488,13 +544,57 @@
+@@ -488,13 +577,61 @@
  			// if we have a transition, run it
  			this.crossfadeEnd();
  			
+-			
 -			
 +			if(this.phonePrefs.onCallView == "dialpad" && lineState.length === 1 && 
 +				lineState[0].origin !== TelephonyCallState.DIALING)
 +			{
 +				this.toggleDTMF();
 +			}
- 			
++			else if(this.phonePrefs.onCallView == "calllog" && lineState.length === 1 && 
++				lineState[0].origin !== TelephonyCallState.DIALING)
++			{
++				this.appAssistant.showCallLog();
++			}			
  		} catch (e) {
  			Mojo.Log.error( "PhoneApp: activeCallAssistant#updateCalls CAUGHT EXCEPTION: %j" , e);
  		}
@@ -2463,17 +2709,20 @@
  	
  	// sets up pause/wait digit handling 
  	handlePauseWaitDigits: function(callStateMessage) {
-@@ -763,6 +863,9 @@
+@@ -763,6 +900,12 @@
  		// save formatting
  		this.lastFormattedCalls = formattedCall;
  
 +		if(this.phonePrefs.onCallView == "dialpad" && this.pauseWaitActive == false) {
 +			this.toggleDTMF();
 +		}
++		else if(this.phonePrefs.onCallView == "calllog" && this.pauseWaitActive == false) {
++			this.appAssistant.showCallLog();
++		}
  	},
      
  	// configures class names and styles for a non-conference call. 
-@@ -799,6 +902,7 @@
+@@ -799,6 +942,7 @@
  		// handle wait digits
  		if (callState === TelephonyCallState.ACTIVE
  			&& this.showWaitButtonOnActive[lineNumber]) {
@@ -2481,7 +2730,7 @@
  			this.waitDigitsButtonShow(lineNumber, this.pauseWaitDigits[lineNumber], callMsg.length > 1);
  		} else {
  			this.waitDigitsButtonHide(lineNumber, callMsg.length > 1);
-@@ -1430,7 +1534,7 @@
+@@ -1430,7 +1574,7 @@
  		
  		// always pop active call
  		// FIXME: actually don't if dialpad is on top
@@ -2490,7 +2739,7 @@
  		if ( this.lastLines && 
  			this.lastLines.length > 0 &&
  			this.lastLines[0] &&
-@@ -1440,7 +1544,12 @@
+@@ -1440,7 +1584,12 @@
  		} else {
  			QDLogger.log( "activeCallAssistant::updateCalls", "last call incoming, so hiding stage");
  			closeStage = true;
@@ -2504,13 +2753,16 @@
  		
  		this.lastLines = [];
  		if (closeStage) {
-@@ -1478,9 +1587,18 @@
+@@ -1478,9 +1627,21 @@
          this.controller.document.removeEventListener('keydown', this.boundStartDTMFHardKey);
          this.controller.document.removeEventListener('keyup', this.boundEndDTMFHardKey);
  		
 +      // remove slider listener
 +		this.sliderSubscription.cancel();
-+		
++
++		 // remove power button listener		
++		this.powerButtonSubscription.cancel();
++
  		// drop puck subscription
  		this.puckSubscription.cancel();
  		delete this.puckSubscription;
@@ -2523,7 +2775,7 @@
  		
  		Mojo.View.removeDOMReferences(this);
  		
-@@ -1685,7 +1803,7 @@
+@@ -1685,7 +1846,7 @@
          response.type == "inductive") {
          
              if (Object.keys(scenarios).length == 2) {
@@ -2532,7 +2784,7 @@
                  if (response.connected === false &&
                  this.puckConnected === true) {
  				this.onAudioRouteChangeClick("phone_front_speaker");
-@@ -1693,6 +1811,7 @@
+@@ -1693,6 +1854,7 @@
                  this.puckConnected == false) {
  				this.onAudioRouteChangeClick("phone_back_speaker");
  			}		
@@ -2551,6 +2803,21 @@
  	},
  
  	announceClear: function(windowName) {
+@@ -504,7 +504,13 @@
+ 		*/
+ 		
+ 		var soundfile = undefined;						
+-		if (!existingCall && contact && contact.ringtoneLoc) {
++		if (!existingCall && contact && number == "blocked caller") {
++			if (this.appAssistant.contactPrefs.blocked)
++				soundfile = this.appAssistant.contactPrefs.blocked.ringtoneLoc;
++		} else if (!existingCall && contact && contact.name == undefined) {
++			if (this.appAssistant.contactPrefs.unknown)
++				soundfile = this.appAssistant.contactPrefs.unknown.ringtoneLoc;
++		} else if (!existingCall && contact && contact.ringtoneLoc) {
+ 			soundfile = contact.ringtoneLoc;
+ 		} else if (existingCall && PlatformType.isGSM()) {
+ 			soundfile = AnnouncerAssistant.kDefaultCallOnCallSound;
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
 @@ -6,6 +6,8 @@
@@ -2580,7 +2847,16 @@
  		
  		this.controller.listen(this.stageController.document, Mojo.Event.activate, this.maybeRefreshLists);
  		this.telListener.displayStateRegisterCallback(this.displayStatusChangeCallback);
-@@ -204,7 +210,6 @@
+@@ -199,12 +205,14 @@
+ 			// manually deal with back; always return to dialpad even if there's
+ 			// no dialpad scene yet created
+ 			QDLogger.log( "CalllogAssistant#handleCommand", "back!");
+-			this.appAssistant.showDialpad();
++			if (this.telListener.callExists() == true)
++				this.appAssistant.showActiveCall();
++			else
++				this.appAssistant.showDialpad();
+ 			Event.stop(event);
  			
  		} else if (event.type == Mojo.Event.command) {
  			switch (event.command) {
@@ -2588,7 +2864,7 @@
  				case this.kAllCallsMenuCommand:
            			this.onAllCallsTap();
  					break;
-@@ -220,10 +225,14 @@
+@@ -220,10 +228,14 @@
  					this.doClearCallLogDialog();
  					break;
  					
@@ -2605,6 +2881,18 @@
  				case Mojo.Menu.helpCmd:
  					MenuController.showHelp();
  					break;
+@@ -249,7 +261,10 @@
+ 	},
+     
+     switchToDialpad: function() {
+-       this.appAssistant.showDialpad();
++		if (this.telListener.callExists() == true)
++			this.appAssistant.showActiveCall();
++		else
++			this.appAssistant.showDialpad();
+     },
+ 	
+     onAllCallsTap: function(force) {
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-assistant.js
 @@ -1,7 +1,7 @@
@@ -2931,14 +3219,28 @@
  		}
  	},
  	
-@@ -715,7 +725,15 @@
+@@ -715,7 +725,29 @@
  		contact.cnapName = cnapName;
  		
  		QDLogger.log( "TelephonyEventListener#onIncomingLookupComplete", "namefromcontacts?:" , !!(contact.name));
 -		this.announcer.announceIncoming(callId, number, contact, !!(contact.name), this.isConnected(), update);
-+		if(contact.ringtoneLoc == "direct2vm") {
++
++		var ringtoneLoc = contact.ringtoneLoc;
++
++		if (contact.name === 'Do Not Answer')
++			ringtoneLoc = "hangup";
++		else if (number == "blocked caller") {
++			if (this.appAssistant.contactPrefs.blocked)
++				ringtoneLoc = this.appAssistant.contactPrefs.blocked.ringtoneLoc;
++		}
++		else if (contact.name == undefined) {
++			if(this.appAssistant.contactPrefs.unknown)
++				ringtoneLoc = this.appAssistant.contactPrefs.unknown.ringtoneLoc;
++		}
++		
++		if(ringtoneLoc == "direct2vm") {
 +			this.flagCallRejected(callId);
-+		} else if (contact.ringtoneLoc == "hangup") {
++		} else if (ringtoneLoc == "hangup") {
 +			TelephonyCommands.answer(callId);
 +			TelephonyCommands.disconnect(callId);
 +			TelephonyCommands.disconnect(callId);
@@ -3580,7 +3882,26 @@
  </div>
 --- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
 +++ /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
-@@ -36,6 +36,30 @@
+@@ -3,7 +3,17 @@
+ var SoundsalertsconfigAssistant = Class.create({
+ 	
+ 	initialize: function() {
+-		
++		this.curAlertName = "alert.wav";
++		this.curAlertPath = "/usr/palm/sounds/alert.wav";
++		this.curNotifyName = "notification.wav";
++		this.curNotifyPath = "/usr/palm/sounds/notification.wav";
++
++		this.curLowBatteryValue = "notifications";
++		this.curLowBatteryName = "";
++		this.curLowBatteryPath = "";
++		this.curChargerNotifyValue = "notifications";
++		this.curChargerNotifyName = "";
++		this.curChargerNotifyPath = "";
+ 	},
+ 	
+ 	ToggleOpt: {
+@@ -36,6 +46,30 @@
  	//Available Timer Values.
  	availableOffSettings: [{label: $L('Vibrate'), value:'vibrate'},{label: $L('Mute'), value:'mute'}],
  	availableOnSettings: [{label: $L('Sound & Vibrate'), value:'vibrate'},{label: $L('Sound'), value:'mute'}],
@@ -3597,13 +3918,13 @@
 +		'value' : "notification.wav"
 +	},
 +
-+	batteryNotifyChoices: [{'label': "Mute", 'value': "none"},{'label': "Sound", 'value': "notifications"},{'label': "Vibrate", 'value': "vibrate"}],
++	batteryNotifyChoices: [{'label': "Vibrate", 'value': "vibrate"},{'label': "System Sound", 'value': "notifications"},{'label': "Ringtone", 'value': "ringtone"},{'label': "Mute", 'value': "none"}],
 +
 +	batteryNotifyModel: {
 +		'value' : "notifications"
 +	},
 +
-+	chargerNotifyChoices: [{'label': "Mute", 'value': "none"},{'label': "Sound", 'value': "notifications"},{'label': "Vibrate", 'value': "vibrate"}],
++	chargerNotifyChoices: [{'label': "Vibrate", 'value': "vibrate"},{'label': "System Sound", 'value': "notifications"},{'label': "Ringtone", 'value': "ringtone"},{'label': "Mute", 'value': "none"}],
 +
 +	chargerNotifyModel: {
 +		'value' : "notifications"
@@ -3611,7 +3932,7 @@
  	
  	setup: function() {
  		this.attributes = {
-@@ -50,6 +74,12 @@
+@@ -50,6 +84,12 @@
  			minValue: 0,
  			round: true
  		};
@@ -3624,7 +3945,7 @@
  				
      	this.ringtoneVolumeModel = {
       	 'value' : 50
-@@ -59,6 +89,10 @@
+@@ -59,6 +99,10 @@
       	 'value' : 50
    		  };
  		  
@@ -3635,7 +3956,7 @@
  		/*this.controller.setupWidget('soundWhenCharging', {
  			choices: this.availableOptions,
  			modelProperty: 'value'
-@@ -66,10 +100,33 @@
+@@ -66,10 +110,33 @@
  		
  		$('soundWhenCharging').observe('mojo-property-change', this.handleSelection.bindAsEventListener(this));*/
  	
@@ -3669,7 +3990,7 @@
  				
  	
  		//added to the assistant so that the when charging vibrate widget is shown
-@@ -91,9 +148,43 @@
+@@ -91,9 +158,43 @@
  		
  		this.controller.setupWidget('system_ui_sounds', this.ToggleOpt, this.systemUISoundsModel);
  			
@@ -3708,12 +4029,12 @@
 +		$('alertringtone').observe('mojo-property-change', this.showAlertFilePicker.bindAsEventListener(this));
 +		$('notifyringtone').observe('mojo-property-change', this.showNotificationFilePicker.bindAsEventListener(this));
 +
-+		$('battery_notify').observe('mojo-property-change', this.setSystemNotifications.bindAsEventListener(this));
-+		$('charger_notify').observe('mojo-property-change', this.setSystemNotifications.bindAsEventListener(this));
++		$('battery_notify').observe('mojo-property-change', this.setBatterySystemNotification.bindAsEventListener(this));
++		$('charger_notify').observe('mojo-property-change', this.setChargerSystemNotification.bindAsEventListener(this));
  		
  		$('currentringtonerow').observe(Mojo.Event.tap, this.showAudioFilePicker.bindAsEventListener(this));
  				
-@@ -101,6 +192,9 @@
+@@ -101,6 +202,9 @@
  		this.getCurrentRingtone();
  		this.getVibrateSettings();	
  		this.getOtherSettings();
@@ -3723,7 +4044,7 @@
  		
  		//App Menu - Remove default items and add only Edit & Help items.
  		var appMenuModel = {
-@@ -112,6 +206,9 @@
+@@ -112,6 +216,9 @@
  	},
  	
  	cleanup : function() {
@@ -3733,7 +4054,7 @@
  		if(this.getRingtoneVolumeSubscribe)
  			this.getRingtoneVolumeSubscribe.cancel();
  	},	
-@@ -151,6 +248,9 @@
+@@ -151,6 +258,9 @@
  	handleRingtoneVolumeChange: function(event) {
  		if(event.value == undefined)
  			return;
@@ -3743,7 +4064,7 @@
  		this.setRingtoneVolumeReq = AudioService.setRingtoneVolume(event.value,this.setVolumeDone.bind(this),this);		
  	},
  		
-@@ -205,6 +305,9 @@
+@@ -205,6 +315,9 @@
  	handleSystemVolumeChange: function(event) {
  		if(event.value == undefined)
  			return;
@@ -3753,7 +4074,7 @@
  		this.setSystemVolumeReq = AudioService.setSystemVolume(event.value,this.setSystemVolumeResponse.bind(this),this); 
  	},
  	
-@@ -216,12 +319,45 @@
+@@ -216,12 +329,45 @@
  			parameters : {"name":"shutter"}
  		})
  	},
@@ -3799,7 +4120,7 @@
  	
  	systemVolumeCB: function(payload) {
  		if(payload.returnValue) {
-@@ -295,7 +431,99 @@
+@@ -295,7 +441,206 @@
  		//this.getVibrateChargingQueryReq = SystemService.getVibrateCharging(this.getVibrateChargingQuery.bind(this));
  		//this.getSoundWhenOnCradleReq = SystemService.getSoundWhenOnCradle(this.getSoundWhenOnCradleQuery.bind(this));
  	},
@@ -3812,17 +4133,21 @@
 +	},
 +
 +	getCurrentAlertQuery: function(response) {
-+		if(response.alerttone)
++		if(response.alerttone) {
 +			this.alertRingtoneModel.value = response.alerttone.name;
-+		else
-+			this.alertRingtoneModel.value = "Default";
-+			
-+		this.controller.modelChanged(this.alertRingtoneModel, this);
++			this.curAlertName = response.alerttone.name;
++			this.curAlertPath = response.alerttone.fullPath;
++
++			this.controller.modelChanged(this.alertRingtoneModel, this);
++		}
 +	},
 +
 +	showAlertFilePicker: function(event) {
 +		if(event.value == "select") {	
-+			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.currAlertPath, "onSelect": this.selectedAlertFile.bind(this),actionType:"attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++			this.alertRingtoneModel.value = this.curAlertName;
++			this.controller.modelChanged(this.alertRingtoneModel, this);
++		
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curAlertPath, "onSelect": this.selectedAlertFile.bind(this),actionType:"attach", actionName: $L("Done")}, Mojo.Controller.stageController);
 +		}
 +		else {
 +			this.selectedAlertFile({'name': "alert.wav", 'fullPath': "/usr/palm/sounds/alert.wav"});
@@ -3830,6 +4155,9 @@
 +	},
 +
 +	selectedAlertFile: function(file) {
++		this.curAlertName = file.name;
++		this.curAlertPath = file.fullPath;
++		
 +		this.setAlertReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
 +			method: 'setPreferences', parameters: {"alerttone":file}});
 +			
@@ -3845,17 +4173,21 @@
 +	},
 +
 +	getCurrentNotificationQuery: function(response) {
-+		if(response.notificationtone)
++		if(response.notificationtone) {
 +			this.notifyRingtoneModel.value = response.notificationtone.name;
-+		else
-+			this.notifyRingtoneModel.value = "Default";
-+			
-+		this.controller.modelChanged(this.notifyRingtoneModel, this);			
++			this.curNotifyName = response.notificationtone.name;
++			this.curNotifyPath = response.notificationtone.fullPath;
++
++			this.controller.modelChanged(this.notifyRingtoneModel, this);
++		}
 +	},
 +
 +	showNotificationFilePicker: function(event) {
 +		if(event.value == "select") {
-+			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.currNotificationPath, "onSelect": this.selectedNotificationFile.bind(this), actionType: "attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++			this.notifyRingtoneModel.value = this.curNotifyName;
++			this.controller.modelChanged(this.notifyRingtoneModel, this);		
++		
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curNotifyPath, "onSelect": this.selectedNotificationFile.bind(this), actionType: "attach", actionName: $L("Done")}, Mojo.Controller.stageController);
 +		}
 +		else {
 +			this.selectedNotificationFile({'name': "notification.wav", 'fullPath': "/usr/palm/sounds/notification.wav"});
@@ -3863,6 +4195,9 @@
 +	},
 +
 +	selectedNotificationFile: function(file) {
++		this.curNotifyName = file.name;
++		this.curNotifyPath = file.fullPath;
++	
 +		this.setNotificationReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
 +			method: 'setPreferences', parameters: {"notificationtone":file}});
 +
@@ -3879,19 +4214,112 @@
 +
 +	getSystemNotificationsQuery: function(response) {
 +		if(response.notifications) {
-+			this.batteryNotifyModel.value = response.notifications.lowBattery;
++			if(response.notifications.lowBattery == "ringtone") {
++				this.batteryNotifyModel.value = response.notifications.lowBatteryRingtoneName;
++
++				this.curLowBatteryValue = "ringtone";
++				this.curLowBatteryName = response.notifications.lowBatteryRingtoneName;
++				this.curLowBatteryPath = response.notifications.lowBatteryRingtonePath;
++			}
++			else
++				this.batteryNotifyModel.value = response.notifications.lowBattery;
++			
 +			this.controller.modelChanged(this.batteryNotifyModel, this);
 +
-+			this.chargerNotifyModel.value = response.notifications.chargerConnected;
++			if(response.notifications.chargerConnected == "ringtone") {
++				this.chargerNotifyModel.value = response.notifications.chargerConnectedRingtoneName;
++
++				this.curChargerNotifyValue = "ringtone";
++				this.curChargerNotifyName = response.notifications.chargerConnectedRingtoneName;
++				this.curChargerNotifyPath = response.notifications.chargerConnectedRingtonePath;
++			}
++			else
++				this.chargerNotifyModel.value = response.notifications.chargerConnected;
+ 	
 +			this.controller.modelChanged(this.chargerNotifyModel, this);
 +		}
 +	},
 +
-+	setSystemNotifications: function(event) {
++	selectedSystemNotificationsFile: function(notification, file) {
++		if(notification == "battery") {
++			this.batteryNotifyModel.value = file.name;
++
++			this.curLowBatteryValue = "ringtone";
++			this.curLowBatteryName = file.name;
++			this.curLowBatteryPath = file.fullPath;
++			
++			this.controller.modelChanged(this.batteryNotifyModel, this);
++		}
++		else if(notification == "charger") {
++			this.chargerNotifyModel.value = file.name;
++
++			this.curChargerNotifyValue = "ringtone";
++			this.curChargerNotifyName = file.name;
++			this.curChargerNotifyPath = file.fullPath;
++
++			this.controller.modelChanged(this.chargerNotifyModel, this);
++		}
++		
++		this.saveSystemNotifications();
++	},
++	
++	setBatterySystemNotification: function(event) {
++		if(this.batteryNotifyModel.value == "ringtone") {
++			if(this.curLowBatteryValue == "ringtone")
++				this.batteryNotifyModel.value = this.curLowBatteryName;
++			else
++				this.batteryNotifyModel.value = this.curLowBatteryValue;
++				
++			this.controller.modelChanged(this.batteryNotifyModel, this);
++					
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curLowBatteryPath, "onSelect": this.selectedSystemNotificationsFile.bind(this, "battery"), actionType: "attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++		}
++		else {
++			this.curLowBatteryValue = this.batteryNotifyModel.value;
++			this.curLowBatteryName = "";
++			this.curLowBatteryPath = "";
++
++			this.saveSystemNotifications();	
++		}
++	},
++
++	setChargerSystemNotification: function(event) {
++		if(this.chargerNotifyModel.value == "ringtone") {
++			if(this.curChargerNotifyValue == "ringtone")
++				this.chargerNotifyModel.value = this.curChargerNotifyName;
++			else
++				this.chargerNotifyModel.value = this.curChargerNotifyValue;
++			
++			this.controller.modelChanged(this.chargerNotifyModel, this);
++
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curChargerNotifyPath, "onSelect": this.selectedSystemNotificationsFile.bind(this, "charger"), actionType: "attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++		}
++		else {
++			this.curChargerNotifyValue = this.chargerNotifyModel.value;
++			this.curChargerNotifyName = "";
++			this.curChargerNotifyPath = "";
++		
++			this.saveSystemNotifications();	
++		}
++	},
++
++	saveSystemNotifications: function() {
 +		var notifications = {
 +			'lowBattery': this.batteryNotifyModel.value, 
 +			'chargerConnected': this.chargerNotifyModel.value };
- 	
++	
++		if(this.curLowBatteryValue == "ringtone") {
++			notifications.lowBattery = "ringtone";
++			notifications.lowBatteryRingtoneName = this.curLowBatteryName;
++			notifications.lowBatteryRingtonePath = this.curLowBatteryPath;
++		}
++
++		if(this.curChargerNotifyValue == "ringtone") {
++			notifications.chargerConnected = "ringtone";
++			notifications.chargerConnectedRingtoneName = this.curChargerNotifyName;
++			notifications.chargerConnectedRingtonePath = this.curChargerNotifyPath;
++		}
++		
 +		this.setNotificationReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
 +			method: 'setPreferences', parameters: {"notifications": notifications}});
 +	},
