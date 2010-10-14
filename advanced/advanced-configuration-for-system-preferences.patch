@@ -325,7 +325,17 @@
  }
  
  
-@@ -128,7 +137,11 @@
+@@ -110,6 +119,9 @@
+ 	
+ 	handleLaunch: function() {
+ 		var params = this.launchParameters;
++
++		this.notificationAssistant.removePlayNotificationSoundTask();		
++
+ 		if (params.securityPolicyError) {
+ 			this.handleSecurityPolicyError(params);
+ 		} else if (params.certificateError) {
+@@ -128,6 +140,9 @@
  			this.handleContact(params);
  		} else if (params.carrierSignature) {
  			this.handleSetCarrierSignature(params);
@@ -333,10 +343,8 @@
 +			this.notificationAssistant.playNotificationSound();
 +			this.notificationAssistant.schedulePlayNotificationSoundTask();
  		} else {
-+			this.notificationAssistant.removePlayNotificationSoundTask();		
  			this.handleDefault();
  		}
- 	},
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js
 @@ -8,6 +8,7 @@
@@ -855,12 +863,12 @@
 +	playNotificationSound: function() {
 +		Mojo.Log.info("NotificationAssistant: playing sound notification=%j", this.notifySoundParams);
 +
-+		this.appController.playSoundNotification(this.notifySoundParams.soundClass, this.notifySoundParams.soundFile);
-+
 +		if(this.notifySoundParams.vibrationLength > 0) {
 +			this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
 +				method: 'vibrate', parameters: {'period': 0, 'duration': this.notifySoundParams.vibrationLength} });
 +		}
++
++		this.appController.playSoundNotification(this.notifySoundParams.soundClass, this.notifySoundParams.soundFile);
  	},
  
  	showNewEmailDashboard: function() {
@@ -1126,7 +1134,16 @@
  	},
  	
  	handleLaunch: function(param){
-@@ -71,6 +98,9 @@
+@@ -46,6 +73,8 @@
+ 			return;
+ 		}
+ 
++		this.appController.notificationAssistant.removePlayNotificationSoundTask();
++
+ 		var stageController = this.controller.getStageController(MainStageName);
+ 		
+ 		if (launchParams.clearBanner) {
+@@ -71,6 +100,9 @@
  		} else if (launchParams.messageText || launchParams.attachment || launchParams.composeAddress || (launchParams.composeRecipients && launchParams.composeRecipients.length)) {
  			
  			this.launchCompose(stageController,launchParams);
@@ -1136,14 +1153,6 @@
  		// Launch listview - make sure the listview is the current scene, don't just focus the window
  		} else if (launchParams.launchListView) {
  			this.launchListView(stageController,launchParams.forceListView);
-@@ -85,6 +115,7 @@
- 		} else if (launchParams.target !== undefined) {
- 			this.handleTargetParam(launchParams.target, stageController);
- 		} else {
-+			this.appController.notificationAssistant.removePlayNotificationSoundTask();
- 			this.launchMessaging(stageController);
- 		}		
- 	},
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 @@ -6,6 +6,8 @@
@@ -1176,7 +1185,7 @@
 +				this.controller.stageController.setClipboard(response.record.draftText);
  		}
  		
-+		if(this.messageTextElement.value == "") {
++		if((this.messageTextElement.value == "") && (this.msgPrefs["sms"] != undefined)) {
 +			if((this.msgPrefs["sms"].messageGreeting != undefined) && (this.msgPrefs["sms"].messageSignature != undefined)) {
 +				var msg = this.msgPrefs["sms"].messageGreeting + " " + this.msgPrefs["sms"].messageSignature;
 +				
@@ -1200,13 +1209,16 @@
  		
  		if (tapTarget && tapTarget.id.startsWith(ChatviewAssistant.quickDialIdPrefix)) {
  			try {
-@@ -788,13 +808,26 @@
+@@ -788,13 +808,29 @@
  			var that = this;
  			this.transports.each(function(transport) {
  				if ("transport" + transport.id == selectedValue) {
-+					if((this.msgPrefs["sms"].messageGreeting != undefined) && (this.msgPrefs["sms"].messageSignature != undefined)) {
++					if((this.msgPrefs["sms"] != undefined) &&
++						(this.msgPrefs["sms"].messageGreeting != undefined) && 
++						(this.msgPrefs["sms"].messageSignature != undefined))
++					{
 +						var msg = this.msgPrefs["sms"].messageGreeting + " " + this.msgPrefs["sms"].messageSignature;
-+				
++			
 +						if(msg.length > 1) {
 +							if((transport.serviceName == undefined) && (this.messageTextElement.value == "")) {
 +								var curPos = this.msgPrefs["sms"].messageGreeting.length;
@@ -1217,8 +1229,8 @@
 +								this.setTextFieldValue("");
 +							}
 +						}
-+					}			
-+
++					}
++					
  					that.setSelectedTransport(transport.id, transport.value, transport.serviceName, transport.accountTag, transport.availability);
  					throw $break;
  				}
@@ -1241,22 +1253,33 @@
  		this.attachment;
  		this.messageTextElement;
  		this.prePopulatedRecipients = [];
-@@ -441,9 +443,22 @@
+@@ -441,9 +443,33 @@
  		}
  	}
      // Hide the attach button if there is an IM contact
 -    if(hasIM == true) {         
 +
-+	if((this.msgPrefs["sms"].messageGreeting != undefined) && (this.msgPrefs["sms"].messageSignature != undefined))
++	if((this.msgPrefs["sms"] != undefined) && 
++		(this.msgPrefs["sms"].messageGreeting != undefined) && 
++		(this.msgPrefs["sms"].messageSignature != undefined))
++	{
 +		var msg = this.msgPrefs["sms"].messageGreeting + " " + this.msgPrefs["sms"].messageSignature;
-+	 
++	}
++	
 +    if(hasIM == true) {
-+    	if((msg != undefined) && (this.messageTextWidgetModel.value == msg))
++    	if((msg != undefined) && 
++    		(this.messageTextWidgetModel.value != undefined) &&
++    		(this.messageTextWidgetModel.value == msg))
++    	{
 +			this.setTextFieldValue("");
-+    
++    	}
++    	
        this.hideAttachButton();
      } else {                  
-+		if((msg != undefined) && ((this.messageTextWidgetModel.value == undefined) || (this.messageTextWidgetModel.value == ""))) {
++		if((msg != undefined) && 
++			((this.messageTextWidgetModel.value == undefined) || 
++			(this.messageTextWidgetModel.value == "")))
++		{
 +			var curPos = this.msgPrefs["sms"].messageGreeting.length;
 +			this.setTextFieldValue(msg);
 +			this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
@@ -1265,7 +1288,7 @@
        this.showAttachButton();
      }
  	this.setCharacterCounterMaxLength();
-@@ -585,10 +600,15 @@
+@@ -585,10 +611,15 @@
  				parameters: {},
  				onSuccess: function(resp) {
  					Mojo.Log.info("restoreFromDraft %j", resp);
@@ -1375,13 +1398,13 @@
 +		else if((contact.id == undefined) && (this.contactPrefs.unknown) && (this.contactPrefs.unknown.messagingRingtoneLoc))
 +			bannerParams.soundFile = this.contactPrefs.unknown.messagingRingtoneLoc;
 +	}
-+	
-+	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
 +
 +	if(this.notifyPrefs.vibrationLength > 0) {
 +		this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
 +			method: 'vibrate', parameters: { 'period': 0,'duration': this.notifyPrefs.vibrationLength } });
 +	}
++	
++	this.controller.showBanner(bannerParams,bannerLaunchParams,bannerType);
 +};
 +
 +NotificationAssistant.prototype.playmsgtone = function(msgPrefs, number, contact){
@@ -1396,13 +1419,13 @@
 +		else if((contact.id == undefined) && (this.contactPrefs.unknown) && (this.contactPrefs.unknown.messagingRingtoneLoc))
 +			notifParams.soundFile = this.contactPrefs.unknown.messagingRingtoneLoc;
 +	}
-+	
-+	this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
 +
 +	if(this.notifyPrefs.vibrationLength > 0) {
 +		this.serviceRequest = new Mojo.Service.Request("palm://com.palm.vibrate", {
 +			method: 'vibrate', parameters: { 'period': 0,'duration': this.notifyPrefs.vibrationLength } });
 +	}
++	
++	this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
 +};
 +
 +NotificationAssistant.prototype.playNotificationSound = function() {
@@ -2418,22 +2441,19 @@
  		}
  	}
  };
-@@ -771,16 +803,20 @@
- 	
- 	var stageController = this.appController.getStageController(this.stageName);
+@@ -773,14 +805,19 @@
  	if (stageController !== undefined) {
--		this.sceneStack = [];
--		stageController.popScenesTo();
+ 		this.sceneStack = [];
+ 		stageController.popScenesTo();
 -		if (this.backToCalllog) {
 -			if(this.calllogType == "missed")
 -				this.showCallLog("missed", true);
 -			else
 -				this.showCallLog("", true);
++
 +		if(this.phonePrefs.defaultView == "calllog")
 +			this.showCallLog("", true);
 +		else {
-+			this.sceneStack = [];
-+			stageController.popScenesTo();
 +			if (this.backToCalllog) {
 +				if(this.calllogType == "missed")
 +					this.showCallLog("missed", true);
@@ -2448,7 +2468,7 @@
  	} else {
  		QDLogger.log( "popActiveCall", "undefined stage");
  	}
-@@ -1098,6 +1134,22 @@
+@@ -1098,6 +1135,22 @@
  		this.useCarrierVerificationMMSCURL = !!value;
  	}.bind(this));
  	
@@ -2473,7 +2493,7 @@
  // gets phone number mask enabled; defaults to false
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
-@@ -25,15 +25,24 @@
+@@ -25,15 +25,26 @@
  	
  	initialize: function(params){
  	    this.appAssistant = Mojo.Controller.getAppController().assistant;
@@ -2488,7 +2508,9 @@
 +			onSuccess: this.getSliderPos.bind(this)});
 +
 +		this.sliderSubscription = TelephonyCommands.sliderSubscribe(this.onSliderEventDuringCall.bind(this));
-+		this.powerButtonSubscription = TelephonyCommands.powerButtonSubscribe(true, 'activecall', this.onPowerButtonEventDuringCall.bind(this));
++		
++		if(this.phonePrefs.powerButtonAction == "hangupcall")
++			this.powerButtonSubscription = TelephonyCommands.powerButtonSubscribe(true, 'activecall', this.onPowerButtonEventDuringCall.bind(this));
         	
  		this.lastLines = [];
  		this.pauseWaitDigits = [];
@@ -2498,7 +2520,7 @@
  		
  		// select multicall rules
  		if (PlatformType.isGSM() == true) {
-@@ -52,6 +61,8 @@
+@@ -52,6 +63,8 @@
  		
  		this.puckConnected = this.eventListener.puckConnected;
  		this.puckSubscription = TelephonyCommands.puckStatusSubscribe(this.onPuckEvent.bind(this));
@@ -2507,7 +2529,7 @@
  		
  		this.onBlur = this.onBlur.bind(this);
  		this.onFocus = this.onFocus.bind(this);
-@@ -138,25 +149,89 @@
+@@ -138,25 +151,89 @@
  		
  		var appMenuModel = {
  			visible: true,
@@ -2603,7 +2625,7 @@
  					MenuController.showPrefs(this.controller.stageController);
  					break;
  					
-@@ -232,6 +307,7 @@
+@@ -232,6 +309,7 @@
  						QDLogger.log( "processpauseWaitDigits", "pause ", this.pauseWaitDigits[linenumber].charAt(i));
  						this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  						this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 2500);
@@ -2611,7 +2633,7 @@
  						return;
  					}
  break;
-@@ -261,6 +337,12 @@
+@@ -261,6 +339,12 @@
  							this.showWaitButtonOnActive[linenumber] = false;
  							this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  							this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 600);
@@ -2624,7 +2646,7 @@
  							return;
  						}
  				}
-@@ -273,6 +355,7 @@
+@@ -273,6 +357,7 @@
  						QDLogger.log( "processpauseWaitDigits", "pause " , this.pauseWaitDigits[linenumber].charAt(i));
  						this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  						this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 2500);
@@ -2632,7 +2654,7 @@
  						return;
  					}
  break;
-@@ -301,6 +384,12 @@
+@@ -301,6 +386,12 @@
  							this.showWaitButtonOnActive[linenumber] = false;
  							this.pauseWaitDigits[linenumber] = this.pauseWaitDigits[linenumber].substring(i + 1);
  							this.pauseTimeout = setTimeout(this.processPauseWaitDigits.bind(this, evt, linenumber), 600);
@@ -2645,7 +2667,7 @@
  							return;
  						}
  				}
-@@ -488,13 +577,61 @@
+@@ -488,13 +579,61 @@
  			// if we have a transition, run it
  			this.crossfadeEnd();
  			
@@ -2709,7 +2731,7 @@
  	
  	// sets up pause/wait digit handling 
  	handlePauseWaitDigits: function(callStateMessage) {
-@@ -763,6 +900,12 @@
+@@ -763,6 +902,12 @@
  		// save formatting
  		this.lastFormattedCalls = formattedCall;
  
@@ -2722,7 +2744,7 @@
  	},
      
  	// configures class names and styles for a non-conference call. 
-@@ -799,6 +942,7 @@
+@@ -799,6 +944,7 @@
  		// handle wait digits
  		if (callState === TelephonyCallState.ACTIVE
  			&& this.showWaitButtonOnActive[lineNumber]) {
@@ -2730,7 +2752,7 @@
  			this.waitDigitsButtonShow(lineNumber, this.pauseWaitDigits[lineNumber], callMsg.length > 1);
  		} else {
  			this.waitDigitsButtonHide(lineNumber, callMsg.length > 1);
-@@ -1430,7 +1574,7 @@
+@@ -1430,7 +1576,7 @@
  		
  		// always pop active call
  		// FIXME: actually don't if dialpad is on top
@@ -2739,7 +2761,7 @@
  		if ( this.lastLines && 
  			this.lastLines.length > 0 &&
  			this.lastLines[0] &&
-@@ -1440,7 +1584,12 @@
+@@ -1440,7 +1586,12 @@
  		} else {
  			QDLogger.log( "activeCallAssistant::updateCalls", "last call incoming, so hiding stage");
  			closeStage = true;
@@ -2753,15 +2775,19 @@
  		
  		this.lastLines = [];
  		if (closeStage) {
-@@ -1478,9 +1627,21 @@
+@@ -1478,9 +1629,25 @@
          this.controller.document.removeEventListener('keydown', this.boundStartDTMFHardKey);
          this.controller.document.removeEventListener('keyup', this.boundEndDTMFHardKey);
  		
 +      // remove slider listener
 +		this.sliderSubscription.cancel();
-+
-+		 // remove power button listener		
-+		this.powerButtonSubscription.cancel();
++		delete this.sliderSubscription;
++		
++		 // remove power button listener
++		if(this.phonePrefs.powerButtonAction == "hangupcall")	{	
++			this.powerButtonSubscription.cancel();
++			delete this.powerButtonSubscription;
++		}
 +
  		// drop puck subscription
  		this.puckSubscription.cancel();
@@ -2775,7 +2801,7 @@
  		
  		Mojo.View.removeDOMReferences(this);
  		
-@@ -1685,7 +1846,7 @@
+@@ -1685,7 +1852,7 @@
          response.type == "inductive") {
          
              if (Object.keys(scenarios).length == 2) {
@@ -2784,7 +2810,7 @@
                  if (response.connected === false &&
                  this.puckConnected === true) {
  				this.onAudioRouteChangeClick("phone_front_speaker");
-@@ -1693,6 +1854,7 @@
+@@ -1693,6 +1860,7 @@
                  this.puckConnected == false) {
  				this.onAudioRouteChangeClick("phone_back_speaker");
  			}		
