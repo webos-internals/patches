@@ -1,0 +1,99 @@
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -74,6 +74,9 @@
+ 		//Subscribe to Powerd Notification.
+ 		this.powerInit();
+ 		
++		//Subscribe to Keypad Notification.
++		this.monitorKeypadSwitch();
++		
+ 		//Subscribe to Application Manager 
+ 		this.initOnServerStart("com.palm.applicationManager", this.appMgrInit.bind(this));
+ 		
+@@ -1949,6 +1952,86 @@
+ },
+ 
+ /*
++ * Initialize keypad monitoring
++ */
++monitorKeypadSwitch: function() {
++	this.sliderStateSubscribtion = new Mojo.Service.Request('palm://com.palm.keys/switches', {
++		method: 'status', parameters: {subscribe: true},
++		onSuccess: function(data) {
++			if(data.key == "slider") {
++				if(data.state == 'up') {
++					this.invertKeypadBrightness(true);
++					
++					//Do this to catch quick up & down movements
++					this.checkSliderState.bind(this).delay(1); 
++				}
++				else if(data.state == 'down') {
++					this.invertKeypadBrightness(false);
++				}
++			}
++		}.bind(this)
++	});
++},
++
++invertKeypadBrightness: function(state) {
++	if(state == true) {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'getProperty', parameters: {properties: ["maximumBrightness"]},
++			onSuccess: function(response) {
++				if(response.maximumBrightness != undefined) {
++					var keypadBrightness = 101 - parseInt(response.maximumBrightness);
++					
++					if(keypadBrightness < 25)
++						keypadBrightness = 25;
++					else if(keypadBrightness > 85)
++						keypadBrightness = 85;
++						
++					this.controller.serviceRequest('palm://com.palm.power/backlight', {
++						method: 'set', parameters: {keypad: {brightness: keypadBrightness}} });
++
++					if(!this.displayStateSubscribtion) {
++						this.displayStateSubscribtion = this.controller.serviceRequest('palm://com.palm.display/control', {
++							method: 'status', parameters: {subscribe: true},
++							onSuccess: function(response) {
++								if((response) && (response.event)) {
++									if(response.event == "displayOn")
++										this.checkSliderState();
++								}
++							}.bind(this)
++						});
++					}
++				}
++			}.bind(this)
++		});
++	}
++	else if(state == false) {
++		if(this.displayStateSubscribtion) {
++			this.displayStateSubscribtion.cancel();
++			
++			delete this.displayStateSubscribtion;
++		}
++	
++		this.controller.serviceRequest('palm://com.palm.power/backlight', {
++			method: 'set', parameters:{keypad:{brightness:0}} });
++	}
++},
++
++checkSliderState: function() {
++	this.controller.serviceRequest('palm://com.palm.keys/switches', {
++		method: 'status', parameters: {'get': 'slider'},
++		onSuccess: function(data) {
++			if (data.key === "slider") {
++				if (data.state === 'down') {
++					this.invertKeypadBrightness(false);
++				} else if (data.state === 'up') {
++					this.invertKeypadBrightness(true);
++				}
++			}
++		}.bind(this)
++	});
++},
++
++/*
+  * Initialize power
+  */
+ powerInit:function() {
