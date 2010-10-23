@@ -1,0 +1,117 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
+index e66f292..001c08b 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
+@@ -66,6 +66,15 @@ var ListAssistant = Class.create(App.Scene, {
+ 					ListAssistant.kSortBySenderMenuItem, 
+ 					ListAssistant.kSortBySubjectMenuItem
+ 			]},
++			//TheInnKeeper
++			{
++				label:$L('Delete View Next ...'),
++				items: [
++					{label:$L('Newer'), command:'deleteNewer', checkEnabled:true}, 
++					{label:$L('Older'), command:'deleteOlder', checkEnabled:true}, 
++					{label:$L('List'), command:'deleteList', checkEnabled:true},
++			]},
++			//End TheInnKeeper
+ 			{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, disabled: false},
+ 			{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}
+ 		]};
+@@ -263,6 +272,17 @@ var ListAssistant = Class.create(App.Scene, {
+ 			case Mojo.Menu.helpCmd:
+ 				MenuController.showHelp();
+ 				break;
++		//TheInnKeeper
++			case 'deleteNewer':
++				this.updateDeleteNext("newer");
++				break;
++			case 'deleteOlder':
++				this.updateDeleteNext("older");
++				break;
++			case 'deleteList':
++				this.updateDeleteNext("list");
++				break;
++		//End TheInnKeeper
+ 		}
+ 	}
+ 	// Enable prefs & help menu items
+@@ -1142,6 +1162,13 @@ var ListAssistant = Class.create(App.Scene, {
+         this.dataSource.minimizeSubscription();
+         // TODO: minimize this.folderSubscription.
+     }
++    //TheInnKeeper
++    ,
++    updateDeleteNext: function(delDirection){
++    	Mojo.Log.info("Setting del Direction: " + delDirection);
++    	EmailAppDepot.getDepot().setDeleteDirection(delDirection);
++    }
++    //End TheInnKeeper
+ });
+ 
+ ListAssistant.syncDate = function(timestamp) {
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+index 761069e..607bfac 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -61,6 +61,20 @@ var MessageAssistant = Class.create({
+ 		if (focusStage === true) {
+ 			this.focusStageTimer = this.focusEmailStage.bind(this).delay(0.6);
+ 		}
++		
++		//TheInnKeeper
++		EmailAppDepot.getDepot().getDeleteDirection( function(delDirection){
++			if (delDirection) {
++				Mojo.Log.info("Setting Delete Direction: " + delDirection);
++				MessageAssistant.deleteDirection = delDirection;
++			}else{
++				Mojo.Log.info("No value Found setting Older");
++				MessageAssistant.deleteDirection = "older";
++				EmailAppDepot.getDepot().setDeleteDirection("older");
++			}
++			
++		});
++		//End TheInnKeeper		
+ 	},
+ 
+ 	setup: function() {
+@@ -2143,8 +2157,15 @@ var MessageAssistant = Class.create({
+ 	},
+ 
+ 	deleteEmail: function() {
+-		Message.setDeleted(this.data.id, true);
+-		this.controller.stageController.popScene();
++		//TheInnKeeper
++		Mojo.Log.info("Delete Direction: " + MessageAssistant.deleteDirection);
++		  Message.setDeleted(this.data.id, true);       
++          if(MessageAssistant !== "list" && this.nextMessages[MessageAssistant.deleteDirection] !== undefined){       
++                  this.gotoNextEmail(MessageAssistant.deleteDirection);       
++          }else{
++                  this.controller.stageController.popScene();
++          }                 
++      //End InnKeeper
+ 	}
+ });
+ 
+diff --git a/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js b/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js
+index 6179cfd..c6f8713 100644
+--- a/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js
++++ b/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js
+@@ -30,6 +30,17 @@ var EmailAppDepot = Class.create({
+ 		Mojo.Log.info("setShowFavorites id="+accountId+", "+$H(obj).inspect())
+ 		this.depot.simpleAdd(accountId, obj);
+ 	},
++	//TheInnKeeper
++	getDeleteDirection: function(callback) {
++		Mojo.Log.info("in getDeleteDirectin");
++		this.depot.simpleGet('deleteDirection', callback);
++	},
++
++	setDeleteDirection: function(direction) {
++		Mojo.Log.info("delDirection direction="+direction)
++		this.depot.simpleAdd('deleteDirection', direction);
++	},
++	//End TheInnKeeper
+ 	
+ 	getDefaultSignature: function(callback) {
+ 		if (this.defaultSignature) {

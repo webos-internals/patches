@@ -1,5 +1,5 @@
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-index 09c898f..0b34316 100644
+index 09c898f..12b7ab5 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 @@ -74,6 +74,7 @@ function PageAssistant(params){
@@ -26,117 +26,32 @@ index 09c898f..0b34316 100644
  
  		this.controller.getSceneScroller().removeEventListener(Mojo.Event.scrollStarting,
  			this._addAsScrollListenerHandler, false);
-@@ -729,6 +732,115 @@ PageAssistant.prototype._onWebViewSingleTap = function(event) {
+@@ -618,8 +621,16 @@ PageAssistant.prototype._onWebViewSingleTap = function(event) {
+ 
+ 	try {
+ 		var tapPt = Element.viewportOffset(this._webView);
+-		tapPt.left = event.centerX - tapPt.left;
+-		tapPt.top  = event.centerY - tapPt.top;
++		
++		if(event.isHoldTap) {
++			event.altKey = true;
++			tapPt.left = event.down.offsetX;
++			tapPt.top = event.down.offsetY;
++		}
++		else {
++			tapPt.left = event.centerX - tapPt.left;
++			tapPt.top  = event.centerY - tapPt.top;		
++		}
+ 
+ 		if (event.altKey) {
+ 
+@@ -729,6 +740,11 @@ PageAssistant.prototype._onWebViewSingleTap = function(event) {
  	}
  };
  
-+PageAssistant.prototype._onWebViewHoldTap = function(event) {
-+	
-+	try {
-+		
-+		var popupItems = [
-+			{label: $L('Open In New Card'), command:'openNew'},
-+			{label: $L('Share Link'), command:'shareUrl'},
-+			{label: $L('Copy URL'), command:'copyUrl'},
-+			{label: $L('Copy to Photos'), command:'copyToPhotos'},
-+			{label: $L('Share Image'), command:'shareImage'},
-+			{label: $L('Set Wallpaper'), command:'setWallpaper'}
-+		];
-+
-+		var findItem = function(command) {
-+			var i;
-+			for (i = 0; i < popupItems.length; i++) {
-+				if (popupItems[i].command === command) {
-+					return popupItems[i];
-+				}
-+			}
-+		};
-+
-+		var selectedCommand;
-+		var imageInfo;
-+
-+		var saveImageCallback = function(succeeded, path) {
-+			if (succeeded) {
-+				switch (selectedCommand) {
-+					case 'shareImage':
-+						this._shareImage(imageInfo, path);
-+						break;
-+					case 'setWallpaper':
-+						this._setWallpaper(path);
-+						break;
-+					case 'copyToPhotos':
-+						this._showOkAlert($L('Image Saved'),
-+								$L('The image was successfully added to your photo album.'));
-+						break;
-+				}
-+			}
-+			else {
-+				this._showOkAlert($L('Error Saving Image'),
-+						$L('There was an error saving the selected image.'));
-+			}
-+		}.bind(this);
-+
-+		var urlInfo = {};
-+		var popupSelectFunc = function(value) {
-+			selectedCommand = value;
-+			switch (value) {
-+				case 'openNew':
-+					this._newBrowserPage(urlInfo.url);
-+					break;
-+				case 'shareUrl':
-+					this._shareUrl(urlInfo.url, urlInfo.desc, false);
-+					break;
-+				case 'copyUrl':
-+					this.controller.stageController.setClipboard(urlInfo.url);
-+					break;
-+				case 'copyToPhotos':
-+					this._webView.mojo.saveImageAtPoint(event.down.offsetX, event.down.offsetY, "/media/internal", saveImageCallback);
-+					break;
-+				case 'shareImage':
-+					this._webView.mojo.saveImageAtPoint(event.down.offsetX, event.down.offsetY, "/tmp", saveImageCallback);
-+					break;
-+				case 'setWallpaper':
-+					this._webView.mojo.saveImageAtPoint(event.down.offsetX, event.down.offsetY, "/media/internal", saveImageCallback);
-+					break;
-+			}
-+		}.bind(this);
-+
-+		var imageInfoResponse = function(response) {
-+
-+			imageInfo = response;
-+			var usedItems = [];
-+			if (urlInfo.url) {
-+				usedItems.push( findItem('openNew') );
-+				usedItems.push( findItem('shareUrl') );
-+				usedItems.push( findItem('copyUrl') );
-+			}
-+
-+			if (response.src) {
-+				usedItems.push( findItem('shareImage') );
-+			}
-+
-+			if (this._supportedImageType(response.src, response.mimeType)) {
-+				usedItems.push( findItem('copyToPhotos') );
-+				// Disabled until we have cropping UI
-+				//usedItems.push( findItem('setWallpaper') );
-+			}
-+
-+			if (usedItems.length) {
-+				this.controller.popupSubmenu({ onChoose: popupSelectFunc, items: usedItems });
-+			}
-+		}.bind(this);
-+
-+		var urlInspectResponse = function(response) {
-+
-+			urlInfo = response || {};
-+			this._webView.mojo.getImageInfoAtPoint(event.down.offsetX, event.down.offsetY, imageInfoResponse);
-+		}.bind(this);
-+
-+		this._webView.mojo.inspectUrlAtPoint(event.down.offsetX, event.down.offsetY, urlInspectResponse);		
-+	}
-+	catch (e) {
-+		Mojo.Log.logException(e);
-+	}
++PageAssistant.prototype._onWebViewHoldTap = function(event) {	
++	event.isHoldTap = true;
++	this._onWebViewSingleTap(event);	
 +};
 +
  PageAssistant.prototype._onCardActivate = function(event) {
