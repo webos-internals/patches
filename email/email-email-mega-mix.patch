@@ -208,7 +208,7 @@ index e8278ac..df838f4 100644
  		this.notificationAssistant.setFolderViewedTimestamp(folderId, new Date().getTime());
  		this.notificationAssistant.clearAccount(accountId, folderId);
 diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
-index e66f292..e880d1e 100644
+index e66f292..665afce 100644
 --- a/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
 +++ b/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
 @@ -49,7 +49,8 @@ var ListAssistant = Class.create(App.Scene, {
@@ -221,7 +221,23 @@ index e66f292..e880d1e 100644
  				{label:$L('Update'), icon:'sync', command:'sync'}
  			]};
  	this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.cmdMenuModel);
-@@ -89,7 +90,7 @@ var ListAssistant = Class.create(App.Scene, {
+@@ -66,6 +67,15 @@ var ListAssistant = Class.create(App.Scene, {
+ 					ListAssistant.kSortBySenderMenuItem, 
+ 					ListAssistant.kSortBySubjectMenuItem
+ 			]},
++			//TheInnKeeper
++			{
++				label:$L('Delete View Next ...'),
++				items: [
++					{label:$L('Newer'), command:'deleteNewer', checkEnabled:true}, 
++					{label:$L('Older'), command:'deleteOlder', checkEnabled:true}, 
++					{label:$L('List'), command:'deleteList', checkEnabled:true},
++			]},
++			//End TheInnKeeper
+ 			{label:$L('Preferences & Accounts'), command:Mojo.Menu.prefsCmd, disabled: false},
+ 			{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}
+ 		]};
+@@ -89,7 +99,7 @@ var ListAssistant = Class.create(App.Scene, {
  					fixedHeightItems:true,
  					itemTemplate: 'list/email_entry',
  					swipeToDelete: true,
@@ -230,7 +246,7 @@ index e66f292..e880d1e 100644
  					uniquenessProperty: 'id',
  					dividerTemplate: 'list/date_separator',
  					dividerFunction: function(email) { return email.category; },
-@@ -231,6 +232,14 @@ var ListAssistant = Class.create(App.Scene, {
+@@ -231,6 +241,14 @@ var ListAssistant = Class.create(App.Scene, {
    handleCommand: function(event) {
  	if (event.type == Mojo.Event.command) {
  		switch (event.command) {
@@ -245,7 +261,25 @@ index e66f292..e880d1e 100644
  			case 'compose':
  				this.handleSend();
  				break;
-@@ -761,6 +770,81 @@ var ListAssistant = Class.create(App.Scene, {
+@@ -263,6 +281,17 @@ var ListAssistant = Class.create(App.Scene, {
+ 			case Mojo.Menu.helpCmd:
+ 				MenuController.showHelp();
+ 				break;
++		//TheInnKeeper
++			case 'deleteNewer':
++				this.updateDeleteNext("newer");
++				break;
++			case 'deleteOlder':
++				this.updateDeleteNext("older");
++				break;
++			case 'deleteList':
++				this.updateDeleteNext("list");
++				break;
++		//End TheInnKeeper
+ 		}
+ 	}
+ 	// Enable prefs & help menu items
+@@ -761,6 +790,81 @@ var ListAssistant = Class.create(App.Scene, {
  			}
  		}
  	},
@@ -327,15 +361,43 @@ index e66f292..e880d1e 100644
  
    updateFolderStatusModel: function(response) {
  	if (!response.folders) {
+@@ -1142,6 +1246,13 @@ var ListAssistant = Class.create(App.Scene, {
+         this.dataSource.minimizeSubscription();
+         // TODO: minimize this.folderSubscription.
+     }
++    //TheInnKeeper
++    ,
++    updateDeleteNext: function(delDirection){
++    	Mojo.Log.info("Setting del Direction: " + delDirection);
++    	EmailAppDepot.getDepot().setDeleteDirection(delDirection);
++    }
++    //End TheInnKeeper
+ });
+ 
+ ListAssistant.syncDate = function(timestamp) {
 diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
-index 761069e..672c41c 100644
+index 761069e..ff246a5 100644
 --- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
 +++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
-@@ -61,23 +61,32 @@ var MessageAssistant = Class.create({
+@@ -61,23 +61,46 @@ var MessageAssistant = Class.create({
  		if (focusStage === true) {
  			this.focusStageTimer = this.focusEmailStage.bind(this).delay(0.6);
  		}
 +		this.requests = [];
++
++		//TheInnKeeper
++		EmailAppDepot.getDepot().getDeleteDirection( function(delDirection){
++			if (delDirection) {
++				Mojo.Log.info("Setting Delete Direction: " + delDirection);
++				MessageAssistant.deleteDirection = delDirection;
++			}else{
++				Mojo.Log.info("No value Found setting Older");
++				MessageAssistant.deleteDirection = "older";
++				EmailAppDepot.getDepot().setDeleteDirection("older");
++			}
++			
++		});
++		//End TheInnKeeper	
  	},
  
  	setup: function() {
@@ -367,7 +429,7 @@ index 761069e..672c41c 100644
  		this.markSetFlagMenuItem =    {label:MessageAssistant.kAppMenuSetFlag, shortcut:'g', command:'flag'};
  		this.showRecipientsMenuItem = {label:MessageAssistant.kAppMenuShowRecipients, shortcut:'s', command:'show-recipients'};
  		
-@@ -143,6 +152,7 @@ var MessageAssistant = Class.create({
+@@ -143,6 +166,7 @@ var MessageAssistant = Class.create({
  		Mojo.Event.listen(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
  
  		Mojo.Event.listen(this.controller.getSceneScroller(), Mojo.Event.scrollStarting, this.addAsScrollListener.bind(this));
@@ -375,7 +437,7 @@ index 761069e..672c41c 100644
  		
  		this.subjectElement = this.controller.get('email_subject');
  		this.readViewContainer = this.controller.get('email-readview-content-container');
-@@ -175,9 +185,27 @@ var MessageAssistant = Class.create({
+@@ -175,9 +199,27 @@ var MessageAssistant = Class.create({
  		Mojo.Event.stopListening(this.controller.stageController.document, Mojo.Event.activate, this.boundUpdateRecipientStatus);
  		//  This currently does nothing. Commenting out
  		//  Message.closeMessage(this.controller, this.data.id);
@@ -405,7 +467,7 @@ index 761069e..672c41c 100644
  		if (this.delayActivate === true) {
  			this.readyToActivateCallback = callback;
  		} else {
-@@ -376,6 +404,8 @@ var MessageAssistant = Class.create({
+@@ -376,6 +418,8 @@ var MessageAssistant = Class.create({
  		var assistant = Mojo.Controller.getAppController().assistant;
  		assistant.notificationAssistant.clear(resp.account, resp.folder, this.data.id);
  		assistant.clearDebounce('m'+this.data.id);
@@ -414,7 +476,7 @@ index 761069e..672c41c 100644
  	},
  
  	updateRecipientStatus: function() {
-@@ -1442,8 +1472,21 @@ var MessageAssistant = Class.create({
+@@ -1442,8 +1486,21 @@ var MessageAssistant = Class.create({
  	handleCommand: function(event) {
  		if (event.type == Mojo.Event.command) {
  			try {
@@ -438,7 +500,7 @@ index 761069e..672c41c 100644
  						this.copyAll(event);
  						break;
  						
-@@ -1473,14 +1516,10 @@ var MessageAssistant = Class.create({
+@@ -1473,14 +1530,10 @@ var MessageAssistant = Class.create({
  						var currentLabel = this.markUnreadMenuItem.label;
  						var markRead = (currentLabel == MessageAssistant.kAppMenuMarkRead);
  						Message.setRead(this.data.id, markRead);
@@ -456,7 +518,7 @@ index 761069e..672c41c 100644
  						break;
  
  					case 'flag':
-@@ -1854,6 +1893,14 @@ var MessageAssistant = Class.create({
+@@ -1854,6 +1907,14 @@ var MessageAssistant = Class.create({
  			}
  		}
  	},
@@ -471,29 +533,24 @@ index 761069e..672c41c 100644
  
  	gotoNextEmail: function(direction) {
  		if (this.nextMessages !== undefined && this.nextMessages[direction] !== undefined) {
-@@ -2142,10 +2189,18 @@ var MessageAssistant = Class.create({
- 		});
+@@ -2143,8 +2204,15 @@ var MessageAssistant = Class.create({
  	},
  
--	deleteEmail: function() {
+ 	deleteEmail: function() {
 -		Message.setDeleted(this.data.id, true);
 -		this.controller.stageController.popScene();
--	}
-+	
-+       deleteEmail: function() {                                  
-+                Message.setDeleted(this.data.id, true);       
-+                if(this.nextMessages["older"] !== undefined){       
-+                        this.gotoNextEmail("older");       
-+                }else if(this.nextMessages["newer"] !== undefined){
-+                	this.gotoNextEmail("newer");
-+                }else{
-+                        this.controller.stageController.popScene();
-+                }                 
-+                                              
-+        }  
++		//TheInnKeeper
++		Mojo.Log.info("Delete Direction: " + MessageAssistant.deleteDirection);
++		  Message.setDeleted(this.data.id, true);       
++          if(MessageAssistant !== "list" && this.nextMessages[MessageAssistant.deleteDirection] !== undefined){       
++                  this.gotoNextEmail(MessageAssistant.deleteDirection);       
++          }else{
++                  this.controller.stageController.popScene();
++          }                 
++      //End InnKeeper
+ 	}
  });
  
- MessageAssistant.kAppMenuMarkRead = $L('Mark as Read');
 diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
 index e6af5d5..7d3578e 100644
 --- a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
@@ -624,6 +681,28 @@ index 7a69e15..fb0f108 100644
  
  Email.kSubjectPrefixRe = $L("Re: ");
  Email.kSubjectPrefixFw = $L("Fw: ");
+diff --git a/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js b/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js
+index 6179cfd..c6f8713 100644
+--- a/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js
++++ b/usr/palm/applications/com.palm.app.email/app/models/EmailAppDepot.js
+@@ -30,6 +30,17 @@ var EmailAppDepot = Class.create({
+ 		Mojo.Log.info("setShowFavorites id="+accountId+", "+$H(obj).inspect())
+ 		this.depot.simpleAdd(accountId, obj);
+ 	},
++	//TheInnKeeper
++	getDeleteDirection: function(callback) {
++		Mojo.Log.info("in getDeleteDirectin");
++		this.depot.simpleGet('deleteDirection', callback);
++	},
++
++	setDeleteDirection: function(direction) {
++		Mojo.Log.info("delDirection direction="+direction)
++		this.depot.simpleAdd('deleteDirection', direction);
++	},
++	//End TheInnKeeper
+ 	
+ 	getDefaultSignature: function(callback) {
+ 		if (this.defaultSignature) {
 diff --git a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html b/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
 index 38c8b71..0941eb1 100644
 --- a/usr/palm/applications/com.palm.app.email/app/views/email-dashboard/multiple-accounts-template.html
