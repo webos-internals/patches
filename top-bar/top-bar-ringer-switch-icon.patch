@@ -1,0 +1,101 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/app-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/app-assistant.js
+index a4f244c..f9b1657 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/app-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/app-assistant.js
+@@ -129,6 +129,9 @@ AppAssistant.prototype.handleLaunch = function(params) {
+ 	else if(params.action === 'launchTutorialDashboard') {
+ 		Mojo.Controller.stageController.delegateToSceneAssistant('reScheduleTutorialActivity', params);
+ 	}
++	else if(params.action === 'updateRingerIcon') {
++		Mojo.Controller.stageController.delegateToSceneAssistant("checkRingerStatus");
++	}
+ }
+ 
+ AppAssistant.prototype.requestPermission = function(params) {
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 6d0a87a..51d111a 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -95,6 +95,9 @@ var BarAssistant = Foundations.Class.create({
+ 		//Initialize and Subscribe for Storage / Media Mode Notification.			
+ 		this.storageInit();
+ 		
++		//Subscribe for Ringer Switch Status
++		this.ringerStatus();
++
+ 		//Initialize and Subscribe for Power Off Notification.
+ 		this.powerOffInit();
+ 		
+@@ -3376,6 +3379,30 @@ showAudioAlert: function(volume,showringer,audioTarget) {
+ 		}	
+ },
+ 
++ringerStatus: function() {
++	this.controller.serviceRequest('palm://com.palm.keys/switches', {
++		method:'status',
++		parameters: {"subscribe":true},
++		onSuccess: function(payload) {
++			this.controller.serviceRequest('palm://com.palm.audio/media', {
++				method:'status',
++				onSuccess: function(response) {
++					this.displayMutedIcon(!response['ringer switch']);
++				}.bind(this)
++			});
++		}.bind(this)
++	});
++},
++
++displayMutedIcon: function(mute) {
++	if(mute) {
++		$('ringer').className = 'off';
++	}
++	else {
++		$('ringer').className = 'on';	
++	}
++},
++
+ dataImportInit: function() {
+ 	//Subscribe to Data Srevice status Notifications.
+ 	this.dataImportNotificationSession = new Mojo.Service.Request('palm://com.palm.dataimport/', {
+diff --git a/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html b/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
+index d728ec9..4c0952f 100644
+--- a/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
++++ b/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
+@@ -14,6 +14,7 @@
+ 
+ 	<div id="devicemenu">
+ 		<div id="power"></div>
++		<div id="ringer"></div>
+ 		<div id="rssi"></div>
+ 		<div id="ev1x">
+ 			<div id="rssi-ev"></div>
+diff --git a/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css b/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
+index f3cacab..ec1842e 100644
+--- a/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
++++ b/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
+@@ -129,6 +129,7 @@ body.palm-default {
+ #tty,
+ #hac,
+ #callforward,
++#ringer,
+ #gps,
+ #ev1x {
+ 	float: right;
+@@ -173,6 +174,17 @@ body.palm-default {
+ #power.battery-charging-11 { background-image: url(../images/battery-charging-11.png); }
+ #power.battery-charged { background-image: url(../images/battery-charged.png); }
+ 
++#ringer {
++	width: 20px;
++	margin-left: 2px;
++}
++#ringer.off {
++	background: url(../../../../../palm/applications/com.palm.app.soundsandalerts/images/prefs-mute.png) center left no-repeat;
++}
++#ringer.on {
++	display: none;
++}
++
+ #rssi {
+ 	width: 19px;
+ }
