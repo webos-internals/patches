@@ -58,7 +58,7 @@ index 9030f4d..6786054 100644
  		label: $L('Add to Launcher'),
  		command: 'add-launch-icon-cmd',
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-index 09c898f..2c1abae 100644
+index 09c898f..67459d3 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 @@ -92,7 +92,7 @@ PageAssistant.prototype.setup = function() {
@@ -76,11 +76,11 @@ index 09c898f..2c1abae 100644
  		this._updateOrientation();
 +
 +		// FullScreen Browser
-+        this.controller.enableFullScreenMode(true);		
++        this.controller.enableFullScreenMode(true);
  		
  		// Update any pending web preferences changes
  		AppAssistant.WebPreferences.activate(this._webView.mojo);
-@@ -786,16 +789,30 @@ PageAssistant.prototype._setupMenus = function() {
+@@ -786,16 +789,31 @@ PageAssistant.prototype._setupMenus = function() {
  		this.appMenuModel = {
  			visible: true,
  			items: [
@@ -101,6 +101,7 @@ index 09c898f..2c1abae 100644
 -						MenuData.ApplicationMenu.AddToLauncher,
 -						MenuData.ApplicationMenu.SharePage]
 +						MenuData.ApplicationMenu.ShortenURL,
++						MenuData.ApplicationMenu.NeatoThatUrl,
 +						MenuData.ApplicationMenu.TweetViaBadKitty,
 +						MenuData.ApplicationMenu.AddToRelego,
 +						MenuData.ApplicationMenu.AddToSpareTime,
@@ -117,25 +118,23 @@ index 09c898f..2c1abae 100644
  		};
  
  		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
-@@ -1892,7 +1909,7 @@ PageAssistant.prototype.moved = function() {
- 
+@@ -1893,6 +1911,7 @@ PageAssistant.prototype.moved = function() {
  			this._addressBar.hide();
  			this.chrome.hide();
--
+ 
 +			this.controller.enableFullScreenMode(true);
  			// Only focus this webview widget if this assistant has
  			// focus. All page-assisants can receive 'moved' events
  			// so we have to be careful when explicitly setting the
-@@ -1916,7 +1933,7 @@ PageAssistant.prototype.moved = function() {
- 		//Mojo.Log.info("-> TOP > 0 SO SHOWING");
+@@ -1917,6 +1936,7 @@ PageAssistant.prototype.moved = function() {
  		this._addressBar.show();
  		this.chrome.show();
--
+ 
 +		this.controller.enableFullScreenMode(false);
  	} else {
  		//Mojo.Log.info("-> TOP == 0 Do Nothing.");
  		// Do nothing.
-@@ -2103,6 +2120,10 @@ PageAssistant.prototype.handleCommand = function(event) {
+@@ -2103,6 +2123,10 @@ PageAssistant.prototype.handleCommand = function(event) {
  					this._openBookmarkView();
  					break;
  
@@ -146,43 +145,49 @@ index 09c898f..2c1abae 100644
  				case MenuData.ApplicationMenu.NewCard.command:
  					this._newBrowserPage();
  					break;
-@@ -2112,6 +2133,32 @@ PageAssistant.prototype.handleCommand = function(event) {
- 					this._createDefaultBookmarkImages(urlReference);
+@@ -2113,6 +2137,189 @@ PageAssistant.prototype.handleCommand = function(event) {
  					this.showBookmarkDialog(BookmarkDialogAssistant.createBookmarkTask, urlReference);
  					break;
-+					
-+				case MenuData.ApplicationMenu.ShortenURL.command:
-+					// Set up the url
-+						var url = "http://is.gd/api.php?longurl=" + this.currentUrl;
-+						var target = this;
-+	
-+					// Attempt to connect to api
-+						var request = new Ajax.Request(url, {
-+							method: 'get',
-+							evalJSON: 'false',
-+							onSuccess: function(response) {
-+								// Retrieve the short url and copy it
-+  								var short_url = response.responseText;
-+								target.controller.stageController.setClipboard(short_url, false);
-+		
-+								// Set up and show the banner message for success
-+								var message = "URL copied to clipboard.";
-+								var appController = Mojo.Controller.getAppController();
-+								var bannerParams = {soundClass: '', soundFile: '', icon: '', messageText: message};
-+								appController.showBanner(bannerParams, {banner: message});
+ 
++				
++				case MenuData.ApplicationMenu.NeatoThatUrl.command:
++					// Lets Neato! that URL
++					try{
++						this.neatoappid = "com.zhephree.neato";
++						this.controller.serviceRequest("palm://com.palm.applicationManager", {
++							method: 'open',
++							parameters: {
++								id: this.neatoappid,
++								params: {send: '{"a":"url","c":"'+this.currentUrl+'"}'}
 +							},
-+							onFailure: function(response) {
-+							// What happens when the api call fails
-+							}
-+						});
-+				break;
- 
- 				case MenuData.ApplicationMenu.AddToLauncher.command:
- 					// Bookmarks can deal with one that has no title, but not the launcher
-@@ -2120,6 +2167,123 @@ PageAssistant.prototype.handleCommand = function(event) {
- 					this.showBookmarkDialog(BookmarkDialogAssistant.createLaunchpointTask, urlReference);
- 					break;
- 
++							onFailure:function(){
++								//--> Promt to download if Neato! is not installed
++								this.controller.showAlertDialog({
++									onChoose: function(value){
++										if (value=="yes"){
++											//--> open app catalog at Neato! page
++											this.controller.serviceRequest('palm://com.palm.applicationManager', {
++												method:'open',
++												parameters:{
++													target: "http://developer.palm.com/appredirect/?packageid=" + this.neatoappid
++												}
++											});
++										}
++									},
++									preventCancel: false,
++									title: $L("Neato! Not Installed"),
++									message: $L("Neato! is not installed. Would you like to download it?"),
++									choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++									]
++								});
++							}.bind(this)
++						})
++					}catch(e){
++						Mojo.Log.error("Neato Patch Error: " + e);
++					}
++					break;
 +				
 +				case MenuData.ApplicationMenu.TweetViaBadKitty.command:
 +					// Send the URL to Bad Kitty
@@ -224,7 +229,7 @@ index 09c898f..2c1abae 100644
 +					break;
 +				
 +				case MenuData.ApplicationMenu.AddToRelego.command:
-+					// Send the URL to Relego
++					// Send the URL to Spare Time
 +					try{
 +						this.relegoappid = "com.webosroundup.relego";
 +						this.controller.serviceRequest("palm://com.palm.applicationManager", {
@@ -299,10 +304,37 @@ index 09c898f..2c1abae 100644
 +						Mojo.Log.error("Spare Time Patch Error: " + e);
 +					}
 +					break;
++	
++				case MenuData.ApplicationMenu.ShortenURL.command:
++					// Set up the url
++						var url = "http://is.gd/api.php?longurl=" + this.currentUrl;
++						var target = this;
++	
++					// Attempt to connect to api
++						var request = new Ajax.Request(url, {
++							method: 'get',
++							evalJSON: 'false',
++							onSuccess: function(response) {
++								// Retrieve the short url and copy it
++  								var short_url = response.responseText;
++								target.controller.stageController.setClipboard(short_url, false);
++		
++								// Set up and show the banner message for success
++								var message = "URL copied to clipboard.";
++								var appController = Mojo.Controller.getAppController();
++								var bannerParams = {soundClass: '', soundFile: '', icon: '', messageText: message};
++								appController.showBanner(bannerParams, {banner: message});
++							},
++							onFailure: function(response) {
++							// What happens when the api call fails
++							}
++						});
 +
- 				case MenuData.ApplicationMenu.SharePage.command:
- 					this._shareUrl(this.currentUrl, this._getDisplayTitle(), true /*capture*/);
- 					break;
++				break;
++
+ 				case MenuData.ApplicationMenu.AddToLauncher.command:
+ 					// Bookmarks can deal with one that has no title, but not the launcher
+ 					urlReference = new UrlReference(this.currentUrl, this._getDisplayTitle(), new Date());
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
 index 965e167..80590dd 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
