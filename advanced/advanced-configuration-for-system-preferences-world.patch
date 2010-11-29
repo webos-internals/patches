@@ -3230,7 +3230,7 @@
  		}
  	},
  	
-@@ -715,7 +725,29 @@
+@@ -715,7 +725,31 @@
  		contact.cnapName = cnapName;
  		
  		QDLogger.log( "TelephonyEventListener#onIncomingLookupComplete", "namefromcontacts?:" , !!(contact.name));
@@ -3251,10 +3251,12 @@
 +		
 +		if(ringtoneLoc == "direct2vm") {
 +			this.flagCallRejected(callId);
-+		} else if (ringtoneLoc == "hangup") {
++		} else if ((ringtoneLoc == "hangup") && (!this.isConnected())) {
 +			TelephonyCommands.answer(callId);
 +			TelephonyCommands.disconnect(callId);
 +			TelephonyCommands.disconnect(callId);
++		} else if ((ringtoneLoc == "hangup") && (this.isConnected())) {
++			this.flagCallRejected(callId);
 +		} else {
 +			this.announcer.announceIncoming(callId, number, contact, !!(contact.name), this.isConnected(), update);
 +		}
@@ -4394,7 +4396,7 @@
      },
  	
  	setButtonState: function(state) {
-@@ -426,6 +448,23 @@
+@@ -426,10 +448,46 @@
  
      discardSuccess: function(item, response) {
          Mojo.Log.info("discard success " + Object.toJSON(response));
@@ -4418,7 +4420,30 @@
      },
  
      discardFail: function(item, response) {
-@@ -444,6 +483,10 @@
+         Mojo.Log.warn("discard fail " + Object.toJSON(response));
++
++        if((this.joinProfile) && (this.joinProfile.cached)) {
++           for(var i = 0; i < this.knownNetworks.length; i++) {
++              if(this.knownNetworks[i].profileId == this.joinProfile.profileId) {
++                 this.knownNetworks.splice(i, 1);
++                 break;
++              }
++           }
++        
++        		if(this.setPreferencesRequest)
++					this.setPreferencesRequest.cancel();
++
++				this.setPreferencesRequest = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++					method: 'setPreferences', parameters: {'wifiKnownNetworks': this.knownNetworks},
++					onSuccess: function() {
++			        this.controller.stageController.popScenesTo('networklist');        
++					}.bind(this)});
++	     }
++			else
+         this.controller.stageController.popScenesTo('networklist');
+     },
+ 
+@@ -444,6 +502,10 @@
  		if ((this.firstToggleValue == true && this.toggleModel.value == true) || this.staticIpChanges == false) {
  		 	this.cancelDialog();
  		} else {
