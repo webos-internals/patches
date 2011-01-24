@@ -1,23 +1,29 @@
 diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
-index 335a73c..c27693f 100644
+index 335a73c..8f18e5d 100644
 --- a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
 +++ b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
-@@ -31,12 +31,12 @@ var DevicemenuAssistant = Class.create({
+@@ -31,12 +31,17 @@ var DevicemenuAssistant = Class.create({
  		
  		//Add a touchable row class
  		this.controller.get('palm-device-menu').addClassName('palm-touch-rows-'+Mojo.Environment.DeviceInfo.touchableRows);
 -			
 +
  		var date = new Date();
- 		this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '}) +  Mojo.Format.formatDate(date,{date:'long'});
+-		this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '}) +  Mojo.Format.formatDate(date,{date:'long'});
++		this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '}) +  Mojo.Format.formatDate(date,{date:'long'}) +
++			" " + Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel());
  		var msg = $L("Battery: #{batlevel}");
  		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel())});
 -						
++		this.controller.get('dm_battery').style.display = 'none';
++		this.controller.get('dm_battery').parentNode.style.display = 'none';
++		this.controller.get('dm_battery').parentNode.parentNode.style.display = 'none';
++//		this.controller.get('dm_battery').parentNode.parentNode.nextSibling.style.display = 'none';
 +
  		this.modesModel = {scrollbars: false, mode: "vertical"},
  		this.controller.setupWidget('devicescroller', {}, this.modesModel);
  		this.menuscroller = this.controller.get('devicescroller');
-@@ -47,6 +47,65 @@ var DevicemenuAssistant = Class.create({
+@@ -47,6 +52,67 @@ var DevicemenuAssistant = Class.create({
  		this.wifidrawer = this.controller.get('wifidetails');
  		this.btdrawer = this.controller.get('btdetails');
  		
@@ -35,12 +41,14 @@ index 335a73c..c27693f 100644
 +		var newDiv2 = this.controller.document.createElement("div");
 +		newDiv2.setAttribute("id", "gsmdetails");
 +		newDiv2.setAttribute("x-mojo-element", "Drawer");
-+		newDiv2.innerHTML = '<div id="gsm_umts_auto" class="palm-row last" x-mojo-tap-highlight="momentary"><div class="palm-row-wrapper">' +
++		newDiv2.innerHTML = '<div id="gsm_umts_auto" class="palm-row first" x-mojo-tap-highlight="momentary"><div class="palm-row-wrapper">' +
 +				'<div class="title truncating-text"><span>Auto</span></div></div></div>' +
-+				'<div id="gsm_umts_2g" class="palm-row last" x-mojo-tap-highlight="momentary"><div class="palm-row-wrapper">' +
++				'<div id="gsm_umts_2g" class="palm-row" x-mojo-tap-highlight="momentary"><div class="palm-row-wrapper">' +
 +				'<div class="title truncating-text"><span>2G</span></div></div></div>' +
-+				'<div id="gsm_umts_3g" class="palm-row last" x-mojo-tap-highlight="momentary"><div class="palm-row-wrapper">' +
-+				'<div class="title truncating-text"><span>3G</span></div></div></div>';
++				'<div id="gsm_umts_3g" class="palm-row" x-mojo-tap-highlight="momentary"><div class="palm-row-wrapper">' +
++				'<div class="title truncating-text"><span>3G</span></div></div></div>' +
++				'<div id="gsm_data" class="palm-row last" x-mojo-tap-highlight="momentary"><div class="palm-row-wrapper">' +
++				'<div class="title truncating-text"><span>Data</span></div></div></div>';
 +		injection.parentNode.insertBefore(newDiv2, injection);
 +
 +		var newDiv3 = this.controller.document.createElement("div");
@@ -83,7 +91,7 @@ index 335a73c..c27693f 100644
  		this.wifiListModel = {
  			items: this.wifiAPList
          };     
-@@ -76,6 +135,8 @@ var DevicemenuAssistant = Class.create({
+@@ -76,6 +142,8 @@ var DevicemenuAssistant = Class.create({
  			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn off Airplane Mode');
  		else
  			this.controller.get('dm_airplanemode_status').innerHTML = $L('Turn on Airplane Mode');
@@ -92,7 +100,7 @@ index 335a73c..c27693f 100644
  			
  		var btstate = this.barAssistant.getCurrentBluetoothState();
  		if(btstate === 'Off') {
-@@ -121,21 +182,40 @@ var DevicemenuAssistant = Class.create({
+@@ -121,21 +189,41 @@ var DevicemenuAssistant = Class.create({
  	},
  	
  	activate: function() {
@@ -113,6 +121,7 @@ index 335a73c..c27693f 100644
 +		this.controller.get('gsm_umts_auto').addEventListener(Mojo.Event.tap, this.toggleGSM_Auto.bindAsEventListener(this));
 +		this.controller.get('gsm_umts_2g').addEventListener(Mojo.Event.tap, this.toggleGSM_2G.bindAsEventListener(this));
 +		this.controller.get('gsm_umts_3g').addEventListener(Mojo.Event.tap, this.toggleGSM_3G.bindAsEventListener(this));
++		this.controller.get('gsm_data').addEventListener(Mojo.Event.tap, this.toggleGSM_Data.bindAsEventListener(this));
  		this.controller.get('scrim').addEventListener(Mojo.Event.tap, this.toggleDeviceMenu.bindAsEventListener(this));
  		//Close the App because this is a first launch.
 -		this.toggleDeviceMenu();						
@@ -138,7 +147,7 @@ index 335a73c..c27693f 100644
  		Mojo.Log.error("Device Menu - Clean up called");				
  	},	
  			
-@@ -185,6 +265,59 @@ var DevicemenuAssistant = Class.create({
+@@ -185,6 +273,82 @@ var DevicemenuAssistant = Class.create({
  		}
  		this.apModeInProgress = false;
  	},
@@ -155,6 +164,22 @@ index 335a73c..c27693f 100644
 +		this.toggleGSM(event, "umts");
 +	},
 +	
++	toggleGSM_Data: function(event) {
++		if(this.dataDisabled=="on") {
++			this.dataDisabled = "off";
++		} else {
++			this.dataDisabled = "on";
++		}
++		this.controller.serviceRequest('palm://com.palm.wan', {
++			method: 'set',
++			parameters: {
++				disablewan: this.dataDisabled
++			}
++		});
++		this.setRatLabel();
++		this.toggleDeviceMenu.bind(this).delay(0.2);
++	},
++
 +	// "automatic", "gsm", "umts"
 +	toggleGSM: function(event, rat) {
 +		this.currentRat = rat;
@@ -162,11 +187,14 @@ index 335a73c..c27693f 100644
 +			method: "ratSet",
 +			parameters: {
 +				"mode": this.currentRat
-+			},
-+			onSuccess: function(response) {},
-+			onFailure: function(response) {},
++			}
 +		});
-+		if(this.currentRat == "gsm") {
++		this.setRatLabel();
++		this.toggleDeviceMenu.bind(this).delay(0.2);
++	},
++
++	setRatLabel: function() {
++		if (this.currentRat == "gsm") {
 +			this.controller.get('ratStatus').innerText = "2G";
 +		} else if(this.currentRat == "umts") {
 +			this.controller.get('ratStatus').innerText = "3G";
@@ -175,9 +203,13 @@ index 335a73c..c27693f 100644
 +		} else {
 +			this.controller.get('ratStatus').innerText = "???";
 +		}
-+		this.toggleDeviceMenu.bind(this).delay(0.2);		
++		if (this.dataDisabled == "off") {
++			this.controller.get('ratStatus').innerText += " +";
++		} else {
++			this.controller.get('ratStatus').innerText += " -";
++		}
 +	},
-+
++	
 +	/*
 +	 * Toggles the Bluetooth List to show and Hide when tapping on the Bluetooth Row.
 +	 */	
@@ -198,7 +230,7 @@ index 335a73c..c27693f 100644
  	
  	updateAirplaneModeProgress: function() {
  		if(this.barAssistant.getAirplaneMode()) {
-@@ -1028,6 +1161,11 @@ var DevicemenuAssistant = Class.create({
+@@ -1028,6 +1192,11 @@ var DevicemenuAssistant = Class.create({
  			this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
  			this.wifidrawer.mojo.setOpenState(false);
  		}		
@@ -210,7 +242,7 @@ index 335a73c..c27693f 100644
  		//this.isVisible = false;
  		if(this.isVisible){
  			this.toggleDeviceMenu();
-@@ -1073,11 +1211,31 @@ var DevicemenuAssistant = Class.create({
+@@ -1073,11 +1242,55 @@ var DevicemenuAssistant = Class.create({
  			this.isVisible = true;
  			var date = new Date();		
  			this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'});
@@ -241,14 +273,48 @@ index 335a73c..c27693f 100644
 +					this.setGPSLabel();
 +				}.bind(this)
 +			});
++			this.controller.serviceRequest('palm://com.palm.telephony', {
++				method: 'ratQuery',
++				parameters: {},
++				onComplete: function(response) {
++					if(response && response.extended && response.extended.mode) {
++						this.currentRat = response.extended.mode;
++						this.setRatLabel();
++					} else {
++						this.currentRat = "???";
++					}
++				}.bind(this)
++			});
++			this.controller.serviceRequest('palm://com.palm.connectionmanager', {
++				method: 'getstatus',
++				parameters: {},
++				onSuccess: function(response) {
++					if(response.wan.state === "disconnected") {
++						this.dataDisabled = "on";
++					} else if(response.wan.state === "connected") {
++						this.dataDisabled = "off";
++					}
++					this.setRatLabel();
++				}.bind(this)
++			});
  			this.controller.stageController.activate();
  			
  			var animateDialog = function(){
-@@ -1112,5 +1270,23 @@ var DevicemenuAssistant = Class.create({
- 			"batlevel": Mojo.Format.formatPercent(batlevel)
- 		});		
+@@ -1106,11 +1319,32 @@ var DevicemenuAssistant = Class.create({
+ 		}		  
  	},
--	
+ 	
+-	updateBatteryLevel: function(batlevel) {		
++	updateBatteryLevel: function(batlevel) {
+ 		var msg = $L("Battery: #{batlevel}");
+ 		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({
+ 			"batlevel": Mojo.Format.formatPercent(batlevel)
+-		});		
++		});
++		var date = new Date();
++		this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'}) +
++			" <span style='float:right;'>" + Mojo.Format.formatPercent(batlevel) + "</span>";
++	},
 +
 +	toggleGPS: function(event) {
 +		this.gpsEnabled = !this.gpsEnabled;
@@ -267,5 +333,6 @@ index 335a73c..c27693f 100644
 +		} else {
 +			this.controller.get('gpsStatus').innerText = "off";
 +		}
-+	},
+ 	},
+-	
  });
