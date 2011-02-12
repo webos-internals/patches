@@ -1,0 +1,70 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 6d0a87a..6be11ad 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -2072,6 +2072,8 @@ handlePowerNotifications: function(payload) {
+ 			if (this.powerSource[source] == true)
+ 				this.isCharging = true;			
+ 		}.bind(this));
++		
++		this.setForAutoOff();
+ 						
+ 		if (this.isCharging) {
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+@@ -2112,6 +2114,56 @@ handlePowerNotifications: function(payload) {
+ 	}
+ },
+ 
++setForAutoOff: function() {
++	if(this.isCharging==true) {
++		this.getAutoOffTimeout(
++			function(response) {
++				if(response.timeout!=604800) {
++					this.setAutoOffCookie(response.timeout);
++					this.setAutoOffTimeout(604800);
++				}
++			}.bind(this)
++		);
++	} else {
++		var timeout = this.getAutoOffCookie();
++		if(timeout.seconds != 604800) {
++			this.setAutoOffTimeout(timeout.seconds);
++			this.setAutoOffCookie(604800);
++		}
++	}
++},
++
++getAutoOffCookie: function() {
++	var cookie = new Mojo.Model.Cookie("auto-off");
++	var val = cookie.get();
++	if(!val) {
++		val = {seconds:604800};
++		cookie.put(val);
++	}
++	return val;
++},
++
++setAutoOffCookie: function(value) {
++	var cookie = new Mojo.Model.Cookie("auto-off");
++	cookie.put({seconds:value});
++},
++
++getAutoOffTimeout: function(callback) {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'getProperty',
++		parameters:{properties:['timeout']},
++		onSuccess: callback
++	});
++},
++
++setAutoOffTimeout: function(value) {
++	this.controller.serviceRequest('palm://com.palm.display/control', {
++		method: 'setProperty',
++		parameters:{timeout:value}
++	});
++
++},
++
+ handleCriticalPowerNotifications: function(payload) {
+ 	if(payload.cause) {
+ 		Mojo.Log.error("SystemUI - Battery Level is critical. Shutting down the phone ");
