@@ -1,0 +1,51 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+index 335a73c..7273163 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -112,6 +112,12 @@ var DevicemenuAssistant = Class.create({
+ 			this.controller.hideWidgetContainer(this.controller.get('dm_wifi'));
+ 		}
+ 		
++		//setup temperature label
++		var phone = this.controller.get("dm_phone");
++		phone.id = "batteryRow";
++		phone.innerHTML = '<span id="dm_phone">' + phone.innerHTML + '</span>' +
++				'<div class="label right" id="tempmsg" style="font-size:0.9em;">&nbsp;</div>';
++		
+ 		//set up the the menu div
+ 		this.scrim = this.controller.sceneElement.querySelector('div[x-mojo-scrim]');
+ 		this.systemmenu = this.controller.sceneElement.querySelector('div[x-mojo-dialog]');
+@@ -1078,6 +1084,33 @@ var DevicemenuAssistant = Class.create({
+ 				this.btspinnerModel.spinning = true;
+ 				this.controller.modelChanged(this.btspinnerModel);
+ 			}
++			this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++				method: 'cpuTemperature',
++				onSuccess: function(payload) {
++					if(payload.value) {
++						var temp = Math.round((payload.value*(9/5)) + 32);
++						this.controller.get("tempmsg").innerHTML = temp + "&deg;F";
++					}
++				}.bind(this),
++				onFailure: function(err) {
++					this.controller.serviceRequest('palm://com.palm.bus/signal/', {
++						method: 'addmatch',
++						parameters: {
++							"category":"/com/palm/power",
++							"method":"batteryStatus"
++						},
++						onSuccess: function(payload2) {
++							if(payload2.temperature_C) {
++								var temp = Math.round((payload2.temperature_C*(9/5)) + 32);
++								this.controller.get("tempmsg").innerHTML = temp + "&deg;F";
++							}
++						}.bind(this)
++					});
++					this.controller.serviceRequest('palm://com.palm.power/com/palm/power/', {
++						method: 'batteryStatusQuery'
++					});
++				}.bind(this)
++			});
+ 			this.controller.stageController.activate();
+ 			
+ 			var animateDialog = function(){
