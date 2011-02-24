@@ -1,0 +1,80 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+index 832333b..0635a31 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+@@ -24,6 +24,19 @@ var ActivecallAssistant = Class.create({
+ 	},
+ 	
+ 	initialize: function(params){
++
++//BEGIN Slider Patch block 1 of 3
++	  	var request = new Mojo.Service.Request('palm://com.palm.keys/switches', {
++                method: 'status',
++                parameters: {"get" : "slider"},
++				onFailure: function() {
++						Mojo.Log.info("Slider: Failed to get slider status");
++					},
++				onSuccess: this.getSliderPos.bind(this)
++        		});
++		this.sliderSubscriptionx = TelephonyCommands.sliderSubscribe(this.onSliderEventDuringCall.bind(this));
++//END Slider Patch block 1 of 3
++	
+ 	    this.appAssistant = Mojo.Controller.getAppController().assistant;
+ 		this.eventListener = this.appAssistant.telephonyEventListener;
+ 		this.announcer = this.appAssistant.announcer;
+@@ -66,6 +79,43 @@ var ActivecallAssistant = Class.create({
+ 		this.abridged = this.lockScreenMode || this.emergencyMode || this.appAssistant.firstuse;
+     },
+     
++//BEGIN Slider Patch block 2 of 3
++    getSliderPos:  function(response) {
++		Mojo.Log.info("****getting slider position****");
++		if (response.key === "slider") {
++			this.sliderPos = response.state;
++			Mojo.Log.info("Slider Position:", response.state);
++		}
++    },
++	onSliderEventDuringCall: function(response) {
++		if (response && response.key && response.state) {
++			Mojo.Log.info( "ActivecallAssistant#onSliderEvent", response.key  , response.state);
++		} else {
++			return;
++		}
++		if (response.key == "slider") {
++			Mojo.Log.info( "log: ", this.sliderPos, response.state);
++			if (this.sliderPos=='up'&&response.state == "down") {
++				Mojo.Log.info( "**********UP DOWN************");
++				//First, "tap" each Disconnect Button.
++				for (i = 0; i < 3; i++) {
++					if (this.controller.get("disc_button_" + i)) {
++						Mojo.Log.info( "**** disconnecting line:" + i + "****");
++						Mojo.Event.send(this.controller.get("disc_button_" + i), Mojo.Event.tap);
++					}
++				}
++				Mojo.Log.info( "******** end loop **********");
++				//In case the Disconnect Buttons don't work, or there are calls not disconnected, just call the function to disconnect all calls.
++				//The reason we don't just do this one function is that the screen redraw is not pretty.
++				Mojo.Log.info( "********disconnecting all calls********");
++				this.eventListener.disconnectAllCalls();
++				Mojo.Log.info( "********finished routine********");
++			}
++			this.sliderPos = response.state;
++		} 
++	},
++//END Slider Patch block 2 of 3     
++	                                   
+     setup: function(){
+ 		this.stageController = this.controller.stageController;
+ 		
+@@ -1302,6 +1352,11 @@ break;
+         this.controller.document.removeEventListener('keydown', this.boundStartDTMFHardKey);
+         this.controller.document.removeEventListener('keyup', this.boundEndDTMFHardKey);
+ 		
++
++//BEGIN Slider Patch block 3 of 3
++		this.sliderSubscriptionx.cancel();	//remove slider listener
++//END Slider Patch block 3 of 3
++
+ 		// drop puck subscription
+ 		this.puckSubscription.cancel();
+ 		delete this.puckSubscription;
