@@ -1,0 +1,176 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
+index 1d17c74..d2cff6f 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
+@@ -105,7 +105,8 @@ var AppAssistant = Class.create({
+ 	},
+ 	
+ 	launchChatWithId: function(stageController, chatThreadId) {
+-		if (stageController) {			
++		if (!this.appController.Messaging.messagingPrefs.getNewWindowEnabled()) { //old method
++		if (stageController) {		
+ 			// Don't pop/push if the chat we want is already open
+ 			if (this.isChatOpenAndWillFocusOnly(stageController, chatThreadId)) {
+ 				return;
+@@ -126,6 +127,24 @@ var AppAssistant = Class.create({
+ 			};
+ 			this.createWindow(afterCreate, 'images/splash-messaging-chatview.png');
+ 		}		
++		}
++		else { //new method
++			var stageController = Mojo.Controller.appController.getStageController("messaging"+chatThreadId);
++			if (stageController) {
++				stageController.activate();
++			}
++		  else {
++				var params = {name: 'messaging' + chatThreadId,
++				lightweight: Mojo.Controller.appInfo.lwStages
++				};
++	
++				var callback = function(controller) {
++					controller.pushScene('chatview',chatThreadId,{});		
++				};
++				
++				Mojo.Controller.getAppController().createStageWithCallback(params, callback);
++			}
++		}
+ 	},
+ 	
+ 	launchChatWithAddress: function(stageController, address, serviceName) {
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 29204c4..428c508 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -739,8 +739,10 @@ var ChatviewAssistant = Class.create({
+ 					break;
+ 			}
+ 		} else if (event.type === Mojo.Event.back) {
++			if (!this.Messaging.messagingPrefs.getNewWindowEnabled()) { //old method, new method do nothing.
+ 			event.stop();
+ 			this.popAndRevealListView();
++			}
+ 			return;
+ 		}
+ 	},
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+index 01cbfcb..d42e779 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+@@ -1708,11 +1708,31 @@ Mojo.Log.error("---- should not comments this out");
+ 	},
+ 
+ 	launchChatView: function(chatThreadId, params) {
++		if (!this.Messaging.messagingPrefs.getNewWindowEnabled()) { //old method
+ 		if (params === undefined) {
+ 			params = {};
+ 		}
+ 		params.clearListBadgeFn = this.clearListBadgeForChatThreadId.bind(this, chatThreadId);
+ 		this.controller.stageController.pushScene('chatview', chatThreadId, params);
++		}
++		else { //new method
++			//Need to jump to that stage if it exists
++			var stageController = Mojo.Controller.appController.getStageController("messaging"+chatThreadId);
++			if (stageController) {
++				stageController.activate();
++			}
++			else {
++				var params = {name: 'messaging' + chatThreadId,
++				lightweight: Mojo.Controller.appInfo.lwStages
++				};
++	
++				var callback = function(controller) {
++					controller.pushScene('chatview',chatThreadId,{});		
++				};
++				
++				Mojo.Controller.getAppController().createStageWithCallback(params, callback);
++			}
++		}
+ 	},
+ 	
+ 	clearListBadgeForChatThreadId: function(chatThreadId) {
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+index 5526d04..bc173ed 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+@@ -15,6 +15,7 @@ var PrefsAccountSummaryAssistant = Class.create({
+ 		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
+ 		this.autoDownloadToggleChanged = this.autoDownloadToggleChanged.bindAsEventListener(this);
+ 		this.deliveryReceiptsToggleChanged = this.deliveryReceiptsToggleChanged.bindAsEventListener(this);
++		this.newWindowToggleChanged = this.newWindowToggleChanged.bindAsEventListener(this);
+     },
+  
+     setup: function(){
+@@ -45,6 +46,7 @@ var PrefsAccountSummaryAssistant = Class.create({
+       this.controller.stopListening('notificationToggle',Mojo.Event.propertyChange,this.notificationToggleChanged);
+       this.controller.stopListening('notificationSoundSelector',Mojo.Event.propertyChange,this.notificationSoundToggleChanged);		
+       this.controller.stopListening('autoDownloadToggle',Mojo.Event.propertyChange,this.autoDownloadToggleChanged);
++      this.controller.stopListening('newWindowToggle',Mojo.Event.propertyChange,this.newWindowToggleChanged);
+ 	},
+ 
+ 	handleAccountsListTap: function(account, template){
+@@ -108,6 +110,7 @@ var PrefsAccountSummaryAssistant = Class.create({
+       this.prefsAutoSignIn();
+       //this.prefsSmsMmsSetup();
+       this.prefsNotification();
++      this.prefsNewWindow();
+     },
+     
+     prefsAutoSignIn: function() {
+@@ -305,6 +308,19 @@ var PrefsAccountSummaryAssistant = Class.create({
+ 	  }
+       this.controller.listen('autoDownloadToggle',Mojo.Event.propertyChange,this.autoDownloadToggleChanged);
+     },
++    
++  prefsNewWindow: function() {
++  	this.messagingPrefs = this.Messaging.messagingPrefs;
++  	var newWindowAttributes = {
++        modelProperty: "value"
++      };
++      this.newWindowModel = {
++        value: this.messagingPrefs.getNewWindowEnabled()
++      };
++      this.controller.setupWidget('newWindowToggle', newWindowAttributes, this.newWindowModel);   
++			
++			this.controller.listen('newWindowToggle',Mojo.Event.propertyChange,this.newWindowToggleChanged);
++  },
+ 	
+ 	notificationToggleChanged: function(event){
+ 		// if disabling notifications, hide the sound toggle       
+@@ -366,6 +382,10 @@ var PrefsAccountSummaryAssistant = Class.create({
+ 		this.messagingPrefs.setRingtone({name: file.name, path: file.fullPath});
+ 
+ 		this.controller.get('currentringtone').update(file.name);
++	},
++	
++	newWindowToggleChanged: function(event){
++		this.messagingPrefs.setNewWindowEnabled(event.value);
+ 	}
+ 	
+ //    editAccount: function(targetRow){
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+index 4fcd074..270998c 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ b/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -52,6 +52,21 @@
+ 	
+ 		</div>
+ 	</div>
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>
++			Open Chat in New Window
++		</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">                    
++					<div id="newWindowToggle" x-mojo-element="ToggleButton"></div>
++					<div class="title capitalize" x-mojo-loc=''>
++						Enabled
++					</div>                                                               
++				</div> 
++			</div>                
++		</div>
++	</div>
+ 	<div id="accounts_list" x-mojo-element="AccountsList"></div>
+ 	<div id="addAccountButton" class="palm-button" x-mojo-loc=''>Add IM Account</div>
+ </div>
+\ No newline at end of file
