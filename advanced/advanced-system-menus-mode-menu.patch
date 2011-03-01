@@ -1,0 +1,261 @@
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -3,6 +3,11 @@
+ var BarAssistant = Foundations.Class.create({
+ 	
+ 	setup: function() {
++		this.modeSwitcherStatus = {
++			activated: false,
++			modeLocked: false,
++			activeModes: [],
++			customModes: []};
+ 						
+ 		this.showMSMWarning = false;
+ 		this.isUSBConnected = false;
+@@ -617,6 +622,9 @@
+ 	
+ 	this.getRoamingPreference();
+ 		
++	//Subscribe to Mode Switcher configuration
++	this.initModeSwitcher();
++	
+ 	//Get the Airplane Mode initial values
+ 	this.isAirplaneModeEnabled();
+ 						
+@@ -725,7 +733,7 @@
+ 				this.carrierText = $L(payload.extended.networkName.escapeHTML());
+ 				this.currentCarrierText = payload.extended.networkName.escapeHTML();
+ 			}
+-			Mojo.Dom.get('carrier').innerHTML = this.carrierText;	   	
++			this.updateModeSwitcherStatus();
+ 			if(payload.extended.registration == 'home') {			
+ 				Mojo.Dom.get('roaming').hide();
+ 			}								
+@@ -1165,7 +1173,7 @@
+ 					this.carrierText = $L(networkMsg.networkName.escapeHTML());
+ 					this.currentCarrierText = networkMsg.networkName.escapeHTML();
+ 				}
+-				Mojo.Dom.get('carrier').innerHTML = this.carrierText;
++				this.updateModeSwitcherStatus();
+ 				this.simlocked = false;
+ 				
+ 				if(networkMsg.registration == 'home') {					
+@@ -4709,6 +4717,70 @@
+ 	Mojo.Controller.getAppController().showBanner(bannerParams, {}, 'apprestoredbanner');
+ },
+ 
++// Mode Switcher Support
++
++initModeSwitcher: function() {
++	this.defaultCarrierColor = Mojo.Dom.get('carrier').style.color;
++	
++	this.modesConfigRequest = new Mojo.Service.Request("palm://org.webosinternals.modeswitcher", {
++		method: 'status', parameters: {"subscribe": true},
++		onSuccess: this.handleModeSwitcherUpdate.bind(this) });	
++},
++
++handleModeSwitcherUpdate: function(payload) {
++	if(payload.activated != undefined)
++		this.modeSwitcherStatus.activated = payload.activated;
++
++	if(payload.modeLocked != undefined)
++		this.modeSwitcherStatus.modeLocked = payload.modeLocked;
++		
++	if(payload.activeModes != undefined)
++		this.modeSwitcherStatus.activeModes = payload.activeModes;
++
++	if(payload.customModes != undefined)
++		this.modeSwitcherStatus.customModes = payload.customModes;
++
++	this.updateModeSwitcherStatus();
++
++	var stageController = Mojo.Controller.getAppController().getStageController("StatusMenu");	
++
++	if(stageController) {
++		stageController.delegateToSceneAssistant("updateMenuItems");
++	}
++},
++
++//Updated the status text if needed.
++updateModeSwitcherStatus: function() {
++	this.gpsGetRadioStatus();
++	
++	if(this.modeSwitcherStatus.activeModes.length == 0) {
++		$('carrier').innerHTML = this.carrierText;
++		$('carrier').style.color = this.defaultCarrierColor;
++
++		return;
++	}	
++	
++	if(this.modeSwitcherStatus.modeLocked)
++		$('carrier').style.color = "yellow";
++	else
++		$('carrier').style.color = this.defaultCarrierColor;
++
++	if(this.modeSwitcherStatus.activeModes[0].name == "Default Mode")
++		var statusText = this.carrierText;
++	else
++		var statusText = this.modeSwitcherStatus.activeModes[0].name;
++
++	if(this.modeSwitcherStatus.activeModes.length > 1)
++		statusText = statusText + " +";
++
++	$('carrier').innerHTML = statusText;
++},
++
++//Returns the MS config. Called by the Mode Menu.
++getModeSwitcherStatus: function() {	
++	return this.modeSwitcherStatus;
++},
++
+ //  Main Variables
+ 	timeAMPM: true,
+ 	serviceInitMethod:[],
+--- .orig/usr/lib/luna/system/luna-systemui/sources.json
++++ /usr/lib/luna/system/luna-systemui/sources.json
+@@ -6,6 +6,9 @@
+     "source": "app\/controllers\/bar-assistant.js"
+   },  
+   {
++    "source": "app\/controllers\/statusmenu-assistant.js"
++  },  
++  {
+     "source": "app\/controllers\/devicemenu-assistant.js"
+   },  
+   {
+--- .orig/usr/lib/luna/system/luna-systemui/resources/de/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/de/strings.json
+@@ -1,4 +1,29 @@
+ {
++	"Menu Content Settings": "",
++	"Toggle Airplane Mode": "",
++	"Status: Default Settings": "",
++	"Status: Normal Settings": "",
++	"Status: Modified Settings": "",
++	"Configure Mode Switcher": "",
++	"Mode Switcher Disabled": "",
++	"Enable Mode Switcher": "",
++	"Disable Mode Switcher": "",
++	"Enabling Mode Switcher": "",
++	"Disabling Mode Switcher": "",
++	"Enable Mode Triggers": "",
++	"Disable Mode Triggers": "",
++	"Enabling Mode Triggers": "",
++	"Disabling Mode Triggers": "",
++	"Start": "",
++	"Close": "",
++	"Switch to": "",
++	"Starting": "",
++	"Closing": "",
++	"Switching to": "",
++	"Now": "",
++	"This Mode is Starting": "",
++	"This Mode is Closing": "",
++	"Switching to This Mode": "",
+ 	" access to your contacts?": " Zugriff auf Ihre Kontakte gewähren?",
+ 	" hr": " Std.",
+ 	" min": " Min.",
+--- .orig/usr/lib/luna/system/luna-systemui/resources/en/gb/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/en/gb/strings.json
+@@ -1,4 +1,5 @@
+ {
++	"Toggle Airplane Mode": "Toggle Aeroplane Mode",
+ 	"1#The update will start automatically in 1 minute, and when your battery is sufficiently charged.|#The update will start automatically in #{counter} minutes, and when your battery is sufficiently charged.": "1#The update will start automatically in 1 minute, and when your battery has charged sufficiently.|#The update will start automatically in #{counter} minutes, and when your battery has charged sufficiently.",
+ 	"1#The update will start automatically in 1 second, and when your battery is sufficiently charged.|#The update will start automatically in #{counter} seconds, and when your battery is sufficiently charged.": "1#The update will start automatically in 1 second, and when your battery has charged sufficiently.|#The update will start automatically in #{counter} seconds, and when your battery has charged sufficiently.",
+ 	"Airplane Mode": "Aeroplane Mode",
+--- .orig/usr/lib/luna/system/luna-systemui/resources/es/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/es/strings.json
+@@ -1,4 +1,29 @@
+ {
++	"Menu Content Settings": "",
++	"Toggle Airplane Mode": "",
++	"Status: Default Settings": "",
++	"Status: Normal Settings": "",
++	"Status: Modified Settings": "",
++	"Configure Mode Switcher": "",
++	"Mode Switcher Disabled": "",
++	"Enable Mode Switcher": "",
++	"Disable Mode Switcher": "",
++	"Enabling Mode Switcher": "",
++	"Disabling Mode Switcher": "",
++	"Enable Mode Triggers": "",
++	"Disable Mode Triggers": "",
++	"Enabling Mode Triggers": "",
++	"Disabling Mode Triggers": "",
++	"Start": "",
++	"Close": "",
++	"Switch to": "",
++	"Starting": "",
++	"Closing": "",
++	"Switching to": "",
++	"Now": "",
++	"This Mode is Starting": "",
++	"This Mode is Closing": "",
++	"Switching to This Mode": "",
+ 	" access to your contacts?": " tenga acceso a tus contactos?",
+ 	" hr": " h",
+ 	" min": " m",
+--- .orig/usr/lib/luna/system/luna-systemui/resources/fr/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/fr/strings.json
+@@ -1,4 +1,29 @@
+ {
++	"Menu Content Settings": "",
++	"Toggle Airplane Mode": "",
++	"Status: Default Settings": "",
++	"Status: Normal Settings": "",
++	"Status: Modified Settings": "",
++	"Configure Mode Switcher": "",
++	"Mode Switcher Disabled": "",
++	"Enable Mode Switcher": "",
++	"Disable Mode Switcher": "",
++	"Enabling Mode Switcher": "",
++	"Disabling Mode Switcher": "",
++	"Enable Mode Triggers": "",
++	"Disable Mode Triggers": "",
++	"Enabling Mode Triggers": "",
++	"Disabling Mode Triggers": "",
++	"Start": "",
++	"Close": "",
++	"Switch to": "",
++	"Starting": "",
++	"Closing": "",
++	"Switching to": "",
++	"Now": "",
++	"This Mode is Starting": "",
++	"This Mode is Closing": "",
++	"Switching to This Mode": "",
+ 	" access to your contacts?": " accéder à vos contacts ?",
+ 	" hr": " h",
+ 	" sec": " s",
+--- .orig/usr/lib/luna/system/luna-systemui/resources/it/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/it/strings.json
+@@ -1,4 +1,29 @@
+ {
++	"Menu Content Settings": "",
++	"Toggle Airplane Mode": "",
++	"Status: Default Settings": "",
++	"Status: Normal Settings": "",
++	"Status: Modified Settings": "",
++	"Configure Mode Switcher": "",
++	"Mode Switcher Disabled": "",
++	"Enable Mode Switcher": "",
++	"Disable Mode Switcher": "",
++	"Enabling Mode Switcher": "",
++	"Disabling Mode Switcher": "",
++	"Enable Mode Triggers": "",
++	"Disable Mode Triggers": "",
++	"Enabling Mode Triggers": "",
++	"Disabling Mode Triggers": "",
++	"Start": "",
++	"Close": "",
++	"Switch to": "",
++	"Starting": "",
++	"Closing": "",
++	"Switching to": "",
++	"Now": "",
++	"This Mode is Starting": "",
++	"This Mode is Closing": "",
++	"Switching to This Mode": "",
+ 	" access to your contacts?": " l’accesso ai propri contatti?",
+ 	" hr": " h",
+ 	" min": " min.",
