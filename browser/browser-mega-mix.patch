@@ -1,0 +1,402 @@
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
+index 6bf5870..5edd0ca 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
+@@ -12,13 +12,53 @@ MenuData.ApplicationMenu = {
+ 		label: $L('New Card'),
+ 		command: 'new-page-cmd'
+ 	},
++
++	EnableGesture: {
++		label: $L('Enable Gesture'),
++		command: 'enable-gesture-cmd',
++		checkEnabled: true
++	},
++	DisableGesture: {
++		label: $L('Disable Gesture'),
++		command: 'disable-gesture-cmd',
++		checkEnabled: true
++	},	
+ 	
+ 	SharePage: {
+ 		label: $L('Share'),
+ 		command: 'share-page-cmd',
+ 		checkEnabled: true
+ 	},
+-	
++
++	NeatoThatUrl: {
++		label: $L('Neato! it'),
++		command: 'add-neato-cmd',
++		checkEnabled: true
++	},
++
++	TweetViaBadKitty: {
++		label: $L('Tweet Link'),
++		command: 'add-badkitty-cmd',
++		checkEnabled: true
++	},
++		ShortenURL: {
++		label: $L('Shorten URL'),
++		command: 'shorten-url-cmd',
++		checkEnabled: true
++	},
++
++	AddToRelego: {
++		label: $L('Add To Relego'),
++		command: 'add-relego-cmd',
++		checkEnabled: true
++	},
++
++	AddToSpareTime: {
++		label: $L('Add To Spare Time'),
++		command: 'add-sparetime-cmd',
++		checkEnabled: true
++	},
++				
+ 	AddToLauncher: {
+ 		label: $L('Add to Launcher'),
+ 		command: 'add-launch-icon-cmd',
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+index 388cffc..da7b263 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+@@ -93,7 +93,7 @@ PageAssistant.prototype.setup = function() {
+ 		this._updateOrientation();
+ 
+ 		// Allow override of 'back' gesture in landscape mode.
+-		this.controller.useLandscapePageUpDown(true);
++		this.controller.useLandscapePageUpDown(false);
+ 
+ 		// Create the browser server status control.
+ 		this._browserServerStatus = new BrowserServerStatus(this.controller);
+@@ -303,6 +303,9 @@ PageAssistant.prototype.activate = function(message) {
+ 	try {
+ 		
+ 		this._updateOrientation();
++
++		// FullScreen Browser
++        this.controller.enableFullScreenMode(true);
+ 		
+ 		// Update any pending web preferences changes
+ 		AppAssistant.WebPreferences.activate(this._webView.mojo);
+@@ -791,16 +794,31 @@ PageAssistant.prototype._setupMenus = function() {
+ 		this.appMenuModel = {
+ 			visible: true,
+ 			items: [
+-				MenuData.ApplicationMenu.NewCard,
+-				MenuData.ApplicationMenu.AddBookmark,
++				{
++					label: $L("On/Off Gesture"),
++					items: [
++					    {label:$L('Enable Gesture'),     shortcut:'e', command:'enable-gesture-cmd'},
++                        {label:$L('Disable Gesture'),     shortcut:'d', command:'disable-gesture-cmd'},
++						   ]
++				},	
++				{label:$L('New Card'),     shortcut:'n', command:'new-page-cmd'},
++				{label:$L('Add Bookmark'),     shortcut:'m', command:'add-bookmark-cmd'},
+ 				{
+ 					label: $L("Page"),
+ 					items: [
+-						MenuData.ApplicationMenu.AddToLauncher,
+-						MenuData.ApplicationMenu.SharePage]
++						MenuData.ApplicationMenu.ShortenURL,
++						MenuData.ApplicationMenu.NeatoThatUrl,
++						MenuData.ApplicationMenu.TweetViaBadKitty,
++						MenuData.ApplicationMenu.AddToRelego,
++						MenuData.ApplicationMenu.AddToSpareTime,
++						{label:$L('Add To Launcher'),     shortcut:'l', command:'add-launch-icon-cmd'},
++						{label:$L('Share Page'),     shortcut:'s', command:'share-page-cmd'},
++                       {label:$L('Refresh Page'),     shortcut:'r', command:'refresh'},
++                           ]
+ 				},
+-				MenuData.ApplicationMenu.ShowBookmarks,
+-				MenuData.ApplicationMenu.ShowHistory]
++				{label:$L('Bookmarks'),     shortcut:'b', command:'show-bookmarks-cmd'},
++				{label:$L('History'),     shortcut:'h', command:'show-history-cmd'},
++                           ]
+ 		};
+ 
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
+@@ -1946,6 +1964,7 @@ PageAssistant.prototype.moved = function(scrollState) {
+ 			this._addressBar.hide();
+ 			this.chrome.hide();
+ 
++			this.controller.enableFullScreenMode(true);
+ 			// Only focus this webview widget if this assistant has
+ 			// focus. All page-assisants can receive 'moved' events
+ 			// so we have to be careful when explicitly setting the
+@@ -1970,6 +1989,7 @@ PageAssistant.prototype.moved = function(scrollState) {
+ 		this._addressBar.show();
+ 		this.chrome.show();
+ 
++		this.controller.enableFullScreenMode(false);
+ 	} else {
+ 		//Mojo.Log.info("-> TOP == 0 Do Nothing.");
+ 		// Do nothing.
+@@ -2156,6 +2176,10 @@ PageAssistant.prototype.handleCommand = function(event) {
+ 					this._openBookmarkView();
+ 					break;
+ 
++				case MenuData.ApplicationMenu.DisableGesture.command:
++					this.controller.useLandscapePageUpDown(false);
++					break;
++
+ 				case MenuData.ApplicationMenu.NewCard.command:
+ 					this._newBrowserPage();
+ 					break;
+@@ -2166,6 +2190,189 @@ PageAssistant.prototype.handleCommand = function(event) {
+ 					this.showBookmarkDialog(BookmarkDialogAssistant.createBookmarkTask, urlReference);
+ 					break;
+ 
++				
++				case MenuData.ApplicationMenu.NeatoThatUrl.command:
++					// Lets Neato! that URL
++					try{
++						this.neatoappid = "com.zhephree.neato";
++						this.controller.serviceRequest("palm://com.palm.applicationManager", {
++							method: 'open',
++							parameters: {
++								id: this.neatoappid,
++								params: {send: '{"a":"url","c":"'+this.currentUrl+'"}'}
++							},
++							onFailure:function(){
++								//--> Promt to download if Neato! is not installed
++								this.controller.showAlertDialog({
++									onChoose: function(value){
++										if (value=="yes"){
++											//--> open app catalog at Neato! page
++											this.controller.serviceRequest('palm://com.palm.applicationManager', {
++												method:'open',
++												parameters:{
++													target: "http://developer.palm.com/appredirect/?packageid=" + this.neatoappid
++												}
++											});
++										}
++									},
++									preventCancel: false,
++									title: $L("Neato! Not Installed"),
++									message: $L("Neato! is not installed. Would you like to download it?"),
++									choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++									]
++								});
++							}.bind(this)
++						})
++					}catch(e){
++						Mojo.Log.error("Neato Patch Error: " + e);
++					}
++					break;
++				
++				case MenuData.ApplicationMenu.TweetViaBadKitty.command:
++					// Send the URL to Bad Kitty
++					try{
++						this.badkittyappid = "com.superinhuman.badkitty";
++						this.controller.serviceRequest("palm://com.palm.applicationManager", {
++							method: 'open',
++							parameters: {
++								id: this.badkittyappid,
++								params: {action: 'tweet', tweet: this.currentTitle + ' ' + this.currentUrl}
++							},
++							onFailure:function(){
++								//--> How do they not have it installed?
++								this.controller.showAlertDialog({
++									onChoose: function(value){
++										if (value=="yes"){
++											//--> And weee'rrre.. of to see the wizard
++											this.controller.serviceRequest('palm://com.palm.applicationManager', { 
++												method:'open',
++												parameters:{
++													target: "http://developer.palm.com/appredirect/?packageid=" + this.badkittyappid
++												}
++											});
++										}
++									},
++									preventCancel: false,
++									title: $L("Bad Kitty Not Installed"),
++									message: $L("Bad Kitty is not installed. Would you like to download it?"),
++									choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++									]
++								});
++							}.bind(this)
++						})
++					}catch(e){
++						Mojo.Log.error("Bad Kitty Patch Error: " + e);
++					}
++					break;
++				
++				case MenuData.ApplicationMenu.AddToRelego.command:
++					// Send the URL to Spare Time
++					try{
++						this.relegoappid = "com.webosroundup.relego";
++						this.controller.serviceRequest("palm://com.palm.applicationManager", {
++							method: 'open',
++							parameters: {
++								id: this.relegoappid,
++								params: {action: 'addtorelego', url: this.currentUrl, title: this.currentTitle}
++							},
++							onFailure:function(){
++								//--> How do they not have it installed?
++								this.controller.showAlertDialog({
++									onChoose: function(value){
++										if (value=="yes"){
++											//--> And weee'rrre.. of to see the wizard
++											this.controller.serviceRequest('palm://com.palm.applicationManager', {
++												method:'open',
++												parameters:{
++													target: "http://developer.palm.com/appredirect/?packageid=" + this.relegoappid
++												}
++											});
++										}
++									},
++									preventCancel: false,
++									title: $L("Relego Not Installed"),
++									message: $L("Relego is not installed. Would you like to download it? It's Free!"),
++									choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++									]
++								});
++							}.bind(this)
++						})
++					}catch(e){
++						Mojo.Log.error("Relego Patch Error: " + e);
++					}
++					break;
++				case MenuData.ApplicationMenu.AddToSpareTime.command:
++					// Send the URL to Spare Time
++					try{
++						this.sparetimeappid = "com.semicolonapps.sparetime";
++						this.controller.serviceRequest("palm://com.palm.applicationManager", {
++							method: 'open',
++							parameters: {
++								id: this.sparetimeappid,
++								params: {action: "add_url", url: this.currentUrl, title: this.currentTitle}
++							},
++							onFailure:function(){
++								//--> How do they not have it installed?
++								this.controller.showAlertDialog({
++									onChoose: function(value){
++										if (value=="yes"){
++											//--> And weee'rrre.. of to see the wizard
++											this.controller.serviceRequest('palm://com.palm.applicationManager', {
++												method:'open',
++												parameters:{
++													target: "http://developer.palm.com/appredirect/?packageid=" + this.sparetimeappid
++												}
++											});
++										}
++									},
++									preventCancel: false,
++									title: $L("Spare Time Not Installed"),
++									message: $L("Spare Time is not installed. Would you like to download it?"),
++									choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++									]
++								});
++							}.bind(this)
++						})
++					}catch(e){
++						Mojo.Log.error("Spare Time Patch Error: " + e);
++					}
++					break;
++	
++				case MenuData.ApplicationMenu.ShortenURL.command:
++					// Set up the url
++						var url = "http://is.gd/api.php?longurl=" + this.currentUrl;
++						var target = this;
++	
++					// Attempt to connect to api
++						var request = new Ajax.Request(url, {
++							method: 'get',
++							evalJSON: 'false',
++							onSuccess: function(response) {
++								// Retrieve the short url and copy it
++  								var short_url = response.responseText;
++								target.controller.stageController.setClipboard(short_url, false);
++		
++								// Set up and show the banner message for success
++								var message = "URL copied to clipboard.";
++								var appController = Mojo.Controller.getAppController();
++								var bannerParams = {soundClass: '', soundFile: '', icon: '', messageText: message};
++								appController.showBanner(bannerParams, {banner: message});
++							},
++							onFailure: function(response) {
++							// What happens when the api call fails
++							}
++						});
++
++				break;
++
+ 				case MenuData.ApplicationMenu.AddToLauncher.command:
+ 					// Bookmarks can deal with one that has no title, but not the launcher
+ 					urlReference = new UrlReference(this.currentUrl, this._getDisplayTitle(), new Date());
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
+index 6ad7ebd..e8b61fb 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
+@@ -99,7 +99,8 @@ PageControls.prototype={
+ 			type: 'idle',
+ 			label: MenuData.NavigationMenu.Reload.label,
+ 			icon: MenuData.NavigationMenu.Reload.icon,
+-			command: MenuData.NavigationMenu.Reload.command
++			command: MenuData.NavigationMenu.Reload.command,
++			 
+ 		};
+ 
+ 		if (this._animation) {
+@@ -112,6 +113,7 @@ PageControls.prototype={
+ 		// The spacer... right aligns the following button.
+ 		this._model.items.push(idleModel);
+ 		this._controller.modelChanged(this._model);
++		this._controller.setMenuVisible(Mojo.Menu.commandMenu, false);
+ 
+ 		this._currentPageModel = idleModel;
+ 	},
+@@ -142,6 +144,7 @@ PageControls.prototype={
+ 			this._model.items.push(progressModel);
+ 			this._controller.modelChanged(this._model);
+ 			this._animation.start(0);
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
+ 
+ 			this._currentPageModel = progressModel;
+ 
+@@ -187,6 +190,7 @@ PageControls.prototype={
+ 			this._model.items.push(searchModel);
+ 			this._controller.modelChanged(this._model);
+ 			this._animation.start();
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
+ 
+ 			this._currentPageModel = searchModel;
+ 
+diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
+index f024692..9212984 100644
+--- a/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
++++ b/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
+@@ -23,7 +23,7 @@ StartpageAssistant.prototype.setup = function() {
+ 	this._updateOrientation();
+ 
+ 	// Allow override of 'back' gesture in landscape mode.
+-	this.controller.useLandscapePageUpDown(true);
++	this.controller.useLandscapePageUpDown(false);
+ 
+ 	// Listen for scene scope keyboard events.
+ 	this.controller.listen(this.controller.sceneElement, Mojo.Event.keydown, this._onKeyDownEventHandler);
+@@ -42,6 +42,13 @@ StartpageAssistant.prototype.setup = function() {
+ 	this.appMenuModel = {
+ 		visible: true,
+ 		items: [
++				{
++					label: $L("On/Off Gesture"),
++					items: [
++					    {label:$L('Enable Gesture'),     shortcut:'e', command:'enable-gesture-cmd'},
++                        {label:$L('Disable Gesture'),     shortcut:'d', command:'disable-gesture-cmd'},
++						   ]
++				},			
+ 			MenuData.ApplicationMenu.NewCard,
+ 			MenuData.ApplicationMenu.AddBookmark,
+ 			{
