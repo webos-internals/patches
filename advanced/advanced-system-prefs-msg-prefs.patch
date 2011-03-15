@@ -1,0 +1,1471 @@
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
+@@ -52,6 +52,8 @@
+ 		}
+ 
+ 		var stageController = this.controller.getStageController(MainStageName);
++
++		this.appController.notificationAssistant.removePlayNotificationSoundTasks();
+ 		
+ 		if (launchParams.clearBanner) {
+ 			PalmSystem.clearBannerMessages();
+@@ -99,10 +101,20 @@
+ 		 */	
+ 		} else if (launchParams.target !== undefined) {
+ 			this.handleTargetParam(launchParams.target, stageController);
++		} else if (launchParams.playNotificationSound) {
++			// Delay playing to go around WebOS bug (sound not playing).
++
++			setTimeout(this.playNotificationSound.bind(this, launchParams.serviceName), 1000);
+ 		} else {
+ 			this.launchMessaging(stageController);
+ 		}		
+ 	},
++
++	playNotificationSound: function(serviceName) {
++		this.appController.notificationAssistant.playNotificationSound();
++			
++		this.appController.notificationAssistant.schedulePlayNotificationSoundTasks(serviceName);
++	},
+ 	
+ 	launchChatWithId: function(stageController, chatThreadId) {
+ 		if (stageController) {			
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -270,6 +270,16 @@
+ 		this.newMessageFieldLoseFocus = function(event) {
+ 			if (this.messageTextElement !== undefined) {
+ 				this.messageTextElement.focus();
++				
++				var msg = this.Messaging.messagingPrefs.getMessageGreeting() + " " + 
++					this.Messaging.messagingPrefs.getMessageSignature();
++
++				if((msg.length > 1) && (this.messageTextWidgetModel.value == msg))
++				{
++					var curPos = this.Messaging.messagingPrefs.getMessageGreeting().length;
++					this.setTextFieldValue(msg);
++					this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++				}
+ 			}
+ 		}.bind(this);
+ 		
+@@ -1370,6 +1380,8 @@
+ 			return;
+ 		}
+ 		
++		this.messageTextElement.focus();
++
+ 		if (tapTarget && tapTarget.id.startsWith(ChatviewAssistant.quickDialIdPrefix)) {
+ 			try {
+ 				// The phone number is the substring after the quick dial prefix.
+@@ -1445,6 +1457,30 @@
+ 				this.resetTextBox(false);
+ 			}
+ 		}
++		
++		var msg = this.Messaging.messagingPrefs.getMessageGreeting() + " " + 
++			this.Messaging.messagingPrefs.getMessageSignature();
++
++	    // Hide the attach button if there is an IM contact
++	    if(selectedTransport.serviceName != "sms") {  
++			if((msg.length > 1) && 
++				(this.messageTextWidgetModel.value != undefined) &&
++				(this.messageTextWidgetModel.value == msg))
++			{
++				this.setTextFieldValue("");
++			}
++	    } else {                  
++			if((msg.length > 1) && 
++				((this.messageTextWidgetModel.value == undefined) || 
++				(this.messageTextWidgetModel.value == "") ||
++				(this.messageTextWidgetModel.value == msg)))
++			{
++				var curPos = this.Messaging.messagingPrefs.getMessageGreeting().length;
++				this.setTextFieldValue(msg);
++				this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++			}
++		}
++
+ 		this.setCharacterCounterMaxLength();
+ 	},
+ 
+@@ -3104,8 +3140,26 @@
+ 	
+ 	_getMessageFromDraft: function() {
+ 		MessagingDB.Messages.getMessageFromDraft(this.chatThreadId, function(result) {
+-			// Fill in text fields
+-			this.setTextFieldValue(result.messageText);
++			if(this.Messaging.messagingPrefs.getUseAutomaticMsgDrafts()) {
++				// Fill in text fields
++				this.setTextFieldValue(result.messageText);
++			}
++
++			if(this.Messaging.messagingPrefs.getUseClipboardMsgDrafts())
++				this.controller.stageController.setClipboard(result.messageText);
++
++			if((result.serviceName == undefined) || (result.serviceName == "sms")) {
++				var msg = this.Messaging.messagingPrefs.getMessageGreeting() + " " + 
++					this.Messaging.messagingPrefs.getMessageSignature();
++
++				if((msg.length > 1) && ((this.messageTextElement.value == undefined) ||
++					(this.messageTextElement.value == "") || (this.messageTextElement.value == msg)))
++				{
++					var curPos = this.Messaging.messagingPrefs.getMessageGreeting().length;
++					this.setTextFieldValue(msg);
++					this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++				}
++			}
+ 		}.bind(this));
+ 	},
+ 
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+@@ -132,10 +132,6 @@
+ 	},
+ 
+ 	setup: function() {
+-		if (!this.launchedWithParams){
+-			this.restoreFromDraft();
+-		}
+-
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, this.appMenuAttrs, this.appMenuModel);
+ 
+ 		this.searchList = {
+@@ -230,6 +226,10 @@
+ 		if (this.passedAttachment) {
+ 			this.attachFile(this.passedAttachment, this.passedAttachmentIconPath, this.deleteAttachmentWhenDone, this.passedAttachmentType, this.passedTranscodeParams);
+ 		}
++
++		if (!this.launchedWithParams){
++			this.restoreFromDraft();
++		}
+ 	},
+ 
+ 	pushReminder: function(recipient){
+@@ -784,10 +784,30 @@
+ 				}
+ 			}
+ 		}
++
++		var msg = this.Messaging.messagingPrefs.getMessageGreeting() + " " + 
++			this.Messaging.messagingPrefs.getMessageSignature();
++
+ 	    // Hide the attach button if there is an IM contact
+-	    if(hasIM === true) {         
++	    if(hasIM === true) {  
++			if((msg.length > 1) && 
++				(this.messageTextWidgetModel.value != undefined) &&
++				(this.messageTextWidgetModel.value == msg))
++			{
++				this.setTextFieldValue("");
++			}
++	           
+ 	      this.hideAttachButton();
+ 	    } else {                  
++			if((msg.length > 1) && 
++				((this.messageTextWidgetModel.value == undefined) || 
++				(this.messageTextWidgetModel.value == "")))
++			{
++				var curPos = this.Messaging.messagingPrefs.getMessageGreeting().length;
++				this.setTextFieldValue(msg);
++				this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++			}
++
+ 	      this.showAttachButton();
+ 	    }
+ 		this.setCharacterCounterMaxLength();
+@@ -921,13 +941,29 @@
+ 		if (this.launchedAsForward === undefined && 
+ 			(this.messageText === undefined || this.messageText.length === 0) &&
+ 			this.prePopulatedRecipients.length === 0) {
++				var msg = this.Messaging.messagingPrefs.getMessageGreeting() + " " + 
++					this.Messaging.messagingPrefs.getMessageSignature();
++
++				if((msg.length > 1) && 
++					((this.messageTextWidgetModel.value == undefined) || 
++					(this.messageTextWidgetModel.value == "")))
++				{
++					var curPos = this.Messaging.messagingPrefs.getMessageGreeting().length;
++					this.setTextFieldValue(msg);
++					this.controller.get("messageTextWidget").mojo.setCursorPosition(curPos, curPos);
++				}
+ 				
+ 				MessagingDB.Messages.getMessageFromDraft("_compose",function(result) {
+-					this.controller.get('searchList').mojo.updateRecipients(result.to);
+-					this.setTextFieldValue(result.messageText);
+-					if (result.attachment !== undefined) {
+-						this.attachFile(result.attachment);
++					if(this.Messaging.messagingPrefs.getUseAutomaticMsgDrafts()) {
++						this.controller.get('searchList').mojo.updateRecipients(result.to);
++						this.setTextFieldValue(result.messageText);
++						if (result.attachment !== undefined) {
++							this.attachFile(result.attachment);
++						}					
+ 					}					
++
++					if(this.Messaging.messagingPrefs.getUseClipboardMsgDrafts())
++						this.controller.stageController.setClipboard(result.messageText);
+ 				}.bind(this));
+ 		}
+ 	},
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/dashboardMessage-assistant.js
+@@ -2,7 +2,7 @@
+ /*jslint white: false, onevar: false, nomen:false, plusplus: false*/
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+-function DashboardMessageAssistant(dashboardData) {
++function DashboardMessageAssistant(dashboardData, blinkNotify) {
+ 	this.dashboardData = dashboardData; // hold onto a reference to the dashboardData
+ 	if(this.dashboardData.newest && this.dashboardData[this.dashboardData.newest].list && this.dashboardData[this.dashboardData.newest].list.length>0){
+ 		this.isInvite = (this.dashboardData[this.dashboardData.newest].list[0].imType === "invite"? true:false);
+@@ -11,10 +11,11 @@
+ 	this.Messaging = this.appController.Messaging;
+ 	this.tapHandler = this.tapHandler.bindAsEventListener(this);
+ 	this.oldPresenceClass = "";
++	this.blinkNotify = blinkNotify;
+ }
+ 
+ DashboardMessageAssistant.prototype.setup = function() {
+-	this.update(true);
++	this.update(this.blinkNotify);
+ 	this.messageInfoElement = this.controller.get('message_info');
+ 	this.messageInfoElement.addEventListener(Mojo.Event.tap, this.tapHandler);
+ };
+@@ -155,4 +156,4 @@
+ 
+ DashboardMessageAssistant.prototype.closeDashboard = function(){
+ 	this.controller.window.close(); 
+-};
+\ No newline at end of file
++};
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+@@ -418,7 +418,9 @@
+ 				}.bind(this),
+ 				template: 'listview/historyList-divider'
+ 			},
+-			swipeDelete: true,
++			swipeDelete: {
++				autoConfirm: !this.Messaging.messagingPrefs.getUseDeleteConfirmation()
++			},
+ 			uniquenessProperty: '_id',
+ 			revisionProperty: '_rev',
+ 			delay: 500
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+@@ -9,6 +9,7 @@
+ 	// a reference to this is passed to the dashboard assistant
+ 	this.messageDashboardData = {};
+ 	this.inviteDashboardData = {};
++	this.notificationsData = {};
+ 	this.class0AlertData = {
+ 		list: []
+ 	};
+@@ -230,20 +231,20 @@
+  */
+ 
+ NotificationAssistant.prototype.considerForNotification = function(notificationData){
+-	if (!this.Messaging.messagingPrefs.getNotificationsEnabled()) {
++	if (!this.Messaging.messagingPrefs.getNotificationsEnabled(notificationData.message.serviceName)) {
+ 		Mojo.Log.info("Notification Assistant - Consider for Notification - Notifications are disabled");	
+ 		return;
+ 	}
+ 	
+ 	// check if we should only play a sound (when you are already in a chat & a new message comes in)
+-	if(notificationData.playSoundOnly && this.Messaging.messagingPrefs.getNotificationSound()) {
++	if(notificationData.playSoundOnly && this.Messaging.messagingPrefs.getNotificationSound(notificationData.message.serviceName)) {
+ 		var notifParams = {};
+-		this.setNotificationSound(notifParams);
++		this.setNotificationSound(notifParams, notificationData);
+ 		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
+ 		return; // don't display any visual notification
+ 	}	
+ 	//TODO: does sendFailure and connectionFailure need displayName?
+-	if (Object.keys(notificationData).length > 0 && this.Messaging.messagingPrefs.getNotificationsEnabled()) {
++	if (Object.keys(notificationData).length > 0 && this.Messaging.messagingPrefs.getNotificationsEnabled(notificationData.message.serviceName)) {
+ 		var notificationType = notificationData.notificationType;
+ 		if (notificationType === this.Messaging.notificationTypes.newMessage) {
+ 			this.preSendNewMessageNotificationAndUpdateDashboard(notificationData);
+@@ -344,10 +345,40 @@
+ 		
+ 		future.then(this, function(future){
+ 			if (future.result) {
++				if(MessagingLib.Utils.isTextMessage(notificationData.message.serviceName)) {
++					notificationData.soundClass = future.result.getMsgAlert().getAlert();
++					notificationData.ringtonePath = future.result.getMsgRingtone().getLocation();
++				}
++				else {
++					notificationData.soundClass = future.result.getIMsgAlert().getAlert();
++					notificationData.ringtonePath = future.result.getIMsgRingtone().getLocation();
++				}
++							
+ 				notificationData.message.displayName = future.result.generateDisplayName(false);
++
++				future.result = future.result;
++				this.sendNewMessageNotificationAndUpdateDashboard(notificationData);
++			}
++			else if(MessagingLib.Utils.isTextMessage(notificationData.message.serviceName)) {
++				if(this.contactPrefs)
++					delete this.contactPrefs;
++	
++				this.contactPrefs = new ContactsLib.AppPrefs(function(future) {
++					var prefs = this.contactPrefs.get(ContactsLib.AppPrefs.Pref.unknownContacts);
++
++					if(prefs.msgAlert) {
++						notificationData.soundClass = prefs.msgAlert;
++						notificationData.ringtonePath = prefs.msgRingtonePath;
++					}
++
++					future.result = future.result;
++					this.sendNewMessageNotificationAndUpdateDashboard(notificationData);
++				}.bind(this, future));			
++			}
++			else {
++				future.result = future.result;
++				this.sendNewMessageNotificationAndUpdateDashboard(notificationData);
+ 			}
+-			future.result = future.result;
+-			this.sendNewMessageNotificationAndUpdateDashboard(notificationData);
+ 		});
+ 	}
+ 	else {
+@@ -411,7 +442,7 @@
+ 	var bannerParams = {
+ 		messageText: notificationText
+ 	};
+-	this.setNotificationSound(bannerParams);
++	this.setNotificationSound(bannerParams, notificationData);
+ 	var bannerLaunchParams =  {
+ 		chatThreadId: chatThreadId,
+ 		clearBanner: true		
+@@ -480,11 +511,16 @@
+ 	var dashboard = this.controller.getStageController(dashboardStagename);
+ 	
+ 	if (dashboard) {
+-		dashboard.delegateToSceneAssistant("update", true);
++		if(this.Messaging.messagingPrefs.getNotificationBlink(notificationData.message.serviceName))
++			dashboard.delegateToSceneAssistant("update", true);
++		else
++			dashboard.delegateToSceneAssistant("update", false);		
+ 	} else {
++		var blinkNotify = this.Messaging.messagingPrefs.getNotificationBlink(notificationData.message.serviceName);
++	
+ 		// Create a dashboard
+ 		var f = function(stageController){
+-			stageController.pushScene('dashboardMessage', dashboardData);
++			stageController.pushScene('dashboardMessage', dashboardData, blinkNotify);
+ 		}.bind(this);
+ 		var params = {
+ 			name: dashboardStagename,
+@@ -509,6 +545,8 @@
+ 			createDashboard(); // if the screen is off, create the dashboard right away
+ 		}
+ 	}
++	
++	this.schedulePlayNotificationSoundTasks(notificationData.message.serviceName);
+ };
+ 
+ // ISSUES: what are the error types?  What is the max number / types of dashboards that we could have?
+@@ -542,7 +580,7 @@
+ 	var bannerParams = {
+ 		messageText: notificationText.escapeHTML()
+ 	};
+-	if (this.Messaging.messagingPrefs.getNotificationSound() !== "mute") {
++	if (this.Messaging.messagingPrefs.getNotificationSound(notificationData.message.serviceName) !== "mute") {
+ 		bannerParams.soundClass = "alerts";	
+ 	}
+ 	var bannerLaunchParams =  {
+@@ -747,6 +785,8 @@
+ };
+ 
+ NotificationAssistant.prototype.clearNotificationsForChat = function(chatThreadId){	
++	this.removePlayNotificationSoundTasks();
++
+ 	var i;
+ 	var newestTimestamp = 0;
+ 	var newestChat;
+@@ -841,6 +881,9 @@
+ };
+ 
+ NotificationAssistant.prototype.resetNewMessages = function(){
++	this.removePlayNotificationSoundTasks();
++		
++	this.notificationsData = {};
+ 	this.messageDashboardData = {};
+ };
+ 
+@@ -849,8 +892,13 @@
+ };
+ 
+ NotificationAssistant.prototype.clearMessageDashboard = function(){
+-	var dashboard = this.controller.getStageController(DashboardMessageStageName);
++	this.removePlayNotificationSoundTasks();
++
++	this.notificationsData = {};
+ 	this.messageDashboardData = {};
++
++	var dashboard = this.controller.getStageController(DashboardMessageStageName);
++
+ 	if (dashboard) {
+ 		dashboard.delegateToSceneAssistant("closeDashboard");
+ 	}
+@@ -884,15 +932,26 @@
+ 	}
+ };
+ 
+-NotificationAssistant.prototype.setNotificationSound = function(bannerParams){
+-	switch (this.Messaging.messagingPrefs.getNotificationSound()) {
++NotificationAssistant.prototype.setNotificationSound = function(bannerParams, notificationData){
++	var soundClass = this.Messaging.messagingPrefs.getNotificationSound(notificationData.message.serviceName);
++	var ringtonePath = this.Messaging.messagingPrefs.getRingtone(notificationData.message.serviceName).path;
++
++	if((notificationData.soundClass != undefined) && 
++		(notificationData.soundClass != "") &&
++		(notificationData.soundClass != "default"))
++	{
++		soundClass = notificationData.soundClass;
++		ringtonePath = notificationData.ringtonePath;		
++	}
++	
++	switch (soundClass) {
+ 		case "alert": 
+ 			bannerParams.soundClass = "notifications";
+ 			bannerParams.soundFile = undefined;
+ 			break;
+ 		case "ringtone":
+ 			bannerParams.soundClass = "notifications";
+-			bannerParams.soundFile = this.Messaging.messagingPrefs.getRingtone().path;
++			bannerParams.soundFile = ringtonePath;
+ 			break;
+ 		case "vibrate":
+ 			bannerParams.soundClass = "vibrate";
+@@ -907,4 +966,77 @@
+ 	Mojo.Log.info("setNotificationSound result=%j", bannerParams);
+ };
+ 
++NotificationAssistant.prototype.schedulePlayNotificationSoundTasks = function(serviceName) {
++	if((this.Messaging.messagingPrefs.getNotificationsEnabled(serviceName) == false) ||
++		(this.Messaging.messagingPrefs.getNotificationSound(serviceName) == "mute") ||
++		(this.Messaging.messagingPrefs.getRepeatInterval(serviceName) == 0))
++	{
++		if(this.notificationsData[serviceName])
++			delete this.notificationsData[serviceName];
++		
++		return;
++	}
++
++	if(this.notificationsData[serviceName] == undefined)
++		this.notificationsData[serviceName] = 0;
++	
++	if(this.notificationsData[serviceName]++ >= this.Messaging.messagingPrefs.getRepeatLimit(serviceName)) {
++		delete this.notificationsData[serviceName];
++		
++		return;
++	}
++	
++	// Reset all notifications to synchronize the notification events.
++	
++	var scheduledTimeStrings = {};
++
++	var currentTime = new Date();
++	
++	for(var serviceName in this.notificationsData) {
++		if((this.Messaging.messagingPrefs.getNotificationsEnabled(serviceName) != false) &&
++			(this.Messaging.messagingPrefs.getNotificationSound(serviceName) != "mute") &&
++			(this.Messaging.messagingPrefs.getRepeatInterval(serviceName) != 0))
++		{
++			var repeatInterval = this.Messaging.messagingPrefs.getRepeatInterval(serviceName);
++		
++			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000));
++
++			var month = playSoundTime.getUTCMonth()+1;
++			if(month < 10) month = "0" + month;
++			var day = playSoundTime.getUTCDate();
++			if(day < 10) day = "0" + day;
++			var year = playSoundTime.getUTCFullYear();
++
++			var hours = playSoundTime.getUTCHours();
++			if(hours < 10) hours = "0" + hours;
++			var minutes = playSoundTime.getUTCMinutes();
++			if(minutes < 10) minutes = "0" + minutes;
++			var seconds = playSoundTime.getUTCSeconds();
++			if(seconds < 10) seconds = "0" + seconds;
++
++			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++		
++			if(scheduledTimeStrings[scheduledTimeStr] == undefined) {
++				scheduledTimeStrings[scheduledTimeStr] = true;
++		
++				this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++					'method': "set", 'parameters': { 'key': 'messagingPlayNotificationSound-' + serviceName, 
++					'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
++					'params': {'id': 'com.palm.app.messaging', 'params': {'serviceName': serviceName,
++						'playNotificationSound': this.notificationsData[serviceName]}}} }); 
++			}	
++		}
++	}
++};
++	
++NotificationAssistant.prototype.removePlayNotificationSoundTasks = function() {
++	for(var serviceName in this.notificationsData) {
++		this.removeTimeoutRequest = new Mojo.Service.Request("palm://com.palm.power/timeout/", {
++			'method': "clear", 'parameters': {"key": 'messagingPlayNotificationSound-' + serviceName} });
++	}
++};
++
++NotificationAssistant.prototype.playNotificationSound = function() {
++	this.controller.playSoundNotification("notifications");
++};
+ 
+--- .orig/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
++++ /usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
+@@ -1187,6 +1187,23 @@
+ 
+ /* Preferences */
+ 
++.palm-account-icon.left {
++	float: left;
++}
++.palm-page-header .palm-account-icon {
++	position: absolute;
++	left: 0px;
++	top: 0px;
++	min-height: 52px;
++	width: 56px;
++}
++.default-account-list.palm-account-icon {
++	margin: 0px -5px 0px 10px;
++}
++.palm-account-icon {
++    background: url(../images/serviceicon-sms.png) center center no-repeat;
++}
++
+ .text-group .title {
+ 		line-height: auto !important;
+ 		padding: 0 !important;
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/models/messaging-prefs.js
++++ /usr/palm/applications/com.palm.app.messaging/app/models/messaging-prefs.js
+@@ -87,7 +87,18 @@
+ 		}
+ 	},
+ 	
+-	getNotificationsEnabled: function() {
++	getNotificationsEnabled: function(serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs === undefined || this._prefs.accountNotifications === undefined ||
++				this._prefs.accountNotifications[serviceName] === undefined || 
++				this._prefs.accountNotifications[serviceName].enableNotification === undefined) 
++			{
++				return this._getDefaultPrefs().enableNotification;
++			} else {
++				return this._prefs.accountNotifications[serviceName].enableNotification;
++			}
++		}
++		
+ 		if (this._prefs === undefined || this._prefs.enableNotification === undefined) {
+ 			return this._getDefaultPrefs().enableNotification;
+ 		} else {
+@@ -95,11 +106,69 @@
+ 		}
+ 	},
+ 	
+-	setNotificationsEnabled: function(enabled) {
+-		this._dbMerge({enableNotification:enabled});
++	setNotificationsEnabled: function(enabled, serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs.accountNotifications === undefined)
++				this._prefs.accountNotifications = {};
++
++			if (this._prefs.accountNotifications[serviceName] === undefined)
++				this._prefs.accountNotifications[serviceName] = {};
++			
++			this._prefs.accountNotifications[serviceName].enableNotification = enabled;
++
++			this._dbMerge({accountNotifications:this._prefs.accountNotifications});
++		}
++		else
++			this._dbMerge({enableNotification:enabled});
++	},
++	
++	getNotificationBlink: function(serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs === undefined || this._prefs.accountNotifications === undefined ||
++				this._prefs.accountNotifications[serviceName] === undefined || 
++				this._prefs.accountNotifications[serviceName].blinkNotification === undefined) 
++			{
++				return this._getDefaultPrefs().blinkNotification;
++			} else {
++				return this._prefs.accountNotifications[serviceName].blinkNotification;
++			}
++		}
++		
++		if (this._prefs === undefined || this._prefs.blinkNotification === undefined) {
++			return this._getDefaultPrefs().blinkNotification;
++		} else {
++			return this._prefs.blinkNotification;
++		}
+ 	},
+ 	
+-	getNotificationSound: function() {
++	setNotificationBlink: function(blink, serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs.accountNotifications === undefined)
++				this._prefs.accountNotifications = {};
++
++			if (this._prefs.accountNotifications[serviceName] === undefined)
++				this._prefs.accountNotifications[serviceName] = {};
++			
++			this._prefs.accountNotifications[serviceName].blinkNotification = blink;
++
++			this._dbMerge({accountNotifications:this._prefs.accountNotifications});
++		}
++		else
++			this._dbMerge({blinkNotification:blink});
++	},
++
++	getNotificationSound: function(serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs === undefined || this._prefs.accountNotifications === undefined ||
++				this._prefs.accountNotifications[serviceName] === undefined || 
++				this._prefs.accountNotifications[serviceName].notificationSound === undefined) 
++			{
++				return this._getDefaultPrefs().notificationSound;
++			} else {
++				return this._prefs.accountNotifications[serviceName].notificationSound;
++			}
++		}
++		
+ 		if (this._prefs === undefined || this._prefs.notificationSound === undefined) {
+ 			return this._getDefaultPrefs().notificationSound;
+ 		} else {
+@@ -107,11 +176,34 @@
+ 		}
+ 	},
+ 	
+-	setNotificationSound: function(sound) {
+-		this._dbMerge({notificationSound:sound});
++	setNotificationSound: function(sound, serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs.accountNotifications === undefined)
++				this._prefs.accountNotifications = {};
++
++			if (this._prefs.accountNotifications[serviceName] === undefined)
++				this._prefs.accountNotifications[serviceName] = {};
++			
++			this._prefs.accountNotifications[serviceName].notificationSound = sound;
++
++			this._dbMerge({accountNotifications:this._prefs.accountNotifications});
++		}
++		else
++			this._dbMerge({notificationSound:sound});
+ 	},
+ 	
+-	getRingtone: function() {
++	getRingtone: function(serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs === undefined || this._prefs.accountNotifications === undefined ||
++				this._prefs.accountNotifications[serviceName] === undefined || 
++				this._prefs.accountNotifications[serviceName].ringtone === undefined)  
++			{
++				return this._getDefaultPrefs().ringtone;
++			} else {
++				return this._prefs.accountNotifications[serviceName].ringtone;
++			}
++		}
++		
+ 		if (this._prefs === undefined || this._prefs.ringtone === undefined) {
+ 			return this._getDefaultPrefs().ringtone;
+ 		} else {
+@@ -119,11 +211,151 @@
+ 		}
+ 	},
+ 	
+-	setRingtone: function(ringtone) {
++	setRingtone: function(ringtone, serviceName) {
+ 		if (ringtone === undefined) {
+ 			ringtone = {};
+ 		}
+-		this._dbMerge({ringtone:ringtone});
++
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs.accountNotifications === undefined)
++				this._prefs.accountNotifications = {};
++
++			if (this._prefs.accountNotifications[serviceName] === undefined)
++				this._prefs.accountNotifications[serviceName] = {};
++			
++			this._prefs.accountNotifications[serviceName].ringtone = ringtone;
++
++			this._dbMerge({accountNotifications:this._prefs.accountNotifications});
++		}
++		else
++			this._dbMerge({ringtone:ringtone});
++	},
++
++	getRepeatInterval: function(serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs === undefined || this._prefs.accountNotifications === undefined ||
++				this._prefs.accountNotifications[serviceName] === undefined || 
++				this._prefs.accountNotifications[serviceName].repeatInterval === undefined)
++			{
++				return this._getDefaultPrefs().repeatInterval;
++			} else {
++				return this._prefs.accountNotifications[serviceName].repeatInterval;
++			}
++		}
++		
++		if (this._prefs === undefined || this._prefs.repeatInterval === undefined) {
++			return this._getDefaultPrefs().repeatInterval;
++		} else {
++			return this._prefs.repeatInterval;
++		}
++	},
++	
++	setRepeatInterval: function(interval, serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs.accountNotifications === undefined)
++				this._prefs.accountNotifications = {};
++		
++			if (this._prefs.accountNotifications[serviceName] === undefined)
++				this._prefs.accountNotifications[serviceName] = {};
++			
++			this._prefs.accountNotifications[serviceName].repeatInterval = interval;
++
++			this._dbMerge({accountNotifications:this._prefs.accountNotifications});
++		}
++		else
++			this._dbMerge({repeatInterval:interval});
++	},
++	
++	getRepeatLimit: function(serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if (this._prefs === undefined || this._prefs.accountNotifications === undefined ||
++				this._prefs.accountNotifications[serviceName] === undefined || 
++				this._prefs.accountNotifications[serviceName].repeatLimit === undefined)
++			{
++				return this._getDefaultPrefs().repeatLimit;
++			} else {
++				return this._prefs.accountNotifications[serviceName].repeatLimit;
++			}
++		}
++		
++		if (this._prefs === undefined || this._prefs.repeatLimit === undefined) {
++			return this._getDefaultPrefs().repeatLimit;
++		} else {
++			return this._prefs.repeatLimit;
++		}
++	},
++	
++	setRepeatLimit: function(limit, serviceName) {
++		if((serviceName != undefined) && (serviceName != "sms")) {
++			if(this._prefs.accountNotifications[serviceName] === undefined)
++				this._prefs.accountNotifications[serviceName] = {};
++			
++			this._prefs.accountNotifications[serviceName].repeatLimit = limit;
++
++			this._dbMerge({accountNotifications:this._prefs.accountNotifications});
++		}
++		else
++			this._dbMerge({repeatLimit:limit});
++	},
++	
++	getMessageGreeting: function() {
++		if (this._prefs === undefined || this._prefs.messageGreeting === undefined) {
++			return this._getDefaultPrefs().messageGreeting;
++		} else {
++			return this._prefs.messageGreeting;
++		}
++	},
++	
++	setMessageGreeting: function(greeting) {
++		this._dbMerge({messageGreeting:greeting});
++	},
++
++	getMessageSignature: function() {
++		if (this._prefs === undefined || this._prefs.messageSignature === undefined) {
++			return this._getDefaultPrefs().messageSignature;
++		} else {
++			return this._prefs.messageSignature;
++		}
++	},
++	
++	setMessageSignature: function(signature) {
++		this._dbMerge({messageSignature:signature});
++	},
++
++	getUseAutomaticMsgDrafts: function() {
++		if (this._prefs === undefined || this._prefs.useAutomaticMsgDrafts === undefined) {
++			return this._getDefaultPrefs().useAutomaticMsgDrafts;
++		} else {
++			return this._prefs.useAutomaticMsgDrafts;
++		}
++	},
++
++	setUseAutomaticMsgDrafts: function(set) {
++		this._dbMerge({useAutomaticMsgDrafts:set});
++	},
++
++	getUseClipboardMsgDrafts: function() {
++		if (this._prefs === undefined || this._prefs.useClipboardMsgDrafts === undefined) {
++			return this._getDefaultPrefs().useClipboardMsgDrafts;
++		} else {
++			return this._prefs.useClipboardMsgDrafts;
++		}
++	},
++ 	
++	setUseClipboardMsgDrafts: function(set) {
++		this._dbMerge({useClipboardMsgDrafts:set});
++	},
++
++	getUseDeleteConfirmation: function() {
++		if (this._prefs === undefined || this._prefs.useDeleteConfirmation === undefined) {
++			return this._getDefaultPrefs().useDeleteConfirmation;
++		} else {
++			return this._prefs.useDeleteConfirmation;
++		}
++	},
++
++	setUseDeleteConfirmation: function(set) {
++		this._dbMerge({useDeleteConfirmation:set});
+ 	},
+ 	
+ 	getUseImmediateMmsRetrieval: function() {
+@@ -188,12 +420,21 @@
+ 		return {
+ 				"_kind": MessagingPrefsService.prefsDB,
+ 				"enableNotification": true,
+-				"notificationSound":"alert",
++				"blinkNotification": true,
++				"notificationSound": "alert",
+ 				"ringtone": {},
++				"repeatInterval": 0,
++				"repeatLimit": 3,
++				"messageGreeting": "",
++				"messageSignature": "",
+ 				"isHistoryViewSelected": true,
+ 				"showOnlineBuddiesOnly": true,
+ 				"useImmediateMmsRetrieval": true,
+-				"firstUseMode":true
++				"firstUseMode": true,
++				"useAutomaticMsgDrafts": true,
++				"useClipboardMsgDrafts": false,
++				"useDeleteConfirmation": true,
++				"accountNotifications": {}
+ 		};
+ 	},
+ 
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/prefsAccountSummary-assistant.js
+@@ -8,13 +8,15 @@
+         this.Messaging = this.appController.Messaging;      
+         this.params = params || {};
+         this.requests = [];
++        this.listSettingChanged = false;
+ 		
+ 		this.handleAddAccountTap = this.handleAddAccountTap.bindAsEventListener(this);
+-		this.notificationToggleChanged = this.notificationToggleChanged.bindAsEventListener(this);
++/*		this.notificationToggleChanged = this.notificationToggleChanged.bindAsEventListener(this);
+ 		this.notificationSoundToggleChanged = this.notificationSoundToggleChanged.bindAsEventListener(this);
+ 		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
+ 		this.autoDownloadToggleChanged = this.autoDownloadToggleChanged.bindAsEventListener(this);
+ 		this.deliveryReceiptsToggleChanged = this.deliveryReceiptsToggleChanged.bindAsEventListener(this);
++*/
+     },
+  
+     setup: function(){
+@@ -33,24 +35,39 @@
+   		
+       this.controller.listen('addAccountButton',Mojo.Event.tap, this.handleAddAccountTap);   
+    
+-      this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);
++//      this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);
+     },
+ 	
+ 	cleanup: function() {
+ 		this.controller.stopListening('addAccountButton',Mojo.Event.tap, this.handleAddAccountTap);
+-		if (this.saveSMSPrefs) {
++/*		if (this.saveSMSPrefs) {
+ 			this.controller.stopListening('savePrefs', Mojo.Event.tap, this.saveSMSPrefs);
+ 		}
+ 	  this.controller.stopListening('deliveryReceiptsToggle',Mojo.Event.propertyChange,this.deliveryReceiptsToggleChanged);
+       this.controller.stopListening('notificationToggle',Mojo.Event.propertyChange,this.notificationToggleChanged);
+       this.controller.stopListening('notificationSoundSelector',Mojo.Event.propertyChange,this.notificationSoundToggleChanged);		
+       this.controller.stopListening('autoDownloadToggle',Mojo.Event.propertyChange,this.autoDownloadToggleChanged);
++*/
+ 	},
+ 
+-	handleAccountsListTap: function(account, template){
++	handleCommand: function(event){
++		if((event.type == Mojo.Event.back) && (this.listSettingChanged)) {
++	      event.stopPropagation();
++   	   event.preventDefault();
++			this.controller.stageController.swapScene('listview');
++		}
++	},
++	
++	handleAccountsListTap: function(account, template, target){
+ 		var capabilityProvider = this.getMessagingCapabilityProvider(account);
+ 		var accountSettingsUI;
+ 		
++		if(target == "notifications") {
++	      this.controller.stageController.pushScene('prefsSetupNotifications', this.Messaging.messagingPrefs, capabilityProvider.serviceName, account.icon.loc_32x32);
++		
++			return;
++		}
++		
+ 		if (capabilityProvider && capabilityProvider.settingsUI) {
+ 			accountSettingsUI = capabilityProvider.settingsUI;
+ 			
+@@ -76,7 +93,7 @@
+ 			
+ 		}
+ 		else if(capabilityProvider && capabilityProvider.serviceName === undefined && capabilityProvider.capabilitySubtype === "SMS"){
+-			//Do nothing when SMS is taped.
++			this.controller.stageController.pushScene('prefsSetupSMSAccount', this.Messaging);
+ 		}
+ 		else {
+ 			this.controller.stageController.pushScene("accountlogin", {
+@@ -105,12 +122,52 @@
+      **************************************************/
+     
+     preferencesSetup: function() {
+-      this.prefsAutoSignIn();
++//      this.prefsAutoSignIn();
+       //this.prefsSmsMmsSetup();
+-      this.prefsNotification();
++//      this.prefsNotification();
++      this.prefsDraftsSetup();
++      this.prefsListSetup();
++    },
++    
++    prefsDraftsSetup: function() {
++    	var messageDraftsAttributes = {
++			trueValue: true,
++			falseValue: false };
++    	
++    	this.modelMessageDraftsClipboard = {value: this.Messaging.messagingPrefs.getUseClipboardMsgDrafts()};
++
++		this.controller.setupWidget('prefs-clipboard-drafts-toggle', messageDraftsAttributes, this.modelMessageDraftsClipboard);
++      this.controller.listen('prefs-clipboard-drafts-toggle',Mojo.Event.propertyChange, this.prefsDraftsSave.bind(this));      
++
++    	this.modelMessageDraftsAutomatic = {value: this.Messaging.messagingPrefs.getUseAutomaticMsgDrafts()};
++    	
++   	this.controller.setupWidget('prefs-automatic-drafts-toggle', messageDraftsAttributes, this.modelMessageDraftsAutomatic);
++      this.controller.listen('prefs-automatic-drafts-toggle',Mojo.Event.propertyChange, this.prefsDraftsSave.bind(this));      
++    },
++
++    prefsDraftsSave: function() {
++		this.Messaging.messagingPrefs.setUseClipboardMsgDrafts(this.modelMessageDraftsClipboard.value);
++		this.Messaging.messagingPrefs.setUseAutomaticMsgDrafts(this.modelMessageDraftsAutomatic.value);
+     },
++		    
++    prefsListSetup: function() {
++    	var messageDeleteConfirmAttributes = {
++			trueValue: true,
++			falseValue: false };
++    	
++    	this.modelMessageDeleteConfirm = {value: this.Messaging.messagingPrefs.getUseDeleteConfirmation()};
++    	
++    	this.controller.setupWidget('prefs-delete-confirmation-toggle', messageDeleteConfirmAttributes, this.modelMessageDeleteConfirm);
++      this.controller.listen('prefs-delete-confirmation-toggle',Mojo.Event.propertyChange, this.prefsListSave.bind(this));      
++    },
++
++    prefsListSave: function() {
++		this.listSettingChanged = true;
+     
+-    prefsAutoSignIn: function() {
++		this.Messaging.messagingPrefs.setUseDeleteConfirmation(this.modelMessageDeleteConfirm.value);
++	 },
++
++//    prefsAutoSignIn: function() {
+       /*
+       var autoSignin = {
+         modelProperty : 'auto-signin-toggle',
+@@ -126,13 +183,14 @@
+ //        this.controller.get('AutoSignon').observe('mojo-property-change', 
+ //			this.autoSignonChange.bind(this));            
+        */       
+-    },
+-    
++ //   },
++/*    
+     prefsSmsMmsSetup: function() {
++*/
+       /************************
+       * Setup widgets
+       ************************/
+-      var smscAttributes = {
++/*      var smscAttributes = {
+         inputName: "smscAddressText",
+         hintText: '',
+         modelProperty: 'original',
+@@ -187,11 +245,11 @@
+         value: false
+       };
+       this.controller.setupWidget('useSettings', mmsSmsUseSettingsAttributes, this.mmsSmsUseSettingsModel);        
+-        
++*/        
+       /*********************************************
+       * Methods for rendering existing pref values
+       *********************************************/        
+-      this.renderEditSMSCAddress = function(response) {
++ /*     this.renderEditSMSCAddress = function(response) {
+         this.smscModel.original = response.smscAddr;
+         this.controller.modelChanged(this.smscModel,this);
+         this.emailGatewayModel.original = response.emailGateway;
+@@ -367,7 +425,7 @@
+ 
+ 		this.controller.get('currentringtone').update(file.name);
+ 	}
+-	
++*/	
+ //    editAccount: function(targetRow){
+ //      // iterate through hidden inputs
+ //      var inputHash = {};
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ /usr/palm/applications/com.palm.app.messaging/app/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -5,7 +5,7 @@
+       <div id="prefHeaderText" class="title" x-mojo-loc=''>Preferences &amp; Accounts</div>
+     </div>
+   </div>
+-
++<!--
+ 	<div class="palm-group">
+ 		<div class="palm-group-title" x-mojo-loc=''>
+ 			New message
+@@ -20,8 +20,8 @@
+ 				</div> 
+ 			</div>                
+ 			<div id="notificationSoundContainer">   
+-				<!-- <div class="palm-row-divider"></div> -->
+-				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
++-->				<!-- <div class="palm-row-divider"></div> -->
++<!--				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
+ 					<div class="palm-row-wrapper">
+ 						<div id="notificationSoundSelector" x-mojo-element="ListSelector"></div>
+ 					</div>
+@@ -53,5 +53,43 @@
+ 		</div>
+ 	</div>
+ 	<div id="accounts_list" x-mojo-element="AccountsList"></div>
++-->
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message Drafts</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-clipboard-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Clipboard</div>
++				</div>
++			</div>	
++			<div class="palm-row last">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-automatic-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Message</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++ 	
++	<div x-mojo-loc="" class="palm-info-text">The above settings controls how aborted messages are handled.</div>
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message List</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-delete-confirmation-toggle"></div>
++					<div class="title" x-mojo-loc=''>Delete Confirmation</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++
++	<div id="accounts_list" x-mojo-element="AccountsList" class="show-notifications"></div>
++	
++	<div x-mojo-loc="" class="palm-info-text">IM accounts from same provider share notification preferences.</div>
++	
+ 	<div id="addAccountButton" class="palm-button" x-mojo-loc=''>Add IM Account</div>
+ </div>
+\ No newline at end of file
+--- .orig/usr/palm/applications/com.palm.app.messaging/sources.json
++++ /usr/palm/applications/com.palm.app.messaging/sources.json
+@@ -51,6 +51,12 @@
+     "source": "app\/controllers\/prefsAccountSummary-assistant.js"
+   },
+   {
++    "source": "app\/controllers\/prefsSetupSMSAccount-assistant.js"
++  },   
++  {
++    "source": "app\/controllers\/prefsSetupNotifications-assistant.js"
++  },   
++  {
+     "source": "app\/controllers\/compose-assistant.js"
+   },
+   {
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/de/strings.json
++++ /usr/palm/applications/com.palm.app.messaging/resources/de/strings.json
+@@ -168,5 +168,21 @@
+ 	"You have received an invitation from #{name} (#{addr}) with the message, \"#{message}\"": "Sie haben eine Einladung von #{name} (#{addr}) mit folgender Nachricht erhalten: „#{addr}“",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_name}.": "Sie können #{loc_name} erst dann verwenden, wenn Sie mit dem Datennetz Ihres Mobilfunkanbieters verbunden sind.",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_shortName}.": "Sie können #{loc_shortName} erst dann verwenden, wenn Sie mit dem Datennetz Ihres Mobilfunkanbieters verbunden sind.",
+-	"You must be connected to your wireless service provider's data network to use this service.": "Sie können diesen Dienst erst dann verwenden, wenn Sie mit dem Datennetz Ihres Mobilfunkanbieters verbunden sind."
++	"You must be connected to your wireless service provider's data network to use this service.": "Sie können diesen Dienst erst dann verwenden, wenn Sie mit dem Datennetz Ihres Mobilfunkanbieters verbunden sind.",
++	"Off": "",
++	"On": "",
++	"Disabled": "",
++	"Every 2 minutes": "",
++	"Every 5 minutes": "",
++	"Every 15 minutes": "",
++	"Every 30 minutes": "",
++	"Every 60 minutes": "",
++	"Repeat": "",
++	"Repeat infinitely": "",
++	"Repeat 3 times": "",
++	"Repeat 5 times": "",
++	"Repeat 10 times": "",
++	"Repeat 15 times": "",
++	"Repeat 30 times": "",
++	"Limitation": ""
+ }
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/de/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ /usr/palm/applications/com.palm.app.messaging/resources/de/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -5,7 +5,7 @@
+       <div id="prefHeaderText" class="title">Einstellungen und Konten</div>
+     </div>
+   </div>
+-
++<!--
+ 	<div class="palm-group">
+ 		<div class="palm-group-title">
+ 			Neue Nachricht
+@@ -20,8 +20,8 @@
+ 				</div> 
+ 			</div>                
+ 			<div id="notificationSoundContainer">   
+-				<!-- <div class="palm-row-divider"></div> -->
+-				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
++-->				<!-- <div class="palm-row-divider"></div> -->
++<!--				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
+ 					<div class="palm-row-wrapper">
+ 						<div id="notificationSoundSelector" x-mojo-element="ListSelector"></div>
+ 					</div>
+@@ -53,5 +53,43 @@
+ 		</div>
+ 	</div>
+ 	<div id="accounts_list" x-mojo-element="AccountsList"></div>
++-->
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message Drafts</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-clipboard-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Clipboard</div>
++				</div>
++			</div>	
++			<div class="palm-row last">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-automatic-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Message</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++ 	
++	<div x-mojo-loc="" class="palm-info-text">The above settings controls how aborted messages are handled.</div>
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message List</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-delete-confirmation-toggle"></div>
++					<div class="title" x-mojo-loc=''>Delete Confirmation</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++
++	<div id="accounts_list" x-mojo-element="AccountsList" class="show-notifications"></div>
++	
++	<div x-mojo-loc="" class="palm-info-text">IM accounts from same provider share notification preferences.</div>
++	
+ 	<div id="addAccountButton" class="palm-button">IM-Konto hinzufügen</div>
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/es/strings.json
++++ /usr/palm/applications/com.palm.app.messaging/resources/es/strings.json
+@@ -172,5 +172,21 @@
+ 	"You have received an invitation from #{name} (#{addr}) with the message, \"#{message}\"": "Recibiste una invitación de #{name} (#{addr}) con este mensaje: \"#{message}\"",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_name}.": "Tienes que estar conectado a la red de datos de tu proveedor de servicio inalámbrico para usar #{loc_name}.",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_shortName}.": "Tienes que estar conectado a la red de datos de tu proveedor de servicio inalámbrico para usar #{loc_shortName}.",
+-	"You must be connected to your wireless service provider's data network to use this service.": "Tienes que estar conectado a la red de datos de tu proveedor de servicio inalámbrico para usar este servicio."
++	"You must be connected to your wireless service provider's data network to use this service.": "Tienes que estar conectado a la red de datos de tu proveedor de servicio inalámbrico para usar este servicio.",
++	"Off": "",
++	"On": "",
++	"Disabled": "",
++	"Every 2 minutes": "",
++	"Every 5 minutes": "",
++	"Every 15 minutes": "",
++	"Every 30 minutes": "",
++	"Every 60 minutes": "",
++	"Repeat": "",
++	"Repeat infinitely": "",
++	"Repeat 3 times": "",
++	"Repeat 5 times": "",
++	"Repeat 10 times": "",
++	"Repeat 15 times": "",
++	"Repeat 30 times": "",
++	"Limitation": ""
+ }
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/es/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ /usr/palm/applications/com.palm.app.messaging/resources/es/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -5,7 +5,7 @@
+       <div id="prefHeaderText" class="title">Preferencias y cuentas</div>
+     </div>
+   </div>
+-
++<!--
+ 	<div class="palm-group">
+ 		<div class="palm-group-title">
+ 			Mensaje nuevo
+@@ -20,8 +20,8 @@
+ 				</div> 
+ 			</div>                
+ 			<div id="notificationSoundContainer">   
+-				<!-- <div class="palm-row-divider"></div> -->
+-				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
++-->				<!-- <div class="palm-row-divider"></div> -->
++<!--				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
+ 					<div class="palm-row-wrapper">
+ 						<div id="notificationSoundSelector" x-mojo-element="ListSelector"></div>
+ 					</div>
+@@ -53,5 +53,43 @@
+ 		</div>
+ 	</div>
+ 	<div id="accounts_list" x-mojo-element="AccountsList"></div>
++-->
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message Drafts</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-clipboard-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Clipboard</div>
++				</div>
++			</div>	
++			<div class="palm-row last">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-automatic-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Message</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++ 	
++	<div x-mojo-loc="" class="palm-info-text">The above settings controls how aborted messages are handled.</div>
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message List</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-delete-confirmation-toggle"></div>
++					<div class="title" x-mojo-loc=''>Delete Confirmation</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++
++	<div id="accounts_list" x-mojo-element="AccountsList" class="show-notifications"></div>
++	
++	<div x-mojo-loc="" class="palm-info-text">IM accounts from same provider share notification preferences.</div>
++	
+ 	<div id="addAccountButton" class="palm-button">Añadir cuenta de IM</div>
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/fr/strings.json
++++ /usr/palm/applications/com.palm.app.messaging/resources/fr/strings.json
+@@ -168,5 +168,21 @@
+ 	"You have received an invitation from #{name} (#{addr}) with the message, \"#{message}\"": "Vous avez reçu une invitation de #{name} (#{addr}) avec le message « #{message} »",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_name}.": "Vous devez être connecté au réseau de votre fournisseur de service mobile pour utiliser #{loc_name}.",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_shortName}.": "Vous devez être connecté au réseau de votre fournisseur de service mobile pour utiliser #{loc_shortName}.",
+-	"You must be connected to your wireless service provider's data network to use this service.": "Vous devez être connecté au réseau de votre fournisseur de service mobile pour utiliser ce service."
++	"You must be connected to your wireless service provider's data network to use this service.": "Vous devez être connecté au réseau de votre fournisseur de service mobile pour utiliser ce service.",
++	"Off": "",
++	"On": "",
++	"Disabled": "",
++	"Every 2 minutes": "",
++	"Every 5 minutes": "",
++	"Every 15 minutes": "",
++	"Every 30 minutes": "",
++	"Every 60 minutes": "",
++	"Repeat": "",
++	"Repeat infinitely": "",
++	"Repeat 3 times": "",
++	"Repeat 5 times": "",
++	"Repeat 10 times": "",
++	"Repeat 15 times": "",
++	"Repeat 30 times": "",
++	"Limitation": ""
+ }
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/fr/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ /usr/palm/applications/com.palm.app.messaging/resources/fr/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -5,7 +5,7 @@
+       <div id="prefHeaderText" class="title">Préférences et comptes</div>
+     </div>
+   </div>
+-
++<!--
+ 	<div class="palm-group">
+ 		<div class="palm-group-title">
+ 			Nouveau message
+@@ -20,8 +20,8 @@
+ 				</div> 
+ 			</div>                
+ 			<div id="notificationSoundContainer">   
+-				<!-- <div class="palm-row-divider"></div> -->
+-				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
++-->				<!-- <div class="palm-row-divider"></div> -->
++<!--				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
+ 					<div class="palm-row-wrapper">
+ 						<div id="notificationSoundSelector" x-mojo-element="ListSelector"></div>
+ 					</div>
+@@ -53,5 +53,43 @@
+ 		</div>
+ 	</div>
+ 	<div id="accounts_list" x-mojo-element="AccountsList"></div>
++-->
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message Drafts</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-clipboard-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Clipboard</div>
++				</div>
++			</div>	
++			<div class="palm-row last">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-automatic-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Message</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++ 	
++	<div x-mojo-loc="" class="palm-info-text">The above settings controls how aborted messages are handled.</div>
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message List</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-delete-confirmation-toggle"></div>
++					<div class="title" x-mojo-loc=''>Delete Confirmation</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++
++	<div id="accounts_list" x-mojo-element="AccountsList" class="show-notifications"></div>
++	
++	<div x-mojo-loc="" class="palm-info-text">IM accounts from same provider share notification preferences.</div>
++	
+ 	<div id="addAccountButton" class="palm-button">Ajouter un compte IM</div>
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/it/strings.json
++++ /usr/palm/applications/com.palm.app.messaging/resources/it/strings.json
+@@ -170,5 +170,21 @@
+ 	"You have received an invitation from #{name} (#{addr}) with the message, \"#{message}\"": "Avete ricevuto un invito da #{name} (#{addr}) con il messaggio \"#{message}\"",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_name}.": "Per usare #{loc_name} è necessario essere collegati alla rete dati del proprio provider di servizi wireless.",
+ 	"You must be connected to your wireless service provider's data network to use #{loc_shortName}.": "Per usare #{loc_shortName} è necessario essere collegati alla rete dati del proprio provider di servizi wireless.",
+-	"You must be connected to your wireless service provider's data network to use this service.": "Per usare questo servizio è necessario essere collegati alla rete dati del proprio provider di servizi wireless."
++	"You must be connected to your wireless service provider's data network to use this service.": "Per usare questo servizio è necessario essere collegati alla rete dati del proprio provider di servizi wireless.",
++	"Off": "",
++	"On": "",
++	"Disabled": "",
++	"Every 2 minutes": "",
++	"Every 5 minutes": "",
++	"Every 15 minutes": "",
++	"Every 30 minutes": "",
++	"Every 60 minutes": "",
++	"Repeat": "",
++	"Repeat infinitely": "",
++	"Repeat 3 times": "",
++	"Repeat 5 times": "",
++	"Repeat 10 times": "",
++	"Repeat 15 times": "",
++	"Repeat 30 times": "",
++	"Limitation": ""
+ }
+--- .orig/usr/palm/applications/com.palm.app.messaging/resources/it/views/prefsAccountSummary/prefsAccountSummary-scene.html
++++ /usr/palm/applications/com.palm.app.messaging/resources/it/views/prefsAccountSummary/prefsAccountSummary-scene.html
+@@ -5,7 +5,7 @@
+       <div id="prefHeaderText" class="title">Preferenze e account</div>
+     </div>
+   </div>
+-
++<!--
+ 	<div class="palm-group">
+ 		<div class="palm-group-title">
+ 			Nuovo messaggio
+@@ -20,8 +20,8 @@
+ 				</div> 
+ 			</div>                
+ 			<div id="notificationSoundContainer">   
+-				<!-- <div class="palm-row-divider"></div> -->
+-				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
++-->				<!-- <div class="palm-row-divider"></div> -->
++<!--				<div id="soundselectrow" class="palm-row" x-mojo-tap-highlight="momentary">
+ 					<div class="palm-row-wrapper">
+ 						<div id="notificationSoundSelector" x-mojo-element="ListSelector"></div>
+ 					</div>
+@@ -53,5 +53,43 @@
+ 		</div>
+ 	</div>
+ 	<div id="accounts_list" x-mojo-element="AccountsList"></div>
++-->
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message Drafts</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-clipboard-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Clipboard</div>
++				</div>
++			</div>	
++			<div class="palm-row last">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-automatic-drafts-toggle"></div>
++					<div class="title" x-mojo-loc=''>Copy to Message</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++ 	
++	<div x-mojo-loc="" class="palm-info-text">The above settings controls how aborted messages are handled.</div>
++
++	<div class="palm-group">
++		<div class="palm-group-title" x-mojo-loc=''>Message List</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="prefs-delete-confirmation-toggle"></div>
++					<div class="title" x-mojo-loc=''>Delete Confirmation</div>
++				</div>
++			</div>	
++		</div>
++	</div>
++
++	<div id="accounts_list" x-mojo-element="AccountsList" class="show-notifications"></div>
++	
++	<div x-mojo-loc="" class="palm-info-text">IM accounts from same provider share notification preferences.</div>
++	
+ 	<div id="addAccountButton" class="palm-button">Aggiungi account IM</div>
+ </div>
