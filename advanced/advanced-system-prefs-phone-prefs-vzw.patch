@@ -705,11 +705,11 @@
          if (this.blockIgnore) {
  			Mojo.Log.error( "IncomingcallAssistant#rejectCall tapped too soon");
  			this.unblockIgnore();
-@@ -427,6 +436,17 @@
+@@ -426,7 +435,18 @@
+         this.mute();
  		this.exitStatus = "rejected";
  		
-       	this.closeWindow();
-+
+-      	this.closeWindow();
 +		if((this.contact.canBeCalled()) && (this.contact.service != CallSynergy.SERVICES.SKYPE)) {
 +			if((hold) && (this.appAssistant.rejectedPrefs.rejectAction == "autoreply")) {	
 +				this.controller.serviceRequest('palm://com.palm.applicationManager/', {
@@ -720,9 +720,18 @@
 +				}});
 +			}
 +		}
++
++     	this.closeWindow();
      },
  	
  	// hide alert and instruct blur handler to show ignore UI
+@@ -620,4 +640,4 @@
+ };
+ 
+ 
+-IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
+\ No newline at end of file
++IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
 --- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 +++ /usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 @@ -365,4 +365,13 @@
@@ -874,36 +883,35 @@
  				this.proxOn();
  			} else {
  				Mojo.Log.info( "TEL#enableProxOnCallAndAudio", "not enabled: " , scenario);
-@@ -724,7 +728,33 @@
+@@ -724,7 +728,32 @@
  		// wait to show incoming popup until the contact has been decorated
  		future = this.incomingPending.contact.decorated();
  		future.then(this, function() {
 -			this.announcer.announceIncoming(callState.affectedCallId, future.result, this.isConnected());
 +			this.contactPrefs = new window.Contacts.AppPrefs(function(contact) {
-+				var unknownPrefs = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownContacts);
-+
 +				var blockedNumbers = this.contactPrefs.get(Contacts.AppPrefs.Pref.blockedNumbers);
 +
 +				var unknownNumbers = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownNumbers);
 +
-+				if(((blockedNumbers) && (!contact.canBeCalled())) || ((unknownNumbers) && (!contact.personId))) {
-+					if(unknownPrefs.callAction == "direct2vm")
-+						this.flagCallRejected(callState.affectedCallId);
-+					else if(unknownPrefs.callAction == "autohangup")
-+						TelephonyCommands.disconnect(callState.affectedCallId);
-+					else {
-+						if((unknownPrefs.callAlert) && (unknownPrefs.callAlert != "default")) {
-+							contact.callAlert = unknownPrefs.callAlert;
-+						
-+							if(unknownPrefs.callAlert == "ringtone")
-+								contact.ringtoneLoc = unknownPrefs.callRingtonePath;
-+						}
++				var unknownPrefs = contact;
++
++				if(((blockedNumbers) && (!contact.canBeCalled())) || ((unknownNumbers) && (!contact.personId)))
++					unknownPrefs = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownContacts);
++				
++				if((unknownPrefs.callAction) && (unknownPrefs.callAction == "direct2vm"))
++					this.flagCallRejected(callState.affectedCallId);
++				else if((unknownPrefs.callAction) && (unknownPrefs.callAction == "autohangup"))
++					TelephonyCommands.disconnect(callState.affectedCallId);
++				else {
++					if((unknownPrefs.callAlert) && (unknownPrefs.callAlert != "default")) {
++						contact.callAlert = unknownPrefs.callAlert;
 +					
-+						this.announcer.announceIncoming(callState.affectedCallId, contact, this.isConnected());
++						if((unknownPrefs.callAlert == "ringtone") && (unknownPrefs.callRingtonePath))
++							contact.ringtoneLoc = unknownPrefs.callRingtonePath;
 +					}
-+				}
-+				else
++				
 +					this.announcer.announceIncoming(callState.affectedCallId, contact, this.isConnected());
++				}
 +			}.bind(this, future.result));
 +
  			return true; // continue
