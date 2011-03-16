@@ -318,7 +318,7 @@
              this.onAudioRouteChangeClick("phone_back_speaker");
          }
  	},
-@@ -2058,5 +2106,81 @@
+@@ -2058,5 +2106,84 @@
  			}(), 500);
  		}
  	},
@@ -373,9 +373,12 @@
 +	},
 +	
 +	onDisplayEventDuringCall: function(response) {
++		if(this.appAssistant.screenLocked)
++			return;
++
 +		if(this.appAssistant.phonePrefs.proximityAction != "change")
 +			return;
-+		
++
 +		if(this.eventListener.proxEnabled) {
 +			var callStateMessage = this.eventListener.getCallState();
 +			var lineState = callStateMessage.lines;
@@ -550,7 +553,17 @@
  
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js
-@@ -476,7 +476,6 @@
+@@ -258,6 +258,9 @@
+ 			Mojo.Log.info( "DialpadAssistant#handleSceneArgs", "fill: " , params.number);
+ 			// TODO: can't immediately set it if setup hasn't been finished since
+ 			// formatAndUpdateDialString will change visibility only to have it undone by the rest of setup
++
++			DialStringParser.clearDebounceTimeout();
++		
+ 			if (this.setupComplete) {
+ 				this.clear();
+ 				this.hidePicker();
+@@ -476,7 +479,6 @@
  			
  		} else if (event.type == Mojo.Event.command) {
  			switch (event.command) {
@@ -854,23 +867,27 @@
  	},
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/FavoritesAdd.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/states/FavoritesAdd.js
-@@ -48,7 +48,6 @@
+@@ -48,7 +48,8 @@
  			scenesToPush: [ContactsUI.FavoritePersonWidget.SCENES.PERSON_PICKER, ContactsUI.FavoritePersonWidget.SCENES.CONTACT_POINT_PICKER],
  			defaultType: this._getDefaultType(),
  			callback: function() {
 -				this.machine.enter("favorites");
++//				this.machine.enter("favorites");	
++				this.machine.currentState = this.machine._states[this.machine.STATE_FAVORITES];
  			}.bind(this)
  		}).pushScene();
  	},
-@@ -62,7 +61,6 @@
+@@ -62,7 +63,8 @@
  			listIndexForDefault: lastIndex,
  			defaultType: this._getDefaultType(),
  			callback: function() {
 -				this.machine.enter("favorites");
++//				this.machine.enter("favorites");	
++				this.machine.currentState = this.machine._states[this.machine.STATE_FAVORITES];
  			}.bind(this)
  		}).pushScene();
  	},
-@@ -73,4 +71,4 @@
+@@ -73,4 +75,4 @@
  		}
  		return defaultType;
  	}
@@ -917,7 +934,30 @@
  				this.proxOn();
  			} else {
  				Mojo.Log.info( "TEL#enableProxOnCallAndAudio", "not enabled: " , scenario);
-@@ -724,7 +728,32 @@
+@@ -525,8 +529,12 @@
+ 	},
+ 	
+ 	proxOn: function() {
++		if(this.appAssistant.screenLocked)
++			return;
++
+ 		if (!(this.proxSubscription)) {
+ 			this.proxSubscription = TelephonyCommands.proxSet(true, this.onProxOn);
++			this.diplayBlockReq = TelephonyCommands.displayDNAST(true, undefined);
+ 		} else {
+ 			Mojo.Log.info( "TEL#proxOn", "already on");
+ 		}
+@@ -537,6 +545,9 @@
+ 		if (this.proxSubscription) {
+ 			this.proxSubscription.cancel();
+ 			delete this.proxSubscription;
++			this.diplayBlockReq = TelephonyCommands.displayDNAST(false, undefined);
++			this.diplayBlockReq.cancel();
++			delete this.diplayBlockReq;
+ 		}
+ 	},
+ 	
+@@ -724,7 +735,32 @@
  		// wait to show incoming popup until the contact has been decorated
  		future = this.incomingPending.contact.decorated();
  		future.then(this, function() {
@@ -951,6 +991,20 @@
  			return true; // continue
  		});
  		
+@@ -1210,6 +1246,13 @@
+ 		if (response && response.locked !== undefined) {
+ 			this.appAssistant.screenLocked = response.locked;
+ 			
++			if((this.isPendingOrActive()) && (this.appAssistant.phonePrefs.proximityAction == "change")) {
++				if(response.locked)
++					this.proxOff();
++				else
++					this.proxOn();
++			}
++			
+ 			// issue unlock event if 
+ 			if ( ! response.locked && this.appAssistant.screenLockSecured ) {
+ 				UIStateMachine.event('lock', false); // let the current state know we're locked/unlocked
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/UIStateMachine.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/UIStateMachine.js
 @@ -28,6 +28,8 @@
