@@ -502,7 +502,7 @@
  	
  	// Update showAllInboxes, in case it changed.
  	this.showAllInboxes = EmailApp.prefs.get('showAllInboxes');
-@@ -128,8 +131,20 @@
+@@ -128,8 +131,26 @@
  	for(i=0; i<emails.length; i++) {
  		emails[i].accountId = this.appController.assistant.getEmailAccount(emails[i]);
  	}
@@ -511,8 +511,14 @@
 +
 +	if(this.notifyTimeout)
 +		clearTimeout(this.notifyTimeout);
++
++	// Make sure that the device wont go to sleep until alert is handled
++
++	this.activityRequest = new Mojo.Service.Request("palm://com.palm.power/com/palm/power", {
++    'method': "activityStart", 'parameters': {'id': Mojo.Controller.appInfo.id,
++    'duration_ms': 15000} });
  	
-+	this.notifyTimeout = setTimeout(this._processNewEmails.bind(this), 15000);
++	this.notifyTimeout = setTimeout(this._processNewEmails.bind(this), 5000);
 +}
 +
 +NotificationAssistant.prototype._processNewEmails = function() {	
@@ -523,7 +529,7 @@
  	// Filter out anything we don't currently care about:
  	count = emails.length;
  	emails = _.select(emails, this._shouldNotify, this);
-@@ -140,13 +155,40 @@
+@@ -140,13 +161,40 @@
  	emails.forEach(this._addNewEmail, this);	
  	
  	// Build a list of accounts with new emails, and then map the "play sound for account" function over them.
@@ -534,9 +540,9 @@
 -	// Make our dashboards reflect the data. 
 -	this._updateDirtyDashboards();
 +	var allUnknown = true;
- 	
-+	var notifications = {};
 +	
++	var notifications = {};
+ 	
 +	emails.forEach(function(email) {
 +		if(EmailApp.emails.check(email.from.addr))
 +			allUnknown = false;
@@ -551,7 +557,7 @@
 +		this.contactPrefs = new window.Contacts.AppPrefs(function() {
 +			var prefs = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownContacts);
 +
-+			if((!prefs.emailAlert) || (prefs.emailAlert == "default"))
++			if((!prefs) || (!prefs.emailAlert) || (prefs.emailAlert == "default"))
 +				_.map(_.keys(notifications), this._doNotificationForAccount, this);
 +			else 
 +				this._doNotificationForUnknown(prefs.emailAlert, prefs.emailRingtonePath);
@@ -569,7 +575,7 @@
  };
  
  
-@@ -332,6 +374,8 @@
+@@ -332,6 +380,8 @@
  // Update the dashboard for the given accountId (or the unified one if unspecified) to display the given message,
  // creating it if necessary.
  NotificationAssistant.prototype._updateDashboard = function(accountId, messages) {
@@ -578,13 +584,13 @@
  	var db = this.dashboards[accountId];
  	
  	if(messages.length > 0) {
-@@ -347,16 +391,42 @@
+@@ -347,16 +397,44 @@
  		var lastMessage = messages[messages.length-1];
  		Mojo.Log.info("Updating  dashboard... textLen:%s, titleLen:%d, icon:%s", lastMessage.text && lastMessage.text.length, lastMessage.title && lastMessage.title.length, lastMessage.icon);
  		
 +		if(accountId == this.kUnifiedAccountId) {
 +			for(var accId in this.notificationsData) {
-+				var accData = EmailApp.accounts.mailAccounts[accountId];
++				var accData = EmailApp.accounts.mailAccounts[accId];
 +
 +				if((accData) && (accData.notifications) && (accData.notifications.blink)) {
 +					blinkNotify = true;
@@ -606,8 +612,10 @@
  			Mojo.Log.info("Updating dashboard for account %s, %d messages.", accountId, messages.length);
  			db.show(messages);
 +
-+			if(blinkNotify)
-+				this.appController.getStageController(stageName).indicateNewContent(true);
++			var stageController = this.appController.getStageController(stageName);
++
++			if((stageController) && (blinkNotify))
++				stageController.indicateNewContent(true);
  		} else {
  			Mojo.Log.info("Creating dashboard for account %s, %d messages.", accountId, messages.length);
 -			db = this.appController.createDashboard(NotificationAssistant.kNewEmailDashboardStageName+accountId, messages, {
@@ -623,7 +631,7 @@
  			});
  				/* 
  				{
-@@ -460,6 +530,10 @@
+@@ -460,6 +538,10 @@
  	if(messages) {
  		messages.length = 0;
  	}
@@ -634,7 +642,7 @@
  	
  	Mojo.Log.info("NotificationAssistant._dashboardClosed for account ", accountId);
  };
-@@ -601,9 +675,20 @@
+@@ -601,9 +683,20 @@
  	}
  	// No need to check for AccountpreferencesAssistant.kNotifyTypeMute, since mute is what happens if we don't do anything.
  	
@@ -655,7 +663,7 @@
  
  // Utility for display of general notifications in a transient banner.
  NotificationAssistant.prototype.generalNotification = function(msg) {
-@@ -631,18 +716,24 @@
+@@ -631,18 +724,27 @@
  	// send errors use alert icon, from fw: ../images/notification-alert.png
  	// Others use account icon
  	
@@ -677,13 +685,16 @@
  	} else {
  		db.pushContent(details);
 +		
-+		this.appController.getStageController(stageName).indicateNewContent(true);
++		var stageController = this.appController.getStageController(stageName);
++		
++		if(stageController)
++			stageController.indicateNewContent(true);
  	}
 -	
  };
  
  // Generic tap handler for all error dashboards.  Bound to handle both iconTap and mainTap.
-@@ -768,8 +859,82 @@
+@@ -768,8 +870,82 @@
  	}
  };
  
@@ -723,7 +734,7 @@
 +			var repeatInterval = accData.notifications.repeatInterval;
 +		
 +			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000));
- 
++
 +			var month = playSoundTime.getUTCMonth()+1;
 +			if(month < 10) month = "0" + month;
 +			var day = playSoundTime.getUTCDate();
@@ -758,7 +769,7 @@
 +			'method': "clear", 'parameters': {"key": 'emailPlayNotificationSound-' + accountId} });
 +	}
 +};
-+
+ 
 +NotificationAssistant.prototype.playNotificationSound = function() {
 +	this.appController.playSoundNotification("notifications");
 +};
@@ -846,395 +857,3 @@
  /**
   * Function to pretty print an object with a label.
   * Allows deeper insight into an object than Mojo.Log.__("%j", foo);
---- .orig/usr/palm/applications/com.palm.app.email/resources/de/views/accountmanager/accountmanager-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/de/views/accountmanager/accountmanager-scene.html
-@@ -42,8 +42,11 @@
- 	
- 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
- 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
-+
-+	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
-+
- 	<div id="add-account-button" x-mojo-element="Button"></div>
--	<div id="account-manager-default-account-group">
-+<!--	<div id="account-manager-default-account-group">
- 		<div class="palm-group">
- 			<div class="palm-group-title">Standardkonto</div>
- 			<div class="palm-list">
-@@ -54,5 +57,5 @@
- 			</div>
- 		</div> 
- 		<div class="palm-info-text">In der Ansicht „Alle Posteingänge“ angelegte neue E-Mails werden standardmäßig diesem Konto zugeordnet.</div>
--	</div> 
-+	</div> -->
- </div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html
-@@ -41,7 +41,7 @@
- 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
- 	</div>
- </div-->
--
-+<!--
- <div class="palm-group">
- 	<div class="palm-group-title">Neue Nachricht</div>
- 	<div id="edit-account-new-message-list" class="palm-list">
-@@ -70,6 +70,19 @@
- 		</div>
- 	</div>
- </div>
-+-->
-+<div id="edit-account-reply-to" class="palm-group">
-+	<div class="palm-group-title" x-mojo-loc=''>Reply-To Address</div>
-+	<div id="edit-account-reply-to-list" class="palm-list">
-+		<div class="palm-row single">
-+			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
-+				<div class="title">
-+					<div id="reply-to" x-mojo-element="TextField"></div>          
-+				</div>
-+			</div>
-+		</div>
-+	</div>
-+</div>
- 
- <div id="edit-account-signature" class="palm-group">
- 	<div class="palm-group-title">Signatur</div>
-@@ -84,19 +97,6 @@
- 	</div> 
- </div>
- 
--<div id="edit-account-reply-to" class="palm-group">
--	<div class="palm-group-title">Antwortadresse</div>
--	<div id="edit-account-reply-to-list" class="palm-list">
--		<div class="palm-row single">
--			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
--				<div class="title">
--					<div id="reply-to" x-mojo-element="TextField"></div>          
--				</div>
--			</div>
--		</div>
--	</div>
--</div>
--
- <!-- Sync settings -->
- <div id="edit-account-sync" class="palm-group">
- 	<div class="palm-group-title">Synchronisierung</div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/de/strings.json
-+++ /usr/palm/applications/com.palm.app.email/resources/de/strings.json
-@@ -290,5 +290,21 @@
- 	"gmail": "googlemail",
- 	"page at #{host}": "Seite auf #{host}",
- 	"picture at #{host}": "Bild auf #{host}",
--	"picture link": "Link zu Bild"
-+	"picture link": "Link zu Bild",
-+	"Off": "",
-+	"On": "",
-+	"Disabled": "",
-+	"Every 2 minutes": "",
-+	"Every 5 minutes": "",
-+	"Every 15 minutes": "",
-+	"Every 30 minutes": "",
-+	"Every 60 minutes": "",
-+	"Repeat": "",
-+	"Repeat infinitely": "",
-+	"Repeat 3 times": "",
-+	"Repeat 5 times": "",
-+	"Repeat 10 times": "",
-+	"Repeat 15 times": "",
-+	"Repeat 30 times": "",
-+	"Limitation": ""
- }
---- .orig/usr/palm/applications/com.palm.app.email/resources/es/views/accountmanager/accountmanager-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/es/views/accountmanager/accountmanager-scene.html
-@@ -42,8 +42,11 @@
- 	
- 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
- 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
-+
-+	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
-+
- 	<div id="add-account-button" x-mojo-element="Button"></div>
--	<div id="account-manager-default-account-group">
-+<!--	<div id="account-manager-default-account-group">
- 		<div class="palm-group">
- 			<div class="palm-group-title">Cuenta predeterminada</div>
- 			<div class="palm-list">
-@@ -54,5 +57,5 @@
- 			</div>
- 		</div> 
- 		<div class="palm-info-text">Los nuevos mensajes creados en la vista “Todos los buzones” se enviarán de manera predeterminada de esta cuenta.</div>
--	</div> 
-+	</div> -->
- </div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html
-@@ -41,7 +41,7 @@
- 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
- 	</div>
- </div-->
--
-+<!--
- <div class="palm-group">
- 	<div class="palm-group-title">Mensaje nuevo</div>
- 	<div id="edit-account-new-message-list" class="palm-list">
-@@ -70,6 +70,19 @@
- 		</div>
- 	</div>
- </div>
-+-->
-+<div id="edit-account-reply-to" class="palm-group">
-+	<div class="palm-group-title" x-mojo-loc=''>Reply-To Address</div>
-+	<div id="edit-account-reply-to-list" class="palm-list">
-+		<div class="palm-row single">
-+			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
-+				<div class="title">
-+					<div id="reply-to" x-mojo-element="TextField"></div>          
-+				</div>
-+			</div>
-+		</div>
-+	</div>
-+</div>
- 
- <div id="edit-account-signature" class="palm-group">
- 	<div class="palm-group-title">Firma</div>
-@@ -84,19 +97,6 @@
- 	</div> 
- </div>
- 
--<div id="edit-account-reply-to" class="palm-group">
--	<div class="palm-group-title">Dirección de respuesta</div>
--	<div id="edit-account-reply-to-list" class="palm-list">
--		<div class="palm-row single">
--			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
--				<div class="title">
--					<div id="reply-to" x-mojo-element="TextField"></div>          
--				</div>
--			</div>
--		</div>
--	</div>
--</div>
--
- <!-- Sync settings -->
- <div id="edit-account-sync" class="palm-group">
- 	<div class="palm-group-title">Sincronización</div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/es/strings.json
-+++ /usr/palm/applications/com.palm.app.email/resources/es/strings.json
-@@ -287,5 +287,21 @@
- 	"Your username or password is not correct.": "Tu nombre de usuario o contraseña no es correcto.",
- 	"page at #{host}": "página en #{host}",
- 	"picture at #{host}": "imagen en #{host}",
--	"picture link": "enlace de imagen"
-+	"picture link": "enlace de imagen",
-+	"Off": "",
-+	"On": "",
-+	"Disabled": "",
-+	"Every 2 minutes": "",
-+	"Every 5 minutes": "",
-+	"Every 15 minutes": "",
-+	"Every 30 minutes": "",
-+	"Every 60 minutes": "",
-+	"Repeat": "",
-+	"Repeat infinitely": "",
-+	"Repeat 3 times": "",
-+	"Repeat 5 times": "",
-+	"Repeat 10 times": "",
-+	"Repeat 15 times": "",
-+	"Repeat 30 times": "",
-+	"Limitation": ""
- }
---- .orig/usr/palm/applications/com.palm.app.email/resources/fr/views/accountmanager/accountmanager-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/fr/views/accountmanager/accountmanager-scene.html
-@@ -42,8 +42,11 @@
- 	
- 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
- 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
-+
-+	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
-+
- 	<div id="add-account-button" x-mojo-element="Button"></div>
--	<div id="account-manager-default-account-group">
-+<!--	<div id="account-manager-default-account-group">
- 		<div class="palm-group">
- 			<div class="palm-group-title">Compte par défaut</div>
- 			<div class="palm-list">
-@@ -54,5 +57,5 @@
- 			</div>
- 		</div> 
- 		<div class="palm-info-text">Les nouveaux emails créés dans la vue « Toutes les boîtes » seront automatiquement liés à ce compte.</div>
--	</div> 
-+	</div> -->
- </div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html
-@@ -41,7 +41,7 @@
- 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
- 	</div>
- </div-->
--
-+<!--
- <div class="palm-group">
- 	<div class="palm-group-title">Nouveau message</div>
- 	<div id="edit-account-new-message-list" class="palm-list">
-@@ -70,6 +70,19 @@
- 		</div>
- 	</div>
- </div>
-+-->
-+<div id="edit-account-reply-to" class="palm-group">
-+	<div class="palm-group-title" x-mojo-loc=''>Reply-To Address</div>
-+	<div id="edit-account-reply-to-list" class="palm-list">
-+		<div class="palm-row single">
-+			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
-+				<div class="title">
-+					<div id="reply-to" x-mojo-element="TextField"></div>          
-+				</div>
-+			</div>
-+		</div>
-+	</div>
-+</div>
- 
- <div id="edit-account-signature" class="palm-group">
- 	<div class="palm-group-title">Signature</div>
-@@ -84,19 +97,6 @@
- 	</div> 
- </div>
- 
--<div id="edit-account-reply-to" class="palm-group">
--	<div class="palm-group-title">Adresse pour réponse</div>
--	<div id="edit-account-reply-to-list" class="palm-list">
--		<div class="palm-row single">
--			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
--				<div class="title">
--					<div id="reply-to" x-mojo-element="TextField"></div>          
--				</div>
--			</div>
--		</div>
--	</div>
--</div>
--
- <!-- Sync settings -->
- <div id="edit-account-sync" class="palm-group">
- 	<div class="palm-group-title">Synchronisation</div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/fr/strings.json
-+++ /usr/palm/applications/com.palm.app.email/resources/fr/strings.json
-@@ -289,5 +289,21 @@
- 	"Your username or password is not correct.": "Votre nom d’utilisateur ou votre mot de passe n’est pas correct.",
- 	"page at #{host}": "page à #{host}",
- 	"picture at #{host}": "photo à #{host}",
--	"picture link": "lien photo"
-+	"picture link": "lien photo",
-+	"Off": "",
-+	"On": "",
-+	"Disabled": "",
-+	"Every 2 minutes": "",
-+	"Every 5 minutes": "",
-+	"Every 15 minutes": "",
-+	"Every 30 minutes": "",
-+	"Every 60 minutes": "",
-+	"Repeat": "",
-+	"Repeat infinitely": "",
-+	"Repeat 3 times": "",
-+	"Repeat 5 times": "",
-+	"Repeat 10 times": "",
-+	"Repeat 15 times": "",
-+	"Repeat 30 times": "",
-+	"Limitation": ""
- }
---- .orig/usr/palm/applications/com.palm.app.email/resources/it/views/accountmanager/accountmanager-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/it/views/accountmanager/accountmanager-scene.html
-@@ -42,8 +42,11 @@
- 	
- 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
- 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
-+
-+	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
-+
- 	<div id="add-account-button" x-mojo-element="Button"></div>
--	<div id="account-manager-default-account-group">
-+<!--	<div id="account-manager-default-account-group">
- 		<div class="palm-group">
- 			<div class="palm-group-title">Account predefinito</div>
- 			<div class="palm-list">
-@@ -54,5 +57,5 @@
- 			</div>
- 		</div> 
- 		<div class="palm-info-text">I nuovi messaggi e-mail creati nella vista “In arrivo” saranno preimpostati su questo account.</div>
--	</div> 
-+	</div> -->
- </div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html
-+++ /usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html
-@@ -41,7 +41,7 @@
- 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
- 	</div>
- </div-->
--
-+<!--
- <div class="palm-group">
- 	<div class="palm-group-title">Nuovo messaggio</div>
- 	<div id="edit-account-new-message-list" class="palm-list">
-@@ -70,6 +70,19 @@
- 		</div>
- 	</div>
- </div>
-+-->
-+<div id="edit-account-reply-to" class="palm-group">
-+	<div class="palm-group-title" x-mojo-loc=''>Reply-To Address</div>
-+	<div id="edit-account-reply-to-list" class="palm-list">
-+		<div class="palm-row single">
-+			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
-+				<div class="title">
-+					<div id="reply-to" x-mojo-element="TextField"></div>          
-+				</div>
-+			</div>
-+		</div>
-+	</div>
-+</div>
- 
- <div id="edit-account-signature" class="palm-group">
- 	<div class="palm-group-title">Firma</div>
-@@ -84,19 +97,6 @@
- 	</div> 
- </div>
- 
--<div id="edit-account-reply-to" class="palm-group">
--	<div class="palm-group-title">Indirizzo di risposta</div>
--	<div id="edit-account-reply-to-list" class="palm-list">
--		<div class="palm-row single">
--			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">
--				<div class="title">
--					<div id="reply-to" x-mojo-element="TextField"></div>          
--				</div>
--			</div>
--		</div>
--	</div>
--</div>
--
- <!-- Sync settings -->
- <div id="edit-account-sync" class="palm-group">
- 	<div class="palm-group-title">Sincronizzazione</div>
---- .orig/usr/palm/applications/com.palm.app.email/resources/it/strings.json
-+++ /usr/palm/applications/com.palm.app.email/resources/it/strings.json
-@@ -290,5 +290,21 @@
- 	"Your username or password is not correct.": "Il nome utente o la password sono errati.",
- 	"page at #{host}": "pagina a #{host}",
- 	"picture at #{host}": "foto a #{host}",
--	"picture link": "collegamento immagine"
-+	"picture link": "collegamento immagine",
-+	"Off": "",
-+	"On": "",
-+	"Disabled": "",
-+	"Every 2 minutes": "",
-+	"Every 5 minutes": "",
-+	"Every 15 minutes": "",
-+	"Every 30 minutes": "",
-+	"Every 60 minutes": "",
-+	"Repeat": "",
-+	"Repeat infinitely": "",
-+	"Repeat 3 times": "",
-+	"Repeat 5 times": "",
-+	"Repeat 10 times": "",
-+	"Repeat 15 times": "",
-+	"Repeat 30 times": "",
-+	"Limitation": ""
- }
