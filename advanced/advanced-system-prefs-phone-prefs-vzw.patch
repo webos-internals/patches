@@ -203,13 +203,6 @@
  			}
  		}
  		
-@@ -751,4 +829,4 @@
- 		default:
- 			this.nanpRegion = false;
- 	} 
--};
-\ No newline at end of file
-+};
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 @@ -29,7 +29,30 @@
@@ -282,12 +275,10 @@
  	},
      
  	incomingDialogLaunch: function() {
-@@ -1302,7 +1332,23 @@
- 		this.controller.document.removeEventListener("mouseup", this.boundEndContinuousDTMF);
+@@ -1303,6 +1333,22 @@
          this.controller.document.removeEventListener('keydown', this.boundStartDTMFHardKey);
          this.controller.document.removeEventListener('keyup', this.boundEndDTMFHardKey);
--		
-+
+ 		
 +      // remove slider listener
 +		this.sliderSubscription.cancel();
 +		delete this.sliderSubscription;
@@ -307,23 +298,20 @@
  		// drop puck subscription
  		this.puckSubscription.cancel();
  		delete this.puckSubscription;
-@@ -1519,7 +1565,9 @@
+@@ -1519,7 +1565,8 @@
      },
      
      enableSpeakerphoneOnPuck: function(){
 -        if (this.puckConnected === true && this.audioActiveProfile !== "phone_back_speaker") {
-+        if (this.puckConnected === true && this.audioActiveProfile !== "phone_back_speaker" &&
-+        		this.audioActiveProfile === "phone_front_speaker")
++        if (this.puckConnected === true && this.audioActiveProfile === "phone_front_speaker")
 +        {
              this.onAudioRouteChangeClick("phone_back_speaker");
          }
  	},
-@@ -2058,5 +2106,84 @@
- 			}(), 500);
+@@ -2059,4 +2106,86 @@
  		}
  	},
--    
-+   
+     
 +	onSliderEventDuringCall: function(response) {
 +		if((!response) || (!response.key) || (!response.state))
 +			return;
@@ -357,7 +345,10 @@
 +		if(this.appAssistant.phonePrefs.powerButton == "none")
 +			return;
 +
-+		if((response.powerKey == 'released') && (this.audioActiveProfile !== "phone_back_speaker")) {
++		if((response.powerKey == 'released') && 
++			((this.audioActiveProfile == "phone_front_speaker") ||
++			(this.appAssistant.phonePrefs.proximityAction == "change")))
++		{
 +			// First, "tap" each Disconnect Button.
 +
 +			for(i = 0; i < 3; i++) {
@@ -483,15 +474,7 @@
  	if (this.messageCallback) {
  		this.messageCallback();
  	} else {
-@@ -80,6 +92,7 @@
-   
-   updateMessage: function(header, body, itemcount, timestamp, badgeTemplate) {
-   	Mojo.Log.info("DashannounceAssistant::updateMessage");
-+
- 	if (this.windowName == 'misseddash' && timestamp) {
- 		this.missedTimeStamp = timestamp;
- 	}
-@@ -91,7 +104,11 @@
+@@ -91,7 +103,11 @@
  	this.itemcount = itemcount;
  	this.badgeTemplate = badgeTemplate;
  	this.updateBadge();
@@ -504,7 +487,7 @@
    },
    
    updateBadge: function() {
-@@ -115,7 +132,45 @@
+@@ -115,7 +131,45 @@
  		this.controller.get('badge').innerHTML = "";
  		this.controller.get('notification').addClassName("single");
  	}
@@ -563,14 +546,6 @@
  			if (this.setupComplete) {
  				this.clear();
  				this.hidePicker();
-@@ -476,7 +479,6 @@
- 			
- 		} else if (event.type == Mojo.Event.command) {
- 			switch (event.command) {
--				
- 				case 'logging-verbose-cmd':
- 					TelephonyCommands.loggingVerboseSet(true);
- 					break;
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/menu-controller.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/menu-controller.js
 @@ -8,7 +8,7 @@
@@ -582,7 +557,7 @@
  		visible: true,
          items: appMenuItems
  	});
-@@ -34,14 +34,23 @@
+@@ -34,7 +34,12 @@
  };
  
  MenuController._getAppMenuItems = function(prefixItems) {
@@ -596,9 +571,8 @@
  	
  	// add 'Check Skype Balance' if we have a skype account
  	if ( CallSynergy.isSkypeCapable() && CallSynergy.hasSkypeAccount() ) {
- 		items.push(MenuController.kSkypeBalanceMenuItem);
+@@ -42,6 +47,9 @@
  	}
-+
  	
  	items.push(MenuController.kRingtonesMenuItem);
 +	items.push(MenuController.kServicesMenuItem);
@@ -607,7 +581,7 @@
  	
  	return items;
  };
-@@ -86,4 +95,6 @@
+@@ -86,4 +94,6 @@
  };
  
  MenuController.kSkypeBalanceMenuItem = {label: $L('Check Skype Credit'), command: 'skypebalance'};
@@ -672,12 +646,9 @@
  			
  	        this.exposed = true;
  			// turn display on and lock it there
-@@ -331,12 +332,16 @@
- 			return;
- 		}
+@@ -333,10 +334,14 @@
  		
--		if (response.key === "slider") {
-+		if(response.key === "slider") {
+ 		if (response.key === "slider") {
  			var newSliderOpenState = (response.state === "up");
 -			if (this.exposed
 -				&& this.sliderOpen === false 
@@ -702,7 +673,7 @@
 -				this.answerIfStillOffPuck.bind(this).delay(0.750);
 +			if(this.appAssistant.phonePrefs.removedFromTS == "answer") {
 +				if (this.appAssistant.puckMode && this.exposed && this.puckConnected === true && response.connected === false) {
-+					this.answerIfStillOffPuck.bind(this).delay(0.750);
++					this.answerIfStillOffPuck.bind(this).delay(1.000);
 +				}
  			}
  			this.puckConnected = response.connected;
@@ -718,11 +689,10 @@
          if (this.blockIgnore) {
  			Mojo.Log.error( "IncomingcallAssistant#rejectCall tapped too soon");
  			this.unblockIgnore();
-@@ -426,7 +435,18 @@
+@@ -426,6 +435,17 @@
          this.mute();
  		this.exitStatus = "rejected";
  		
--      	this.closeWindow();
 +		if((this.contact.canBeCalled()) && (this.contact.service != CallSynergy.SERVICES.SKYPE)) {
 +			if((hold) && (this.appAssistant.rejectedPrefs.rejectAction == "autoreply")) {	
 +				this.controller.serviceRequest('palm://com.palm.applicationManager/', {
@@ -734,17 +704,9 @@
 +			}
 +		}
 +
-+     	this.closeWindow();
+       	this.closeWindow();
      },
  	
- 	// hide alert and instruct blur handler to show ignore UI
-@@ -620,4 +640,4 @@
- };
- 
- 
--IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
-\ No newline at end of file
-+IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
 --- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 +++ /usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 @@ -365,4 +365,13 @@
@@ -824,13 +786,6 @@
  		
  		// these attributes are NOT displayed but are passed through to
  		// the call log for the bluetooth service. This shouldn't be needed but
-@@ -560,4 +566,4 @@
- 	}
- 	
- 	return "";
--}
-\ No newline at end of file
-+}
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/DialpadCard.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/states/DialpadCard.js
 @@ -10,6 +10,14 @@
@@ -887,13 +842,6 @@
  			}.bind(this)
  		}).pushScene();
  	},
-@@ -73,4 +75,4 @@
- 		}
- 		return defaultType;
- 	}
--});
-\ No newline at end of file
-+});
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/Start.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/states/Start.js
 @@ -7,8 +7,13 @@
@@ -972,12 +920,12 @@
 +				if(((blockedNumbers) && (!contact.canBeCalled())) || ((unknownNumbers) && (!contact.personId)))
 +					unknownPrefs = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownContacts);
 +				
-+				if((unknownPrefs.callAction) && (unknownPrefs.callAction == "direct2vm"))
++				if((unknownPrefs) && (unknownPrefs.callAction) && (unknownPrefs.callAction == "direct2vm"))
 +					this.flagCallRejected(callState.affectedCallId);
-+				else if((unknownPrefs.callAction) && (unknownPrefs.callAction == "autohangup"))
++				else if((unknownPrefs) && (unknownPrefs.callAction) && (unknownPrefs.callAction == "autohangup"))
 +					TelephonyCommands.disconnect(callState.affectedCallId);
 +				else {
-+					if((unknownPrefs.callAlert) && (unknownPrefs.callAlert != "default")) {
++					if((unknownPrefs) && (unknownPrefs.callAlert) && (unknownPrefs.callAlert != "default")) {
 +						contact.callAlert = unknownPrefs.callAlert;
 +					
 +						if((unknownPrefs.callAlert == "ringtone") && (unknownPrefs.callRingtonePath))
@@ -1005,6 +953,15 @@
  			// issue unlock event if 
  			if ( ! response.locked && this.appAssistant.screenLockSecured ) {
  				UIStateMachine.event('lock', false); // let the current state know we're locked/unlocked
+@@ -1264,7 +1307,7 @@
+ 		if (response.extended) {
+ 			var state = response.extended.state;
+ 			switch (state) {
+-				case simready:
++				case "simready":
+ 					this.simready = true;
+ 					break;
+ 				default:
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/UIStateMachine.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/UIStateMachine.js
 @@ -28,6 +28,8 @@
