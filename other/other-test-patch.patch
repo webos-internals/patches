@@ -1,0 +1,207 @@
+diff --git a/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js b/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js
+index aed4b02..467832e 100644
+--- a/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js
++++ b/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js
+@@ -785,6 +785,7 @@ _Dialog:'widget_dialog',
+ Pager:null,
+ Drawer:null,
+ CharSelector:null,
++VirtualKeyboard:null,
+ FilterList:null,
+ _Submenu:'widget_submenu',
+ ExperimentalGridList:'widget_grid',
+@@ -4062,6 +4063,11 @@ if(this.charSelectorIsOpen()){
+ return;
+ }
+ this.charSelector=this.createDynamicWidget('CharSelector',{selectionTarget:event.selectionTarget});
++}else if(event.type===Mojo.Event.renderVirtualKeyboard){
++if(this.virtualKeyboard&&this.virtualKeyboard.element&&this.virtualKeyboard.element.mojo&&this.virtualKeyboard.element.mojo.isOpen()){
++return;
++}
++this.virtualKeyboard=this.createDynamicWidget('VirtualKeyboard',{selectionTarget:event.selectionTarget});
+ }
+ },
+ 
+@@ -4348,6 +4354,7 @@ kDefaultSceneName:'main',
+ kSceneClassName:'palm-scene',
+ kBrowserObject:'application/x-palm-browser',
+ enableAltCharPicker:true,
++enableVirtualKeyboard:true,
+ 
+ 
+ 
+@@ -4359,6 +4366,7 @@ this.document=this.window.document;
+ this.paramsFromURI=this.document.baseURI.toQueryParams();
+ this.stageType=this.paramsFromURI.window||"card";
+ this._stageProxy=stageProxy;
++this.metaCount=0;
+ 
+ this._stagePreparing=true;
+ 
+@@ -4422,8 +4430,39 @@ this.window.focus=focusWrapper;
+ if(this.window._mojoLightweightWindow){
+ Mojo.Locale.loadLocaleSpecificStylesheets(this.document);
+ }
+-},
+ 
++/*
++  this.sliderSubscription = new Mojo.Service.Request("palm://com.palm.keys/switches",
++    { 
++      method: 'status',
++      parameters: {
++        'subscribe': true
++      },
++      onSuccess:  this.sliderEvent.bind(this),
++      onFailure: function() {
++        Mojo.Log.error("slider subscribe failure");
++      }
++     });
++     */
++},
++
++  /*
++sliderEvent:function(response) {
++  Mojo.Log.error("SLIDER " + response.state);
++  for (var r in response)
++    Mojo.Log.error(r + ": " + response[r]);
++  if (response.key === "slider") {
++    switch (response.state) {
++      case "up":
++        this.enableVirtualKeyboard = false;
++        break;
++      case "down":
++        this.enableVirtualKeyboard = true;
++        break;
++    }
++  }
++},
++*/
+ 
+ _cleanup:function(){
+ var stageName;
+@@ -5276,6 +5315,15 @@ var scene=this.topScene();
+ var tempTextArea,msg,scriptNode;
+ var webView;
+ 
++/* Use pageup (179) for emulator */
++if (this.enableVirtualKeyboard) {
++  if (event.keyCode === Mojo.Char.metaKey || event.keyCode === 179) {
++    if (this.metaCount === 2) {
++      this.metaDoubleTap=true;
++    }
++  }
++}
++
+ if(Mojo.Controller.isGoBackKey(event)){
+ var newEv=Mojo.Event.make(Mojo.Event.back,{originalEvent:event});
+ this.sendEventToCommanders(newEv);
+@@ -5296,6 +5344,16 @@ if(webView){
+ webView.mojo.isEditing(this._sendCharpickerEventCallback.bind(this,Mojo.Event.renderAltCharacters,webView,null));
+ }
+ }
++}else if(this.enableVirtualKeyboard&&this.metaDoubleTap){
++this.metaDoubleTap=false;
++if(this.doesTargetAcceptKeys(event.target)){
++this._sendCharpickerEvent(Mojo.Event.renderVirtualKeyboard,event.target,null);
++}else{
++webView=this._getWebview(event.target);
++if(webView){
++webView.mojo.isEditing(this._sendCharpickerEventCallback.bind(this,Mojo.Event.renderVirtualKeyboard,webView,null));
++}
++}
+ }else if(event.keyCode===Mojo.Char.o&&event.ctrlKey&&event.shiftKey&&Mojo.Config.debuggingEnabled){
+ 
+ 
+@@ -5353,6 +5411,13 @@ this._forwardEventToTopContainer(Mojo.Event.keyup,event);
+ _keyDownHandler:function(event){
+ var webView;
+ 
++if (event.keyCode === Mojo.Char.metaKey || event.keyCode === 179) {
++  this.metaCount++;
++  if (this.metaCount === 1) {
++    this.metaTimer=this.window.setTimeout(function(){this.metaCount=0;}.bind(this), 600);
++  }
++}
++
+ if(this.enableAltCharPicker&&event.keyCode!==Mojo.Char.sym&&event.ctrlKey){
+ if(this.doesTargetAcceptKeys(event.target)){
+ this._sendCharpickerEvent(Mojo.Event.renderChordedAltCharacters,event.target,event.keyCode);
+@@ -10297,6 +10362,9 @@ Mojo.Event.renderAltCharacters='mojo-altchars';
+ Mojo.Event.renderChordedAltCharacters='mojo-altchars-chorded';
+ 
+ 
++Mojo.Event.renderVirtualKeyboard='webos-internals-onscreen-keyboard';
++
++
+ Mojo.Event.orientationChange='mojo-orientation';
+ 
+ 
+@@ -11626,7 +11694,7 @@ return stringTable;
+ 
+ Mojo.Locale.set=function(currentLocale,formatRegion){
+ var deviceInfo=Mojo.Environment.DeviceInfo;
+-var altCharFullTable,altCharTable;
++var altCharFullTable,altCharTable,kbCharTable,kbCharFullTable;
+ 
+ if(Mojo.Locale.current!=currentLocale){
+ Mojo.Locale.current=currentLocale;
+@@ -11668,10 +11736,14 @@ switch(deviceInfo.keyboardType){
+ case Mojo.Environment.AZERTY:
+ altCharTable="alternatechars_table_azerty.json";
+ altCharFullTable="alternatechars_fulltable_azerty.json";
++kbCharTable="kbchars_table_azerty.json";
++kbCharFullTable="kbchars_fulltable_azerty.json";
+ break;
+ case Mojo.Environment.QWERTZ:
+ altCharTable="alternatechars_table_qwertz.json";
+ altCharFullTable="alternatechars_fulltable_qwertz.json";
++kbCharTable="kbchars_table_qwertz.json";
++kbCharFullTable="kbchars_fulltable_qwertz.json";
+ break;
+ case Mojo.Environment.QWERTZ_ACC:
+ altCharTable="alternatechars_table_qwertz_accented.json";
+@@ -11684,8 +11756,12 @@ break;
+ default:
+ altCharTable="alternatechars_table.json";
+ altCharFullTable="alternatechars_fulltable.json";
++kbCharTable="kbchars_table.json";
++kbCharFullTable="kbchars_fulltable.json";
+ }
+ 
++Mojo.Locale.kbCharacters=Mojo.Locale.readStringTable(kbCharTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
++Mojo.Locale.kbCharactersFull=Mojo.Locale.readStringTable(kbCharFullTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
+ Mojo.Locale.alternateCharacters=Mojo.Locale.readStringTable(altCharTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
+ Mojo.Locale.alternateCharactersFull=Mojo.Locale.readStringTable(altCharFullTable,Mojo.Locale.current,Mojo.Locale.frameworkResourcePath,altCharArrayMerge);
+ Mojo.Locale.DateTimeStrings=Mojo.Locale.readStringTable("datetime_table.json",Mojo.Locale.current,Mojo.Locale.frameworkResourcePath);
+@@ -21183,6 +21259,9 @@ return;
+ if(Mojo.Char.isCommitKey(chr)){
+ return;
+ }
++if(event.target&&Mojo.View.getParentWithAttribute(event.target,"x-mojo-element","VirtualKeyboard")){
++return;
++}
+ 
+ switch(this.STATE){
+ case this.ADDRESSING_WIDGET_FOCUSED:
+@@ -31941,7 +32020,8 @@ return false;
+ 
+ sendChanges:function(triggeringEvent){
+ 
+-if(!Mojo.View.getParentWithAttribute(triggeringEvent.target,'x-mojo-element','CharSelector')){
++if(!Mojo.View.getParentWithAttribute(triggeringEvent.target,'x-mojo-element','CharSelector') &&
++   !Mojo.View.getParentWithAttribute(triggeringEvent.target,'x-mojo-element','VirtualKeyboard')){
+ this.maybeSendPropertyChangeEvent(triggeringEvent);
+ }
+ },
+diff --git a/usr/palm/frameworks/mojo/submissions/347/stylesheets/global.css b/usr/palm/frameworks/mojo/submissions/347/stylesheets/global.css
+index 9adb28a..da7f703 100644
+--- a/usr/palm/frameworks/mojo/submissions/347/stylesheets/global.css
++++ b/usr/palm/frameworks/mojo/submissions/347/stylesheets/global.css
+@@ -16,6 +16,7 @@
+ @import url(global-iconography.css);
+ @import url(global-widget-addressing.css);
+ @import url(global-widget-mvpicker.css);
++@import url(webos-internals-virtual-keyboard.css);
+ 
+ a {
+   color: #00c;

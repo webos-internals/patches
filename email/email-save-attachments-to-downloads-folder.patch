@@ -1,0 +1,113 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+index 761069e..26237ec 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -1084,8 +1084,37 @@ var MessageAssistant = Class.create({
+ 		if (listDiv) {
+ 			var attachmentUri = listDiv.getAttribute('x-uri');
+ 			var attachmentMimeType = listDiv.getAttribute('x-mimetype');
++			var filename = attachmentUri.substring(attachmentUri.lastIndexOf("/")+1);
+ 			if (attachmentUri) {
+-				this.openAttachment(listDiv);
++				this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++					method: "exists",
++					parameters: {file:"/media/internal/downloads/" + filename},
++					onSuccess: function(response) {
++						if(response.exists) {
++							listDiv.setAttribute("x-uri", "/media/internal/downloads/" + filename);
++							this.openAttachment(listDiv);
++						} else {
++							//this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++							//	method: "exists",
++							//	parameters: {file:attachmentUri},
++							//	onSuccess: function(response2) {
++							//		if(response2.exists) {
++							//			this.openAttachment(listDiv);
++							//		} else {
++										listDiv.removeAttribute("x-uri");
++										this.handleAttachmentTapped(event);
++							//		}
++							//	}.bind(this),
++							//	onFailure: function(err2) {
++							//		this.openAttachment(listDiv);
++							//	}.bind(this)
++							//});
++						}
++					}.bind(this),
++					onFailure: function(err) {
++						this.openAttachment(listDiv);
++					}.bind(this)
++				});
+ 			} else if (event.target.className === "download-cancel") {
+ 				this.stopAttachmentDownload(listDiv.id);
+ 				
+@@ -1097,7 +1126,7 @@ var MessageAssistant = Class.create({
+ 					clearTimeout(this.hideTimeout);
+ 					this.hideTimeout = null;
+ 				}
+-				this.startAttachmentDownload(listDiv.id);
++				this.startAttachmentDownload(listDiv.id, filename);
+ 				
+ 				if (this.attachmentDownloadCount === undefined)
+ 					this.attachmentDownloadCount = 1;
+@@ -1174,13 +1203,13 @@ var MessageAssistant = Class.create({
+ 		}
+ 	},
+ 
+-	startAttachmentDownload: function(id) {
++	startAttachmentDownload: function(id, filename) {
+ 		Mojo.Log.info("start attachment download", id);
+ 		var progressbar = this.controller.get('progress_' + id);
+ 		if (progressbar.visible()) {
+ 			Mojo.Log.info("ignoring tap because attachment is already downloading");
+ 		} else {
+-			this.attachmentDLProgress.subs[id] = Message.loadAttachment(id, this.attachmentDownloadProgress.bind(this), this.attachmentError.bind(this, id));
++			this.attachmentDLProgress.subs[id] = Message.loadAttachment(id, this.attachmentDownloadProgress.bind(this, filename), this.attachmentError.bind(this, id));
+ 
+ 			// This makes the progressbar show up so the user gets immediate feedback. 
+ 			this.controller.get('file_size_' + id).hide(); // showing the progress bar so hide the file size		
+@@ -1309,7 +1338,7 @@ var MessageAssistant = Class.create({
+ 		}
+ 	},
+ 	
+-	attachmentDownloadProgress: function(info) {
++	attachmentDownloadProgress: function(filename, info) {
+ 		// If the object doesn't contain a 'id' property, it isn't valid download progress
+ 		if (info.id) {
+ 			if (info.status == Message.ATTACHMENT_LOAD_COMPLETED_EVENT) {
+@@ -1318,7 +1347,34 @@ var MessageAssistant = Class.create({
+ 				this.attachmentUpdateProgressbar(info.id, 100);
+ 
+ 				// Final step to fully download is to get details of this attachment, including the URI.
+-				Message.getAttachmentDetails(this.controller, info.id, this.handleAttachmentDetails.bind(this), this.attachmentError.bind(this, info.id));
++				Message.getAttachmentDetails(this.controller, info.id, function(details) {
++					this.filemgrRequest1 = new Mojo.Service.Request("palm://ca.canucksoftware.filemgr", {
++						method: "createDir",
++						parameters: {path:"/media/internal/downloads/"},
++						onSuccess: function(response1) {
++							var newPath = undefined;
++							if(filename) {
++								newPath = "/media/internal/downloads/" + filename;
++							} else {
++								newPath = "/media/internal/downloads/" + details.uri.substring(details.uri.lastIndexOf("/")+1);
++							}
++							this.filemgrRequest2 = new Mojo.Service.Request("palm://ca.canucksoftware.filemgr", {
++								method: "move",
++								parameters: {from:details.uri, to:newPath},
++								onSuccess: function(response2) {
++									details.uri = newPath;
++									this.handleAttachmentDetails(details);
++								}.bind(this),
++								onFailure: function(err2) {
++									this.handleAttachmentDetails(details);
++								}.bind(this)
++							});
++						}.bind(this),
++						onFailure: function(err1) {
++							this.handleAttachmentDetails(details);
++						}.bind(this)
++					});
++				}.bind(this), this.attachmentError.bind(this, info.id));
+ 			}
+ 			else if (info.status == Message.ATTACHMENT_LOAD_PROGRESS_EVENT) {
+ 				// The transports can be rather aggressive about sending progress notifications so
