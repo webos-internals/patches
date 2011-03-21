@@ -100,7 +100,33 @@
 +}
 --- .orig/usr/palm/applications/com.palm.app.calendar/app/models/calendar-prefs-manager.js
 +++ /usr/palm/applications/com.palm.app.calendar/app/models/calendar-prefs-manager.js
-@@ -89,7 +89,31 @@
+@@ -43,16 +43,22 @@
+ 
+ 
+ 	loadFromDB: function() {
+-		this.loadRequest = this.db.getCalendarPrefs (this.onLoadFromDB, this.onLoadFromDBFailed);
++		this.loadRequest = this.db.getCalendarPrefs (this.onLoadFromDB, this.onLoadFromDBFailed, true);
+ 	},
+ 
+ 
+ 	onLoadFromDB: function (response, request) {
++		if(response.fired) {
++			this.loadRequest = this.db.getCalendarPrefs (this.onLoadFromDB, this.onLoadFromDBFailed, true);
++		
++			return;
++		}
++		
+ 		Mojo.Log.info("getcalendarPrefs Success: %j", response);
+ 
+ 		// Release the db service request:
+-		this.loadRequest.cancel();
+-		this.loadRequest = undefined;
++//		this.loadRequest.cancel();
++//		this.loadRequest = undefined;
+ 		
+ 		var results = response && response.results;
+ 		var resultsLength = results && results.length;
+@@ -89,7 +95,31 @@
  			Foundations.Data.DB.del(idsToDelete);
  		}
  			
@@ -133,7 +159,18 @@
  		//Check to make sure the user didn't change country, affecting start of week since last time we saved prefs
  		var startOfWeek = Mojo.Format.getFirstDayOfWeek()+1;
  		
-@@ -132,6 +156,14 @@
+@@ -109,8 +139,8 @@
+ 		Mojo.Log.error ("PrefsManager: getCalendarsPrefs service call failed: %j", response);
+ 
+ 		// Release the db service request:
+-		this.loadRequest.cancel();
+-		this.loadRequest = undefined;
++//		this.loadRequest.cancel();
++//		this.loadRequest = undefined;
+ 
+ 		this.setDefaults();
+ 	},
+@@ -132,6 +162,14 @@
  		,	startOfWeek					: startOfWeek
  		,	startTimeOfDay				: -226799992
  		,	userChangedStartOfWeek		: false
@@ -148,6 +185,42 @@
  		};
  
  		// Cache the db service request to prevent if from being garbage collected:
+@@ -167,7 +205,7 @@
+ 		this.prefs._rev = results.rev;
+ 
+ 		// Update preference change observers:
+-		this.notifyObservers();
++//		this.notifyObservers();
+ 	},
+ 
+ 	
+--- .orig/usr/palm/applications/com.palm.app.calendar/app/models/database.manager.js
++++ /usr/palm/applications/com.palm.app.calendar/app/models/database.manager.js
+@@ -20,20 +20,21 @@
+ 				});
+ 	},
+ 	
+-	getCalendarPrefs:function(successCB,failureCB){
++	getCalendarPrefs:function(successCB,failureCB,watchChanges){
+ 		Mojo.Log.info("**********In getCalendarPrefs");
+ 		return new Mojo.Service.Request(DatabaseManager.identifier , {
+ 			method: "find",
+ 			parameters: {
+ 					query:{
+ 						from:DatabaseManager.calendarPrefsTable
+-					}
++					},
++					watch: watchChanges
+ 			},
+ 			onSuccess: successCB,
+ 			onFailure: failureCB
+ 		});
+ 	},
+-	
++
+ 	watchCalendars:function(lastRev, successCB, failureCB){
+ 		lastRev = (lastRev ? lastRev : 0);
+ 		return	new Mojo.Service.Request (DatabaseManager.identifier,
 --- .orig/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 +++ /usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 @@ -73,6 +73,10 @@
@@ -1379,7 +1452,7 @@
  		}
  		else{
  			Mojo.Log.info("========= RM: displayReminder: reusing reminder assistant stage");
-@@ -561,6 +572,50 @@
+@@ -561,6 +572,62 @@
  		Mojo.Log.info("========= RM: displayReminder: out");
  	},
  	
@@ -1388,13 +1461,16 @@
 +
 +		if((prefs.alarmSoundOn == 0) || (prefs.notificationRepeatInterval == 0))
 +			return;
-+		
++
 +		if(count++ < prefs.notificationRepeatLimit) {
 +			var currentTime = new Date();
 +			
 +			var repeatInterval = prefs.notificationRepeatInterval;
 +			
-+			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000));
++			if(count == 0)
++				var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) - 60000);
++			else
++				var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000));
 +			
 +			var month = playSoundTime.getUTCMonth()+1;
 +			if(month < 10) month = "0" + month;
@@ -1424,7 +1500,16 @@
 + 	},
 +
 +	playNotificationSound: function() {
-+		Mojo.Controller.getAppController().playSoundNotification("notifications");
++		var prefs = getAppAssistant().getPrefsManager().getPrefs();	
++
++		var options = getAppAssistant().getPrefsManager().getAlarmSoundOptions();
++
++		if(prefs.alarmSoundOn == options.ringtone)
++			Mojo.Controller.getAppController().playSoundNotification("notifications", prefs.ringtonePath);
++		else if(prefs.alarmSoundOn == options.systemSound)
++			Mojo.Controller.getAppController().playSoundNotification("calendar");
++		else if(prefs.alarmSoundOn == options.vibrate)
++			Mojo.Controller.getAppController().playSoundNotification("vibrate");
 + 	},
 +
  	// OBSERVERS

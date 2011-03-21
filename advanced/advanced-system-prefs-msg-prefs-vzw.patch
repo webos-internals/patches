@@ -1,3 +1,79 @@
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/models/MojoDbInterfaces.js
++++ /usr/palm/applications/com.palm.app.messaging/app/models/MojoDbInterfaces.js
+@@ -958,29 +958,55 @@
+ //			return isValid;
+ //		},
+ 		
+-		setCustomMessage: function(customMessage) {
++		setCustomMessage: function(customMessage, objectId) {
+ 			Mojo.Log.info("Setting customMessage to %s", customMessage);
+-			var mergeObject = {
+-				props: {
+-					customMessage: customMessage
+-				},
+-				query: {
+-					from: MessagingDB.IMLoginState.id
+-				}
+-			};
++			if(objectId) {
++				var mergeObject = {
++					props: {
++						customMessage: customMessage
++					},
++					query: {
++						from: MessagingDB.IMLoginState.id,
++						where: [{ prop: "_id", op: "=", val: objectId }]
++					}
++				};
++			}
++			else {
++				var mergeObject = {
++					props: {
++						customMessage: customMessage
++					},
++					query: {
++						from: MessagingDB.IMLoginState.id
++					}
++				};
++			}
+ 			return MojoDB.execute("merge", mergeObject);
+ 		},
+ 
+-		setAvailability: function(availability) {
++		setAvailability: function(availability, objectId) {
+ 			Mojo.Log.info("Setting availability to %s", availability);
+-			var mergeObject = {
+-				props: {
+-					availability: availability
+-				},
+-				query: {
+-					from: MessagingDB.IMLoginState.id
+-				}
+-			};
++			if(objectId) {
++				var mergeObject = {
++					props: {
++						availability: availability
++					},
++					query: {
++						from: MessagingDB.IMLoginState.id,
++						where: [{ prop: "_id", op: "=", val: objectId }]
++					}
++				};
++			}
++			else {			
++				var mergeObject = {
++					props: {
++						availability: availability
++					},
++					query: {
++						from: MessagingDB.IMLoginState.id
++					}
++				};
++			}
+ 			return MojoDB.execute("merge", mergeObject);
+ 		},
+ 
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
 @@ -52,6 +52,8 @@
@@ -23,13 +99,25 @@
  	},
 +
 +	playNotificationSound: function(serviceName) {
-+		this.appController.notificationAssistant.playNotificationSound();
++		this.appController.notificationAssistant.playNotificationSound(serviceName);
 +			
 +		this.appController.notificationAssistant.schedulePlayNotificationSoundTasks(serviceName);
 +	},
  	
  	launchChatWithId: function(stageController, chatThreadId) {
  		if (stageController) {			
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
++++ /usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
+@@ -7,7 +7,7 @@
+       <div class="unread-count-container">
+         <div class="unread-count-wrapper">#{unreadCount}</div>
+       </div>
+-      <div class="truncating-text custom-message">#{-customMessage}</div>
++      <div class="custom-message">#{-customMessage}</div>
+     </div>
+   </div>
+ </div>
+\ No newline at end of file
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 @@ -270,6 +270,16 @@
@@ -49,7 +137,18 @@
  			}
  		}.bind(this);
  		
-@@ -1370,6 +1380,8 @@
+@@ -394,7 +404,9 @@
+ 				labelCallback: this.chatListDividerFunction.bind(this),
+ 				template: 'chatview/separator'
+ 			},
+-			swipeDelete: true,
++			swipeDelete: {
++				autoConfirm: !this.Messaging.messagingPrefs.getUseDeleteConfirmation()
++			},
+ 			uniquenessProperty: '_id',
+ 			initialScrollingDirection: 'up',
+ 			revisionProperty: '_rev',
+@@ -1370,6 +1382,8 @@
  			return;
  		}
  		
@@ -58,7 +157,7 @@
  		if (tapTarget && tapTarget.id.startsWith(ChatviewAssistant.quickDialIdPrefix)) {
  			try {
  				// The phone number is the substring after the quick dial prefix.
-@@ -1445,6 +1457,30 @@
+@@ -1445,6 +1459,30 @@
  				this.resetTextBox(false);
  			}
  		}
@@ -89,7 +188,7 @@
  		this.setCharacterCounterMaxLength();
  	},
  
-@@ -2437,6 +2473,9 @@
+@@ -2437,6 +2475,9 @@
  		Mojo.Log.info("value " + value);
  		
  		if (value === 'forward-cmd') {
@@ -99,7 +198,7 @@
  			var composeParams = {
  				messageText: text,
  				focusWindow: true,
-@@ -3104,8 +3143,26 @@
+@@ -3104,8 +3145,26 @@
  	
  	_getMessageFromDraft: function() {
  		MessagingDB.Messages.getMessageFromDraft(this.chatThreadId, function(result) {
@@ -244,7 +343,91 @@
  };
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
-@@ -418,7 +418,9 @@
+@@ -32,6 +32,8 @@
+ 		this.historyListReset = false;
+ 		this.delayUpdateCount = 0;
+ 		this.delayExecuteCount = 0;
++		this.accountsData = {};
++		this.availabilityData = {};
+ 	
+ 		this.COMMAND_MENU = {
+ 			loadComposeView: {command:'cmdLoadComposeView',target: this.loadComposeView.bind(this)},
+@@ -67,7 +69,7 @@
+ 			{label: $L('Available'), command:this.Messaging.Availability.getAvailabilityAsConstText(this.Messaging.Availability.AVAILABLE), secondaryIcon:'status-available'},
+ 			{label: $L('Busy'),      command:this.Messaging.Availability.getAvailabilityAsConstText(this.Messaging.Availability.BUSY),      secondaryIcon:'status-away'},
+ 			// libpurple doesn't support invisible status for gtalk so commenting this out for now.
+-			//{label: $L('Invisible'), command:this.Messaging.Availability.getAvailabilityAsConstText(this.Messaging.Availability.INVISIBLE),  secondaryIcon:'status-invisible'},
++			{label: $L('Invisible'), command:this.Messaging.Availability.getAvailabilityAsConstText(this.Messaging.Availability.INVISIBLE),  secondaryIcon:'status-invisible'},
+ 			{label: $L('Sign off'),  command:this.Messaging.Availability.getAvailabilityAsConstText(this.Messaging.Availability.OFFLINE),   secondaryIcon:'status-offline'}
+ 		];
+ 		
+@@ -91,6 +93,29 @@
+ 	
+ 		//To update the addBuddy menu item
+ 		this.handleIMAccountsChange = function(results) {
++			this.accountsData = {};
++					
++			if(results && results.length > 1) {
++				for(var i = 0; i < results.length; i++) {						
++					if(results[i].alias) {
++						var cp = results[i].capabilityProviders;
++
++						for (j = 0; j < cp.length; j++) {
++							if (cp[j].capability === 'MESSAGING') {
++								if (cp[j].capabilitySubtype === 'IM') {
++									if(!this.accountsData[results[i].alias])
++										this.accountsData[results[i].alias] = [];
++	
++									this.accountsData[results[i].alias].push({
++										accountId: results[i]._id, 
++										username: results[i].username});
++								}
++							}
++						}
++					}
++				}
++			}
++
+ 			//Assume we only have SMS and IM for Messaging, only have one SMS
+ 			if (results && results.length > 1) {
+ 				this.toEnableAddBuddyMenuItem = true;
+@@ -136,6 +161,8 @@
+ 		}.bind(this);
+ 		
+ 		this.updateAvailability = function(results) {
++			this.availabilityData = {};
++					
+ 			//Mojo.Log.info("this.updateAvailability: %j",results);
+ 			Mojo.Log.info("Number of IM transports: "+results.length);
+ 			if( results && results.length > 0 ) {
+@@ -156,6 +183,13 @@
+ 				var isPending = false;
+ 				for (var i = 0; i < results.length && !isPending; i++) {
+ 					var account = results[i];
++					
++					this.availabilityData[account.accountId] = {
++						objectId: account._id,
++						availability: account.availability,
++						customMessage: account.customMessage
++					};
++					
+ 					Mojo.Log.info("username=%s, availability=%d, state=%s", account.username, account.availability, account.state);
+ 					// If an account is not offline, then we can clear out any notifications
+ 					// that may have been queued from losing wifi connectivity when the screen turned off
+@@ -216,7 +250,11 @@
+ 		this.handleHistoryListDelete = this.handleHistoryListDelete.bindAsEventListener(this);
+ 		this.handleBuddyListTap = this.handleBuddyListTap.bindAsEventListener(this);
+ 		this.handleAvailabilityPickerTap = this.handleAvailabilityPickerTap.bindAsEventListener(this);
+-		this.customMessageUpdate = this.customMessageUpdate.bind(this);
++		this.handleAvailabilityPickerHold = this.handleAvailabilityPickerHold.bindAsEventListener(this);
++		this.customMessageSelect = this.customMessageSelect.bindAsEventListener(this);
++		this.customMessageCancel = this.customMessageCancel.bindAsEventListener(this);
++		this.customMessageUpdateTap = this.customMessageUpdate.bindAsEventListener(this, true);
++		this.customMessageUpdateHold = this.customMessageUpdate.bindAsEventListener(this, false);
+ 		this.handleScreenStateChange = this.handleScreenStateChange.bind(this);
+ 		this.handleFocus = this.handleFocus.bind(this);
+ 		this.handleLoseFocus = this.handleLoseFocus.bind(this);
+@@ -418,7 +456,9 @@
  				}.bind(this),
  				template: 'listview/historyList-divider'
  			},
@@ -255,6 +438,270 @@
  			uniquenessProperty: '_id',
  			revisionProperty: '_rev',
  			delay: 500
+@@ -650,6 +690,46 @@
+ 	},
+ 	
+ 	handleAvailabilityPickerTap: function(event) {
++		var accountsList = [];
++
++		for(var alias in this.accountsData) {
++			accountsList.push({label: alias});
++			
++			for(var i = 0; i < this.accountsData[alias].length; i++) {
++				if(this.availabilityData[this.accountsData[alias][i].accountId]) {
++					var availability = this.availabilityData[this.accountsData[alias][i].accountId].availability;
++			
++					if(availability == this.Messaging.Availability.AVAILABLE)
++						var icon = 'status-available';
++					else if(availability == this.Messaging.Availability.BUSY)
++						var icon = 'status-away';
++					else if(availability == this.Messaging.Availability.INVISIBLE)
++						var icon = 'status-invisible';
++					else
++						var icon = 'status-offline';
++			
++					accountsList.push({
++						label: this.accountsData[alias][i].username, 
++						command: this.accountsData[alias][i].accountId, 
++						secondaryIcon: icon});
++				}
++			}
++		}
++		
++		if(accountsList.length < 2)
++			this.handleAvailabilityPickerHold(event);
++		else {
++			this.controller.popupSubmenu({
++				onChoose: this.handleAccountSelection.bind(this, event.target),
++				placeNear: event.target,
++				items: accountsList
++			});
++		}
++	},
++
++	handleAvailabilityPickerHold: function(event) {
++		event.stop();
++		
+ 		this.controller.popupSubmenu({
+ 			onChoose: this.handleAvailabilitySelection.bind(this),
+ 			toggleCmd: this.Messaging.Availability.getAvailabilityAsConstText(this.currentAvailability),
+@@ -667,10 +747,12 @@
+ 			this.customMessageTextWidgetModel.value = "";
+ 			this.customMessageTextWidgetModel.disabled = true;
+ 		} else {
++			this.customMessageTextWidgetModel.value = "";
+ 			this.customMessageTextWidgetModel.disabled = false;
+-			if (this.customMessage) {
++/*			if (this.customMessage) {
+ 				this.customMessageTextWidgetModel.value = this.customMessage;
+ 			}
++*/
+ 		}
+ 		
+ 		if (update) {
+@@ -701,10 +783,13 @@
+ 		// the checkmark image to commit changes
+ 		this.customMessageField = this.controller.get('customMessageTextWidget').querySelector('[name=customMessageTextElement]');
+ 		//this.customMessage = this.customMessageField.value;
+-		this.customMessageField.observe('blur', this.customMessageUpdate);
++		this.customMessageField.observe('focus', this.customMessageSelect);
++		this.customMessageField.observe('blur', this.customMessageCancel);
+ 		this.customMessageField.observe('keyup', this.handleCustomMessageFieldKeyUp);
+-		this.commitCustomMessageElement.observe(Mojo.Event.tap, this.customMessageUpdate);
++		this.commitCustomMessageElement.observe(Mojo.Event.tap, this.customMessageUpdateTap);
++		this.commitCustomMessageElement.observe(Mojo.Event.hold, this.customMessageUpdateHold);
+ 		this.availabilityPickerElement.observe(Mojo.Event.tap, this.handleAvailabilityPickerTap);
++		this.availabilityPickerElement.observe(Mojo.Event.hold, this.handleAvailabilityPickerHold);
+ 
+ 		this.controller.document.addEventListener(Mojo.Event.stageActivate, this.handleFocus, false);
+ 		this.controller.document.addEventListener(Mojo.Event.stageDeactivate, this.handleLoseFocus, false);
+@@ -1752,10 +1837,13 @@
+ 		this.historyIndexedList.stopObserving(Mojo.Event.listTap, this.handleHistoryListTap);
+ 		this.historyIndexedList.stopObserving(Mojo.Event.listDelete, this.handleHistoryListDelete);
+ 		this.buddyIndexedList.stopObserving(Mojo.Event.listTap, this.handleBuddyListTap);
+-		this.customMessageField.stopObserving('blur', this.customMessageUpdate);
++		this.customMessageField.stopObserving('focus', this.customMessageSelect);
++		this.customMessageField.stopObserving('blur', this.customMessageCancel);
+ 		this.customMessageField.stopObserving('keyup', this.handleCustomMessageFieldKeyUp);
+-		this.commitCustomMessageElement.stopObserving(Mojo.Event.tap, this.customMessageUpdate);
++		this.commitCustomMessageElement.stopObserving(Mojo.Event.tap, this.customMessageUpdateTap);
++		this.commitCustomMessageElement.stopObserving(Mojo.Event.hold, this.customMessageUpdateHold);
+ 		this.availabilityPickerElement.stopObserving(Mojo.Event.tap, this.handleAvailabilityPickerTap);
++		this.availabilityPickerElement.stopObserving(Mojo.Event.hold, this.handleAvailabilityPickerHold);
+ 		this.Messaging.DisplayState.stopObserving(this.handleScreenStateChange);
+ 		this.controller.document.removeEventListener(Mojo.Event.stageActivate, this.handleFocus, false);
+ 		this.controller.document.removeEventListener(Mojo.Event.stageDeactivate, this.handleLoseFocus, false);
+@@ -1763,6 +1851,46 @@
+ 		this.Messaging.listviewSceneAssistant = null; // null out the reference to the listview so that it can get garbage collected
+ 	},
+ 
++	handleAccountSelection: function(target, accountId) {
++		if(accountId) {
++			var currentAvailability = this.Messaging.Availability.getAvailabilityAsConstText(this.Messaging.Availability.OFFLINE);
++
++			if(this.availabilityData[accountId]) {
++				var availability = this.availabilityData[accountId].availability;
++				
++				currentAvailability = this.Messaging.Availability.getAvailabilityAsConstText(availability);
++			}
++	
++			this.controller.popupSubmenu({
++				onChoose: this.handleAccountAvailabilitySelection.bind(this, accountId),
++				toggleCmd: currentAvailability,
++				placeNear: target,
++				items: this.availabilities
++			});
++		}
++	},
++	
++	handleAccountAvailabilitySelection: function(accountId, availabilityString) {
++		if((availabilityString) && (this.availabilityData[accountId])) {
++			var availabilityInteger = this.Messaging.Availability.getAvailabilityAsInteger(availabilityString);
++
++			MessagingDB.IMLoginState.setAvailability(availabilityInteger, this.availabilityData[accountId].objectId);
++
++			if(availabilityInteger < 4) {
++				for(var i = 0; i < this.appController.Messaging.IMAccounts.data.length; i++) {
++					 var capability = this.appController.Messaging.IMAccounts.data[i].capabilityProviders;
++
++					 for (var j = 0; j< capability.length; j++) {
++					 	if(capability[j].capability === "MESSAGING" && capability[j].wanOnly === true){
++							this.checkWANConnection(capability[j]);
++							break;
++						}
++					}
++				}
++			}
++		}
++	},
++	
+ 	handleAvailabilitySelection: function(availabilityString) {
+ 		var availabilityInteger;
+ 		
+@@ -1879,15 +2007,118 @@
+ 			this.appController.notificationAssistant.clearMessageDashboard();
+ 		}
+ 	},
+-	
+-	customMessageUpdate: function(e) {
++
++	customMessageUpdate: function(e, select, accountId) {
++		e.stop();
++		
++		if(select) {
++			var count = 0;
++			var accountsList = [];
++
++			for(var alias in this.accountsData) {
++				accountsList.push({label: alias});
++
++				for(var i = 0; i < this.accountsData[alias].length; i++) {
++					if(this.availabilityData[this.accountsData[alias][i].accountId]) {
++						count++;
++					
++						var availability = this.availabilityData[this.accountsData[alias][i].accountId].availability;
++					
++						if((availability != this.Messaging.Availability.OFFLINE) && 
++							(availability != this.Messaging.Availability.PENDING))
++						{
++							accountsList.push({
++								label: this.accountsData[alias][i].username, 
++								command: this.accountsData[alias][i].accountId});
++						}
++					}
++				}
++			}
++		
++			if(count > 1) {
++				this.controller.popupSubmenu({
++					onChoose: this.customMessageUpdate.bind(this, e, false),
++					placeNear: e.target,
++					items: accountsList
++				});
++
++				return;
++			}
++		}
++
++		var objectId = null;
++
++		if((accountId) && (this.availabilityData[accountId]))
++			objectId = this.availabilityData[accountId].objectId;
++
+ 		var newMessage = this.customMessageField.value;
+ 		// Set the new custom message if it has changed or if it has been cleared
+-		if ((newMessage.length > 0 && newMessage !== this.customMessage) ||
+-		(newMessage.length === 0 && this.customMessage.length > 0)) {
++//		if ((newMessage.length > 0 && newMessage !== this.customMessage) ||
++//		(newMessage.length === 0 && this.customMessage.length > 0)) {
+ 			this.customMessage = newMessage;
+-			MessagingDB.IMLoginState.setCustomMessage(this.customMessage);
++			MessagingDB.IMLoginState.setCustomMessage(this.customMessage, objectId);
+ 			this.updateCustomMessageCommitIcon();
++//		}
++
++		this.controller.get('customMessageTextWidget').mojo.blur();
++	},
++	
++	customMessageSelect: function(event) {
++		var messagesList = [];
++		this.customMessage = '';			
++
++		this.customMessageTextWidgetModel.value = "";
++		this.controller.modelChanged(this.customMessageTextWidgetModel);
++
++		messagesList.push({label: $L("New custom message..."), command: ""});
++
++		for(var alias in this.accountsData) {
++			for(var i = 0; i < this.accountsData[alias].length; i++) {
++				if(this.availabilityData[this.accountsData[alias][i].accountId]) {
++					if((this.availabilityData[this.accountsData[alias][i].accountId].customMessage) &&
++						(this.availabilityData[this.accountsData[alias][i].accountId].customMessage.length > 0))
++					{
++						messagesList.push({label: alias + " - " + this.accountsData[alias][i].username});
++
++						messagesList.push({
++							label: this.availabilityData[this.accountsData[alias][i].accountId].customMessage, 
++							command: this.accountsData[alias][i].accountId});
++					}
++				}
++			}
++		}
++	
++		if(messagesList.length > 2) {
++			this.controller.popupSubmenu({
++				onChoose: this.customMessageFill.bind(this),
++				placeNear: event.target,
++				items: messagesList
++			});
++		}
++	},
++	
++	customMessageCancel: function(event) {
++		this.customMessage = '';
++	
++		this.customMessageTextWidgetModel.value = '';
++		this.controller.modelChanged(this.customMessageTextWidgetModel);
++
++		this.updateCustomMessageCommitIcon();
++	},
++	
++	customMessageFill: function(accountId) {
++		if(accountId) {
++			if((this.availabilityData[accountId]) && 
++				(this.availabilityData[accountId].customMessage) &&
++				(this.availabilityData[accountId].customMessage.length > 0))
++			{
++				var msg = this.availabilityData[accountId].customMessage;
++		
++				this.customMessageTextWidgetModel.value = msg;
++				this.controller.modelChanged(this.customMessageTextWidgetModel);
++
++				this.updateCustomMessageCommitIcon();
++			}
+ 		}
+ 	},
+ 	
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
 @@ -9,6 +9,7 @@
@@ -443,7 +890,7 @@
  			break;
  		case "vibrate":
  			bannerParams.soundClass = "vibrate";
-@@ -907,4 +966,77 @@
+@@ -907,4 +966,82 @@
  	Mojo.Log.info("setNotificationSound result=%j", bannerParams);
  };
  
@@ -469,7 +916,7 @@
 +	
 +	// Reset all notifications to synchronize the notification events.
 +	
-+	var scheduledTimeStrings = {};
++	var delay = 0;
 +
 +	var currentTime = new Date();
 +	
@@ -480,7 +927,7 @@
 +		{
 +			var repeatInterval = this.Messaging.messagingPrefs.getRepeatInterval(serviceName);
 +		
-+			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000));
++			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) + (delay++ * 10));
 +
 +			var month = playSoundTime.getUTCMonth()+1;
 +			if(month < 10) month = "0" + month;
@@ -497,15 +944,11 @@
 +
 +			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
 +		
-+			if(scheduledTimeStrings[scheduledTimeStr] == undefined) {
-+				scheduledTimeStrings[scheduledTimeStr] = true;
-+		
-+				this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
-+					'method': "set", 'parameters': { 'key': 'messagingPlayNotificationSound-' + serviceName, 
-+					'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
-+					'params': {'id': 'com.palm.app.messaging', 'params': {'serviceName': serviceName,
-+						'playNotificationSound': this.notificationsData[serviceName]}}} }); 
-+			}	
++			this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++				'method': "set", 'parameters': { 'key': 'messagingPlayNotificationSound-' + serviceName, 
++				'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
++				'params': {'id': 'com.palm.app.messaging', 'params': {'serviceName': serviceName,
++					'playNotificationSound': this.notificationsData[serviceName]}}} }); 
 +		}
 +	}
 +};
@@ -517,13 +960,33 @@
 +	}
 +};
 +
-+NotificationAssistant.prototype.playNotificationSound = function() {
-+	this.controller.playSoundNotification("notifications");
++NotificationAssistant.prototype.playNotificationSound = function(serviceName) {
++	var notifyType = this.Messaging.messagingPrefs.getNotificationSound(serviceName);
++
++	var ringtonePath = this.Messaging.messagingPrefs.getRingtone(serviceName).path;
++		
++	if(notifyType == "ringtone")
++		this.controller.playSoundNotification("notifications", ringtonePath);
++	else if(notifyType == "alert")
++		this.controller.playSoundNotification("notifications");
++	else if(notifyType == "vibrate")
++		this.controller.playSoundNotification("vibrate");	
 +};
  
 --- .orig/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
 +++ /usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
-@@ -1187,6 +1187,23 @@
+@@ -150,6 +150,10 @@
+ 		margin: 1px -4px 0px -4px;
+ }
+ 
++.buddy-list .palm-row {
++		height: auto;
++}
++
+ /* background: url(../images/simple-splitter.png) bottom left repeat-x;*/
+ 
+ #groups-list .showGroup {
+@@ -1187,6 +1191,23 @@
  
  /* Preferences */
  
@@ -549,6 +1012,15 @@
  		padding: 0 !important;
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/models/messaging-prefs.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/models/messaging-prefs.js
+@@ -13,7 +13,7 @@
+ 
+ 		var future = MojoDB.find({
+ 			from: MessagingPrefsService.prefsDB
+-		});
++		}, true);
+ 
+ 		future.then(this, function(future) {
+ 			if (future.result.results && future.result.results.length === 0) {
 @@ -87,7 +87,18 @@
  		}
  	},
@@ -1130,7 +1602,7 @@
    {
 --- .orig/usr/palm/applications/com.palm.app.messaging/resources/es/strings.json
 +++ /usr/palm/applications/com.palm.app.messaging/resources/es/strings.json
-@@ -172,5 +172,21 @@
+@@ -172,5 +172,22 @@
  	"You have received an invitation from #{name} (#{addr}) with the message, \"#{message}\"": "Recibiste una invitación de #{name} (#{addr}) con este mensaje: \"#{message}\"",
  	"You must be connected to your wireless service provider's data network to use #{loc_name}.": "Tienes que estar conectado a la red de datos de tu proveedor de servicio inalámbrico para usar #{loc_name}.",
  	"You must be connected to your wireless service provider's data network to use #{loc_shortName}.": "Tienes que estar conectado a la red de datos de tu proveedor de servicio inalámbrico para usar #{loc_shortName}.",
@@ -1151,7 +1623,8 @@
 +	"Repeat 10 times": "",
 +	"Repeat 15 times": "",
 +	"Repeat 30 times": "",
-+	"Limitation": ""
++	"Limitation": "",
++	"New custom message...": ""
  }
 --- .orig/usr/palm/applications/com.palm.app.messaging/resources/es/views/prefsAccountSummary/prefsAccountSummary-scene.html
 +++ /usr/palm/applications/com.palm.app.messaging/resources/es/views/prefsAccountSummary/prefsAccountSummary-scene.html

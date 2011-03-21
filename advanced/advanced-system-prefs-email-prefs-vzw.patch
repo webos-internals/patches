@@ -441,7 +441,7 @@
  	};
  	
 +	LaunchHandler.prototype.playNotificationSound = function(accountId) {
-+		this.notificationAssistant.playNotificationSound();
++		this.notificationAssistant.playNotificationSound(accountId);
 +			
 +		this.notificationAssistant.schedulePlayNotificationSoundTasks(accountId);
 +	};
@@ -540,9 +540,9 @@
 -	// Make our dashboards reflect the data. 
 -	this._updateDirtyDashboards();
 +	var allUnknown = true;
-+	
-+	var notifications = {};
  	
++	var notifications = {};
++	
 +	emails.forEach(function(email) {
 +		if(EmailApp.emails.check(email.from.addr))
 +			allUnknown = false;
@@ -642,7 +642,21 @@
  	
  	Mojo.Log.info("NotificationAssistant._dashboardClosed for account ", accountId);
  };
-@@ -601,9 +683,20 @@
+@@ -592,18 +674,28 @@
+ 	
+ 	Mojo.Log.info("_doNotificationForAccount %s: ", accountId, notifType);
+ 	
+-	if (notifType === AccountpreferencesAssistant.kNotifyTypeSystem) {
+-		this.appController.playSoundNotification("notification");
+-	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeRingtone) {
+-		this.appController.playSoundNotification("alerts", notifPrefs.ringtonePath);
++	if (notifType === AccountpreferencesAssistant.kNotifyTypeRingtone) {
++		this.appController.playSoundNotification("notifications", notifPrefs.ringtonePath);
++	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeSystem) {
++		this.appController.playSoundNotification("notifications");
+ 	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeVibrate) {
+-		PalmSystem.playSoundNotification("vibrate");
++		this.appController.playSoundNotification("vibrate");
  	}
  	// No need to check for AccountpreferencesAssistant.kNotifyTypeMute, since mute is what happens if we don't do anything.
  	
@@ -652,18 +666,17 @@
  };
  
 +NotificationAssistant.prototype._doNotificationForUnknown = function(notifType, ringtonePath) {
-+	if (notifType === AccountpreferencesAssistant.kNotifyTypeSystem) {
-+		this.appController.playSoundNotification("notification");
-+	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeRingtone) {
-+		this.appController.playSoundNotification("alerts", ringtonePath);
-+	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeVibrate) {
-+		PalmSystem.playSoundNotification("vibrate");
-+	}
++	if(notifType === AccountpreferencesAssistant.kNotifyTypeRingtone)
++		this.appController.playSoundNotification("notifications", ringtonePath);
++	else if(notifType === AccountpreferencesAssistant.kNotifyTypeSystem)
++		this.appController.playSoundNotification("notifications");
++	else if(notifType === AccountpreferencesAssistant.kNotifyTypeVibrate)
++		this.appController.playSoundNotification("vibrate");
 +};
  
  // Utility for display of general notifications in a transient banner.
  NotificationAssistant.prototype.generalNotification = function(msg) {
-@@ -631,18 +724,27 @@
+@@ -631,18 +723,27 @@
  	// send errors use alert icon, from fw: ../images/notification-alert.png
  	// Others use account icon
  	
@@ -694,7 +707,7 @@
  };
  
  // Generic tap handler for all error dashboards.  Bound to handle both iconTap and mainTap.
-@@ -768,8 +870,82 @@
+@@ -768,8 +869,87 @@
  	}
  };
  
@@ -709,7 +722,7 @@
 +		
 +		return;
 +	}
-+
+ 
 +	if(this.notificationsData[accountId] == undefined)
 +		this.notificationsData[accountId] = 0;
 +	
@@ -721,19 +734,19 @@
 +	
 +	// Reset all notifications to synchronize the notification events.
 +	
-+	var scheduledTimeStrings = {};
++	var delay = 0;
 +
 +	var currentTime = new Date();
 +	
 +	for(var accountId in this.notificationsData) {
 +		var accData = EmailApp.accounts.mailAccounts[accountId];
-+
+ 
 +		if((accData) && (accData.notifications) && (accData.notifications.enabled != false) &&
 +			(accData.notifications.type != "mute") || (accData.notifications.repeatInterval != 0))
 +		{
 +			var repeatInterval = accData.notifications.repeatInterval;
 +		
-+			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000));
++			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) + (delay++ * 10));
 +
 +			var month = playSoundTime.getUTCMonth()+1;
 +			if(month < 10) month = "0" + month;
@@ -747,18 +760,14 @@
 +			if(minutes < 10) minutes = "0" + minutes;
 +			var seconds = playSoundTime.getUTCSeconds();
 +			if(seconds < 10) seconds = "0" + seconds;
- 
++
 +			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
 +		
-+			if(scheduledTimeStrings[scheduledTimeStr] == undefined) {
-+				scheduledTimeStrings[scheduledTimeStr] = true;
-+		
-+				this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
-+					'method': "set", 'parameters': { 'key': 'emailPlayNotificationSound-' + accountId, 
-+					'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
-+					'params': {'id': 'com.palm.app.email', 'params': {'accountId': accountId,
-+						'playNotificationSound': this.notificationsData[accountId]}}} }); 
-+			}	
++			this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++				'method': "set", 'parameters': { 'key': 'emailPlayNotificationSound-' + accountId, 
++				'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
++				'params': {'id': 'com.palm.app.email', 'params': {'accountId': accountId,
++					'playNotificationSound': this.notificationsData[accountId]}}} }); 
 +		}
 +	}
 +};
@@ -769,9 +778,18 @@
 +			'method': "clear", 'parameters': {"key": 'emailPlayNotificationSound-' + accountId} });
 +	}
 +};
- 
-+NotificationAssistant.prototype.playNotificationSound = function() {
-+	this.appController.playSoundNotification("notifications");
++
++NotificationAssistant.prototype.playNotificationSound = function(accountId) {
++	var accData = EmailApp.accounts.mailAccounts[accountId];
++	
++	if((accData) && (accData.notifications) && (accData.notifications.enabled == true)) {
++		if(accData.notifications.type === AccountpreferencesAssistant.kNotifyTypeRingtone)
++			this.appController.playSoundNotification("notifications", accData.notifications.ringtonePath);
++		else if(accData.notifications.type === AccountpreferencesAssistant.kNotifyTypeSystem)
++			this.appController.playSoundNotification("notifications");
++		else if(accData.notifications.type === AccountpreferencesAssistant.kNotifyTypeVibrate)
++			this.appController.playSoundNotification("vibrate");
++	}
 +};
 +	
  

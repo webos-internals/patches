@@ -2357,7 +2357,28 @@
  },
  
  loadNetworkAlertLibrary: function() {
-@@ -2078,7 +2108,8 @@
+@@ -2053,6 +2083,20 @@
+ 		if(this.demoBuild) 
+ 			payload.percent_ui = 100;
+ 	
++		if(this.isCharging) 
++			var currentBatteryLevel = Math.floor(payload.percent_ui / 5) * 5;
++		else
++			var currentBatteryLevel = Math.ceil(payload.percent_ui / 5) * 5;
++
++		if(((this.isCharging) && (currentBatteryLevel > this.storedBatteryLevel)) || 
++			((!this.isCharging) && (currentBatteryLevel < this.storedBatteryLevel)))
++		{
++			this.storedBatteryLevel = currentBatteryLevel;
++
++			this.setBatteryLevel = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++				method: 'setPreferences', parameters: {'batteryLevel': currentBatteryLevel}});		
++		}
++
+ 		//Save the Battery Percentage
+ 		this.batteryLevel = payload.percent_ui;	
+ 		for (var i = 0; i < this.powerIndicator.length; i++) {
+@@ -2078,7 +2122,8 @@
  					this.controller.showBanner({
  						messageText: batteryalert,
  						icon: "/usr/lib/luna/system/luna-systemui/images/battery-"+i+'.png',
@@ -2367,7 +2388,7 @@
  					},{}, 'batteryAlert');
  				}				
  				else if(this.batteryLevel > 10 && this.batteryLevel <= 20 && !this.batteryLevel20Shown) {
-@@ -2087,7 +2118,8 @@
+@@ -2087,7 +2132,8 @@
  					this.controller.showBanner({
  						messageText: batteryalert,
  						icon: "/usr/lib/luna/system/luna-systemui/images/battery-"+i+'.png',
@@ -2377,7 +2398,39 @@
  					},{}, 'batteryAlert');	
  				}
  				
-@@ -2158,11 +2190,12 @@
+@@ -2143,7 +2189,30 @@
+ 			if (this.powerSource[source] == true)
+ 				this.isCharging = true;			
+ 		}.bind(this));
+-						
++
++		if(!this.isCharging)
++			var currentChargerState = "none";
++		else {
++			if((this.powerSource["inductive"]) && (payload.name == "puck"))
++				var currentChargerState = "ts";
++			else if((this.powerSource["usb"]) && (payload.name == "pc"))
++				var currentChargerState = "pc";
++			else if((this.powerSource["usb"]) && (payload.name == "wall"))
++				var currentChargerState = "wall";
++			else
++				var currentChargerState = "none";
++		}
++
++		if(currentChargerState != this.storedChargerState) {
++			this.storedChargerState = currentChargerState;
++
++			var orientation = Mojo.Controller.getAppController().getScreenOrientation();
++
++			this.setBatteryLevel = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++				method: 'setPreferences', parameters: {'chargerStatus': {
++					'state': currentChargerState, 'orientation': orientation}}});		
++		}
++
+ 		if (this.isCharging) {
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+ 			if(this.batteryLevel == 100)
+@@ -2158,11 +2227,12 @@
  			
  			if(!this.chargingBannerShown && payload.name && (payload.name == "wall" || payload.name == "puck")) {
  				var batteryalert = $L("Charging Battery");
@@ -2392,6 +2445,15 @@
  					},{}, 'chargingAlert'); 
  			}
  			// This flag is set to true only when there is "name" property is set in the payload. 
+@@ -2234,6 +2304,8 @@
+  * Initialize power
+  */
+ powerInit:function() {
++	this.storedBatteryLevel = 0;
++	this.storedChargerState = "";
+ 	
+ 	this.lastBatteryLevel = 0;
+ 	this.chargingBannerShown = false;
 --- .orig/usr/palm/applications/com.palm.app.contacts/resources/es/views/edit/edit-scene.html
 +++ /usr/palm/applications/com.palm.app.contacts/resources/es/views/edit/edit-scene.html
 @@ -63,3 +63,75 @@
