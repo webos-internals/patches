@@ -584,12 +584,13 @@
  	var db = this.dashboards[accountId];
  	
  	if(messages.length > 0) {
-@@ -347,16 +397,44 @@
+@@ -347,16 +397,45 @@
  		var lastMessage = messages[messages.length-1];
  		Mojo.Log.info("Updating  dashboard... textLen:%s, titleLen:%d, icon:%s", lastMessage.text && lastMessage.text.length, lastMessage.title && lastMessage.title.length, lastMessage.icon);
  		
 +		if(accountId == this.kUnifiedAccountId) {
 +			for(var accId in this.notificationsData) {
++		
 +				var accData = EmailApp.accounts.mailAccounts[accId];
 +
 +				if((accData) && (accData.notifications) && (accData.notifications.blink)) {
@@ -631,18 +632,18 @@
  			});
  				/* 
  				{
-@@ -460,6 +538,10 @@
+@@ -460,7 +539,9 @@
  	if(messages) {
  		messages.length = 0;
  	}
+-	
 +
 +	this.removePlayNotificationSoundTasks();
 +
-+	this.notificationsData = {};
- 	
  	Mojo.Log.info("NotificationAssistant._dashboardClosed for account ", accountId);
  };
-@@ -592,18 +674,28 @@
+ 
+@@ -592,18 +673,30 @@
  	
  	Mojo.Log.info("_doNotificationForAccount %s: ", accountId, notifType);
  	
@@ -672,11 +673,13 @@
 +		this.appController.playSoundNotification("notifications");
 +	else if(notifType === AccountpreferencesAssistant.kNotifyTypeVibrate)
 +		this.appController.playSoundNotification("vibrate");
++
++	this.schedulePlayNotificationSoundTasks(accountId);
 +};
  
  // Utility for display of general notifications in a transient banner.
  NotificationAssistant.prototype.generalNotification = function(msg) {
-@@ -631,18 +723,27 @@
+@@ -631,18 +724,27 @@
  	// send errors use alert icon, from fw: ../images/notification-alert.png
  	// Others use account icon
  	
@@ -707,76 +710,67 @@
  };
  
  // Generic tap handler for all error dashboards.  Bound to handle both iconTap and mainTap.
-@@ -768,8 +869,87 @@
+@@ -768,8 +870,78 @@
  	}
  };
  
 +NotificationAssistant.prototype.schedulePlayNotificationSoundTasks = function(accountId) {
-+	var accData = EmailApp.accounts.mailAccounts[accountId];
-+	
-+	if((!accData) || (!accData.notifications) || (accData.notifications.enabled == false) ||
-+		(accData.notifications.type == "mute") || (accData.notifications.repeatInterval == 0))
-+	{
-+		if(this.notificationsData[accountId])
-+			delete this.notificationsData[accountId];
-+		
-+		return;
-+	}
++	var repeatDelay = 0;
++	var currentTime = new Date();
  
 +	if(this.notificationsData[accountId] == undefined)
 +		this.notificationsData[accountId] = 0;
-+	
-+	if(this.notificationsData[accountId]++ >= accData.notifications.repeatLimit) {
-+		delete this.notificationsData[accountId];
-+		
-+		return;
-+	}
-+	
-+	// Reset all notifications to synchronize the notification events.
-+	
-+	var delay = 0;
-+
-+	var currentTime = new Date();
-+	
+ 
 +	for(var accountId in this.notificationsData) {
 +		var accData = EmailApp.accounts.mailAccounts[accountId];
- 
-+		if((accData) && (accData.notifications) && (accData.notifications.enabled != false) &&
-+			(accData.notifications.type != "mute") || (accData.notifications.repeatInterval != 0))
++
++		if((!accData) || (!accData.notifications) || (accData.notifications.enabled == false)) {
++			delete this.notificationsData[accountId];
++		}
++		else if((accData.notifications.type != "mute") && (accData.notifications.repeatInterval != 0))
 +		{
-+			var repeatInterval = accData.notifications.repeatInterval;
++			if(this.notificationsData[accountId]++ >= accData.notifications.repeatLimit) {
++				delete this.notificationsData[accountId];
++			}
++			else {
++				var repeatInterval = accData.notifications.repeatInterval;
 +		
-+			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) + (delay++ * 10));
++				var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) + (repeatDelay++ * 10));
 +
-+			var month = playSoundTime.getUTCMonth()+1;
-+			if(month < 10) month = "0" + month;
-+			var day = playSoundTime.getUTCDate();
-+			if(day < 10) day = "0" + day;
-+			var year = playSoundTime.getUTCFullYear();
++				var month = playSoundTime.getUTCMonth()+1;
++				if(month < 10) month = "0" + month;
++				var day = playSoundTime.getUTCDate();
++				if(day < 10) day = "0" + day;
++				var year = playSoundTime.getUTCFullYear();
 +
-+			var hours = playSoundTime.getUTCHours();
-+			if(hours < 10) hours = "0" + hours;
-+			var minutes = playSoundTime.getUTCMinutes();
-+			if(minutes < 10) minutes = "0" + minutes;
-+			var seconds = playSoundTime.getUTCSeconds();
-+			if(seconds < 10) seconds = "0" + seconds;
++				var hours = playSoundTime.getUTCHours();
++				if(hours < 10) hours = "0" + hours;
++				var minutes = playSoundTime.getUTCMinutes();
++				if(minutes < 10) minutes = "0" + minutes;
++				var seconds = playSoundTime.getUTCSeconds();
++				if(seconds < 10) seconds = "0" + seconds;
 +
-+			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++				var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
 +		
-+			this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
-+				'method': "set", 'parameters': { 'key': 'emailPlayNotificationSound-' + accountId, 
-+				'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
-+				'params': {'id': 'com.palm.app.email', 'params': {'accountId': accountId,
-+					'playNotificationSound': this.notificationsData[accountId]}}} }); 
++				this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++					'method': "set", 'parameters': { 'key': 'emailPlayNotificationSound-' + accountId, 
++					'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
++					'params': {'id': 'com.palm.app.email', 'params': {'accountId': accountId,
++						'playNotificationSound': this.notificationsData[accountId]}}} }); 
++			}
 +		}
 +	}
 +};
 +	
 +NotificationAssistant.prototype.removePlayNotificationSoundTasks = function() {
 +	for(var accountId in this.notificationsData) {
-+		this.removeTimeoutRequest = new Mojo.Service.Request("palm://com.palm.power/timeout/", {
-+			'method': "clear", 'parameters': {"key": 'emailPlayNotificationSound-' + accountId} });
++		if(this.notificationsData[accountId] > 0) {
++			this.removeTimeoutRequest = new Mojo.Service.Request("palm://com.palm.power/timeout/", {
++				'method': "clear", 'parameters': {"key": 'emailPlayNotificationSound-' + accountId} });
++		}
 +	}
++	
++	this.notificationsData = {};
 +};
 +
 +NotificationAssistant.prototype.playNotificationSound = function(accountId) {

@@ -835,24 +835,22 @@
  	var i;
  	var newestTimestamp = 0;
  	var newestChat;
-@@ -841,6 +881,9 @@
+@@ -841,6 +881,8 @@
  };
  
  NotificationAssistant.prototype.resetNewMessages = function(){
 +	this.removePlayNotificationSoundTasks();
 +		
-+	this.notificationsData = {};
  	this.messageDashboardData = {};
  };
  
-@@ -849,8 +892,13 @@
+@@ -849,8 +891,12 @@
  };
  
  NotificationAssistant.prototype.clearMessageDashboard = function(){
 -	var dashboard = this.controller.getStageController(DashboardMessageStageName);
 +	this.removePlayNotificationSoundTasks();
 +
-+	this.notificationsData = {};
  	this.messageDashboardData = {};
 +
 +	var dashboard = this.controller.getStageController(DashboardMessageStageName);
@@ -860,7 +858,7 @@
  	if (dashboard) {
  		dashboard.delegateToSceneAssistant("closeDashboard");
  	}
-@@ -884,15 +932,26 @@
+@@ -884,15 +930,26 @@
  	}
  };
  
@@ -890,74 +888,66 @@
  			break;
  		case "vibrate":
  			bannerParams.soundClass = "vibrate";
-@@ -907,4 +966,82 @@
+@@ -907,4 +964,74 @@
  	Mojo.Log.info("setNotificationSound result=%j", bannerParams);
  };
  
 +NotificationAssistant.prototype.schedulePlayNotificationSoundTasks = function(serviceName) {
-+	if((this.Messaging.messagingPrefs.getNotificationsEnabled(serviceName) == false) ||
-+		(this.Messaging.messagingPrefs.getNotificationSound(serviceName) == "mute") ||
-+		(this.Messaging.messagingPrefs.getRepeatInterval(serviceName) == 0))
-+	{
-+		if(this.notificationsData[serviceName])
-+			delete this.notificationsData[serviceName];
-+		
-+		return;
-+	}
++	var repeatDelay = 0;
++	var currentTime = new Date();
 +
 +	if(this.notificationsData[serviceName] == undefined)
 +		this.notificationsData[serviceName] = 0;
 +	
-+	if(this.notificationsData[serviceName]++ >= this.Messaging.messagingPrefs.getRepeatLimit(serviceName)) {
-+		delete this.notificationsData[serviceName];
-+		
-+		return;
-+	}
-+	
-+	// Reset all notifications to synchronize the notification events.
-+	
-+	var delay = 0;
-+
-+	var currentTime = new Date();
-+	
 +	for(var serviceName in this.notificationsData) {
-+		if((this.Messaging.messagingPrefs.getNotificationsEnabled(serviceName) != false) &&
-+			(this.Messaging.messagingPrefs.getNotificationSound(serviceName) != "mute") &&
++		if(this.Messaging.messagingPrefs.getNotificationsEnabled(serviceName) == false) {
++			delete this.notificationsData[serviceName];
++		}
++		else if((this.Messaging.messagingPrefs.getNotificationSound(serviceName) != "mute") &&
 +			(this.Messaging.messagingPrefs.getRepeatInterval(serviceName) != 0))
 +		{
-+			var repeatInterval = this.Messaging.messagingPrefs.getRepeatInterval(serviceName);
++			if(this.notificationsData[serviceName]++ >= this.Messaging.messagingPrefs.getRepeatLimit(serviceName)) {
++				delete this.notificationsData[serviceName];
++			}
++			else {
++				var repeatInterval = this.Messaging.messagingPrefs.getRepeatInterval(serviceName);
 +		
-+			var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) + (delay++ * 10));
++				var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) + (repeatDelay++ * 10));
 +
-+			var month = playSoundTime.getUTCMonth()+1;
-+			if(month < 10) month = "0" + month;
-+			var day = playSoundTime.getUTCDate();
-+			if(day < 10) day = "0" + day;
-+			var year = playSoundTime.getUTCFullYear();
++				var month = playSoundTime.getUTCMonth()+1;
++				if(month < 10) month = "0" + month;
++				var day = playSoundTime.getUTCDate();
++				if(day < 10) day = "0" + day;
++				var year = playSoundTime.getUTCFullYear();
 +
-+			var hours = playSoundTime.getUTCHours();
-+			if(hours < 10) hours = "0" + hours;
-+			var minutes = playSoundTime.getUTCMinutes();
-+			if(minutes < 10) minutes = "0" + minutes;
-+			var seconds = playSoundTime.getUTCSeconds();
-+			if(seconds < 10) seconds = "0" + seconds;
++				var hours = playSoundTime.getUTCHours();
++				if(hours < 10) hours = "0" + hours;
++				var minutes = playSoundTime.getUTCMinutes();
++				if(minutes < 10) minutes = "0" + minutes;
++				var seconds = playSoundTime.getUTCSeconds();
++				if(seconds < 10) seconds = "0" + seconds;
 +
-+			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++				var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
 +		
-+			this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
-+				'method': "set", 'parameters': { 'key': 'messagingPlayNotificationSound-' + serviceName, 
-+				'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
-+				'params': {'id': 'com.palm.app.messaging', 'params': {'serviceName': serviceName,
-+					'playNotificationSound': this.notificationsData[serviceName]}}} }); 
++				this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++					'method': "set", 'parameters': { 'key': 'messagingPlayNotificationSound-' + serviceName, 
++					'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
++					'params': {'id': 'com.palm.app.messaging', 'params': {'serviceName': serviceName,
++						'playNotificationSound': this.notificationsData[serviceName]}}} }); 
++			}
 +		}
 +	}
 +};
 +	
 +NotificationAssistant.prototype.removePlayNotificationSoundTasks = function() {
 +	for(var serviceName in this.notificationsData) {
-+		this.removeTimeoutRequest = new Mojo.Service.Request("palm://com.palm.power/timeout/", {
-+			'method': "clear", 'parameters': {"key": 'messagingPlayNotificationSound-' + serviceName} });
++		if(this.notificationsData[serviceName] > 0) {
++			this.removeTimeoutRequest = new Mojo.Service.Request("palm://com.palm.power/timeout/", {
++				'method': "clear", 'parameters': {"key": 'messagingPlayNotificationSound-' + serviceName} });
++		}
 +	}
++	
++	this.notificationsData = {};
 +};
 +
 +NotificationAssistant.prototype.playNotificationSound = function(serviceName) {
