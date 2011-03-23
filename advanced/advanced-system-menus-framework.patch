@@ -561,17 +561,15 @@
  		this.switchAppOnInfo = $L("Swiping the entire length of the gesture area will switch to the next or previous app.");
  		this.switchAppOffInfo = $L("Any right to left swipe on the gesture area will perform the back gesture.");
  		this.newSecurity = '';	
-@@ -48,7 +50,9 @@
+@@ -48,6 +50,8 @@
    	},
  		
  	setup: function(){
--		
 +		if(this.mode)
 +			this.controller.get('main').hide();
-+			
+ 		
  		//this.controller.get('fixedtimerrow').hide();
  			
- 		this.controller.setupWidget('showAlerts', this.onOffToggleOpt, this.alertToggleModel);
 @@ -163,6 +167,27 @@
  		this.currentSecurity = payload.lockMode || 'none';
  		this.showModifyRow();
@@ -761,7 +759,16 @@
  		this.wifiRadio = false;
  		this.dualRSSI = false;
  		this.ruim = false;
-@@ -32,15 +33,24 @@
+@@ -25,6 +26,8 @@
+ 		this.hideDataIcon = false;
+ 
+ 		this.appMenuModels = {};
++		this.appMenuConfig = null;
++		this.appMenuCookie = null;
+ 		
+ 		Mojo.Dom.get('rssi').className = 'nobars';
+ 		Mojo.Dom.get('ev1x').className = 'nobars';
+@@ -32,15 +35,24 @@
  		Mojo.Dom.get('datanet').className = 'off';
  		Mojo.Dom.get('wifi').className = 'off';
  		Mojo.Dom.get('bluetooth').className = 'off';
@@ -787,7 +794,7 @@
  		
  		this.uiAlertsMethods["subscribeToBackupStatus"] = this.handleBackupStatusNotifications.bind(this);
  		this.uiAlertsMethods["registerForLocationServiceNotifications"] = this.handleLocationServiceNotifications.bind(this);
-@@ -57,9 +67,9 @@
+@@ -57,9 +69,9 @@
  	
  		this.getBuildName();
  		
@@ -799,7 +806,7 @@
  		}	
  						
  		// Initialize the Battery Power Nofication and get the initial value
-@@ -74,6 +84,9 @@
+@@ -74,6 +86,9 @@
  		//Get the Carrier Name by querying the Carrier DB
  		this.getCarrierName();
  		
@@ -809,7 +816,7 @@
  		// Initialize the Bluetooth icon once the service is running
  		this.initOnServerStart("com.palm.btmonitor", this.btMonitorInit.bind(this), this.btMonitorDeinit.bind(this));
  		this.initOnServerStart("com.palm.bluetooth", this.btInit.bind(this), this.btDeInit.bind(this));
-@@ -106,6 +119,9 @@
+@@ -106,6 +121,9 @@
  		//Subscribe to Powerd Notification.
  		this.powerInit();
  		
@@ -819,12 +826,26 @@
  		//Subscribe to Application Manager 
  		this.initOnServerStart("com.palm.applicationManager", this.appMgrInit.bind(this));
  		
-@@ -122,8 +138,13 @@
+@@ -120,10 +138,26 @@
+ 
+ 		// Subscribe to mojodb
  		this.initOnServerStart("com.palm.db", this.dbServiceInit.bind(this));
++		
++		this.appMenuCookie = new Mojo.Model.Cookie("appMenu");
++		
++		this.appMenuConfig = this.appMenuCookie.get();
++
++		if(!this.appMenuConfig)
++			this.appMenuConfig = {fullwidth: true};
++
++		if(this.appMenuConfig.fullwidth)
++			Mojo.Dom.get('appmenu').className = "fullwidth";
  				
- 		Mojo.Event.listen(Mojo.Dom.get('appmenu'),'mojo-tap', this.appMenuHandleTap.bindAsEventListener(this));
+-		Mojo.Event.listen(Mojo.Dom.get('appmenu'),'mojo-tap', this.appMenuHandleTap.bindAsEventListener(this));
 -		Mojo.Event.listen(Mojo.Dom.get('devicemenu'),'mojo-tap', this.deviceMenuHandleTap.bindAsEventListener(this));
 -						
++		Mojo.Event.listen(Mojo.Dom.get('appmenu'),'mojo-tap', this.appMenuHandleTap.bindAsEventListener(this, false));
++		Mojo.Event.listen(Mojo.Dom.get('appmenu'),'mojo-hold', this.appMenuHandleTap.bindAsEventListener(this, true));
 +		Mojo.Event.listen(Mojo.Dom.get('devicemenu'),'mojo-tap', this.deviceMenuHandleTap.bindAsEventListener(this, false));
 +		Mojo.Event.listen(Mojo.Dom.get('devicemenu'),'mojo-hold', this.deviceMenuHandleTap.bindAsEventListener(this, true));
 +		Mojo.Event.listen(Mojo.Dom.get('todaymenu'),'mojo-tap', this.todayMenuHandleTap.bindAsEventListener(this, false));
@@ -835,7 +856,7 @@
  		this.registerForeGroundApp();
  		this.registerStatusSettings();	
  		
-@@ -329,8 +350,9 @@
+@@ -329,8 +363,9 @@
  	//If it is First Use, Do not change the App Name.
  	if(PalmSystem.isMinimal) {
  		this.foregroundAppID = payload.id;
@@ -846,7 +867,7 @@
  		return;
  	}
  	
-@@ -363,7 +385,8 @@
+@@ -363,7 +398,8 @@
  		
  		if (!this.deviceLocked) {
  			Mojo.Dom.get('carrier').hide();
@@ -856,7 +877,7 @@
  		}
  		this.foregroundAppID = payload.id;
  		
-@@ -372,8 +395,9 @@
+@@ -372,8 +408,9 @@
  			this.closeTutorialDashboard();
  	}
  	else{
@@ -867,7 +888,7 @@
  		this.foregroundAppID=null;
  	}
  },
-@@ -460,11 +484,13 @@
+@@ -460,11 +497,13 @@
  		}
  		if (payload.locked || this.foregroundAppID == null) {
  			Mojo.Dom.get('carrier').show();
@@ -883,7 +904,39 @@
  		}
  	}	
  	
-@@ -537,7 +563,136 @@
+@@ -490,11 +529,30 @@
+ 	return false;
+ },
+ 
+-appMenuHandleTap: function(event) { //make service call here to show app's menu
++appMenuHandleTap: function(event, toggle) { //make service call here to show app's menu
+ 	//No App Menu for FirstUse.
+ 	if(PalmSystem.isMinimal)
+ 		return;
+ 
++	if(toggle) {
++		event.stop();
++	
++		if(this.appMenuConfig.fullwidth) {
++			this.appMenuConfig.fullwidth = false;
++		
++			Mojo.Dom.get('appmenu').className = "";
++		}
++		else{
++			this.appMenuConfig.fullwidth = true;
++		
++			Mojo.Dom.get('appmenu').className = "fullwidth";
++		}
++		
++		this.appMenuCookie.put(this.appMenuConfig);
++		
++		return;
++	}
++
+ 	var appMenuModel = this.appMenuModels[this.foregroundAppID];
+ 	var target = event.target;
+ 	while(target) {
+@@ -537,7 +595,136 @@
  	}
  },
  
@@ -1021,7 +1074,7 @@
  	
  	//Ignore the notification if it's in First Use.
  	if(PalmSystem.isMinimal)
-@@ -554,16 +709,21 @@
+@@ -554,16 +741,21 @@
  		i++;
  	}
  	if (target) {
@@ -1047,7 +1100,7 @@
  		} else {
  			this.deviceMenuCreatedHandler = this.deviceMenuCreated.bind(this);
  			Mojo.Controller.getAppController().createStageWithCallback({
-@@ -701,6 +861,13 @@
+@@ -701,6 +893,13 @@
  				this.callForwardNotificationSession = null;	
  			}
  		}
@@ -1061,7 +1114,7 @@
  		this.updatePhoneAppName();
  	}
  },
-@@ -835,6 +1002,13 @@
+@@ -835,6 +1034,13 @@
  			Mojo.Dom.get('roaming').hide();
  			break;			
  	}
@@ -1075,7 +1128,7 @@
  	this.updatePhoneAppName();
  	this.handleNetworkStatus.cancel();
  },
-@@ -901,7 +1075,12 @@
+@@ -901,7 +1107,12 @@
  			this.updatePhoneAppName();
  			break;
  	}	
@@ -1089,7 +1142,7 @@
  },
  
  handleSignalStrengthQueryNotification: function(payload) {
-@@ -1426,8 +1605,14 @@
+@@ -1426,8 +1637,14 @@
  				this.createUSBDashboard();
  			}
  		} 		
@@ -1105,7 +1158,7 @@
  	this.updatePhoneAppName();
  },
  
-@@ -1825,6 +2010,51 @@
+@@ -1825,6 +2042,51 @@
  },
  
  /*
@@ -1157,7 +1210,7 @@
   * Initialize Bluetooth icon on status bar 
   */
  btInit:function(payload){
-@@ -2037,6 +2267,8 @@
+@@ -2037,6 +2299,8 @@
   * Handle power and charging notifications
   */
  handlePowerNotifications: function(payload) {
@@ -1166,7 +1219,7 @@
  	
  	Mojo.Log.info("SystemUI Power Payload "+ Object.toJSON(payload));
  	if(!this.powerdServiceUp) {
-@@ -2047,6 +2279,10 @@
+@@ -2047,6 +2311,10 @@
  		this.queryBatteryStatusReq.cancel();
  		this.queryBatteryStatusReq = undefined;
  	}	
@@ -1177,7 +1230,7 @@
  	// Is the battery level provided?
  	if (payload.percent_ui != undefined) {
  		
-@@ -2117,7 +2353,10 @@
+@@ -2117,7 +2385,10 @@
  			//Update the System Menu
  			var stageController = Mojo.Controller.getAppController().getStageController("DeviceMenu");
  			if (stageController) {
@@ -1189,7 +1242,7 @@
  			}
  			
  			 //Update the Software Update Alert
-@@ -2225,6 +2464,17 @@
+@@ -2225,6 +2496,17 @@
  	return this.batteryLevel;
  },
  
@@ -1207,7 +1260,7 @@
  queryBatteryStatus: function() {
  	this.queryBatteryStatusReq = new Mojo.Service.Request('palm://com.palm.power/com/palm/power/', {
  		method: 'batteryStatusQuery',});
-@@ -2238,6 +2488,7 @@
+@@ -2238,6 +2520,7 @@
  	this.lastBatteryLevel = 0;
  	this.chargingBannerShown = false;
  	this.batteryLevel = 0;
@@ -1215,7 +1268,7 @@
  	// Subscribe to Battery Power Notifications
  	this.powerNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
  		method: 'addmatch',
-@@ -2287,6 +2538,27 @@
+@@ -2287,6 +2570,27 @@
  },
  
  /*
@@ -1243,7 +1296,7 @@
   * Handle WAN notifications
   */
  handleWANNotifications: function(payload) {
-@@ -2296,6 +2568,22 @@
+@@ -2296,6 +2600,22 @@
  	 if(payload.returnValue != undefined && payload.returnValue)
  	 	return;
  		
@@ -1266,7 +1319,7 @@
  	 var mipFailureCode, causeCode;	
  			
  	 if (payload.networkstatus == "attached" && payload.connectedservices && payload.connectedservices.length > 0) { 
-@@ -3023,6 +3311,10 @@
+@@ -3023,6 +3343,10 @@
  		if (stageController) {
  			stageController.delegateToSceneAssistant("updateAirplaneModeProgress");
  		}	
@@ -1277,7 +1330,7 @@
  		if (this.airplaneMode === false) 
  			this.disableFlightMode();
  		else {
-@@ -3034,6 +3326,10 @@
+@@ -3034,6 +3358,10 @@
  		if (stageController) {
  			stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
  		}
@@ -1288,7 +1341,7 @@
  	}  	
  	this.airplaneModeInitialQueryDone = true;
  	if(this.telephonyPowerQueryPayload) {
-@@ -3057,6 +3353,14 @@
+@@ -3057,6 +3385,14 @@
  		});	
  },
  
@@ -1303,7 +1356,7 @@
  //Disable Airplane Mode by turning on Phone and other radios.
  disableFlightMode: function() {
  	Mojo.Log.info("System UI - Disabling Airplane Mode");
-@@ -3192,6 +3496,12 @@
+@@ -3192,6 +3528,12 @@
  		this.airplaneModeTriggered = false;
  		stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
  	}	
@@ -1316,7 +1369,7 @@
  },
  
  //Clear the Hash before enable / disable the Airplane mode
-@@ -3312,6 +3622,51 @@
+@@ -3312,6 +3654,51 @@
  			
  },
  
@@ -1368,7 +1421,7 @@
  getCurrentBluetoothState: function() {
  	return this.bluetoothState;
  },
-@@ -4731,6 +5086,8 @@
+@@ -4731,6 +5118,8 @@
  	// Telephony Variables
  	phoneType: null,
  	phoneRadioState: null,
@@ -1389,8 +1442,7 @@
 -   			<div id="appname" class="appname-wrapper truncating-text"></div>
 -		</div>
 -	</div>
--
-+	
+ 
  	<div id="devicemenu">
  		<div id="power"></div>
 +		<div id="ringer"></div>
@@ -1406,6 +1458,8 @@
  		<div id="callforward"></div>
  		<div id="hac"></div>
  	</div>
+-</div>
+\ No newline at end of file
 +
 +	<div id="statusmenu">
 +		<div id="carrier" class="carrier-wrapper truncating-text"></div>				
@@ -1418,8 +1472,7 @@
 +			<div id="appname" class="appname-wrapper truncating-text"></div>
 +		</div>
 +	</div>
- </div>
-\ No newline at end of file
++</div>
 --- .orig/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
 +++ /usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
 @@ -130,6 +130,7 @@
