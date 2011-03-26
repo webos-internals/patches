@@ -1,0 +1,123 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 484cd45..7df5800 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -134,7 +134,7 @@ var ChatviewAssistant = Class.create({
+ 			hintText: $L('Enter message here...'),
+ 			multiline: true,
+ 			focus: false,
+-			enterSubmits: true,
++			enterSubmits: false,
+ 			textFieldName: "messageTextElement",
+ 			className: " ",
+ 			changeOnKeyPress: true
+@@ -1465,6 +1465,7 @@ var ChatviewAssistant = Class.create({
+ 				}
+ 				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
+ 				delayed.messageText = msg.messageText;
++				msg.messageText = msg.messageText.replace(/\n/g,"<br>");
+ 			}
+ 			
+ 			var transport = this.Messaging.transports.getTransportByName(msg.messageServiceName);
+@@ -2367,18 +2368,24 @@ var ChatviewAssistant = Class.create({
+ 	handleTextAreaKeyDown: function(event) {
+ 		// Check for return keys, and put a fake highlight on the send button.
+ 		// It will be cleared on key up.
+-		if (event && Mojo.Char.isEnterKey(event.keyCode)) {
+-			this.sendButton.addClassName('selected');			
++		if (event) {
++			if(!this.ctrlKeyPressed && Mojo.Char.isEnterKey(event.keyCode)) {
++				this.sendButton.addClassName('selected');
++			}  else if (event.keyCode===129) {
++				this.ctrlKeyPressed = true;
++			}			
+ 		}
+ 	},
+ 
+ 	handleTextAreaKeyUp: function(event) {
+-		if (event && Mojo.Char.isEnterKey(event.keyCode)) {
+-			this.considerForSend();
+-			Event.stop(event);
+-			
+-			// Remove highlight that was added on keydown.
+-			this.sendButton.removeClassName('selected');
++		if (event) {
++			if (event.keyCode===129) {
++				this.ctrlKeyPressed = false;
++			} else if (Mojo.Char.isEnterKey(event.keyCode) && !this.ctrlKeyPressed) {
++				Event.stop(event);
++ 				this.considerForSend();
++ 				this.sendButton.removeClassName('selected');
++			}
+ 		}
+ 	},
+ 
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+index 3183de4..58afdd1 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+@@ -80,6 +80,7 @@ var ComposeAssistant = Class.create({
+ 		this.considerForSend = this.considerForSend.bind(this);
+ 		this.attachFilePicker = this.attachFilePicker.bind(this);
+ 		this.handleTextAreaChange = this.handleTextAreaChange.bind(this);
++		this.handleTextAreaKeyDown = this.handleTextAreaKeyDown.bind(this);
+ 		this.handleTextAreaKeyUp = this.handleTextAreaKeyUp.bind(this);
+ 		this.handleCancelAttachment = this.resetTextBox.bind(this,false);		
+ 		this.handleRecipientsChanged = this.handleRecipientsChanged.bind(this);
+@@ -120,7 +121,7 @@ var ComposeAssistant = Class.create({
+ 	    hintText: $L('Enter message here...'),
+ 	    multiline: true,
+ 	    focus: false,
+-	    enterSubmits: true,
++	    enterSubmits: false,
+ 		requiresEnterKey: true,
+ 	    modelProperty: "value",
+ 		changeOnKeyPress: true
+@@ -146,7 +147,7 @@ var ComposeAssistant = Class.create({
+ //		'height': (Mojo.Environment.DeviceInfo.maximumCardHeight - this.addressingWidget.offsetHeight) + "px"
+ //	}); 
+ 	
+-	
++	this.messageTextElement.observe('keydown', this.handleTextAreaKeyDown);
+ 	this.messageTextElement.observe('keyup', this.handleTextAreaKeyUp);
+ 	this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
+ 	
+@@ -325,12 +326,25 @@ var ComposeAssistant = Class.create({
+ 			this.handleTextAreaChange();			
+ 		} 
+ 	},
++	
++		
++	handleTextAreaKeyDown: function(event) {
++		// Check for return keys, and put a fake highlight on the send button.
++		// It will be cleared on key up.
++		if (event && event.keyCode===129) {
++				this.ctrlKeyPressed = true;
++		}
++	},
+ 
+ 	handleTextAreaKeyUp: function(event) {
+-		if (event && Mojo.Char.isEnterKey(event.keyCode)) {
+-			this.considerForSend();
+-			Event.stop(event);
+-		}		
++		if (event) {
++			if (event.keyCode===129) {
++				this.ctrlKeyPressed = false;
++			} else if (Mojo.Char.isEnterKey(event.keyCode) && !this.ctrlKeyPressed) {
++				this.considerForSend();
++				Event.stop(event);
++			}
++		}	
+ 	},
+ 
+ 	handleTextAreaChange: function() {
+@@ -461,7 +475,7 @@ var ComposeAssistant = Class.create({
+     [Mojo.Event.addressingRecipientAdded,Mojo.Event.addressingRecipientDeleted].each(function(event) {
+       that.controller.stopListening('searchList',event,that.handleRecipientsChanged);
+     });
+-	
++	this.messageTextElement.stopObserving('keydown', this.handleTextAreaKeyDown);
+ 	this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
+ 	this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
+ 	
