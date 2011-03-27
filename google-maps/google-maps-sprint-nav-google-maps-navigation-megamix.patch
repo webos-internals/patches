@@ -1,0 +1,168 @@
+diff --git a/usr/palm/applications/com.palm.app.maps/app/assistants/app-assistant.js b/usr/palm/applications/com.palm.app.maps/app/assistants/app-assistant.js
+index 194d62e..695bd31 100644
+--- a/usr/palm/applications/com.palm.app.maps/app/assistants/app-assistant.js
++++ b/usr/palm/applications/com.palm.app.maps/app/assistants/app-assistant.js
+@@ -3,6 +3,7 @@ AppAssistant.webViewWidget = undefined;
+ AppAssistant.googleMapsURL = "http://maps.google.com/maps/m";
+ //AppAssistant.googleMapsURL = "http://gjm.google.com/mwm?sky=tfb";
+ AppAssistant.urlClientParam = "client=ms-mwm-palm";
++AppAssistant.gpsWasEnabled = false;
+ 
+ function AppAssistant(appController) {
+ 	Mojo.Log.info("MAPS App: AppAssistant");
+@@ -18,6 +19,21 @@ function AppAssistant(appController) {
+ 	window.document.addEventListener(Mojo.Event.activate, this.onAppActivate.bind(this));
+ 	window.document.addEventListener(Mojo.Event.deactivate, this.onAppDeactivate.bind(this));
+ 	
++    AppAssistant.gpsWasEnabled = false;
++    new Mojo.Service.Request('palm://com.palm.location', {
++        method: 'getUseGps',
++		parameters: {},
++		onSuccess: function(response){
++            AppAssistant.gpsWasEnabled = response.useGps;
++            if (AppAssistant.gpsWasEnabled==false){
++                new Mojo.Service.Request('palm://com.palm.location', {
++                    method: 'setUseGps',
++                    parameters: {useGps: true}
++                });
++            }
++        }      
++    });
++    
+ 	// subscribe for notifications from connection manager
+ 	this._startConnectionWatch();
+ 	
+@@ -81,6 +97,16 @@ AppAssistant.prototype.handleLaunch = function(appLaunchParams) {
+ 
+ AppAssistant.prototype.cleanup = function() {
+ 	Mojo.Log.info("Maps: AppAssistant cleanup");
++    
++    if (AppAssistant.gpsWasEnabled==false){
++        new Mojo.Service.Request('palm://com.palm.location', {
++			method: 'setUseGps',
++			parameters: {
++				useGps: false
++			}
++		});
++    }   
++    
+ 	this._cleanupConnectionWatch();	
+ 	this.storageNotificationSession.cancel();
+ };
+diff --git a/usr/palm/applications/com.palm.app.maps/app/assistants/mapshell-assistant.js b/usr/palm/applications/com.palm.app.maps/app/assistants/mapshell-assistant.js
+index 7c96cbf..a38c125 100644
+--- a/usr/palm/applications/com.palm.app.maps/app/assistants/mapshell-assistant.js
++++ b/usr/palm/applications/com.palm.app.maps/app/assistants/mapshell-assistant.js
+@@ -5,6 +5,8 @@ var MapshellAssistant = Class.create({
+ 		// when true, card the app else instruct webview to go back
+ 		this.goBack = false;
+ 		this.spinnerModel = {spinning: false};
++		// fs mode parameter
++		this.paramFS = true
+ 		
+ 		// event handlers
+ 		this._onWebViewCreatePageH = this._onWebViewCreatePage.bind(this);
+@@ -16,6 +18,7 @@ var MapshellAssistant = Class.create({
+ 		this._onWebViewTitleUrlChangedH = this._onWebViewTitleUrlChanged.bind(this);
+ 		this._onAdapterConnectH = this._onAdapterConnect.bind(this);
+ 		this._onAdapterDisconnectH = this._onAdapterDisconnect.bind(this);
++		this._holdHandlerH = this._holdHandler.bind(this);
+ 		
+ 		/*
+ 		var curr = new Date();
+@@ -42,6 +45,8 @@ var MapshellAssistant = Class.create({
+ 		};	
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, appMenuAttrs, this.appMenuModel);	
+ 		
++		//set fs mode
++		this.controller.enableFullScreenMode(this.paramFS);
+ 		// setup spinner
+ 		this.controller.setupWidget('disconnected_spinner', 
+ 			{spinnerSize: Mojo.Widget.spinnerLarge}, this.spinnerModel);
+@@ -66,6 +71,7 @@ var MapshellAssistant = Class.create({
+ 		this.controller.listen('webview', Mojo.Event.webViewTitleUrlChanged, this._onWebViewTitleUrlChangedH);
+ 		this.controller.listen('webview', Mojo.Event.webViewServerConnect, this._onAdapterConnectH);
+ 		this.controller.listen('webview', Mojo.Event.webViewServerDisconnect, this._onAdapterDisconnectH);
++		this.controller.listen('webview', Mojo.Event.hold, this._holdHandlerH);
+ 	},
+ 	
+ 	cleanup: function() {
+@@ -79,6 +85,7 @@ var MapshellAssistant = Class.create({
+ 		this.controller.stopListening('webview', Mojo.Event.webViewTitleUrlChanged, this._onWebViewTitleUrlChangedH);
+ 		this.controller.stopListening('webview', Mojo.Event.webViewServerConnect, this._onAdapterConnectH);	
+ 		this.controller.stopListening('webview', Mojo.Event.webViewServerDisconnect, this._onAdapterDisconnectH);
++		this.controller.stopListening('webview', Mojo.Event.hold, this._holdHandlerH);
+ 	},
+ 	
+ 	activate: function() {
+@@ -271,6 +278,16 @@ var MapshellAssistant = Class.create({
+ 		this.controller.modelChanged(this.spinnerModel);
+ 	},
+ 	
++	_holdHandler: function(event) {
++		if (this.paramFS) {
++			this.paramFS = false
++			this.controller.enableFullScreenMode(this.paramFS);
++		} 
++		else {
++			this.paramFS = true
++			this.controller.enableFullScreenMode(this.paramFS);
++		}
++	},
+ 
+ 	handleCommand: function(event) {
+ 		if (event.type == Mojo.Event.back) {
+diff --git a/usr/palm/applications/com.telenav.app.sprintnavigation/app/controllers/app-assistant.js b/usr/palm/applications/com.telenav.app.sprintnavigation/app/controllers/app-assistant.js
+index 2582f81..ba4cf38 100644
+--- a/usr/palm/applications/com.telenav.app.sprintnavigation/app/controllers/app-assistant.js
++++ b/usr/palm/applications/com.telenav.app.sprintnavigation/app/controllers/app-assistant.js
+@@ -9,6 +9,8 @@ var Tnav = {
+     Model: {},
+ };
+ 
++AppAssistant.gpsWasEnabled = false;
++
+ function AppAssistant() {}
+ 
+ var pt = AppAssistant.prototype;
+@@ -27,6 +29,22 @@ pt.setup = function(launchParameters) {
+ 		launchParameters = "nav:ShareAddr?add=950%W%Maude%Avenue&city=Sunnyvale&st=CA&zip=94085&recipient=recipient";
+ 		//launchParameters = "nav:Favorite?add=950%W%Maude%Avenue&city=Sunnyvale&st=CA&zip=94085";		
+ 	}*/
++    
++    AppAssistant.gpsWasEnabled = false;
++    new Mojo.Service.Request('palm://com.palm.location', {
++        method: 'getUseGps',
++		parameters: {},
++		onSuccess: function(response){
++            AppAssistant.gpsWasEnabled = response.useGps;
++            if (AppAssistant.gpsWasEnabled==false){
++                new Mojo.Service.Request('palm://com.palm.location', {
++                    method: 'setUseGps',
++                    parameters: {useGps: true}
++                });
++            }
++        }      
++    });
++    
+     var launchParams = PalmSystem.launchParams;
+     if (launchParams)
+         launchParams = launchParams.evalJSON();
+@@ -279,6 +297,17 @@ pt.coverturlformat = function(urlformat, toreplace, replacedval)
+ }	
+ 
+ pt.cleanup = function() {
++
++    if (AppAssistant.gpsWasEnabled==false){
++        new Mojo.Service.Request('palm://com.palm.location', {
++			method: 'setUseGps',
++			parameters: {
++				useGps: false
++			}
++		});
++    }  
++
++
+     Tnav.Gps.stopTracking();
+     Tnav.Adapter.call('cleanupService');
+     Tnav.Model.PowerManager.allowScreenDim();
