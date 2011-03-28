@@ -203,6 +203,13 @@
  			}
  		}
  		
+@@ -751,4 +829,4 @@
+ 		default:
+ 			this.nanpRegion = false;
+ 	} 
+-};
+\ No newline at end of file
++};
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 @@ -29,7 +29,30 @@
@@ -637,7 +644,16 @@
  	cleanup: function() {
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
-@@ -69,8 +69,9 @@
+@@ -48,6 +48,8 @@
+ 	},
+     
+     setup: function(){
++		this.rejectedCallTimeout = null;
++			
+ 		this.sceneCtrl = this.dialogSceneController || this.controller;
+ 		this.unblockIgnore.delay(IncomingcallAssistant.kBlockIgnoreDelay);
+ 		
+@@ -69,8 +71,9 @@
  		}
  		
  		try {
@@ -649,7 +665,7 @@
  			
  	        this.exposed = true;
  			// turn display on and lock it there
-@@ -333,10 +334,14 @@
+@@ -333,10 +336,14 @@
  		
  		if (response.key === "slider") {
  			var newSliderOpenState = (response.state === "up");
@@ -668,7 +684,7 @@
  			}
  			this.sliderOpen = newSliderOpenState;
  		} 
-@@ -372,8 +377,10 @@
+@@ -372,8 +379,10 @@
  		// answer the call after a delay if we're exposed, set to do so, 
  		// and we were previously on the puck
  		if (response && response.type == "inductive") {
@@ -681,35 +697,76 @@
  			}
  			this.puckConnected = response.connected;
  		}
-@@ -416,7 +423,9 @@
+@@ -393,6 +402,18 @@
+ 	// detect lock status to hide/show buttons
+ 	onLockStatusEvent: function(response) {
+ 		Mojo.Log.info( "IncomingcallAssistant#onLockStatusEvent");
++
++		if((this.rejectedCallTimeout) && (!response.locked)) {
++			this.rejectedCallTimeout = null;
++			
++			this.controller.serviceRequest('palm://com.palm.applicationManager/', {
++				method: 'launch', parameters: { id: 'com.palm.app.messaging',
++					params: {composeRecipients: [{address: this.contact.addressFormatted}],
++					messageText: this.appAssistant.rejectedPrefs.rejectTemplate
++					}
++				}});
++		}
++		
+ 		this.buttonsSetVisible(response.locked, undefined);
+ 	},
+ 	// detect lock status to hide/show buttons
+@@ -416,7 +437,10 @@
      },
      
  	// hide alert and instruct blur handler to disconnect call & show ignored UI
 -	rejectCall: function(event){
 +	rejectCall: function(event, hold){
-+		event.stop();
++		if(event)
++			event.stop();
 +		
          if (this.blockIgnore) {
  			Mojo.Log.error( "IncomingcallAssistant#rejectCall tapped too soon");
  			this.unblockIgnore();
-@@ -426,6 +435,17 @@
+@@ -426,9 +450,31 @@
          this.mute();
  		this.exitStatus = "rejected";
  		
 +		if((this.contact.canBeCalled()) && (this.contact.service != CallSynergy.SERVICES.SKYPE)) {
-+			if((hold) && (this.appAssistant.rejectedPrefs.rejectAction == "autoreply")) {	
++			if((event) && (!hold) && (this.appAssistant.rejectedPrefs.rejectAction == "autoreply")) {	
 +				this.controller.serviceRequest('palm://com.palm.applicationManager/', {
 +					method: 'launch', parameters: { id: 'com.palm.app.messaging',
 +						params: {composeRecipients: [{address: this.contact.addressFormatted}],
 +						messageText: this.appAssistant.rejectedPrefs.rejectTemplate
 +						}
-+				}});
++					}});
++			}
++			else if((!event) && (this.appAssistant.rejectedPrefs.rejectAction == "autoreply")) {	
++				this.activityRequest = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
++				 'method': "activityStart", 'parameters': {'id': Mojo.Controller.appInfo.id,
++				 'duration_ms': 30000} });
++
++				this.rejectedCallTimeout = setTimeout(this.cancelRejectedCall.bind(this), 15000);
 +			}
 +		}
 +
        	this.closeWindow();
      },
  	
++	cancelRejectedCall: function() {
++		this.rejectedCallTimeout = null;
++	},
++	
+ 	// hide alert and instruct blur handler to show ignore UI
+ 	ignoreCall: function(event) {
+ 		Mojo.Log.info( "IncomingcallAssistant#ignoreCall", this.callId);
+@@ -620,4 +666,4 @@
+ };
+ 
+ 
+-IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
+\ No newline at end of file
++IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
 --- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 +++ /usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 @@ -365,4 +365,13 @@
@@ -898,17 +955,16 @@
  		} else {
  			Mojo.Log.info( "TEL#proxOn", "already on");
  		}
-@@ -537,6 +545,9 @@
+@@ -537,6 +545,8 @@
  		if (this.proxSubscription) {
  			this.proxSubscription.cancel();
  			delete this.proxSubscription;
-+			this.diplayBlockReq = TelephonyCommands.displayDNAST(false, undefined);
 +			this.diplayBlockReq.cancel();
 +			delete this.diplayBlockReq;
  		}
  	},
  	
-@@ -724,7 +735,32 @@
+@@ -724,7 +734,32 @@
  		// wait to show incoming popup until the contact has been decorated
  		future = this.incomingPending.contact.decorated();
  		future.then(this, function() {
@@ -942,7 +998,7 @@
  			return true; // continue
  		});
  		
-@@ -1210,6 +1246,13 @@
+@@ -1210,6 +1245,13 @@
  		if (response && response.locked !== undefined) {
  			this.appAssistant.screenLocked = response.locked;
  			
@@ -956,7 +1012,7 @@
  			// issue unlock event if 
  			if ( ! response.locked && this.appAssistant.screenLockSecured ) {
  				UIStateMachine.event('lock', false); // let the current state know we're locked/unlocked
-@@ -1264,7 +1307,7 @@
+@@ -1264,7 +1306,7 @@
  		if (response.extended) {
  			var state = response.extended.state;
  			switch (state) {
