@@ -124,7 +124,7 @@
  AppAssistant.prototype.loadProperties = function() {
  	var sourcesText = palmGetResource(Mojo.appPath + "properties.json", true);
  	if (sourcesText) {
-@@ -271,11 +325,17 @@
+@@ -271,6 +325,12 @@
  			this.createLockStage();
  			this.loadSettings();
  			return;
@@ -137,12 +137,6 @@
  		} else {
  			// when in first use, always default to doing nothing for invalid args; 
  			// otherwise default to showing dialpad
- 			if ( ! PalmSystem.isMinimal ) {
--				UIStateMachine.event("launch");
-+				UIStateMachine.event("launch", this.phonePrefs.startView);
- 			}
- 		}
-     } else {
 @@ -283,8 +343,8 @@
  		if (!(this.telephonyEventListener.isPendingOrActive())) {
  			if (this.initialLaunch === false) {
@@ -203,13 +197,6 @@
  			}
  		}
  		
-@@ -751,4 +829,4 @@
- 		default:
- 			this.nanpRegion = false;
- 	} 
--};
-\ No newline at end of file
-+};
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 @@ -29,7 +29,30 @@
@@ -760,13 +747,6 @@
  	// hide alert and instruct blur handler to show ignore UI
  	ignoreCall: function(event) {
  		Mojo.Log.info( "IncomingcallAssistant#ignoreCall", this.callId);
-@@ -620,4 +666,4 @@
- };
- 
- 
--IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
-\ No newline at end of file
-+IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
 --- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 +++ /usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
 @@ -365,4 +365,13 @@
@@ -785,6 +765,31 @@
 +.palm-page-header .icon.phone {
 +	background-image: url(../images/header-icon-phone.png);
 +}
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/Abstract.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/states/Abstract.js
+@@ -146,7 +146,7 @@
+ 	},
+ 	
+ 	// default launch event just focuses phone stage
+-	event_launch: function() {
++	event_launch: function(view) {
+ 		var stageController = this.appController.getStageController(this.machine.STAGE_MAIN);
+ 		
+ 		// CASE: stage exists, show
+@@ -158,6 +158,13 @@
+ 		} else {
+ 			this.machine.currentState.setup();
+ 		}
++
++		if(view == "calllog")
++			this.machine.enter('calllog');
++		else if(view == "favorites")
++			this.machine.enter('favorites');
++		else if(view == "dialpad")
++			this.machine.enter('dialpad_card');		
+ 	},
+ 	// default lock event puts the phone into the pin state 
+ 	event_lock: function(enabled) {
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/ActiveCallCard.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/states/ActiveCallCard.js
 @@ -70,9 +70,13 @@
@@ -802,23 +807,6 @@
  			stageController.window.PalmSystem.hide();
  		}
  		
---- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/CallLog.js
-+++ /usr/palm/applications/com.palm.app.phone/app/models/states/CallLog.js
-@@ -14,6 +14,14 @@
- 	cleanup: function() {
- 		
- 	},
-+	event_launch: function(view) {
-+		if(view == "calllog")
-+			this.machine.enter('calllog');
-+		else if(view == "favorites")
-+			this.machine.enter('favorites');
-+		else if(view == "dialpad")
-+			this.machine.enter('dialpad_card');
-+	},
- 	event_back: function(commandEvent) {
- 		this.machine.enter('dialpad_card');
- 	},
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/CallSynergyContact.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/CallSynergyContact.js
 @@ -40,7 +40,9 @@
@@ -846,40 +834,6 @@
  		
  		// these attributes are NOT displayed but are passed through to
  		// the call log for the bluetooth service. This shouldn't be needed but
---- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/DialpadCard.js
-+++ /usr/palm/applications/com.palm.app.phone/app/models/states/DialpadCard.js
-@@ -10,6 +10,14 @@
- 			stageController.delegateToSceneAssistant("resetOnHide");
- 		}
- 	},
-+	event_launch: function(view) {
-+		if(view == "calllog")
-+			this.machine.enter('calllog');
-+		else if(view == "favorites")
-+			this.machine.enter('favorites');
-+		else if(view == "dialpad")
-+			this.machine.enter('dialpad_card');
-+	},
- 	event_back: function(commandEvent) {
-         if ( this.appAssistant.telephonyEventListener.callExists() ) {
-             this.machine.enter("activecall_card");
---- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/Favorites.js
-+++ /usr/palm/applications/com.palm.app.phone/app/models/states/Favorites.js
-@@ -8,6 +8,14 @@
- 	cleanup: function() {
- 		
- 	},
-+	event_launch: function(view) {
-+		if(view == "calllog")
-+			this.machine.enter('calllog');
-+		else if(view == "favorites")
-+			this.machine.enter('favorites');
-+		else if(view == "dialpad")
-+			this.machine.enter('dialpad_card');
-+	},
- 	event_back: function(commandEvent) {
- 		this.machine.enter('dialpad_card');
- 	},
 --- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/FavoritesAdd.js
 +++ /usr/palm/applications/com.palm.app.phone/app/models/states/FavoritesAdd.js
 @@ -48,7 +48,8 @@
