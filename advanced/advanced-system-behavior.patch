@@ -59,7 +59,23 @@
  		this.controller.document.removeEventListener(Mojo.Event.deactivate, this._onCardDeactivateHandler, false);
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
-@@ -605,7 +605,36 @@
+@@ -496,7 +496,14 @@
+ 			params = {params: params};
+ 		}
+ 
+-		AppAssistant.openComposeStage(params);
++		var stageController = Mojo.Controller.appController.getStageController("email");
++		
++		if(stageController) {
++			stageController.activate();
++			setTimeout(AppAssistant.openComposeStage.bind(this, params), 500);
++		}
++		else
++			AppAssistant.openComposeStage(params);
+ 	};
+ 	
+ 	
+@@ -605,7 +612,36 @@
  	
  	LaunchHandler.prototype.handleShowMessage = function() {
  		var params = this.launchParameters;
@@ -210,7 +226,38 @@
 +ListAssistant.kAccents = ["ŠŒŽšœžŸ¥µÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýÿ", "SOZsozYYuAAAAAAACEEEEIIIIDNOOOOOOUUUUYsaaaaaaaceeeeiiiionoooooouuuuyy"];
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
-@@ -111,12 +111,17 @@
+@@ -104,6 +104,30 @@
+ 		}		
+ 	},
+ 	
++	launchChatInNewCard: function(chatThreadId, params) {
++		var stageController = Mojo.Controller.appController.getStageController("messaging" + chatThreadId);
++
++		if(stageController) {
++			stageController.activate();
++		}
++		else {
++			if(!params)
++				params = {};
++
++			params.conversationCard = true;
++		
++			var stageParams = {name: 'messaging' + chatThreadId,
++				lightweight: Mojo.Controller.appInfo.lwStages
++			};
++
++			var callback = function(controller) {
++				controller.pushScene('chatview', chatThreadId, params);
++			};
++
++			Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++		}
++	},
++
+ 	launchChatWithId: function(stageController, chatThreadId) {
+ 		if (stageController) {			
+ 			// Don't pop/push if the chat we want is already open
+@@ -111,12 +135,16 @@
  				return;
  			}
  			
@@ -224,37 +271,36 @@
 +*/
 +
 +			stageController.activate();
-+			
-+			setTimeout(this.launchChatInNewCardWithId.bind(this, chatThreadId), 500);
++			setTimeout(this.launchChatInNewCard.bind(this, chatThreadId), 500);
  		} else {
  			var afterCreate = function(stageController){
  				stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
-@@ -128,6 +133,25 @@
- 		}		
- 	},
- 	
-+	launchChatInNewCardWithId: function(chatThreadId) {
-+		var stageController = Mojo.Controller.appController.getStageController("messaging" + chatThreadId);
-+
-+		if(stageController) {
-+			stageController.activate();
-+		}
-+		else {
-+			var stageParams = {name: 'messaging' + chatThreadId,
-+				lightweight: Mojo.Controller.appInfo.lwStages
-+			};
-+
-+			var callback = function(controller) {
-+				controller.pushScene('chatview', chatThreadId, {conversationCard: true});
-+			};
-+
-+			Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
-+		}
-+	},
-+
- 	launchChatWithAddress: function(stageController, address, serviceName) {
- 		this.createChatForAddressRequest = MessagingMojoService.createChatForAddress(address, serviceName, function(resp){
- 			if (stageController) {					
+@@ -141,8 +169,10 @@
+ 					focusWindow: true
+ 				};
+ 				this.addListViewClearBadgeForChatFnToParams(params, resp.chatThreadId);				
+-				stageController.popScenesTo("listview", {});
+-				stageController.pushScene("chatview", resp.chatThreadId, params);				
++				stageController.activate();
++				setTimeout(this.launchChatInNewCard.bind(this, resp.chatThreadId, params), 500);
++//				stageController.popScenesTo("listview", {});
++//				stageController.pushScene("chatview", resp.chatThreadId, params);				
+ 			} else {
+ 				var afterCreate = function(stageController){
+ 					stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
+@@ -231,8 +261,10 @@
+ 						
+ 					launchParams.focusWindow = true;
+ 					this.addListViewClearBadgeForChatFnToParams(launchParams, conversation._id);			
+-					stageController.popScenesTo("listview", {});
+-					stageController.pushScene("chatview", conversation._id, launchParams);
++					stageController.activate();
++					setTimeout(this.launchChatInNewCard.bind(this, conversation._id, launchParams), 500);
++//					stageController.popScenesTo("listview", {});
++//					stageController.pushScene("chatview", conversation._id, launchParams);
+ 				} else {
+ 					var afterCreate = function(stageController){
+ 						stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
 +++ /usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
 @@ -3,7 +3,7 @@
@@ -268,6 +314,15 @@
        </div>
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -315,7 +315,7 @@
+ 			hintText: $L('Enter message here...'),
+ 			multiline: true,
+ 			focus: false,
+-			enterSubmits: true,
++			enterSubmits: false,
+ 			inputName: "messageTextElement",
+ 			className: " ",
+ 			changeOnKeyPress: true
 @@ -739,8 +739,10 @@
  					break;
  			}
@@ -281,7 +336,15 @@
  			return;
  		}
  	},
-@@ -2107,9 +2109,9 @@
+@@ -2066,6 +2068,7 @@
+ 				}
+ 				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
+ 				delayed.messageText = msg.messageText;
++				msg.messageText = msg.messageText.replace(/\n/g,"<br>");
+ 			}
+ 			
+ 			var icons = this.Messaging.IMAccounts.getIcons(msg.serviceName);
+@@ -2107,9 +2110,9 @@
  				
  				// Only show the message sent time if it is less than two days old
  				// from when it arrived on device
@@ -293,49 +356,94 @@
  //			}
  
  			if (msg.callbackNumber) {
-@@ -2928,9 +2930,11 @@
- 		// Check for return keys, and put a fake highlight on the send button.
- 		// It will be cleared on key up.
+@@ -2925,39 +2928,84 @@
+ 	},
+ 	
+ 	handleTextAreaKeyDown: function(event) {
+-		// Check for return keys, and put a fake highlight on the send button.
+-		// It will be cleared on key up.
  		if (event) {
 -			if (Mojo.Char.isEnterKey(event.keyCode)) {
-+/*			if (Mojo.Char.isEnterKey(event.keyCode)) {
- 				this.sendButton.addClassName('selected');
+-				this.sendButton.addClassName('selected');
 -			} else if (event.keyCode===129) {
-+			} else 
-+*/			
 +			if (event.keyCode===129) {
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
  				this.ctrlKeyPressed = true;
++			} else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (!this.ctrlKeyPressed) {
++					Event.stop(event);
++					
++					var selectedTransport = this.transportModel.getSelectedTransport();
++					
++					if (selectedTransport.serviceName != "sms")
++						this.sendButton.addClassName('selected');
++				}
++				else if (this.enterSendTimeout)
++					this.clearSendTimeout();
  			} else if (event.keyCode===Mojo.Char.spaceBar && this.ctrlKeyPressed) {
- 				Event.stop(event);
-@@ -2947,17 +2951,35 @@
+-				Event.stop(event);
+-				var controller = this.controller;
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
++				var messageTextElement = this.messageTextElement;
+ 				var onselect = function onEmoticonSelect(emoticon) {
+-					controller.document.execCommand("insertText", true, emoticon);
++					messageTextElement.setValue(messageTextElement.getValue() + emoticon);
+ 				};
+ 				var emoticonPicker = new EmoticonPickerDialogAssistant(this, onselect);
+ 				emoticonPicker.show();
+ 			}
++			else if (this.enterSendTimeout)
++				this.clearSendTimeout();
+ 		}
+ 	},
+ 
  	handleTextAreaKeyUp: function(event) {
  		if (event) {
- 			if (Mojo.Char.isEnterKey(event.keyCode)) {
+-			if (Mojo.Char.isEnterKey(event.keyCode)) {
 -				this.considerForSend();
-+				if(this.enterSendTimeout) {
-+					this.clearSendTimeout();
-+					this.considerForSend();
-+				}
-+				else {
-+					this.sendButton.addClassName('selected');
-+					this.enterSendTimeout = setTimeout(this.clearSendTimeout.bind(this), 3000);				
-+				}
-+			
- 				Event.stop(event);
+-				Event.stop(event);
 -				
 -				// Remove highlight that was added on keydown.
 -				this.sendButton.removeClassName('selected');
 -			} else if (event.keyCode===129) {
-+			}
-+			else if(this.enterSendTimeout)
-+				this.clearSendTimeout();
-+
 +			if (event.keyCode===129) {
  				this.ctrlKeyPressed = false;
  			}
++			else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (this.ctrlKeyPressed) {
++					this.messageTextElement.blur();
++					this.messageTextElement.focus();
++				}
++				else {
++					var selectedTransport = this.transportModel.getSelectedTransport();
++					
++					if (selectedTransport.serviceName != "sms") {
++						this.considerForSend();
++						this.sendButton.removeClassName('selected');
++					}
++					else {
++						if (this.enterSendTimeout) {
++							this.clearSendTimeout();
++							this.considerForSend();
++						}
++						else {
++							this.setupSendTimeout();
++						}
++					}
++								
++					Event.stop(event);
++				}
++			}
  		}
  	},
  
++	setupSendTimeout: function() {
++		this.sendButton.addClassName('selected');
++		this.enterSendTimeout = setTimeout(this.clearSendTimeout.bind(this), 3000);				
++	},
++
 +	clearSendTimeout: function() {
 +		this.sendButton.removeClassName('selected');
 +
@@ -350,28 +458,137 @@
  			this.actionButton.removeClassName('textentry');
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
-@@ -669,9 +669,28 @@
+@@ -123,6 +123,7 @@
+ 		this.attachFilePicker = this.attachFilePicker.bind(this);
+ 		this.handleTextAreaChange = this.handleTextAreaChange.bind(this);
+ 		this.handleTextAreaKeyUp = this.handleTextAreaKeyUp.bind(this);
++		this.handleTextAreaKeyDown = this.handleTextAreaKeyDown.bind(this);
+ 		this.handleCancelAttachment = this.resetTextBox.bind(this,false);		
+ 		this.handleRecipientsChanged = this.handleRecipientsChanged.bind(this);
  
- 	handleTextAreaKeyUp: function(event) {
- 		if (event && Mojo.Char.isEnterKey(event.keyCode)) {
--			this.considerForSend();
-+			if(this.enterSendTimeout) {
+@@ -164,7 +165,7 @@
+ 		    hintText: $L('Enter message here...'),
+ 		    multiline: true,
+ 		    focus: (this.prePopulatedRecipients.length > 0),
+-		    enterSubmits: true,
++		    enterSubmits: false,
+ 			requiresEnterKey: true,
+ 		    modelProperty: "value",
+ 			changeOnKeyPress: true
+@@ -197,6 +198,7 @@
+ 
+ 	ready: function() {
+ 		this.actionButton = this.controller.get('ActionButton');
++		this.sendButton = this.controller.get('SendButton');
+ 		this.addressingForm = this.controller.get('addressingForm');
+ 		this.messageTextWidget = this.controller.get('messageTextWidget');
+ 		this.messageTextElement  = this.messageTextWidget.querySelector('[name=messageTextElement]');
+@@ -204,6 +206,7 @@
+ 		this.addressingWidgetSpacer = this.controller.get('addressingWidgetSpacer');
+ 
+ 		this.messageTextElement.observe('keyup', this.handleTextAreaKeyUp);
++		this.messageTextElement.observe('keydown', this.handleTextAreaKeyDown);
+ 		this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
+ 	
+ 	    // Observe add/delete to the addressing widget
+@@ -667,11 +670,101 @@
+ 		} 
+ 	},
+ 
++	handleTextAreaKeyDown: function(event) {
++		if (event) {
++			if (event.keyCode===129) {
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
++				this.ctrlKeyPressed = true;
++			} else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (!this.ctrlKeyPressed) {
++					Event.stop(event);
++					
++					var hasSMSRecipients = false;
++					
++					var recipients = Mojo.View.serializeMojo(this.addressingForm, true).to$A;
++					
++					for (var i = 0; i < recipients.length; i++) {
++						if (MessagingLib.Utils.isTextMessage(recipients[i].serviceName)) {
++							hasSMSRecipients = true;
++							break;
++						}
++					}
++					
++					if (!hasSMSRecipients)
++						this.sendButton.addClassName('selected');
++				}
++				else if (this.enterSendTimeout)
++					this.clearSendTimeout();
++			} else if (event.keyCode===Mojo.Char.spaceBar && this.ctrlKeyPressed) {
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
++				var messageTextElement = this.messageTextElement;
++				var onselect = function onEmoticonSelect(emoticon) {
++					messageTextElement.setValue(messageTextElement.getValue() + emoticon);
++				};
++				var emoticonPicker = new EmoticonPickerDialogAssistant(this, onselect);
++				emoticonPicker.show();
++			}
++			else if (this.enterSendTimeout)
 +				this.clearSendTimeout();
-+				this.considerForSend();
++		}
++	},
++
+ 	handleTextAreaKeyUp: function(event) {
+-		if (event && Mojo.Char.isEnterKey(event.keyCode)) {
+-			this.considerForSend();
+-			Event.stop(event);
+-		}		
++		if (event) {
++			if (event.keyCode===129) {
++				this.ctrlKeyPressed = false;
 +			}
-+			else {
-+				this.controller.get("SendButton").addClassName('selected');
-+				this.enterSendTimeout = setTimeout(this.clearSendTimeout.bind(this), 3000);				
++			else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (this.ctrlKeyPressed) {
++					this.messageTextElement.blur();
++					this.messageTextElement.focus();
++				}
++				else {
++					var hasSMSRecipients = false;
++					
++					var recipients = Mojo.View.serializeMojo(this.addressingForm, true).to$A;
++					
++					for (var i = 0; i < recipients.length; i++) {
++						if (MessagingLib.Utils.isTextMessage(recipients[i].serviceName)) {
++							hasSMSRecipients = true;
++							break;
++						}
++					}
++					
++					if (!hasSMSRecipients) {
++						this.considerForSend();
++						this.sendButton.removeClassName('selected');
++					}
++					else {
++						if (this.enterSendTimeout) {
++							this.clearSendTimeout();
++							this.considerForSend();
++						}
++						else {
++							this.setupSendTimeout();
++						}
++					}
++								
++					Event.stop(event);
++				}
 +			}
-+			
- 			Event.stop(event);
- 		}		
-+		else if(this.enterSendTimeout)
-+			this.clearSendTimeout();
++		}
++	},
++
++	setupSendTimeout: function() {
++		this.sendButton.addClassName('selected');
++		this.enterSendTimeout = setTimeout(this.clearSendTimeout.bind(this), 3000);				
 +	},
 +
 +	clearSendTimeout: function() {
-+		this.controller.get("SendButton").removeClassName('selected');
++		this.sendButton.removeClassName('selected');
 +
 +		if(this.enterSendTimeout)
 +			clearTimeout(this.enterSendTimeout);
@@ -380,6 +597,14 @@
  	},
  
  	handleTextAreaChange: function() {
+@@ -811,6 +904,7 @@
+ 	    });
+ 	
+ 		this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
++		this.messageTextElement.stopObserving('keydown', this.handleTextAreaKeyDown);
+ 		this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
+ 	
+ 		this.characterCounter.destroy();
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
 @@ -212,6 +212,8 @@
