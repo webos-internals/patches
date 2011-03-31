@@ -11,7 +11,7 @@
  }
  
  /**
-@@ -276,6 +280,22 @@
+@@ -276,6 +280,34 @@
  	}
  };
  
@@ -21,20 +21,32 @@
 +};
 + 
 +PageAssistant.prototype.handleGestureEnd = function(event) {
-+	if((event.centerY - this.gestureStartY) > 100)
++	if(((event.centerY - this.gestureStartY) > 200) &&
++		(Math.abs(event.centerX - this.gestureStartX) < 45))
++	{
 +		this.controller.getSceneScroller().mojo.revealTop();
-+	else if((event.centerY - this.gestureStartY) < -100)
++	}
++	else if(((event.centerY - this.gestureStartY) < -200) &&
++		(Math.abs(event.centerX - this.gestureStartX) < 45))
++	{
 +		this.controller.getSceneScroller().mojo.revealBottom();
-+	else if((this.gestureStartX - event.centerX) > 100)
++	}
++	else if(((this.gestureStartX - event.centerX) > 200) &&
++		(Math.abs(event.centerY - this.gestureStartY) < 45))
++	{	
 +		this._openHistoryView();
-+	else if((this.gestureStartX - event.centerX) < -100)
++	}
++	else if(((this.gestureStartX - event.centerX) < -200) &&
++		(Math.abs(event.centerY - this.gestureStartY) < 45))
++	{
 +		this._openBookmarkView();
++	}
 +};
 +
  /**
   * Show the startpage which displays the list of current bookmarks.
   */
-@@ -310,6 +330,11 @@
+@@ -310,6 +342,11 @@
  		// Signal we are interested in showing browser server status.
  		this._browserServerStatus.showActivateState();
  
@@ -46,7 +58,7 @@
  		this.controller.document.addEventListener(Mojo.Event.activate, this._onCardActivateHandler, false);
  		this.controller.document.addEventListener(Mojo.Event.deactivate, this._onCardDeactivateHandler, false);
  
-@@ -414,6 +439,10 @@
+@@ -414,6 +451,10 @@
  		// Signal we are not interesting in showing the browser server status.
  		this._browserServerStatus.showDeactivateState();
  
@@ -59,7 +71,77 @@
  		this.controller.document.removeEventListener(Mojo.Event.deactivate, this._onCardDeactivateHandler, false);
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
-@@ -496,7 +496,14 @@
+@@ -303,10 +303,10 @@
+ 			stage.pushScene('list', options.folder, !!options.message || !!options.scene);
+ 		}
+ 		
+-		if(options.message) {
++/*		if(options.message) {
+ 			stage.pushScene('message', options.message);
+ 		}
+-		
++*/		
+ 		if(options.scene) {
+ 			stage.pushScene.apply(stage, options.scene);
+ 		}
+@@ -323,10 +323,15 @@
+ 		
+ 		if(stage) {
+ 			Mojo.Log.info("AppAssistant.showEmailStage: Reusing existing stage.");
+-			stage.popScenesTo('accounts');
+ 			stage.activate();
+-			skipAccountsPush = true;
+-			stageExists(stage);
++
++			if(options.message)
++				setTimeout(AppAssistant.launchEmailCard.bind(this, options), 500);
++			else {
++				stage.popScenesTo('accounts');
++				skipAccountsPush = true;
++				stageExists(stage);
++			}
+ 		} else {
+ 			Mojo.Log.info("AppAssistant.showEmailStage: Creating new stage.");
+ 
+@@ -376,6 +381,18 @@
+ 	
+ };
+ 
++AppAssistant.launchEmailCard = function(params) {
++	var stageParams = {
++		name: 'childCard' + AppAssistant.childCardId++,
++		lightweight: Mojo.Controller.appInfo.lwStages
++	};
++
++	var callback = function(controller) {
++		controller.pushScene('message', params.message, true, null, true);
++	};
++
++	Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++};
+ 
+ AppAssistant.focusEmailStage = function focusEmailStage() {
+ 	var emailStageController = Mojo.Controller.appController.getStageController("email");
+@@ -384,7 +401,7 @@
+ 	}
+ };
+ 
+-AppAssistant.composeStageId = 0;
++AppAssistant.childCardId = 0;
+ AppAssistant.openComposeStage = function openComposeStage(composeOptions, composeDoneFunc) {
+ 	// Ensure the stage name is unique for each compose stage
+ 	var createStage = function(stageName) {
+@@ -401,8 +418,7 @@
+ 		};
+ 		Mojo.Controller.getAppController().createStageWithCallback(params, callback, undefined, composeDoneFunc); // Call through to the composeDoneFunc if the stage fails to open.
+ 	};
+-	AppAssistant.composeStageId++;
+-	createStage("compose"+AppAssistant.composeStageId);
++	createStage("childCard"+AppAssistant.childCardId++);
+ };
+ 
+ AppAssistant.prototype.clearDebounce = function(debounce) {
+@@ -496,7 +512,14 @@
  			params = {params: params};
  		}
  
@@ -75,44 +157,6 @@
  	};
  	
  	
-@@ -605,7 +612,36 @@
- 	
- 	LaunchHandler.prototype.handleShowMessage = function() {
- 		var params = this.launchParameters;
--		AppAssistant.showEmailStage({folder:params.folderInfo, message: params.emailId});
-+
-+		var stageController = Mojo.Controller.appController.getStageController("email");
-+		
-+		if (!stageController) {			
-+			AppAssistant.showEmailStage({folder:params.folderInfo, message: params.emailId});
-+		}
-+		else {
-+			stageController.activate();
-+			
-+			setTimeout(this.handleShowMessageInNewCard.bind(this, params.emailId), 500);
-+		}		
-+	};
-+
-+	LaunchHandler.prototype.handleShowMessageInNewCard = function(emailId) {
-+		var stageController = Mojo.Controller.appController.getStageController("message" + emailId);
-+
-+		if (stageController) {
-+			stageController.activate();
-+		}
-+		else {
-+			var stageParams = {name: 'message' + emailId,
-+				lightweight: Mojo.Controller.appInfo.lwStages
-+			};
-+
-+			var callback = function(controller) {
-+				controller.pushScene('message', emailId, false);
-+			};
-+
-+			Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
-+		}
- 	};
- 	
- 	LaunchHandler.prototype.handleShowFolder = function() {
 --- .orig/usr/palm/applications/com.palm.app.email/app/views/list/email_entry.html
 +++ /usr/palm/applications/com.palm.app.email/app/views/list/email_entry.html
 @@ -1,4 +1,4 @@
@@ -139,7 +183,7 @@
  	}
  
  	EmailApp.accounts.removeListener(this.handleAccountsChanged);
-@@ -709,6 +711,65 @@
+@@ -709,6 +711,67 @@
  	});
  };
  
@@ -188,13 +232,15 @@
 +					params.filteredSet = that.dataAssistant.localDSA.itemsArray;
 +				}
 +				
++				var appAssistant = Mojo.Controller.getAppController().assistant;
++				
 +				var stageParams = { 
-+					name: 'message' + emailMessageId,
++					name: 'childCard' + appAssistant.childCardId++, 
 +					lightweight: Mojo.Controller.appInfo.lwStages
 +				};
 +
 +				var callback = function(controller) {
-+					controller.pushScene('message', {email: email, emailArgs: emailParams}, true);
++					controller.pushScene('message', {email: email, emailArgs: emailParams}, true, null, true);
 +				};
 +
 +				Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
@@ -205,7 +251,7 @@
  
  ListAssistant.prototype.handleClick = function (event) {
  	var id = event.item._id;
-@@ -719,6 +780,11 @@
+@@ -719,6 +782,11 @@
  		return;
  	}
  
@@ -217,16 +263,73 @@
  	Mojo.Log.info("Trying to open email %s", event.item._id);
  	if (id) {
  
-@@ -1558,4 +1624,4 @@
- ListAssistant.dateCategoryYesterday = $L("Yesterday");
- ListAssistant.dateCategoryOlder     = $L("Older");
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -11,9 +11,11 @@
  
--ListAssistant.kAccents = ["ŠŒŽšœžŸ¥µÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýÿ", "SOZsozYYuAAAAAAACEEEEIIIIDNOOOOOOUUUUYsaaaaaaaceeeeiiiionoooooouuuuyy"];
-\ No newline at end of file
-+ListAssistant.kAccents = ["ŠŒŽšœžŸ¥µÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýÿ", "SOZsozYYuAAAAAAACEEEEIIIIDNOOOOOOUUUUYsaaaaaaaceeeeiiiionoooooouuuuyy"];
+ 
+ 
+-var MessageAssistant = function(targetEmail, focusStage, detailsObj){
++var MessageAssistant = function(targetEmail, focusStage, detailsObj, childCard){
+ 	//window.logger.log("MessageAssistant ctor");
+ 
++	this.childCard = childCard;
++
+ 	this.lastPosition = Mojo.Controller.appController.getScreenOrientation();
+ 	this.positions = [
+         "face up",
+@@ -94,7 +96,8 @@
+ 	this.handleShowHideAttachmentList = this.showHideAttachmentList.bind(this);
+ 	
+ 	if (focusStage === true) {
+-		this.focusStageTimer = _.delay(this.focusEmailStage.bind(this), 600);
++		this.focusEmailStage();
++//		this.focusStageTimer = _.delay(this.focusEmailStage.bind(this), 600);
+ 	}
+ 	
+ 	//window.logger.log("MessageAssistant ctor done");
+@@ -967,6 +970,7 @@
+ 	
+ 	
+ 	MessageAssistant.prototype.addAsScrollListener = function(event) {
++		if((event) && (event.scroller))
+         event.scroller.addListener(this);
+ 	};
+ 
+@@ -1003,6 +1007,9 @@
+ 	* @param {Object} resp
+ 	*/
+ 	MessageAssistant.prototype.displayContactAvatarAndPresence = function(baseId, storageId, contactPerson) {
++		if(!this.controller)
++			return;
++
+ 		var personId = contactPerson.getId();
+ 		this.contactResponses[personId] = contactPerson;
+ 		var nameId = baseId + "-name";
+@@ -2557,7 +2564,10 @@
+ 
+ 	MessageAssistant.prototype.deleteEmail = function() {
+ 		Message.deleteMessage(this.targetEmail._id);
+-		this.controller.stageController.popScene();
++		if(this.childCard)
++			this.controller.window.close();
++		else
++			this.controller.stageController.popScene();
+ 	};
+ 	
+ 	/** 
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
-@@ -104,6 +104,30 @@
+@@ -35,7 +35,7 @@
+ //		this.appController.serviceRequest = this.serviceRequestHelper.serviceRequest.bind(this.serviceRequestHelper);
+ 		
+ 		this.considerForNotification = appController.notificationAssistant.considerForNotification.bind(appController.notificationAssistant);
+-			
++		this.appController.childCardId = 0;	
+ 	},
+ 	
+ 	handleLaunch: function(param){
+@@ -104,6 +104,31 @@
  		}		
  	},
  	
@@ -240,9 +343,10 @@
 +			if(!params)
 +				params = {};
 +
-+			params.conversationCard = true;
++			params.childCard = true;
 +		
-+			var stageParams = {name: 'messaging' + chatThreadId,
++			var stageParams = {
++				name: 'childCard' + chatThreadId,
 +				lightweight: Mojo.Controller.appInfo.lwStages
 +			};
 +
@@ -257,7 +361,7 @@
  	launchChatWithId: function(stageController, chatThreadId) {
  		if (stageController) {			
  			// Don't pop/push if the chat we want is already open
-@@ -111,12 +135,16 @@
+@@ -111,12 +136,16 @@
  				return;
  			}
  			
@@ -275,7 +379,7 @@
  		} else {
  			var afterCreate = function(stageController){
  				stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
-@@ -141,8 +169,10 @@
+@@ -141,8 +170,10 @@
  					focusWindow: true
  				};
  				this.addListViewClearBadgeForChatFnToParams(params, resp.chatThreadId);				
@@ -288,7 +392,7 @@
  			} else {
  				var afterCreate = function(stageController){
  					stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
-@@ -231,8 +261,10 @@
+@@ -231,8 +262,10 @@
  						
  					launchParams.focusWindow = true;
  					this.addListViewClearBadgeForChatFnToParams(launchParams, conversation._id);			
@@ -301,6 +405,43 @@
  				} else {
  					var afterCreate = function(stageController){
  						stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
+@@ -305,7 +338,12 @@
+ 
+ 	launchCompose: function(stageController, composeParams) {
+ 		composeParams.focusWindow = true;
+-		
++
++		if (stageController)
++			stageController.activate();
++
++		setTimeout(this.launchComposeInNewCard.bind(this, composeParams), 500);
++/*		
+ 		if (stageController) {
+ 			stageController.popScenesTo("listview", {});
+ 			stageController.pushScene("compose", composeParams);
+@@ -316,6 +354,22 @@
+ 			};
+ 			this.createWindow(afterCreate, 'images/splash-messaging-chatview.png');
+ 		}		
++*/
++	},
++
++	launchComposeInNewCard: function(params) {
++		params.childCard = true;
++	
++		var stageParams = {
++			name: 'childCard' + this.appController.childCardId++,
++			lightweight: Mojo.Controller.appInfo.lwStages
++		};
++
++		var callback = function(controller) {
++			controller.pushScene('compose', params);
++		};
++
++		Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
+ 	},
+ 	
+ 	launchListView: function(stageController, forceListView) {
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
 +++ /usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
 @@ -3,7 +3,7 @@
@@ -329,7 +470,7 @@
  		} else if (event.type === Mojo.Event.back) {
 -			event.stop();
 -			this.popAndRevealListView();
-+			if(!this.params.conversationCard) {
++			if(!this.params.childCard) {
 +				event.stop();
 +				this.popAndRevealListView();
 +			}
@@ -458,7 +599,16 @@
  			this.actionButton.removeClassName('textentry');
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
-@@ -123,6 +123,7 @@
+@@ -30,6 +30,8 @@
+ 			this.launchedWithParams = true;
+ 			var i;
+ 			
++			this.childCard = params.childCard;
++			
+ 			if (params.launchedAsForward){
+ 				this.launchedAsForward = true;
+ 			}
+@@ -123,6 +125,7 @@
  		this.attachFilePicker = this.attachFilePicker.bind(this);
  		this.handleTextAreaChange = this.handleTextAreaChange.bind(this);
  		this.handleTextAreaKeyUp = this.handleTextAreaKeyUp.bind(this);
@@ -466,7 +616,7 @@
  		this.handleCancelAttachment = this.resetTextBox.bind(this,false);		
  		this.handleRecipientsChanged = this.handleRecipientsChanged.bind(this);
  
-@@ -164,7 +165,7 @@
+@@ -164,7 +167,7 @@
  		    hintText: $L('Enter message here...'),
  		    multiline: true,
  		    focus: (this.prePopulatedRecipients.length > 0),
@@ -475,7 +625,7 @@
  			requiresEnterKey: true,
  		    modelProperty: "value",
  			changeOnKeyPress: true
-@@ -197,6 +198,7 @@
+@@ -197,6 +200,7 @@
  
  	ready: function() {
  		this.actionButton = this.controller.get('ActionButton');
@@ -483,7 +633,7 @@
  		this.addressingForm = this.controller.get('addressingForm');
  		this.messageTextWidget = this.controller.get('messageTextWidget');
  		this.messageTextElement  = this.messageTextWidget.querySelector('[name=messageTextElement]');
-@@ -204,6 +206,7 @@
+@@ -204,6 +208,7 @@
  		this.addressingWidgetSpacer = this.controller.get('addressingWidgetSpacer');
  
  		this.messageTextElement.observe('keyup', this.handleTextAreaKeyUp);
@@ -491,7 +641,23 @@
  		this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  	    // Observe add/delete to the addressing widget
-@@ -667,11 +670,101 @@
+@@ -631,8 +636,14 @@
+ 			params = {};
+ 		}
+ 		// swapScene
+-		this.controller.stageController.swapScene({name:'chatview', transition:Mojo.Transition.crossFade}, chatThreadId, params);
++//		this.controller.stageController.swapScene({name:'chatview', transition:Mojo.Transition.crossFade}, chatThreadId, params);
+ 		//this.controller.stageController.swapScene('chatview', chatThreadId, params);
++		
++		this.controller.serviceRequest("palm://com.palm.applicationManager", {
++			method: "launch", parameters: {id: "com.palm.app.messaging",
++			params: {chatThreadId: chatThreadId}} });
++			
++		this.controller.window.close();
+ 	},
+ 	
+ //	_handleSentMessageResponse: function (result) {
+@@ -667,11 +678,101 @@
  		} 
  	},
  
@@ -597,7 +763,7 @@
  	},
  
  	handleTextAreaChange: function() {
-@@ -811,6 +904,7 @@
+@@ -811,6 +912,7 @@
  	    });
  	
  		this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
@@ -605,6 +771,15 @@
  		this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  		this.characterCounter.destroy();
+@@ -835,7 +937,7 @@
+ 				event.stop();
+ 			} 
+ 		} else if(event.type === Mojo.Event.back) {
+-			if (this.launchedAsForward === undefined) {
++			if ((this.launchedAsForward === undefined) && (!this.childCard)) {
+ 				event.stop();
+ 				this.saveDraft = false;
+ 				this.controller.stageController.popScenesTo('listview');
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
 @@ -212,6 +212,8 @@
@@ -628,7 +803,7 @@
  	
  		//set hint text later
  		this.customMessageTextWidgetAttributes = {
-@@ -627,6 +631,45 @@
+@@ -627,19 +631,78 @@
  
  	    return dsa;
  	},
@@ -640,6 +815,8 @@
 +			var element = e.target;
 +
 +		if((element) && (element.id)) {
++			this.eventAlreadyHandled = true;
++		
 +			var chatThreadId = element.id.substring(16, element.id.length - 12);
 +
 +			var ele = e.target.up(".chat-balloon");
@@ -656,6 +833,8 @@
 +			var element = e.target;
 +
 +		if((element) && (element.id)) {
++			this.eventAlreadyHandled = true;		
++		
 +			var personId = element.id.substring(14, element.id.length - 12);
 +
 +			var ele = e.target.up(".buddyListRow");
@@ -673,8 +852,37 @@
 +	},      
  	
  	handleHistoryListTap: function(e) {
++		if(this.eventAlreadyHandled) {
++			this.eventAlreadyHandled = false;
++			return;
++		}
++	
  		this.launchChatView(e.item._id);
-@@ -1003,6 +1046,9 @@
+ 	},
+ 	
+ 	handleHistoryListDelete: function(event) {
+ 		var chatThreadId = event.item._id;
++		
++		var stageController = Mojo.Controller.appController.getStageController("messaging" + chatThreadId);
++
++		if(stageController)
++			Mojo.Controller.getAppController().closeStage("messaging" + chatThreadId);
++		
+ 		MessagingDB.Conversations.delChatAndMessages(chatThreadId);
+ 		//Mojo.Controller.appController.notificationAssistant.clearNotificationsForChat(chatThreadId);
+ 		//this.clearSpecificListBadgeForChatThreadId(chatThreadId, "buddyBageContainer", this.buddyIndexedList);
+ 	},
+ 	
+ 	handleBuddyListTap: function(e) {
++		if(this.eventAlreadyHandled) {
++			this.eventAlreadyHandled = false;
++			return;
++		}
++
+ 		var buddyStatusRec = e.item;
+ 		var future = MessagingDB.Conversations.findFromBuddy(buddyStatusRec, false);
+ 		future.then(this, function(future) {
+@@ -1003,6 +1066,9 @@
  		var unreadCountCache = this.getCacheUnreadCount();
  		for (var i = 0; i < result.length; i++) {
  			var buddy = result[i];
@@ -684,7 +892,32 @@
  			if(unreadCountCache.hasElement(buddy.personId)){
  				buddy.unreadCount = unreadCountCache.get(buddy.personId);
  			}
-@@ -1715,6 +1761,25 @@
+@@ -1691,7 +1757,23 @@
+ 	},
+ 	
+ 	loadComposeView: function(params) {
+-		this.controller.stageController.pushScene('compose', params);
++		if(!params)
++			params = {};
++
++		params.childCard = true;
++
++		var stageParams = {
++			name: 'childCard' + this.appController.childCardId++,
++			lightweight: Mojo.Controller.appInfo.lwStages
++		};
++
++		var callback = function(controller) {
++			controller.pushScene('compose', params);
++		};
++
++		Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++	
++//		this.controller.stageController.pushScene('compose', params);
+ 	},
+ 	
+ 	loadPreferencesView: function() {
+@@ -1715,6 +1797,25 @@
  		this.controller.stageController.pushScene('chatview', chatThreadId, params);
  	},
  	
@@ -697,11 +930,11 @@
 +		}
 +
 +		var stageParams = { 
-+			name: 'messaging' + chatThreadId,
++			name: 'childCard' + chatThreadId,
 +			lightweight: Mojo.Controller.appInfo.lwStages };
 +
 +		var callback = function(controller) {
-+			controller.pushScene('chatview', chatThreadId, {focusWindow: true, conversationCard: true});             
++			controller.pushScene('chatview', chatThreadId, {focusWindow: true, childCard: true});             
 +		};
 +
 +		Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
@@ -710,7 +943,7 @@
  	clearListBadgeForChatThreadId: function(chatThreadId) {
  		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "buddyBageContainer", this.buddyIndexedList);
  		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "historyBageContainer", this.historyIndexedList);
-@@ -1749,6 +1814,8 @@
+@@ -1749,6 +1850,8 @@
  		this.Messaging.IMAccounts.stopObserving(this.handleIMAccountsChange);
  		this.filterField.stopObserving(Mojo.Event.filterImmediate, this.filterImmediate);
  		this.filterField.stopObserving(Mojo.Event.filter, this.filter);
