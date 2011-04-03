@@ -90,18 +90,20 @@
  		} else {
  			Mojo.Log.info("AppAssistant.showEmailStage: Creating new stage.");
  
-@@ -376,6 +381,18 @@
+@@ -376,6 +381,20 @@
  	
  };
  
 +AppAssistant.launchEmailCard = function(params) {
++	var childCardId = AppAssistant.childCardId++;
++
 +	var stageParams = {
-+		name: 'childCard' + AppAssistant.childCardId++,
++		name: 'childCard' + childCardId,
 +		lightweight: Mojo.Controller.appInfo.lwStages
 +	};
 +
 +	var callback = function(controller) {
-+		controller.pushScene('message', params.message, true, null, true);
++		controller.pushScene('message', params.message, true, null, childCardId);
 +	};
 +
 +	Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
@@ -109,26 +111,34 @@
  
  AppAssistant.focusEmailStage = function focusEmailStage() {
  	var emailStageController = Mojo.Controller.appController.getStageController("email");
-@@ -384,7 +401,7 @@
+@@ -384,9 +403,10 @@
  	}
  };
  
 -AppAssistant.composeStageId = 0;
-+AppAssistant.childCardId = 0;
++AppAssistant.childCardId = 1;
  AppAssistant.openComposeStage = function openComposeStage(composeOptions, composeDoneFunc) {
  	// Ensure the stage name is unique for each compose stage
++	var childCardId = AppAssistant.childCardId++;
  	var createStage = function(stageName) {
-@@ -401,8 +418,7 @@
+ 		// "nocache:true" tells sysmanager to not use the card caching strategy on compose cards
+ 		var params = {
+@@ -397,12 +417,11 @@
+ 			splashBackgroundName: 'images/splash-email-compose.png'
+ 		};
+ 		var callback = function(stageController) {
+-			stageController.pushScene('compose', composeOptions, stageName, composeDoneFunc);
++			stageController.pushScene('compose', composeOptions, stageName, composeDoneFunc, childCardId);
  		};
  		Mojo.Controller.getAppController().createStageWithCallback(params, callback, undefined, composeDoneFunc); // Call through to the composeDoneFunc if the stage fails to open.
  	};
 -	AppAssistant.composeStageId++;
 -	createStage("compose"+AppAssistant.composeStageId);
-+	createStage("childCard"+AppAssistant.childCardId++);
++	createStage("childCard" + childCardId);
  };
  
  AppAssistant.prototype.clearDebounce = function(debounce) {
-@@ -496,7 +512,14 @@
+@@ -496,7 +515,14 @@
  			params = {params: params};
  		}
  
@@ -170,7 +180,7 @@
  	}
  
  	EmailApp.accounts.removeListener(this.handleAccountsChanged);
-@@ -709,6 +711,65 @@
+@@ -709,6 +711,67 @@
  	});
  };
  
@@ -219,13 +229,15 @@
 +					params.filteredSet = that.dataAssistant.localDSA.itemsArray;
 +				}
 +				
++				var childCardId = AppAssistant.childCardId++;
++				
 +				var stageParams = { 
-+					name: 'childCard' + AppAssistant.childCardId++, 
++					name: 'childCard' + childCardId, 
 +					lightweight: Mojo.Controller.appInfo.lwStages
 +				};
 +
 +				var callback = function(controller) {
-+					controller.pushScene('message', {email: email, emailArgs: emailParams}, true, null, true);
++					controller.pushScene('message', {email: email, emailArgs: emailParams}, true, null, childCardId);
 +				};
 +
 +				Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
@@ -236,7 +248,7 @@
  
  ListAssistant.prototype.handleClick = function (event) {
  	var id = event.item._id;
-@@ -719,6 +780,11 @@
+@@ -719,6 +782,11 @@
  		return;
  	}
  
@@ -273,7 +285,21 @@
  	}
  	
  	//window.logger.log("MessageAssistant ctor done");
-@@ -967,6 +970,7 @@
+@@ -112,7 +115,12 @@
+ 
+ 	MessageAssistant.prototype.setup = function() {
+ 		//window.logger.log("MessageAssistant setup");
+-		this.stageController = Mojo.Controller.appController.getStageController("email");
++
++		if(this.childCard)
++			this.stageController = Mojo.Controller.appController.getStageController("childCard" + this.childCard);
++		else
++			this.stageController = Mojo.Controller.appController.getStageController("email");
++
+ 		this._setupMessage(); // get message details and setup message webview widget
+ 		this._setupMenus();
+ 		this.controller.setupWidget('email_recipients_drawer', {unstyled:true}, { open: false });
+@@ -967,6 +975,7 @@
  	
  	
  	MessageAssistant.prototype.addAsScrollListener = function(event) {
@@ -281,7 +307,7 @@
          event.scroller.addListener(this);
  	};
  
-@@ -1003,6 +1007,9 @@
+@@ -1003,6 +1012,9 @@
  	* @param {Object} resp
  	*/
  	MessageAssistant.prototype.displayContactAvatarAndPresence = function(baseId, storageId, contactPerson) {
@@ -291,7 +317,7 @@
  		var personId = contactPerson.getId();
  		this.contactResponses[personId] = contactPerson;
  		var nameId = baseId + "-name";
-@@ -2557,7 +2564,10 @@
+@@ -2557,7 +2569,10 @@
  
  	MessageAssistant.prototype.deleteEmail = function() {
  		Message.deleteMessage(this.targetEmail._id);
@@ -319,7 +345,7 @@
  	},
  	
 +	launchChatInNewCard: function(chatThreadId, params) {
-+		var stageController = Mojo.Controller.appController.getStageController("messaging" + chatThreadId);
++		var stageController = Mojo.Controller.appController.getStageController("childCard" + chatThreadId);
 +
 +		if(stageController) {
 +			stageController.activate();
@@ -440,7 +466,20 @@
        </div>
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-@@ -315,7 +315,7 @@
+@@ -299,6 +299,12 @@
+ 		this.downloadButtons=[];
+ 		this.invitationAcceptButtons=[];
+ 		this.invitationDeleteButtons=[];
++
++		if (this.params.clearListBadgeFn) {
++			this.markReadForInboxMessages();
++
++			this.params.clearListBadgeFn();
++		}
+ 	},
+ 	
+ 	setup: function() {
+@@ -315,7 +321,7 @@
  			hintText: $L('Enter message here...'),
  			multiline: true,
  			focus: false,
@@ -449,7 +488,7 @@
  			inputName: "messageTextElement",
  			className: " ",
  			changeOnKeyPress: true
-@@ -739,8 +739,10 @@
+@@ -739,8 +745,10 @@
  					break;
  			}
  		} else if (event.type === Mojo.Event.back) {
@@ -462,7 +501,7 @@
  			return;
  		}
  	},
-@@ -2066,6 +2068,7 @@
+@@ -2066,6 +2074,7 @@
  				}
  				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
  				delayed.messageText = msg.messageText;
@@ -470,7 +509,7 @@
  			}
  			
  			var icons = this.Messaging.IMAccounts.getIcons(msg.serviceName);
-@@ -2107,9 +2110,9 @@
+@@ -2107,9 +2116,9 @@
  				
  				// Only show the message sent time if it is less than two days old
  				// from when it arrived on device
@@ -482,7 +521,7 @@
  //			}
  
  			if (msg.callbackNumber) {
-@@ -2925,39 +2928,84 @@
+@@ -2925,39 +2934,84 @@
  	},
  	
  	handleTextAreaKeyDown: function(event) {
@@ -626,7 +665,19 @@
  		this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  	    // Observe add/delete to the addressing widget
-@@ -631,8 +636,14 @@
+@@ -522,7 +527,10 @@
+ 					// Could not find the new message or we sent to multiple recipients
+ 					Mojo.Log.info("Could not find the new message.  Popping scene to list view.");
+ 					this.Messaging.setListViewVisible(this.Messaging.Views.HISTORY);
+-					this.controller.stageController.popScenesTo('listview');
++					if(this.childCard)
++						this.controller.window.close()
++					else
++						this.controller.stageController.popScenesTo('listview');
+ 				}
+ 				future.result = true;
+ 			}.bind(this));
+@@ -631,8 +639,14 @@
  			params = {};
  		}
  		// swapScene
@@ -642,7 +693,7 @@
  	},
  	
  //	_handleSentMessageResponse: function (result) {
-@@ -667,11 +678,101 @@
+@@ -667,11 +681,101 @@
  		} 
  	},
  
@@ -748,7 +799,7 @@
  	},
  
  	handleTextAreaChange: function() {
-@@ -811,6 +912,7 @@
+@@ -811,6 +915,7 @@
  	    });
  	
  		this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
@@ -756,7 +807,7 @@
  		this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  		this.characterCounter.destroy();
-@@ -835,7 +937,7 @@
+@@ -835,7 +940,7 @@
  				event.stop();
  			} 
  		} else if(event.type === Mojo.Event.back) {
@@ -902,7 +953,7 @@
  	},
  	
  	loadPreferencesView: function() {
-@@ -1715,6 +1797,25 @@
+@@ -1715,6 +1797,29 @@
  		this.controller.stageController.pushScene('chatview', chatThreadId, params);
  	},
  	
@@ -914,12 +965,16 @@
 +			return;
 +		}
 +
++		var params = {focusWindow: true, childCard: true};
++
++		params.clearListBadgeFn = this.clearListBadgeForChatThreadId.bind(this, chatThreadId);
++
 +		var stageParams = { 
 +			name: 'childCard' + chatThreadId,
 +			lightweight: Mojo.Controller.appInfo.lwStages };
 +
 +		var callback = function(controller) {
-+			controller.pushScene('chatview', chatThreadId, {focusWindow: true, childCard: true});             
++			controller.pushScene('chatview', chatThreadId, params);             
 +		};
 +
 +		Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
@@ -928,7 +983,7 @@
  	clearListBadgeForChatThreadId: function(chatThreadId) {
  		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "buddyBageContainer", this.buddyIndexedList);
  		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "historyBageContainer", this.historyIndexedList);
-@@ -1749,6 +1850,8 @@
+@@ -1749,6 +1854,8 @@
  		this.Messaging.IMAccounts.stopObserving(this.handleIMAccountsChange);
  		this.filterField.stopObserving(Mojo.Event.filterImmediate, this.filterImmediate);
  		this.filterField.stopObserving(Mojo.Event.filter, this.filter);
