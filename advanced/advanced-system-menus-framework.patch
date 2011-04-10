@@ -598,17 +598,16 @@
  	},
  	
  	handleSystemlockValue: function(payload) {
-@@ -371,8 +396,7 @@
+@@ -371,7 +396,7 @@
  			this.controller.stageController.pushScene({name: "pin", automaticFocusAdvance: false},"changePin",this);
  		}
  		else if(this.currentSecurity == 'password') {
 -			this.askPassword();
--			this.newSecurity = "password";
-+			this.controller.stageController.pushScene({name: "password", automaticFocusAdvance: false},"changePassword",this);			this.newSecurity = "password";
++			this.controller.stageController.pushScene({name: "password", automaticFocusAdvance: false},"changePassword",this);
+ 			this.newSecurity = "password";
  		}			
  	},
- 
-@@ -432,16 +456,16 @@
+@@ -432,16 +457,16 @@
  		if(pinCorrect)
  			this.changeSecureLock(this.newSecurity,true);
  		else {
@@ -629,7 +628,7 @@
  	},
  	
  	passwordVerified: function(passwordCorrect) {
-@@ -449,6 +473,9 @@
+@@ -449,6 +474,9 @@
  			this.changeSecureLock(this.newSecurity,false);
  		}
  		else {
@@ -639,7 +638,7 @@
  			Mojo.Log.info("Password was wrong");
  			this.revertChanges();
  			
-@@ -457,23 +484,37 @@
+@@ -457,23 +485,37 @@
  	
  	changeSecureLock: function(newSetting,setFocus) {
  		if(newSetting == 'pin') {
@@ -680,7 +679,7 @@
  			Mojo.Log.info("PIN code is Emplty");
  			this.revertChanges();
  			return;
-@@ -483,6 +524,10 @@
+@@ -483,6 +525,10 @@
  	
  	handleSetPasscodeResponse: function(response) {
  		Mojo.Log.error("Response "+ Object.toJSON(response));
@@ -691,7 +690,7 @@
  		if(response.returnValue) {
  			this.currentSecurity = 'pin';
  			$('lockImg').show();
-@@ -494,6 +539,9 @@
+@@ -494,6 +540,9 @@
  	},
  	
  	pinAlreadySet: function() {
@@ -701,7 +700,7 @@
  		this.currentSecurity = 'pin';
  		$('lockImg').show();
  		this.policyEnforced = true;
-@@ -505,6 +553,9 @@
+@@ -505,6 +554,9 @@
  	},
  	
  	setPassword: function(password) {
@@ -711,7 +710,7 @@
  		Mojo.Log.info("Entered Password "+ password);
  		if(password === '') {
  			Mojo.Log.info("Password is Emplty");
-@@ -519,6 +570,9 @@
+@@ -519,6 +571,9 @@
  	},
  	
  	passwordAlreadySet: function(password) {
@@ -721,7 +720,7 @@
  		this.currentSecurity = 'password';
  		this.systemlockValue = password;
  		this.policyEnforced = true;
-@@ -528,10 +582,7 @@
+@@ -528,10 +583,7 @@
  	
  	
  	showPasswordDialogBox: function(setFocus) {		
@@ -733,7 +732,7 @@
  	},
  
  	revertChanges: function() {
-@@ -679,7 +730,7 @@
+@@ -679,7 +731,7 @@
  	}
  });
  
@@ -742,7 +741,7 @@
  var VerifyPasswordAssistant = Class.create({
  	
  	initialize: function(sceneAssistant) {
-@@ -954,5 +1005,5 @@
+@@ -954,5 +1006,5 @@
  		}
  	}		
  	
@@ -826,10 +825,42 @@
  		//Subscribe to Application Manager 
  		this.initOnServerStart("com.palm.applicationManager", this.appMgrInit.bind(this));
  		
-@@ -120,10 +138,26 @@
+@@ -120,10 +138,58 @@
  
  		// Subscribe to mojodb
  		this.initOnServerStart("com.palm.db", this.dbServiceInit.bind(this));
++
++		this.batteryIconMode = "icon";
++		this.batteryIconClass = "";
++		this.powerIconClass = "";
++		
++		this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
++			method: 'get', parameters: {'owner': "org.webosinternals.patches.advanced-system-menus-framework", 
++			keys: ["batteryIconMode","showGPSIcon","showRingerIcon","showRoamingIcon"]}, 
++			onSuccess: function(response) {
++				if(response) {
++					if(response.batteryIconMode != undefined) {
++						this.batteryIconMode = response.batteryIconMode;
++
++						if(this.batteryIconMode == "value") {
++							Mojo.Dom.get('power').style.display = "none";
++							Mojo.Dom.get('battery').style.display = "block";
++						}
++						else if(this.batteryIconMode == "iconvalue") {
++							Mojo.Dom.get('battery').style.display = "block";
++							Mojo.Dom.get('battery').className = "small";
++							this.batteryIconClass = "small ";
++							this.powerIconClass = "rotated ";
++						}
++					}
++					if(response.showGPSIcon == false)
++						Mojo.Dom.get('gps').style.display = 'none';
++					if(response.showRingerIcon == false)
++						Mojo.Dom.get('ringer').style.display = 'none';
++					if(response.showRoamingIcon == false)										
++						Mojo.Dom.get('roaming').style.display = 'none';
++				}
++			}.bind(this)});
 +		
 +		this.appMenuCookie = new Mojo.Model.Cookie("appMenu");
 +		
@@ -856,7 +887,7 @@
  		this.registerForeGroundApp();
  		this.registerStatusSettings();	
  		
-@@ -329,8 +363,9 @@
+@@ -329,8 +395,9 @@
  	//If it is First Use, Do not change the App Name.
  	if(PalmSystem.isMinimal) {
  		this.foregroundAppID = payload.id;
@@ -867,7 +898,7 @@
  		return;
  	}
  	
-@@ -363,7 +398,8 @@
+@@ -363,7 +430,8 @@
  		
  		if (!this.deviceLocked) {
  			Mojo.Dom.get('carrier').hide();
@@ -877,7 +908,7 @@
  		}
  		this.foregroundAppID = payload.id;
  		
-@@ -372,8 +408,9 @@
+@@ -372,8 +440,9 @@
  			this.closeTutorialDashboard();
  	}
  	else{
@@ -888,7 +919,7 @@
  		this.foregroundAppID=null;
  	}
  },
-@@ -460,11 +497,13 @@
+@@ -460,11 +529,13 @@
  		}
  		if (payload.locked || this.foregroundAppID == null) {
  			Mojo.Dom.get('carrier').show();
@@ -904,7 +935,7 @@
  		}
  	}	
  	
-@@ -490,11 +529,30 @@
+@@ -490,11 +561,30 @@
  	return false;
  },
  
@@ -936,7 +967,7 @@
  	var appMenuModel = this.appMenuModels[this.foregroundAppID];
  	var target = event.target;
  	while(target) {
-@@ -537,7 +595,136 @@
+@@ -537,7 +627,136 @@
  	}
  },
  
@@ -1074,7 +1105,7 @@
  	
  	//Ignore the notification if it's in First Use.
  	if(PalmSystem.isMinimal)
-@@ -554,16 +741,21 @@
+@@ -554,16 +773,21 @@
  		i++;
  	}
  	if (target) {
@@ -1100,7 +1131,7 @@
  		} else {
  			this.deviceMenuCreatedHandler = this.deviceMenuCreated.bind(this);
  			Mojo.Controller.getAppController().createStageWithCallback({
-@@ -701,6 +893,13 @@
+@@ -701,6 +925,13 @@
  				this.callForwardNotificationSession = null;	
  			}
  		}
@@ -1114,7 +1145,7 @@
  		this.updatePhoneAppName();
  	}
  },
-@@ -835,6 +1034,13 @@
+@@ -835,6 +1066,13 @@
  			Mojo.Dom.get('roaming').hide();
  			break;			
  	}
@@ -1128,7 +1159,7 @@
  	this.updatePhoneAppName();
  	this.handleNetworkStatus.cancel();
  },
-@@ -901,7 +1107,12 @@
+@@ -901,7 +1139,12 @@
  			this.updatePhoneAppName();
  			break;
  	}	
@@ -1142,7 +1173,7 @@
  },
  
  handleSignalStrengthQueryNotification: function(payload) {
-@@ -1426,8 +1637,14 @@
+@@ -1426,8 +1669,14 @@
  				this.createUSBDashboard();
  			}
  		} 		
@@ -1158,7 +1189,7 @@
  	this.updatePhoneAppName();
  },
  
-@@ -1825,6 +2042,51 @@
+@@ -1825,6 +2074,51 @@
  },
  
  /*
@@ -1177,7 +1208,7 @@
 +		this.gpsRadioStatusRequest.cancel();
 +	}
 +	
-+	this.gpsRadioStatusRequest=new Mojo.Service.Request('palm://com.palm.location/',{
++	this.gpsRadioStatusRequest = new Mojo.Service.Request('palm://com.palm.location/',{
 +		method:'getUseGps', parameters: {},
 +		onSuccess: this.gpsHandleRadioStatus.bind(this)
 +	});
@@ -1210,7 +1241,7 @@
   * Initialize Bluetooth icon on status bar 
   */
  btInit:function(payload){
-@@ -2037,6 +2299,8 @@
+@@ -2037,6 +2331,8 @@
   * Handle power and charging notifications
   */
  handlePowerNotifications: function(payload) {
@@ -1219,7 +1250,7 @@
  	
  	Mojo.Log.info("SystemUI Power Payload "+ Object.toJSON(payload));
  	if(!this.powerdServiceUp) {
-@@ -2047,6 +2311,10 @@
+@@ -2047,6 +2343,10 @@
  		this.queryBatteryStatusReq.cancel();
  		this.queryBatteryStatusReq = undefined;
  	}	
@@ -1230,7 +1261,39 @@
  	// Is the battery level provided?
  	if (payload.percent_ui != undefined) {
  		
-@@ -2117,7 +2385,10 @@
+@@ -2064,8 +2364,12 @@
+ 			// Show the battery level if not charging
+ 			if (!this.isCharging) {
+ 				Mojo.Log.info("SystemUI- Is Charging "+ this.isCharging + " Battery level "+ i);
+-				Mojo.Dom.get('power').className = 'battery-' + i;
+-				
++				Mojo.Dom.get('power').className = this.powerIconClass + 'battery-' + i;
++				if(this.batteryIconMode != "icon") {
++					Mojo.Dom.get('battery').className = this.batteryIconClass + this.getBatteryLevelColor();
++					Mojo.Dom.get('battery').innerHTML = this.batteryLevel + unescape('%');
++				}
++								
+ 				//Show Banner Message if the Battery level is below 20%
+ 				var batteryalert = $L("#{percent_ui}% battery remaining").interpolate(payload);	
+ 				if(this.batteryLevel <= 5 && !this.batteryLevel5Shown) {
+@@ -2099,10 +2403,14 @@
+ 			else {
+ 				Mojo.Log.info("SystemUI- Is Charging "+ this.isCharging );
+ 				if(payload.percent_ui == 100)
+-					Mojo.Dom.get('power').className = 'battery-charged';
++					Mojo.Dom.get('power').className = this.powerIconClass + 'battery-charged';
+ 				else
+-					Mojo.Dom.get('power').className = 'battery-charging-' + i;
++					Mojo.Dom.get('power').className = this.powerIconClass + 'battery-charging-' + i;
+ 					
++				if(this.batteryIconMode != "icon") {
++					Mojo.Dom.get('battery').className = this.batteryIconClass + this.getBatteryLevelColor();
++					Mojo.Dom.get('battery').innerHTML = this.batteryLevel + unescape('%');
++				}
+ 			}
+ 			
+ 			if(this.batteryLevel > 5 && this.batteryLevel <= 10) {				
+@@ -2117,7 +2425,10 @@
  			//Update the System Menu
  			var stageController = Mojo.Controller.getAppController().getStageController("DeviceMenu");
  			if (stageController) {
@@ -1242,7 +1305,39 @@
  			}
  			
  			 //Update the Software Update Alert
-@@ -2225,6 +2496,17 @@
+@@ -2147,9 +2458,14 @@
+ 		if (this.isCharging) {
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+ 			if(this.batteryLevel == 100)
+-				Mojo.Dom.get('power').className = 'battery-charged';
++				Mojo.Dom.get('power').className = this.powerIconClass + 'battery-charged';
+ 			else
+-				Mojo.Dom.get('power').className = 'battery-charging-' + this.lastBatteryLevel;
++				Mojo.Dom.get('power').className = this.powerIconClass + 'battery-charging-' + this.lastBatteryLevel;
++
++			if(this.batteryIconMode != "icon") {
++				Mojo.Dom.get('battery').className = this.batteryIconClass + this.getBatteryLevelColor();
++				Mojo.Dom.get('battery').innerHTML = this.batteryLevel + unescape('%');
++			}
+ 						
+ 			var stageController = Mojo.Controller.getAppController().getStageController("LowBatteryAlert");
+ 			if (stageController) {
+@@ -2173,7 +2489,13 @@
+ 		else {
+ 			this.chargingBannerShown = false;			
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+-			Mojo.Dom.get('power').className = 'battery-' + this.lastBatteryLevel;	
++			Mojo.Dom.get('power').className = this.powerIconClass + 'battery-' + this.lastBatteryLevel;	
++
++			if(this.batteryIconMode != "icon") {
++				Mojo.Dom.get('battery').className = this.batteryIconClass + this.getBatteryLevelColor();
++				Mojo.Dom.get('battery').innerHTML = this.batteryLevel + unescape('%');
++			}
++
+ 			Mojo.Controller.getAppController().removeBanner('chargingAlert');	
+ 			if (this.batteryLevel < this.minBatThresholdForUpdate) {
+ 				Mojo.Log.info("SystemUI - OTA - Closing All Update Alerts due to battery level dropped below threshold level and charger disconnected.");
+@@ -2225,6 +2547,32 @@
  	return this.batteryLevel;
  },
  
@@ -1253,6 +1348,21 @@
 +		return "Discharging";
 +},
 +
++getBatteryLevelColor: function() {
++	if(this.isCharging)
++		var levelColor = "charging";
++	else if(this.batteryLevel >= 70) 
++		var levelColor = "full";
++	else if(this.batteryLevel < 70 && this.batteryLevel >= 45) 
++		var levelColor = "medium";
++	else if(this.batteryLevel < 45 && this.batteryLevel >= 20)
++		var levelColor = "low";
++	else if(this.batteryLevel < 20)
++		var levelColor = "critical";
++
++	return levelColor;
++},
++
 +getBatteryTemp: function() {
 +	return this.batteryTemp;
 +},
@@ -1260,7 +1370,7 @@
  queryBatteryStatus: function() {
  	this.queryBatteryStatusReq = new Mojo.Service.Request('palm://com.palm.power/com/palm/power/', {
  		method: 'batteryStatusQuery',});
-@@ -2238,6 +2520,7 @@
+@@ -2238,6 +2586,7 @@
  	this.lastBatteryLevel = 0;
  	this.chargingBannerShown = false;
  	this.batteryLevel = 0;
@@ -1268,7 +1378,16 @@
  	// Subscribe to Battery Power Notifications
  	this.powerNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
  		method: 'addmatch',
-@@ -2287,6 +2570,27 @@
+@@ -2274,7 +2623,7 @@
+ 
+ powerDeInit: function() {
+ 	Mojo.Log.error("SystemUI - Power service not available on the bus!");
+-	Mojo.Dom.get('power').className = 'error';
++	Mojo.Dom.get('power').className = this.powerIconClass + 'error';
+ 	this.powerSource['usb'] = false;
+ 	this.powerSource['inductive'] = false;
+ 	this.powerdServiceUp = false;
+@@ -2287,6 +2636,27 @@
  },
  
  /*
@@ -1296,7 +1415,7 @@
   * Handle WAN notifications
   */
  handleWANNotifications: function(payload) {
-@@ -2296,6 +2600,22 @@
+@@ -2296,6 +2666,22 @@
  	 if(payload.returnValue != undefined && payload.returnValue)
  	 	return;
  		
@@ -1319,7 +1438,7 @@
  	 var mipFailureCode, causeCode;	
  			
  	 if (payload.networkstatus == "attached" && payload.connectedservices && payload.connectedservices.length > 0) { 
-@@ -3023,6 +3343,10 @@
+@@ -3023,6 +3409,10 @@
  		if (stageController) {
  			stageController.delegateToSceneAssistant("updateAirplaneModeProgress");
  		}	
@@ -1330,7 +1449,7 @@
  		if (this.airplaneMode === false) 
  			this.disableFlightMode();
  		else {
-@@ -3034,6 +3358,10 @@
+@@ -3034,6 +3424,10 @@
  		if (stageController) {
  			stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
  		}
@@ -1341,7 +1460,7 @@
  	}  	
  	this.airplaneModeInitialQueryDone = true;
  	if(this.telephonyPowerQueryPayload) {
-@@ -3057,6 +3385,14 @@
+@@ -3057,6 +3451,14 @@
  		});	
  },
  
@@ -1356,7 +1475,7 @@
  //Disable Airplane Mode by turning on Phone and other radios.
  disableFlightMode: function() {
  	Mojo.Log.info("System UI - Disabling Airplane Mode");
-@@ -3192,6 +3528,12 @@
+@@ -3192,6 +3594,12 @@
  		this.airplaneModeTriggered = false;
  		stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
  	}	
@@ -1369,7 +1488,7 @@
  },
  
  //Clear the Hash before enable / disable the Airplane mode
-@@ -3312,6 +3654,51 @@
+@@ -3312,6 +3720,51 @@
  			
  },
  
@@ -1421,7 +1540,7 @@
  getCurrentBluetoothState: function() {
  	return this.bluetoothState;
  },
-@@ -4731,6 +5118,8 @@
+@@ -4731,6 +5184,8 @@
  	// Telephony Variables
  	phoneType: null,
  	phoneRadioState: null,
@@ -1432,7 +1551,7 @@
  	networkNotificationSession: null,
 --- .orig/usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
 +++ /usr/lib/luna/system/luna-systemui/app/views/bar/bar-scene.html
-@@ -5,15 +5,10 @@
+@@ -5,15 +5,11 @@
  			<span id="today"></span> 
  		</div>
  	</div>
@@ -1444,12 +1563,13 @@
 -	</div>
  
  	<div id="devicemenu">
++		<span id="battery" style="display:none;"></span>
  		<div id="power"></div>
 +		<div id="ringer"></div>
  		<div id="rssi"></div>
  		<div id="ev1x">
  			<div id="rssi-ev"></div>
-@@ -24,8 +19,21 @@
+@@ -24,8 +20,21 @@
  		<div id="wifi"></div>
  		<div id="vpn"></div>
  		<div id="bluetooth"></div>
@@ -1475,7 +1595,15 @@
 +</div>
 --- .orig/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
 +++ /usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
-@@ -130,6 +130,7 @@
+@@ -120,6 +120,7 @@
+ 
+ /* device menu icons */
+ 
++#battery,
+ #power,
+ #rssi,
+ #roaming,
+@@ -130,6 +131,7 @@
  #tty,
  #hac,
  #callforward,
@@ -1483,7 +1611,70 @@
  #gps,
  #ev1x {
  	float: right;
-@@ -174,6 +175,18 @@
+@@ -141,11 +143,62 @@
+ 	background-repeat: no-repeat;
+ }
+ 
++#battery { 
++	margin-left: 2px;
++	position: relative;
++	bottom: 3px;
++	font-size: 20px;
++	margin-right: 2px;
++	min-width: 22px;
++	text-align: center;
++}
++
++#battery.small { 
++ 	margin-left: 2px;
++	position: relative;
++	bottom: 11px;
++	font-size: 10px;
++	margin-right: 2px;
++	min-width: 22px;
++	text-align: center;
++}
++
++#battery.charging {
++	/*color: #33CCFF;*/
++}
++
++#battery.full {
++	/*color: #33FF33;*/
++}
++
++#battery.medium {
++	/*color: #FFFF33;*/
++}
++
++#battery.low {
++	/*color: #FFCC00;*/
++}
++
++#battery.critical {
++	/*color: #FF0000;*/
++}
++
+ #power {
+ 	margin-left: 2px;
+ 	width: 17px;		
+ }
+ 
++#power.rotated {
++	position:absolute;
++	right: 2px;
++	top: 9px;
++	margin-top: 0px;
++	margin-right: 1px;
++	height: 20px;
++	width: 20px;
++	-webkit-transform: rotate(270deg);
++}
++
+ #power.error { background-image: url(../images/battery-error.png); }
+ #power.battery-0 { background-image: url(../images/battery-0.png); }
+ #power.battery-1 { background-image: url(../images/battery-1.png); }
+@@ -174,6 +227,18 @@
  #power.battery-charging-11 { background-image: url(../images/battery-charging-11.png); }
  #power.battery-charged { background-image: url(../images/battery-charged.png); }
  
@@ -1502,7 +1693,7 @@
  #rssi {
  	width: 19px;
  }
-@@ -274,6 +287,18 @@
+@@ -274,6 +339,18 @@
  #bluetooth.connecting { background-image: url(../images/bluetooth-connecting.png); }
  #bluetooth.connected { background-image: url(../images/bluetooth-connected.png); }
  
@@ -1521,7 +1712,7 @@
  #tty {
  	width: 16px;
  	background-image: url(../images/tty.png);
-@@ -309,3 +334,27 @@
+@@ -309,3 +386,27 @@
  .in-drawer-list .palm-row.last {
  	background: url(../images/list-separator-dark-taper.png) bottom left no-repeat !important;
  }
@@ -1557,10 +1748,10 @@
  	"confirm password...": "Kennwort bestätigen…",
 -	"enter password...": "Kennwort eingeben…"
 +	"enter password...": "Kennwort eingeben…",
-+  "Enter Password": "",
-+  "Enter New Password": "",
-+  "Password...": "",
-+  "Password Again...": ""
++	"Enter Password": "Kennwort eingeben",
++	"Enter New Password": "Neues Kennwort eingeben",
++	"Password...": "Kennwort...",
++	"Password Again...": "Kennwort bestätigen..."
  }
 --- .orig/usr/palm/applications/com.palm.app.screenlock/resources/es/strings.json
 +++ /usr/palm/applications/com.palm.app.screenlock/resources/es/strings.json
@@ -1570,10 +1761,10 @@
  	"confirm password...": "confirmar contraseña…",
 -	"enter password...": "introducir contraseña…"
 +	"enter password...": "introducir contraseña…",
-+  "Enter Password": "",
-+  "Enter New Password": "",
-+  "Password...": "",
-+  "Password Again...": ""
++	"Enter Password": "Introducir contraseña",
++	"Enter New Password": "Introducir nueva contraseña",
++	"Password...": "Contraseña...",
++	"Password Again...": "Repita contraseña..."
  }
 --- .orig/usr/palm/applications/com.palm.app.screenlock/resources/fr/strings.json
 +++ /usr/palm/applications/com.palm.app.screenlock/resources/fr/strings.json
@@ -1583,10 +1774,10 @@
  	"confirm password...": "confirmer le mot de passe…",
 -	"enter password...": "entrer le mot de passe…"
 +	"enter password...": "entrer le mot de passe…",
-+  "Enter Password": "",
-+  "Enter New Password": "",
-+  "Password...": "",
-+  "Password Again...": ""
++	"Enter Password": "Entrer mot de passe",
++	"Enter New Password": "Entrer nouveau mot de passe",
++	"Password...": "Mot de passe...",
++	"Password Again...": "Confirmer mot de passe..."
  }
 --- .orig/usr/palm/applications/com.palm.app.screenlock/resources/it/strings.json
 +++ /usr/palm/applications/com.palm.app.screenlock/resources/it/strings.json
@@ -1596,8 +1787,8 @@
  	"confirm password...": "confermare la password…",
 -	"enter password...": "inserire la password…"
 +	"enter password...": "inserire la password…",
-+  "Enter Password": "",
-+  "Enter New Password": "",
-+  "Password...": "",
-+  "Password Again...": ""
++	"Enter Password": "Inserire la password",
++	"Enter New Password": "Inserire la nuova password",
++	"Password...": "Password...",
++	"Password Again...": "Password di nuovo..."
  }

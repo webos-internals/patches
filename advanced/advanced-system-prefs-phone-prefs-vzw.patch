@@ -101,7 +101,7 @@
 +
 +	this.rejectedPrefs = {
 +		rejectAction: "none",
-+		rejectTemplate: "Sorry, I am currently busy and will call you back later..."
++		rejectTemplate: $L("Sorry, I am currently busy and will call you back later...")
 +	};
 +	
 +	this.notificationPrefs = {
@@ -208,11 +208,12 @@
  		
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
-@@ -29,7 +29,30 @@
+@@ -29,7 +29,31 @@
  		this.announcer = this.appAssistant.announcer;
  		this.contacts = this.appAssistant.contacts; 
          Mojo.Log.info( "activecall initialize");
 +
++		this.appAssistant.audioSourceChangedManually = false;
 +		this.audioPreviousProfile = null;
 +		this.sliderState = "down";
 +
@@ -239,7 +240,7 @@
  		this.lastLines = [];
  		this.pauseWaitDigits = [];
  		this.showWaitButtonOnActive = [];
-@@ -151,7 +174,7 @@
+@@ -151,7 +175,7 @@
  		this.appAssistant.telephonyEventListener.addCallStateListener(this);
  		this.appAssistant.telephonyEventListener.addAudioStateListener(this);
  		
@@ -248,7 +249,7 @@
  			visible: true,
              items: [{
                  label: $L('Sounds & Ringtones'),
-@@ -159,6 +182,8 @@
+@@ -159,6 +183,8 @@
              }]
  		}; 
  		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, appMenuModel);
@@ -257,7 +258,7 @@
  		
  		if (!this.abridged && this.appAssistant.focusOnActiveCallSceneCreation === true) {
  			UIStateMachine.event('focus');
-@@ -558,7 +583,9 @@
+@@ -558,7 +584,9 @@
  		if (this.showDTMF === true && lineState.length > 0 && !(lineState.length == 1 && this.lastLines.length == 1 
  			&& (lineState[0].state == TelephonyCallState.ACTIVE || lineState[0].state == TelephonyCallState.DIALPENDING)
  			&& (this.lastLines[0].state == TelephonyCallState.DIALING || this.lastLines[0].state == TelephonyCallState.DIALPENDING))) {
@@ -268,7 +269,7 @@
  		} 
  	},
  	
-@@ -1242,6 +1269,9 @@
+@@ -1242,6 +1270,9 @@
  		// clear dial debounce
  		DialStringParser.clearDebounceTimeout();
  		this.activated = true;
@@ -278,7 +279,7 @@
  	},
      
  	incomingDialogLaunch: function() {
-@@ -1303,6 +1333,22 @@
+@@ -1303,6 +1334,22 @@
          this.controller.document.removeEventListener('keydown', this.boundStartDTMFHardKey);
          this.controller.document.removeEventListener('keyup', this.boundEndDTMFHardKey);
  		
@@ -301,7 +302,7 @@
  		// drop puck subscription
  		this.puckSubscription.cancel();
  		delete this.puckSubscription;
-@@ -1519,7 +1565,8 @@
+@@ -1519,7 +1566,8 @@
      },
      
      enableSpeakerphoneOnPuck: function(){
@@ -311,7 +312,17 @@
              this.onAudioRouteChangeClick("phone_back_speaker");
          }
  	},
-@@ -2059,4 +2106,86 @@
+@@ -1628,6 +1676,9 @@
+         if (!scenarios) 
+             return;
+        
++		if(this.appAssistant.phonePrefs.proximityAction == "change")
++			this.appAssistant.audioSourceChangedManually = true;
++       
+ 	    // Create the list of available routes
+         var that = this;
+ 		Object.keys(scenarios).each(function(route){
+@@ -2059,4 +2110,90 @@
  		}
  	},
      
@@ -350,7 +361,8 @@
 +
 +		if((response.powerKey == 'released') && 
 +			((this.audioActiveProfile == "phone_front_speaker") ||
-+			(this.appAssistant.phonePrefs.proximityAction == "change")))
++			((!this.appAssistant.audioSourceChangedManually) &&
++			(this.appAssistant.phonePrefs.proximityAction == "change"))))
 +		{
 +			// First, "tap" each Disconnect Button.
 +
@@ -368,6 +380,9 @@
 +	
 +	onDisplayEventDuringCall: function(response) {
 +		if(this.appAssistant.screenLocked)
++			return;
++
++		if(this.appAssistant.audioSourceChangedManually)
 +			return;
 +
 +		if(this.appAssistant.phonePrefs.proximityAction != "change")
@@ -924,16 +939,19 @@
  				} else {
  					return;
  				}
-@@ -513,7 +517,7 @@
+@@ -513,7 +517,10 @@
  		}
  		
  		if (this.isPendingOrActive()) {
 -			if (scenario == "phone_front_speaker") {
-+			if ((scenario == "phone_front_speaker") || (this.appAssistant.phonePrefs.proximityAction == "change")) {
++			if ((scenario == "phone_front_speaker") || 
++				((!this.appAssistant.audioSourceChangedManually) && 
++				(this.appAssistant.phonePrefs.proximityAction == "change")))
++			{
  				this.proxOn();
  			} else {
  				Mojo.Log.info( "TEL#enableProxOnCallAndAudio", "not enabled: " , scenario);
-@@ -525,8 +529,12 @@
+@@ -525,8 +532,12 @@
  	},
  	
  	proxOn: function() {
@@ -946,7 +964,7 @@
  		} else {
  			Mojo.Log.info( "TEL#proxOn", "already on");
  		}
-@@ -537,6 +545,8 @@
+@@ -537,6 +548,8 @@
  		if (this.proxSubscription) {
  			this.proxSubscription.cancel();
  			delete this.proxSubscription;
@@ -955,7 +973,7 @@
  		}
  	},
  	
-@@ -724,7 +734,32 @@
+@@ -724,7 +737,32 @@
  		// wait to show incoming popup until the contact has been decorated
  		future = this.incomingPending.contact.decorated();
  		future.then(this, function() {
@@ -989,7 +1007,7 @@
  			return true; // continue
  		});
  		
-@@ -1210,6 +1245,13 @@
+@@ -1210,6 +1248,13 @@
  		if (response && response.locked !== undefined) {
  			this.appAssistant.screenLocked = response.locked;
  			
@@ -1003,7 +1021,7 @@
  			// issue unlock event if 
  			if ( ! response.locked && this.appAssistant.screenLockSecured ) {
  				UIStateMachine.event('lock', false); // let the current state know we're locked/unlocked
-@@ -1264,7 +1306,7 @@
+@@ -1264,7 +1309,7 @@
  		if (response.extended) {
  			var state = response.extended.state;
  			switch (state) {
@@ -1032,55 +1050,3 @@
  		
  		this._states[this.STATE_START] = UIStateMachine.STATES.StartState;
  		this._states[this.STATE_PIN] = UIStateMachine.STATES.PinState;
---- .orig/usr/palm/applications/com.palm.app.phone/resources/es/strings.json
-+++ /usr/palm/applications/com.palm.app.phone/resources/es/strings.json
-@@ -407,5 +407,48 @@
- 	"synchronous circuit data switch": "conmutador de datos de circuito sincrónicos",
- 	"via Email": "por correo electrónico",
- 	"via Messaging": "por mensajería",
--	"voice": "voz"
-+	"voice": "voz",
-+	"Phone Services": "",
-+	"Sound Settings": "",
-+	"Default View": "",
-+	"On Call View": "",
-+	"No Default View": "",
-+	"Slider Opened": "",
-+	"Slider Closed": "",
-+	"Power Button": "",
-+	"On Dial Select": "",
-+	"On TS Removal": "",
-+	"On Proximity": "",
-+	"On Call Reject": "",
-+	"Repeat": "",
-+	"Limitation": "",
-+	"Dialpad": "",
-+	"Call Log": "",
-+	"Favorites: "",
-+	"Contact": "",
-+	"Keypad": "",
-+	"Do Nothing": "",
-+	"Answer Call": "",
-+	"Speakerphone": "",
-+	"Hangup Call": "",
-+	"Start Call": "",
-+	"Change Audio": "",
-+	"Send SMS Reply": "",
-+  "Sorry, I am currently busy and will call you back later...": "",
-+	"Disabled": "",
-+	"Every 2 minutes": "",
-+	"Every 5 minutes": "",
-+	"Every 15 minutes": "",
-+	"Every 30 minutes": "",
-+	"Every 60 minutes": "",
-+	"Infinite": "",
-+	"Repeat 3 times": "",
-+	"Repeat 5 times": "",
-+	"Repeat 10 times": "",
-+	"Repeat 15 times": "",
-+	"Repeat 30 times": "",
-+	"Off": "",
-+	"On": "",
-+	"No": "",
-+	"Yes": ""
- }

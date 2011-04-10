@@ -1,3 +1,76 @@
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/history-assistant.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/history-assistant.js
+@@ -54,11 +54,12 @@
+ 
+ HistoryAssistant.prototype.activate = function() {
+ 	this._historyListWidget.observe(Mojo.Event.listTap, this._onListSelectionHandler);
++	this._historyListWidget.observe(Mojo.Event.listDelete, this._onListDeleteHandler);
+ };
+ 
+ HistoryAssistant.prototype.deactivate = function() {
+ 	this._historyListWidget.stopObserving(Mojo.Event.listTap, this._onListSelectionHandler);
+-	
++	this._historyListWidget.stopObserving(Mojo.Event.listDelete, this._onListDeleteHandler);	
+ };
+ 
+ 
+@@ -89,6 +90,10 @@
+ 	});
+ };
+ 
++HistoryAssistant.prototype._onListDelete = function(event) {
++	this.historyStore.deleteHistoryEntry(event.item.url, function() {}, function() {});
++};
++
+ /**
+  * handle a menu command.
+  */
+@@ -228,13 +233,15 @@
+ 				item: "history/history-entry",
+ 				container: "history/history-container"
+ 			},
+-			onItemRendered: this._itemsCallback.bind(this)
++			onItemRendered: this._itemsCallback.bind(this),
++			swipeDelete: {autoConfirm: true}
+ 		};
+ 		
+ 		// finally, set up the widget
+ 		
+ 		this._historyListWidget = this.controller.get('historyList');
+ 		this._onListSelectionHandler = this._onListSelection.bind(this);
++		this._onListDeleteHandler = this._onListDelete.bind(this);
+ 		
+ 		this.controller.setupWidget('historyList', attributes, {});
+ 		
+--- .orig/usr/palm/applications/com.palm.app.browser/app/models/history-store.js
++++ /usr/palm/applications/com.palm.app.browser/app/models/history-store.js
+@@ -44,6 +44,26 @@
+ 	}
+ };
+ 
++HistoryStore.prototype.deleteHistoryEntry = function(url, onSuccess, onFailure) {
++	var response;
++
++	try {
++		if((!url) || (url.length === 0)) {
++			response ={ returnValue: "No URL" };
++			onFailure(response);
++			return;
++		}
++
++		var propOpValueArray=[{"prop": "url", "op": "=", "val": url}];
++		
++		this.mojoDbInterface.deleteHistory(propOpValueArray, onSuccess, onFailure);
++	} catch (e) {
++		Mojo.Log.logException(e);
++		response = { returnValue: "Unknown error" };
++		onFailure(response);
++	}
++};
++
+ HistoryStore.prototype.addHistory = function(url, title, date, onSuccess, onFailure) {
+ 	var response;
+ 	try	{
 --- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 @@ -81,6 +81,10 @@
@@ -164,7 +237,25 @@
  		#{-replyIcon}
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
-@@ -187,6 +187,7 @@
+@@ -36,6 +36,17 @@
+ 
+ 	//window.logger.log("ListAssistant ctor done");
+ 
++	this.focusAfterOpen = false;
++	this.alwaysOpenInNewCard = false;
++
++	Foundations.Comms.PalmCall.call('palm://org.webosinternals.tweaks.prefs/', 'get', {
++		owner: "org.webosinternals.patches.advanced-system-behavior", 
++		keys:["alwaysOpenInNewCard","openToBackground"]}).then( function(f) {
++			if((f.result) && (f.result.openToBackground != undefined))
++				this.focusAfterOpen = f.result.openToBackground;
++			if((f.result) && (f.result.alwaysOpenInNewCard != undefined))
++				this.alwaysOpenInNewCard = f.result.alwaysOpenInNewCard;
++		}.bind(this));
+ };
+ 
+ ListAssistant.prototype.setup = function() {
+@@ -187,6 +198,7 @@
  	this.emailListElement.addEventListener(Mojo.Event.listTap, this.handleClick.bind(this));
  	this.emailListElement.addEventListener(Mojo.Event.listDelete, this.handleDelete.bind(this));
  	this.emailListElement.addEventListener(Mojo.Event.filterImmediate, this.handleFilterChange.bind(this));
@@ -172,7 +263,7 @@
  	this.controller.listen('email_list', Mojo.Event.filter, this.handleFilterBound, true);
  
  
-@@ -228,6 +229,7 @@
+@@ -228,6 +240,7 @@
  	if (this.emailListElement) {
  		this.emailListElement.removeEventListener(Mojo.Event.listTap, this);
  		this.emailListElement.removeEventListener(Mojo.Event.listDelete, this.handleDelete);
@@ -180,7 +271,7 @@
  	}
  
  	EmailApp.accounts.removeListener(this.handleAccountsChanged);
-@@ -709,6 +711,67 @@
+@@ -709,6 +722,67 @@
  	});
  };
  
@@ -237,7 +328,7 @@
 +				};
 +
 +				var callback = function(controller) {
-+					controller.pushScene('message', {email: email, emailArgs: emailParams}, true, null, childCardId);
++					controller.pushScene('message', {email: email, emailArgs: emailParams}, that.focusAfterOpen, null, childCardId);
 +				};
 +
 +				Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
@@ -248,7 +339,7 @@
  
  ListAssistant.prototype.handleClick = function (event) {
  	var id = event.item._id;
-@@ -719,6 +782,11 @@
+@@ -719,6 +793,11 @@
  		return;
  	}
  
@@ -260,6 +351,38 @@
  	Mojo.Log.info("Trying to open email %s", event.item._id);
  	if (id) {
  
+@@ -756,10 +835,27 @@
+ 						params.folderFilter = that.filter;
+ 						params.filteredSet = that.dataAssistant.localDSA.itemsArray;
+ 					}
+-					that.controller.stageController.pushScene('message', {
+-						email: email,
+-						emailArgs: params
+-					}, true);
++					
++					if(that.alwaysOpenInNewCard) {
++						var childCardId = AppAssistant.childCardId++;
++				
++						var stageParams = { 
++							name: 'childCard' + childCardId, 
++							lightweight: Mojo.Controller.appInfo.lwStages
++						};
++
++						var callback = function(controller) {
++							controller.pushScene('message', {email: email, emailArgs: params}, that.focusAfterOpen, null, childCardId);
++						};
++
++						Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++					}
++					else {
++						that.controller.stageController.pushScene('message', {
++							email: email,
++							emailArgs: params
++						}, true);
++					}
+ 				}
+ 
+ 			}
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
 @@ -11,9 +11,11 @@
@@ -275,17 +398,19 @@
  	this.lastPosition = Mojo.Controller.appController.getScreenOrientation();
  	this.positions = [
          "face up",
-@@ -94,7 +96,8 @@
+@@ -94,9 +96,9 @@
  	this.handleShowHideAttachmentList = this.showHideAttachmentList.bind(this);
  	
  	if (focusStage === true) {
 -		this.focusStageTimer = _.delay(this.focusEmailStage.bind(this), 600);
-+		this.focusEmailStage();
-+//		this.focusStageTimer = _.delay(this.focusEmailStage.bind(this), 600);
++		this.focusStageTimer = _.delay(this.focusEmailStage.bind(this), 500);
  	}
- 	
+-	
++		
  	//window.logger.log("MessageAssistant ctor done");
-@@ -112,7 +115,12 @@
+ };
+ 	
+@@ -112,7 +114,12 @@
  
  	MessageAssistant.prototype.setup = function() {
  		//window.logger.log("MessageAssistant setup");
@@ -299,7 +424,7 @@
  		this._setupMessage(); // get message details and setup message webview widget
  		this._setupMenus();
  		this.controller.setupWidget('email_recipients_drawer', {unstyled:true}, { open: false });
-@@ -967,6 +975,7 @@
+@@ -967,6 +974,7 @@
  	
  	
  	MessageAssistant.prototype.addAsScrollListener = function(event) {
@@ -307,7 +432,7 @@
          event.scroller.addListener(this);
  	};
  
-@@ -1003,6 +1012,9 @@
+@@ -1003,6 +1011,9 @@
  	* @param {Object} resp
  	*/
  	MessageAssistant.prototype.displayContactAvatarAndPresence = function(baseId, storageId, contactPerson) {
@@ -317,7 +442,7 @@
  		var personId = contactPerson.getId();
  		this.contactResponses[personId] = contactPerson;
  		var nameId = baseId + "-name";
-@@ -2557,7 +2569,10 @@
+@@ -2557,7 +2568,10 @@
  
  	MessageAssistant.prototype.deleteEmail = function() {
  		Message.deleteMessage(this.targetEmail._id);
@@ -466,7 +591,15 @@
        </div>
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-@@ -299,6 +299,12 @@
+@@ -26,6 +26,7 @@
+ 		this.isSceneActive = false;
+ 		this.bottomBeforeDeactivate = null;
+ 		this.fixScrollPositionOnActivate = false;
++		this.closeAfterSending = false;
+ 		this.avatarHash = {
+ 			initialized: false,
+ 			_hash: {},
+@@ -299,9 +300,23 @@
  		this.downloadButtons=[];
  		this.invitationAcceptButtons=[];
  		this.invitationDeleteButtons=[];
@@ -479,7 +612,18 @@
  	},
  	
  	setup: function() {
-@@ -315,7 +321,7 @@
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {
++			method: "get",	parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
++			keys: ["closeAfterSending"]}, 
++			onSuccess: function(response) {
++				if((response) && (response.closeAfterSending != undefined))
++					this.closeAfterSending = response.closeAfterSending;
++			}.bind(this)});
++
+ 		Mojo.Log.info("++++++ChatviewAssistant::setup");
+ 		this.controller.get('footer').hide();
+ 		this.checkThreadLocked();
+@@ -315,7 +330,7 @@
  			hintText: $L('Enter message here...'),
  			multiline: true,
  			focus: false,
@@ -488,7 +632,7 @@
  			inputName: "messageTextElement",
  			className: " ",
  			changeOnKeyPress: true
-@@ -739,8 +745,10 @@
+@@ -739,8 +754,10 @@
  					break;
  			}
  		} else if (event.type === Mojo.Event.back) {
@@ -501,7 +645,7 @@
  			return;
  		}
  	},
-@@ -2066,6 +2074,7 @@
+@@ -2066,6 +2083,7 @@
  				}
  				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
  				delayed.messageText = msg.messageText;
@@ -509,7 +653,7 @@
  			}
  			
  			var icons = this.Messaging.IMAccounts.getIcons(msg.serviceName);
-@@ -2107,9 +2116,9 @@
+@@ -2107,9 +2125,9 @@
  				
  				// Only show the message sent time if it is less than two days old
  				// from when it arrived on device
@@ -521,7 +665,7 @@
  //			}
  
  			if (msg.callbackNumber) {
-@@ -2925,39 +2934,84 @@
+@@ -2925,39 +2943,84 @@
  	},
  	
  	handleTextAreaKeyDown: function(event) {
@@ -621,9 +765,27 @@
  	handleTextAreaChange: function() {
  		if (this.messageTextElement && this.messageTextElement.value === '' && this.outboundAttachment === undefined) {
  			this.actionButton.removeClassName('textentry');
+@@ -3278,6 +3341,9 @@
+ 		conversation.save();
+ 
+ 		this.sendMessageHelper(params, kind);
++		
++		if((this.closeAfterSending) && ((params.serviceName == "sms") || (params.serviceName == "mms")))
++			this.controller.window.close();
+ 	},
+ 	
+ 	addStatusMessageToChat: function(message, locked) {
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
-@@ -30,6 +30,8 @@
+@@ -9,6 +9,7 @@
+ 		this.prePopulatedRecipients = [];
+ 		this.sendMessageCount = 0;	// keep a count of how many times we call send so we know when the last callback is hit
+ 		this.sentRecipients = [];
++		this.closeAfterSending = false;
+ 		
+ 		var listviewSceneAssistant = this.Messaging.listviewSceneAssistant;
+ 		if (listviewSceneAssistant) {
+@@ -30,6 +31,8 @@
  			this.launchedWithParams = true;
  			var i;
  			
@@ -632,7 +794,7 @@
  			if (params.launchedAsForward){
  				this.launchedAsForward = true;
  			}
-@@ -123,6 +125,7 @@
+@@ -123,6 +126,7 @@
  		this.attachFilePicker = this.attachFilePicker.bind(this);
  		this.handleTextAreaChange = this.handleTextAreaChange.bind(this);
  		this.handleTextAreaKeyUp = this.handleTextAreaKeyUp.bind(this);
@@ -640,7 +802,22 @@
  		this.handleCancelAttachment = this.resetTextBox.bind(this,false);		
  		this.handleRecipientsChanged = this.handleRecipientsChanged.bind(this);
  
-@@ -164,7 +167,7 @@
+@@ -138,6 +142,14 @@
+ 
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, this.appMenuAttrs, this.appMenuModel);
+ 
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {
++			method: "get",	parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
++			keys: ["closeAfterSending"]}, 
++			onSuccess: function(response) {
++				if((response) && (response.closeAfterSending != undefined))
++					this.closeAfterSending = response.closeAfterSending;
++			}.bind(this)});
++
+ 		this.searchList = {
+ 			"property": "to$A",
+ 			"includeEmails": false,
+@@ -164,7 +176,7 @@
  		    hintText: $L('Enter message here...'),
  		    multiline: true,
  		    focus: (this.prePopulatedRecipients.length > 0),
@@ -649,7 +826,7 @@
  			requiresEnterKey: true,
  		    modelProperty: "value",
  			changeOnKeyPress: true
-@@ -197,6 +200,7 @@
+@@ -197,6 +209,7 @@
  
  	ready: function() {
  		this.actionButton = this.controller.get('ActionButton');
@@ -657,7 +834,7 @@
  		this.addressingForm = this.controller.get('addressingForm');
  		this.messageTextWidget = this.controller.get('messageTextWidget');
  		this.messageTextElement  = this.messageTextWidget.querySelector('[name=messageTextElement]');
-@@ -204,6 +208,7 @@
+@@ -204,6 +217,7 @@
  		this.addressingWidgetSpacer = this.controller.get('addressingWidgetSpacer');
  
  		this.messageTextElement.observe('keyup', this.handleTextAreaKeyUp);
@@ -665,19 +842,46 @@
  		this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  	    // Observe add/delete to the addressing widget
-@@ -522,7 +527,10 @@
+@@ -426,6 +440,7 @@
+ 		var kind;
+ 		var future;
+ 		var mmsRecipients = [];
++		var hasIMRecipients = false;
+ 		for( var i=0; i<recipientsArray.length; i++ ){
+ 			kind = undefined; // ensure this starts out undefined each iteration
+ 			var recipient = recipientsArray[i];
+@@ -453,6 +468,7 @@
+ 			};
+ 			
+ 			if(recipient.type === "im") {
++				hasIMRecipients = true;
+ 				var dbkinds = this.Messaging.IMAccounts.getDbKinds(recipient.serviceName);
+ 				if (dbkinds) {
+ 					kind = dbkinds.immessage;
+@@ -515,14 +531,20 @@
+ 					Mojo.Log.info("Message stored.  Waiting for chatthreader create the chatthread.");
+ 					this._waitForChatThread(messageId, 
+ 						function(result) {
+-							this.launchChatView(result.conversations[0]);
++							if((this.closeAfterSending) && (!hasIMRecipients))
++								this.controller.window.close();
++							else
++								this.launchChatView(result.conversations[0]);
+ 						}.bind(this));
+ 				} else {
+ 					// Go to list view
  					// Could not find the new message or we sent to multiple recipients
  					Mojo.Log.info("Could not find the new message.  Popping scene to list view.");
  					this.Messaging.setListViewVisible(this.Messaging.Views.HISTORY);
 -					this.controller.stageController.popScenesTo('listview');
-+					if(this.childCard)
++					if((this.childCard) || ((this.closeAfterSending) && (!hasIMRecipients)))
 +						this.controller.window.close()
 +					else
 +						this.controller.stageController.popScenesTo('listview');
  				}
  				future.result = true;
  			}.bind(this));
-@@ -631,8 +639,14 @@
+@@ -631,8 +653,14 @@
  			params = {};
  		}
  		// swapScene
@@ -693,7 +897,7 @@
  	},
  	
  //	_handleSentMessageResponse: function (result) {
-@@ -667,11 +681,101 @@
+@@ -667,11 +695,101 @@
  		} 
  	},
  
@@ -799,7 +1003,7 @@
  	},
  
  	handleTextAreaChange: function() {
-@@ -811,6 +915,7 @@
+@@ -811,6 +929,7 @@
  	    });
  	
  		this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
@@ -807,7 +1011,7 @@
  		this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  		this.characterCounter.destroy();
-@@ -835,7 +940,7 @@
+@@ -835,7 +954,7 @@
  				event.stop();
  			} 
  		} else if(event.type === Mojo.Event.back) {
@@ -818,7 +1022,16 @@
  				this.controller.stageController.popScenesTo('listview');
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
-@@ -212,6 +212,8 @@
+@@ -10,6 +10,8 @@
+ 		this.Messaging.listviewSceneAssistant = this; // store a copy of the app assistant in the app controller
+ 													  // this is nulled out in the cleanup method.  Keep an eye on this
+ 													  // because we need to be sure to always destroy the reference.
++
++		this.alwaysOpenInNewCard = false;
+ 		this.isWindowFocused = true;
+ 		this.isSceneActive = false;
+ 		this.isScreenOn = true;
+@@ -212,6 +214,8 @@
  		
  		this.filterImmediate = this.filterImmediate.bind(this);
  		this.filter = this.filter.bind(this);
@@ -827,7 +1040,7 @@
  		this.handleHistoryListTap = this.handleHistoryListTap.bindAsEventListener(this);
  		this.handleHistoryListDelete = this.handleHistoryListDelete.bindAsEventListener(this);
  		this.handleBuddyListTap = this.handleBuddyListTap.bindAsEventListener(this);
-@@ -429,9 +431,11 @@
+@@ -429,9 +433,11 @@
  
  		// observe clicks on the buddy list & history list
  		this.historyIndexedList.observe(Mojo.Event.listTap, this.handleHistoryListTap);
@@ -839,7 +1052,22 @@
  	
  		//set hint text later
  		this.customMessageTextWidgetAttributes = {
-@@ -627,19 +631,78 @@
+@@ -447,6 +453,14 @@
+ 		this.controller.setupWidget('customMessageTextWidget', this.customMessageTextWidgetAttributes, this.customMessageTextWidgetModel);
+ 		this.handleIMAccountsChange(this.Messaging.IMAccounts.data);
+ 		this.updateAppMenuItems();
++
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {
++			method: "get",	parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
++			keys: ["alwaysOpenInNewCard"]}, 
++			onSuccess: function(response) {
++				if((response) && (response.alwaysOpenInNewCard != undefined))
++					this.alwaysOpenInNewCard = response.alwaysOpenInNewCard;
++			}.bind(this)});
+ 	},
+ 
+ 	buddyListAddAvatarDecorator: function(items, doneCallback){
+@@ -627,24 +641,90 @@
  
  	    return dsa;
  	},
@@ -888,12 +1116,16 @@
 +	},      
  	
  	handleHistoryListTap: function(e) {
+-		this.launchChatView(e.item._id);
 +		if(this.eventAlreadyHandled) {
 +			this.eventAlreadyHandled = false;
 +			return;
 +		}
 +	
- 		this.launchChatView(e.item._id);
++		if(this.alwaysOpenInNewCard)
++			this.launchChatInNewCard(e.item._id);
++		else
++			this.launchChatView(e.item._id);
  	},
  	
  	handleHistoryListDelete: function(event) {
@@ -918,7 +1150,17 @@
  		var buddyStatusRec = e.item;
  		var future = MessagingDB.Conversations.findFromBuddy(buddyStatusRec, false);
  		future.then(this, function(future) {
-@@ -1003,6 +1066,9 @@
+ 			// "selectIMTransport" tells the chatview to default to an IM address in the transport picker  
+-			this.launchChatView(future.result._id, { selectIMTransport: true, buddyStatus: buddyStatusRec });
++
++			if(this.alwaysOpenInNewCard)
++				this.launchChatInNewCard(future.result._id, { selectIMTransport: true, buddyStatus: buddyStatusRec });
++			else			
++				this.launchChatView(future.result._id, { selectIMTransport: true, buddyStatus: buddyStatusRec });
+ 			future.result = true;
+ 		});
+ 	},
+@@ -1003,6 +1083,9 @@
  		var unreadCountCache = this.getCacheUnreadCount();
  		for (var i = 0; i < result.length; i++) {
  			var buddy = result[i];
@@ -928,7 +1170,7 @@
  			if(unreadCountCache.hasElement(buddy.personId)){
  				buddy.unreadCount = unreadCountCache.get(buddy.personId);
  			}
-@@ -1691,7 +1757,23 @@
+@@ -1691,7 +1774,23 @@
  	},
  	
  	loadComposeView: function(params) {
@@ -953,7 +1195,7 @@
  	},
  	
  	loadPreferencesView: function() {
-@@ -1715,6 +1797,29 @@
+@@ -1715,6 +1814,29 @@
  		this.controller.stageController.pushScene('chatview', chatThreadId, params);
  	},
  	
@@ -983,7 +1225,7 @@
  	clearListBadgeForChatThreadId: function(chatThreadId) {
  		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "buddyBageContainer", this.buddyIndexedList);
  		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "historyBageContainer", this.historyIndexedList);
-@@ -1749,6 +1854,8 @@
+@@ -1749,6 +1871,8 @@
  		this.Messaging.IMAccounts.stopObserving(this.handleIMAccountsChange);
  		this.filterField.stopObserving(Mojo.Event.filterImmediate, this.filterImmediate);
  		this.filterField.stopObserving(Mojo.Event.filter, this.filter);
@@ -1015,24 +1257,39 @@
  		//Initialize and Subscribe for Storage / Media Mode Notification.			
  		this.storageInit();
  		
-@@ -2231,6 +2234,85 @@
+@@ -2231,6 +2234,104 @@
  },
  
  /*
 + * Initialize keypad monitoring
 + */
 +monitorKeypadSwitch: function() {
++	this.keyboardBrightnessLow = 25;
++	this.keyboardBrightnessHigh = 75;
++	
++	this.controller.serviceRequest('palm://org.webosinternals.tweaks.prefs/', {
++		method: 'get', parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
++		keys: ["keyboardBrightnessLow", "keyboardBrightnessHigh"]},
++		onSuccess: function(response) {
++			if((response) && (response.keyboardBrightnessLow != undefined))
++				this.keyboardBrightnessLow = response.keyboardBrightnessLow;
++
++			if((response) && (response.keyboardBrightnessHigh != undefined))
++				this.keyboardBrightnessHigh = response.keyboardBrightnessHigh;
++		}.bind(this)
++	});
++
 +	this.sliderStateSubscribtion = new Mojo.Service.Request('palm://com.palm.keys/switches', {
 +		method: 'status', parameters: {subscribe: true}, 
-+		onSuccess: function(data) {
-+			if(data.key == "slider") {
-+				if(data.state == 'up') {
++		onSuccess: function(response) {
++			if(response.key == "slider") {
++				if(response.state == 'up') {
 +					this.invertKeypadBrightness(true);
 +
 +					//Do this to catch quick up & down movements
 +					this.checkSliderState.bind(this).delay(1); 
 +				}
-+				else if(data.state == 'down') {
++				else if(response.state == 'down') {
 +					this.invertKeypadBrightness(false);
 +				}
 +			}
@@ -1046,13 +1303,17 @@
 +			method: 'getProperty', parameters: {properties: ["maximumBrightness"]},
 +			onSuccess: function(response) {
 +				if(response.maximumBrightness != undefined) {
-+					var keypadBrightness = 101 - parseInt(response.maximumBrightness);
++					if(this.keyboardBrightnessLow == this.keyboardBrightnessHigh)
++						var keypadBrightness = this.keyboardBrightnessLow;
++					else {
++						var keypadBrightness = 101 - parseInt(response.maximumBrightness);
 +
-+					if(keypadBrightness < 25)
-+						keypadBrightness = 25;
-+					else if(keypadBrightness > 75)
-+						keypadBrightness = 75;
-+
++						if(keypadBrightness < this.keyboardBrightnessLow)
++							keypadBrightness = this.keyboardBrightnessLow;
++						else if(keypadBrightness > this.keyboardBrightnessHigh)
++							keypadBrightness = this.keyboardBrightnessHigh;
++					}
++					
 +					this.controller.serviceRequest('palm://com.palm.power/backlight', {
 +						method: 'set', parameters: {keypad: {brightness: keypadBrightness}} });
 +
