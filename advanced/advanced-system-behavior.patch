@@ -245,7 +245,7 @@
 +	this.alwaysOpenInNewCard = false;
 +
 +	Foundations.Comms.PalmCall.call('palm://org.webosinternals.tweaks.prefs/', 'get', {
-+		owner: "org.webosinternals.patches.advanced-system-behavior", 
++		owner: "org.webosinternals.patches.advanced-system-behavior-email", 
 +		keys:["alwaysOpenInNewCard","openToBackground"]}).then( function(f) {
 +			if((f.result) && (f.result.openToBackground != undefined))
 +				this.focusAfterOpen = f.result.openToBackground;
@@ -465,7 +465,7 @@
  	},
  	
  	handleLaunch: function(param){
-@@ -104,6 +104,31 @@
+@@ -104,6 +104,32 @@
  		}		
  	},
  	
@@ -474,6 +474,7 @@
 +
 +		if(stageController) {
 +			stageController.activate();
++			stageController.delegateToSceneAssistant("activate");
 +		}
 +		else {
 +			if(!params)
@@ -497,7 +498,7 @@
  	launchChatWithId: function(stageController, chatThreadId) {
  		if (stageController) {			
  			// Don't pop/push if the chat we want is already open
-@@ -111,12 +136,16 @@
+@@ -111,12 +137,16 @@
  				return;
  			}
  			
@@ -515,7 +516,7 @@
  		} else {
  			var afterCreate = function(stageController){
  				stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
-@@ -141,8 +170,10 @@
+@@ -141,8 +171,10 @@
  					focusWindow: true
  				};
  				this.addListViewClearBadgeForChatFnToParams(params, resp.chatThreadId);				
@@ -528,7 +529,7 @@
  			} else {
  				var afterCreate = function(stageController){
  					stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
-@@ -231,8 +262,10 @@
+@@ -231,8 +263,10 @@
  						
  					launchParams.focusWindow = true;
  					this.addListViewClearBadgeForChatFnToParams(launchParams, conversation._id);			
@@ -541,7 +542,7 @@
  				} else {
  					var afterCreate = function(stageController){
  						stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
-@@ -305,7 +338,12 @@
+@@ -305,7 +339,12 @@
  
  	launchCompose: function(stageController, composeParams) {
  		composeParams.focusWindow = true;
@@ -555,7 +556,7 @@
  		if (stageController) {
  			stageController.popScenesTo("listview", {});
  			stageController.pushScene("compose", composeParams);
-@@ -316,6 +354,22 @@
+@@ -316,6 +355,22 @@
  			};
  			this.createWindow(afterCreate, 'images/splash-messaging-chatview.png');
  		}		
@@ -604,17 +605,17 @@
  		this.invitationAcceptButtons=[];
  		this.invitationDeleteButtons=[];
 +
-+		if (this.params.clearListBadgeFn) {
++/*		if (this.params.clearListBadgeFn) {
 +			this.markReadForInboxMessages();
 +
 +			this.params.clearListBadgeFn();
 +		}
++*/
  	},
  	
  	setup: function() {
-+		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {
-+			method: "get",	parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
-+			keys: ["closeAfterSending"]}, 
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
++			parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-messaging", keys: ["closeAfterSending"]}, 
 +			onSuccess: function(response) {
 +				if((response) && (response.closeAfterSending != undefined))
 +					this.closeAfterSending = response.closeAfterSending;
@@ -632,7 +633,19 @@
  			inputName: "messageTextElement",
  			className: " ",
  			changeOnKeyPress: true
-@@ -739,8 +754,10 @@
+@@ -693,6 +708,11 @@
+ 	
+ 	handleStageFocus: function() {
+ 		this.isWindowFocused = true;
++		if (this.params.clearListBadgeFn) {
++			this.markReadForInboxMessages();
++
++			this.params.clearListBadgeFn();
++		}
+ 		this.appController.notificationAssistant.clearNotificationsForChat(this.chatThreadId);
+ 	},
+ 	
+@@ -739,8 +759,10 @@
  					break;
  			}
  		} else if (event.type === Mojo.Event.back) {
@@ -645,7 +658,7 @@
  			return;
  		}
  	},
-@@ -2066,6 +2083,7 @@
+@@ -2066,6 +2088,7 @@
  				}
  				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
  				delayed.messageText = msg.messageText;
@@ -653,7 +666,7 @@
  			}
  			
  			var icons = this.Messaging.IMAccounts.getIcons(msg.serviceName);
-@@ -2107,9 +2125,9 @@
+@@ -2107,9 +2130,9 @@
  				
  				// Only show the message sent time if it is less than two days old
  				// from when it arrived on device
@@ -665,7 +678,7 @@
  //			}
  
  			if (msg.callbackNumber) {
-@@ -2925,39 +2943,84 @@
+@@ -2925,39 +2948,84 @@
  	},
  	
  	handleTextAreaKeyDown: function(event) {
@@ -765,7 +778,7 @@
  	handleTextAreaChange: function() {
  		if (this.messageTextElement && this.messageTextElement.value === '' && this.outboundAttachment === undefined) {
  			this.actionButton.removeClassName('textentry');
-@@ -3278,6 +3341,9 @@
+@@ -3278,6 +3346,9 @@
  		conversation.save();
  
  		this.sendMessageHelper(params, kind);
@@ -802,13 +815,12 @@
  		this.handleCancelAttachment = this.resetTextBox.bind(this,false);		
  		this.handleRecipientsChanged = this.handleRecipientsChanged.bind(this);
  
-@@ -138,6 +142,14 @@
+@@ -138,6 +142,13 @@
  
  		this.controller.setupWidget(Mojo.Menu.appMenu, this.appMenuAttrs, this.appMenuModel);
  
-+		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {
-+			method: "get",	parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
-+			keys: ["closeAfterSending"]}, 
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
++			parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-messaging", keys: ["closeAfterSending"]}, 
 +			onSuccess: function(response) {
 +				if((response) && (response.closeAfterSending != undefined))
 +					this.closeAfterSending = response.closeAfterSending;
@@ -817,7 +829,7 @@
  		this.searchList = {
  			"property": "to$A",
  			"includeEmails": false,
-@@ -164,7 +176,7 @@
+@@ -164,7 +175,7 @@
  		    hintText: $L('Enter message here...'),
  		    multiline: true,
  		    focus: (this.prePopulatedRecipients.length > 0),
@@ -826,7 +838,7 @@
  			requiresEnterKey: true,
  		    modelProperty: "value",
  			changeOnKeyPress: true
-@@ -197,6 +209,7 @@
+@@ -197,6 +208,7 @@
  
  	ready: function() {
  		this.actionButton = this.controller.get('ActionButton');
@@ -834,7 +846,7 @@
  		this.addressingForm = this.controller.get('addressingForm');
  		this.messageTextWidget = this.controller.get('messageTextWidget');
  		this.messageTextElement  = this.messageTextWidget.querySelector('[name=messageTextElement]');
-@@ -204,6 +217,7 @@
+@@ -204,6 +216,7 @@
  		this.addressingWidgetSpacer = this.controller.get('addressingWidgetSpacer');
  
  		this.messageTextElement.observe('keyup', this.handleTextAreaKeyUp);
@@ -842,7 +854,7 @@
  		this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  	    // Observe add/delete to the addressing widget
-@@ -426,6 +440,7 @@
+@@ -426,6 +439,7 @@
  		var kind;
  		var future;
  		var mmsRecipients = [];
@@ -850,7 +862,7 @@
  		for( var i=0; i<recipientsArray.length; i++ ){
  			kind = undefined; // ensure this starts out undefined each iteration
  			var recipient = recipientsArray[i];
-@@ -453,6 +468,7 @@
+@@ -453,6 +467,7 @@
  			};
  			
  			if(recipient.type === "im") {
@@ -858,7 +870,7 @@
  				var dbkinds = this.Messaging.IMAccounts.getDbKinds(recipient.serviceName);
  				if (dbkinds) {
  					kind = dbkinds.immessage;
-@@ -515,14 +531,20 @@
+@@ -515,14 +530,20 @@
  					Mojo.Log.info("Message stored.  Waiting for chatthreader create the chatthread.");
  					this._waitForChatThread(messageId, 
  						function(result) {
@@ -881,7 +893,7 @@
  				}
  				future.result = true;
  			}.bind(this));
-@@ -631,8 +653,14 @@
+@@ -631,8 +652,14 @@
  			params = {};
  		}
  		// swapScene
@@ -897,7 +909,7 @@
  	},
  	
  //	_handleSentMessageResponse: function (result) {
-@@ -667,11 +695,101 @@
+@@ -667,11 +694,101 @@
  		} 
  	},
  
@@ -1003,7 +1015,7 @@
  	},
  
  	handleTextAreaChange: function() {
-@@ -811,6 +929,7 @@
+@@ -811,6 +928,7 @@
  	    });
  	
  		this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
@@ -1011,7 +1023,7 @@
  		this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  		this.characterCounter.destroy();
-@@ -835,7 +954,7 @@
+@@ -835,7 +953,7 @@
  				event.stop();
  			} 
  		} else if(event.type === Mojo.Event.back) {
@@ -1052,14 +1064,13 @@
  	
  		//set hint text later
  		this.customMessageTextWidgetAttributes = {
-@@ -447,6 +453,14 @@
+@@ -447,6 +453,13 @@
  		this.controller.setupWidget('customMessageTextWidget', this.customMessageTextWidgetAttributes, this.customMessageTextWidgetModel);
  		this.handleIMAccountsChange(this.Messaging.IMAccounts.data);
  		this.updateAppMenuItems();
 +
-+		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {
-+			method: "get",	parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
-+			keys: ["alwaysOpenInNewCard"]}, 
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
++			parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-messaging", keys: ["alwaysOpenInNewCard"]}, 
 +			onSuccess: function(response) {
 +				if((response) && (response.alwaysOpenInNewCard != undefined))
 +					this.alwaysOpenInNewCard = response.alwaysOpenInNewCard;
@@ -1067,7 +1078,7 @@
  	},
  
  	buddyListAddAvatarDecorator: function(items, doneCallback){
-@@ -627,24 +641,90 @@
+@@ -627,24 +640,90 @@
  
  	    return dsa;
  	},
@@ -1160,7 +1171,7 @@
  			future.result = true;
  		});
  	},
-@@ -1003,6 +1083,9 @@
+@@ -1003,6 +1082,9 @@
  		var unreadCountCache = this.getCacheUnreadCount();
  		for (var i = 0; i < result.length; i++) {
  			var buddy = result[i];
@@ -1170,7 +1181,7 @@
  			if(unreadCountCache.hasElement(buddy.personId)){
  				buddy.unreadCount = unreadCountCache.get(buddy.personId);
  			}
-@@ -1691,7 +1774,23 @@
+@@ -1691,7 +1773,23 @@
  	},
  	
  	loadComposeView: function(params) {
@@ -1195,15 +1206,16 @@
  	},
  	
  	loadPreferencesView: function() {
-@@ -1715,6 +1814,29 @@
+@@ -1715,6 +1813,30 @@
  		this.controller.stageController.pushScene('chatview', chatThreadId, params);
  	},
  	
 +	launchChatInNewCard: function(chatThreadId) {
-+		var stageController = Mojo.Controller.appController.getStageController("messaging" + chatThreadId);
++		var stageController = Mojo.Controller.appController.getStageController("childCard" + chatThreadId);
 +
 +		if(stageController) {
 +			stageController.activate();
++			stageController.delegateToSceneAssistant("activate");
 +			return;
 +		}
 +
@@ -1267,8 +1279,8 @@
 +	this.keyboardBrightnessLow = 25;
 +	this.keyboardBrightnessHigh = 75;
 +	
-+	this.controller.serviceRequest('palm://org.webosinternals.tweaks.prefs/', {
-+		method: 'get', parameters: {owner: "org.webosinternals.patches.advanced-system-behavior", 
++	this.controller.serviceRequest('palm://org.webosinternals.tweaks.prefs/', {method: 'get', 
++		parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-system", 
 +		keys: ["keyboardBrightnessLow", "keyboardBrightnessHigh"]},
 +		onSuccess: function(response) {
 +			if((response) && (response.keyboardBrightnessLow != undefined))
