@@ -176,7 +176,7 @@
 +	};
 +
 +	var callback = function(controller) {
-+		controller.pushScene('message', params.message, true, null, childCardId);
++		controller.pushScene('message', params.message, false, null, childCardId);
 +	};
 +
 +	Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
@@ -592,15 +592,16 @@
        </div>
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
-@@ -26,6 +26,7 @@
+@@ -26,6 +26,8 @@
  		this.isSceneActive = false;
  		this.bottomBeforeDeactivate = null;
  		this.fixScrollPositionOnActivate = false;
++		this.singleEnterSubmits = false;
 +		this.closeAfterSending = false;
  		this.avatarHash = {
  			initialized: false,
  			_hash: {},
-@@ -299,9 +300,23 @@
+@@ -299,9 +301,30 @@
  		this.downloadButtons=[];
  		this.invitationAcceptButtons=[];
  		this.invitationDeleteButtons=[];
@@ -615,8 +616,15 @@
  	
  	setup: function() {
 +		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
-+			parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-messaging", keys: ["closeAfterSending"]}, 
++			parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-messaging", 
++			keys: ["messageTimestamps", "singleEnterSubmits", "closeAfterSending"]}, 
 +			onSuccess: function(response) {
++				if((response) && (response.messageTimestamps != undefined)) {
++					if(response.messageTimestamps == false)
++						this.controller.get("chatlist").addClassName("compact");
++				}
++				if((response) && (response.singleEnterSubmits != undefined))
++					this.singleEnterSubmits = response.singleEnterSubmits;
 +				if((response) && (response.closeAfterSending != undefined))
 +					this.closeAfterSending = response.closeAfterSending;
 +			}.bind(this)});
@@ -624,7 +632,7 @@
  		Mojo.Log.info("++++++ChatviewAssistant::setup");
  		this.controller.get('footer').hide();
  		this.checkThreadLocked();
-@@ -315,7 +330,7 @@
+@@ -315,7 +338,7 @@
  			hintText: $L('Enter message here...'),
  			multiline: true,
  			focus: false,
@@ -633,19 +641,24 @@
  			inputName: "messageTextElement",
  			className: " ",
  			changeOnKeyPress: true
-@@ -693,6 +708,11 @@
+@@ -693,6 +716,16 @@
  	
  	handleStageFocus: function() {
  		this.isWindowFocused = true;
++		this.markReadForInboxMessages();
 +		if (this.params.clearListBadgeFn) {
-+			this.markReadForInboxMessages();
-+
 +			this.params.clearListBadgeFn();
++		}
++		else {
++			var stageController = Mojo.Controller.getAppController().getStageController("messaging");
++
++			if(stageController)
++				stageController.delegateToSceneAssistant("clearListBadgeForChatThreadId", this.chatThreadId);
 +		}
  		this.appController.notificationAssistant.clearNotificationsForChat(this.chatThreadId);
  	},
  	
-@@ -739,8 +759,10 @@
+@@ -739,8 +772,10 @@
  					break;
  			}
  		} else if (event.type === Mojo.Event.back) {
@@ -658,7 +671,7 @@
  			return;
  		}
  	},
-@@ -2066,6 +2088,7 @@
+@@ -2066,6 +2101,7 @@
  				}
  				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
  				delayed.messageText = msg.messageText;
@@ -666,7 +679,7 @@
  			}
  			
  			var icons = this.Messaging.IMAccounts.getIcons(msg.serviceName);
-@@ -2107,9 +2130,9 @@
+@@ -2107,9 +2143,9 @@
  				
  				// Only show the message sent time if it is less than two days old
  				// from when it arrived on device
@@ -678,7 +691,7 @@
  //			}
  
  			if (msg.callbackNumber) {
-@@ -2925,39 +2948,84 @@
+@@ -2925,39 +2961,86 @@
  	},
  	
  	handleTextAreaKeyDown: function(event) {
@@ -698,7 +711,7 @@
 +					
 +					var selectedTransport = this.transportModel.getSelectedTransport();
 +					
-+					if (selectedTransport.serviceName != "sms")
++					if ((this.singleEnterSubmits) || (selectedTransport.serviceName != "sms"))
 +						this.sendButton.addClassName('selected');
 +				}
 +				else if (this.enterSendTimeout)
@@ -741,7 +754,9 @@
 +				else {
 +					var selectedTransport = this.transportModel.getSelectedTransport();
 +					
-+					if (selectedTransport.serviceName != "sms") {
++					if ((this.singleEnterSubmits) || 
++						(selectedTransport.serviceName != "sms")) 
++					{
 +						this.considerForSend();
 +						this.sendButton.removeClassName('selected');
 +					}
@@ -778,7 +793,7 @@
  	handleTextAreaChange: function() {
  		if (this.messageTextElement && this.messageTextElement.value === '' && this.outboundAttachment === undefined) {
  			this.actionButton.removeClassName('textentry');
-@@ -3278,6 +3346,9 @@
+@@ -3278,6 +3361,9 @@
  		conversation.save();
  
  		this.sendMessageHelper(params, kind);
@@ -790,15 +805,16 @@
  	addStatusMessageToChat: function(message, locked) {
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,8 @@
  		this.prePopulatedRecipients = [];
  		this.sendMessageCount = 0;	// keep a count of how many times we call send so we know when the last callback is hit
  		this.sentRecipients = [];
++		this.singleEnterSubmits = false;
 +		this.closeAfterSending = false;
  		
  		var listviewSceneAssistant = this.Messaging.listviewSceneAssistant;
  		if (listviewSceneAssistant) {
-@@ -30,6 +31,8 @@
+@@ -30,6 +32,8 @@
  			this.launchedWithParams = true;
  			var i;
  			
@@ -807,7 +823,7 @@
  			if (params.launchedAsForward){
  				this.launchedAsForward = true;
  			}
-@@ -123,6 +126,7 @@
+@@ -123,6 +127,7 @@
  		this.attachFilePicker = this.attachFilePicker.bind(this);
  		this.handleTextAreaChange = this.handleTextAreaChange.bind(this);
  		this.handleTextAreaKeyUp = this.handleTextAreaKeyUp.bind(this);
@@ -815,13 +831,16 @@
  		this.handleCancelAttachment = this.resetTextBox.bind(this,false);		
  		this.handleRecipientsChanged = this.handleRecipientsChanged.bind(this);
  
-@@ -138,6 +142,13 @@
+@@ -138,6 +143,16 @@
  
  		this.controller.setupWidget(Mojo.Menu.appMenu, this.appMenuAttrs, this.appMenuModel);
  
 +		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
-+			parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-messaging", keys: ["closeAfterSending"]}, 
++			parameters: {owner: "org.webosinternals.patches.advanced-system-behavior-messaging", 
++			keys: ["singleEnterSubmits", "closeAfterSending"]}, 
 +			onSuccess: function(response) {
++				if((response) && (response.singleEnterSubmits != undefined))
++					this.singleEnterSubmits = response.singleEnterSubmits;
 +				if((response) && (response.closeAfterSending != undefined))
 +					this.closeAfterSending = response.closeAfterSending;
 +			}.bind(this)});
@@ -829,7 +848,7 @@
  		this.searchList = {
  			"property": "to$A",
  			"includeEmails": false,
-@@ -164,7 +175,7 @@
+@@ -164,7 +179,7 @@
  		    hintText: $L('Enter message here...'),
  		    multiline: true,
  		    focus: (this.prePopulatedRecipients.length > 0),
@@ -838,7 +857,7 @@
  			requiresEnterKey: true,
  		    modelProperty: "value",
  			changeOnKeyPress: true
-@@ -197,6 +208,7 @@
+@@ -197,6 +212,7 @@
  
  	ready: function() {
  		this.actionButton = this.controller.get('ActionButton');
@@ -846,7 +865,7 @@
  		this.addressingForm = this.controller.get('addressingForm');
  		this.messageTextWidget = this.controller.get('messageTextWidget');
  		this.messageTextElement  = this.messageTextWidget.querySelector('[name=messageTextElement]');
-@@ -204,6 +216,7 @@
+@@ -204,6 +220,7 @@
  		this.addressingWidgetSpacer = this.controller.get('addressingWidgetSpacer');
  
  		this.messageTextElement.observe('keyup', this.handleTextAreaKeyUp);
@@ -854,7 +873,7 @@
  		this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  	    // Observe add/delete to the addressing widget
-@@ -426,6 +439,7 @@
+@@ -426,6 +443,7 @@
  		var kind;
  		var future;
  		var mmsRecipients = [];
@@ -862,7 +881,7 @@
  		for( var i=0; i<recipientsArray.length; i++ ){
  			kind = undefined; // ensure this starts out undefined each iteration
  			var recipient = recipientsArray[i];
-@@ -453,6 +467,7 @@
+@@ -453,6 +471,7 @@
  			};
  			
  			if(recipient.type === "im") {
@@ -870,7 +889,7 @@
  				var dbkinds = this.Messaging.IMAccounts.getDbKinds(recipient.serviceName);
  				if (dbkinds) {
  					kind = dbkinds.immessage;
-@@ -515,14 +530,20 @@
+@@ -515,14 +534,20 @@
  					Mojo.Log.info("Message stored.  Waiting for chatthreader create the chatthread.");
  					this._waitForChatThread(messageId, 
  						function(result) {
@@ -893,7 +912,7 @@
  				}
  				future.result = true;
  			}.bind(this));
-@@ -631,8 +652,14 @@
+@@ -631,8 +656,14 @@
  			params = {};
  		}
  		// swapScene
@@ -909,7 +928,7 @@
  	},
  	
  //	_handleSentMessageResponse: function (result) {
-@@ -667,11 +694,101 @@
+@@ -667,11 +698,101 @@
  		} 
  	},
  
@@ -934,7 +953,7 @@
 +						}
 +					}
 +					
-+					if (!hasSMSRecipients)
++					if ((this.singleEnterSubmits) || (!hasSMSRecipients))
 +						this.sendButton.addClassName('selected');
 +				}
 +				else if (this.enterSendTimeout)
@@ -980,7 +999,7 @@
 +						}
 +					}
 +					
-+					if (!hasSMSRecipients) {
++					if ((this.singleEnterSubmits) || (!hasSMSRecipients)) {
 +						this.considerForSend();
 +						this.sendButton.removeClassName('selected');
 +					}
@@ -1015,7 +1034,7 @@
  	},
  
  	handleTextAreaChange: function() {
-@@ -811,6 +928,7 @@
+@@ -811,6 +932,7 @@
  	    });
  	
  		this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
@@ -1023,7 +1042,7 @@
  		this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
  	
  		this.characterCounter.destroy();
-@@ -835,7 +953,7 @@
+@@ -835,7 +957,7 @@
  				event.stop();
  			} 
  		} else if(event.type === Mojo.Event.back) {
@@ -1248,12 +1267,16 @@
  		this.buddyIndexedList.stopObserving(Mojo.Event.listTap, this.handleBuddyListTap);
 --- .orig/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
 +++ /usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
-@@ -526,6 +526,8 @@
+@@ -526,6 +526,12 @@
  .chatRow .message .delayedMessage {
  		font-style: italic;
  		color: #747474;
 +		font-size: 12px;
 +		margin-top: -10px;
++}
++
++.compact .chatRow .message .delayedMessage {
++		display: none;
  }
  
  /* grouped buttons */
