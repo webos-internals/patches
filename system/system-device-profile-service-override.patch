@@ -1,0 +1,74 @@
+--- a/usr/palm/services/com.palm.service.deviceprofile/handlers/DeviceIdCommandAssistant.js
++++ b/usr/palm/services/com.palm.service.deviceprofile/handlers/DeviceIdCommandAssistant.js
+@@ -1,6 +1,7 @@
+ var DeviceIdCommandAssistant = Class.create({
+ 
+ 	run: function (future) {
++		var communique = {};
+ 		
+ 		var platformFuture = PalmCall.call("palm://com.palm.telephony/", "platformQuery", {});	
+ 		platformFuture.then(this, function () { 
+@@ -11,12 +12,12 @@
+ 				
+ 				if (platformType === 'cdma') {
+ 					if (extended.meid) {
+-						future.result = {
++						communique = {
+ 							deviceId: 'MEID:' + extended.meid
+ 						};
+ 					}				
+ 					else if (extended.esn) {
+-						future.result = {
++						communique = {
+ 							deviceId: 'ESN:' + extended.esn
+ 						};
+ 					}
+@@ -25,7 +26,7 @@
+ 					}
+ 				}
+ 				else if (platformType === 'gsm' && extended.imei) {
+-					future.result = {
++					communique = {
+ 						deviceId: 'IMEI:' + extended.imei
+ 					};
+ 				}
+@@ -35,6 +36,17 @@
+ 			}									
+ 		}); 
+ 	
++		platformFuture.then(MojoDB.get(["org.webosinternals.impostah.deviceprofile"]).then(function (f) {
++			if ((f.result.returnValue == true) &&
++			    (f.result.results.length == 1) &&
++			    (f.result.results[0] != undefined) &&
++			    (f.result.results[0].overrides != undefined) &&
++			    (f.result.results[0].overrides.deviceId != undefined)) {
++			    communique.deviceId = f.result.results[0].overrides.deviceId;
++			}
++			future.result = communique;
++		})); 
++	
+ 	}, 
+ 	
+ 	sendError : function (future) {
+--- a/usr/palm/services/com.palm.service.deviceprofile/handlers/DeviceProfileCommandAssistant.js
++++ b/usr/palm/services/com.palm.service.deviceprofile/handlers/DeviceProfileCommandAssistant.js
+@@ -103,7 +103,18 @@
+ 				}
+ 		});
+ 		
+-		future.result = {"deviceInfo" : info.toJSON()};
++		MojoDB.get(["org.webosinternals.impostah.deviceprofile"]).then(function (f) {
++			if ((f.result.returnValue == true) &&
++			    (f.result.results.length == 1)) {
++			    for (var field in f.result.results[0].overrides) {
++				if ((info[field] != undefined) &&
++				    (f.result.results[0].overrides[field] != undefined)){
++				    info[field] = f.result.results[0].overrides[field];
++				}
++			    }
++			}
++			future.result = {"deviceInfo" : info.toJSON()};
++		}); 
+ 	},
+ 	
+ 	readTelephonyValues: function (info, response) {
