@@ -1,8 +1,8 @@
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
-index 6bf5870..f023a3e 100644
+index 6bf5870..207a127 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
-@@ -19,6 +19,96 @@ MenuData.ApplicationMenu = {
+@@ -19,6 +19,97 @@ MenuData.ApplicationMenu = {
  		checkEnabled: true
  	},
  	
@@ -42,22 +42,23 @@ index 6bf5870..f023a3e 100644
 +		command: 'share-carbon-cmd',
 +		checkEnabled: true
 +	},
++	
++	SendViaQuickPost: {
++		label: $L('Quick Post'),
++		command: 'share-quickpost-cmd',
++		checkEnabled: true
++	},
 +
 +	AddToRelego: {
-+		label: $L('Add to Relego'),
++		label: $L('Add To Relego'),
 +		command: 'add-relego-cmd',
 +		checkEnabled: true
 +	},
 +
 +	AddToSpareTime: {
-+		label: $L('Add to Spare Time'),
++		label: $L('Add To Spare Time'),
 +		command: 'add-sparetime-cmd',
 +		checkEnabled: true
-+	},
-+	
-+	TogglePrivate: {
-+		label: $L('Enable Private Browsing'),
-+		command: 'enable-private-cmd'
 +	},
 +	
 +	NeatoThatUrl: {
@@ -100,7 +101,7 @@ index 6bf5870..f023a3e 100644
  		label: $L('Add to Launcher'),
  		command: 'add-launch-icon-cmd',
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-index 388cffc..268d167 100644
+index 388cffc..f6e7249 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 @@ -788,20 +788,69 @@ PageAssistant.prototype._setupMenus = function() {
@@ -144,7 +145,7 @@ index 388cffc..268d167 100644
 +		this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
 +			method: 'get', parameters: {'owner': "browser-sharing-super-mix", 
 +			keys: ["showNeato","showSpareTime", "showRelego", "showClipboard", "shortenURL", "reKindleIt", 
-+					"showFacebook", "showBadKitty", "showSpaz", "showTwee", "showTweed", "showCarbon", "privateBrowsing" ]},
++					"showFacebook", "showBadKitty", "showSpaz", "showTwee", "showTweed", "showCarbon", "showQuickPost"]},
 +			onSuccess: function(response) {
 +				if(response) {
 +					if(response.showNeato == true)
@@ -171,27 +172,24 @@ index 388cffc..268d167 100644
 +						this.appMenuModel.items[1].items.push(MenuData.ApplicationMenu.TweetViaTweed);
 +					if(response.showCarbon == true) 
 +						this.appMenuModel.items[1].items.push(MenuData.ApplicationMenu.TweetViaCarbon);
-+					if(response.privateBrowsing == true)
-+						this.appMenuModel.items.splice(2,0,this.togglePrivate = MenuData.ApplicationMenu.TogglePrivate);
++					if(response.showQuickPost == true)
++						this.appMenuModel.items[1].items.push(MenuData.ApplicationMenu.SendViaQuickPost);
 +				}
 +			}.bind(this)});
 +					
  
  		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
  
-@@ -1066,6 +1115,11 @@ PageAssistant.prototype._updateHistory = function() {
+@@ -1066,7 +1115,7 @@ PageAssistant.prototype._updateHistory = function() {
  	if (!this.currentUrl || (this.currentUrl.length === 0)) {
  		return;
  	}
+-
 +	
-+	if (this.togglePrivate.enabled) {
-+		return;
-+	}
-+ 	
- 
  	var title = this.currentTitle || null;
  	this.historyStore.addHistory(this.currentUrl, title, new Date(),
-@@ -2172,8 +2226,459 @@ PageAssistant.prototype.handleCommand = function(event) {
+ 		function(response) {Mojo.Log.info("***_UpdateHistory Successful:"+JSON.stringify(response));},
+@@ -2172,8 +2221,488 @@ PageAssistant.prototype.handleCommand = function(event) {
  					this._createDefaultBookmarkImages(urlReference);
  					this.showBookmarkDialog(BookmarkDialogAssistant.createLaunchpointTask, urlReference);
  					break;
@@ -357,39 +355,52 @@ index 388cffc..268d167 100644
 +				
 +				//FACEBOOK
 +				case MenuData.ApplicationMenu.ShareViaFacebook.command:
-+					try{
-+						this.facebookappid = "com.palm.app.facebook";
-+						this.controller.serviceRequest("palm://com.palm.applicationManager", {
-+							method: 'open',
-+							parameters: {
-+								id: this.facebookappid,
-+								params: {status: this.currentTitle + ' - ' + this.currentUrl}
-+							},
-+							onFailure:function(){
-+								this.controller.showAlertDialog({
++					var facebookappids = ['com.palm.app.facebook.beta', 'com.palm.app.facebook'], facebookindex = 0;
++					var target = this;
++					function makeCall() {
++						if (facebookindex < facebookappids.length) {
++				 
++							Mojo.Log.info('Trying to launch with appid %s', facebookappids[facebookindex]);
++				 
++							var request = new Mojo.Service.Request("palm://com.palm.applicationManager", {
++								method: 'launch',
++								parameters: {
++									id: facebookappids[facebookindex],
++									params: {tweet: target.currentTitle + ' - ' + target.currentUrl}
++								},
++								onFailure: function() {
++									Mojo.Log.info('Facebook failed to launch with appid %s', facebookappids[facebookindex]);
++									facebookindex++; // go to next appid
++									makeCall(); // retry
++								}.bind(this)
++							});
++				 
++						} else {
++							Mojo.Log.error('Facebook failed to launch');
++							target.controller.showAlertDialog({
 +									onChoose: function(value){
 +										if (value=="yes"){
-+											this.controller.serviceRequest('palm://com.palm.applicationManager', {
++											//--> And weee'rrre.. of to see the wizard
++											target.controller.serviceRequest('palm://com.palm.applicationManager', { 
 +												method:'open',
 +												parameters:{
-+													target: "http://developer.palm.com/appredirect/?packageid=" + this.facebookappid
++													target: "http://developer.palm.com/appredirect/?packageid=" + facebookappids[1]
 +												}
 +											});
 +										}
 +									},
 +									preventCancel: false,
 +									title: $L("Facebook Not Installed"),
-+									message: $L("Facebook is not installed. Would you like to download it? It's Free!"),
++									message: $L("Facebook is not installed. Would you like to download it? It's free!"),
 +									choices:[
 +										{label:$L('Yes'), value:"yes", type:'affirmative'},
 +										{label:$L('No'), value:"no", type:'dismissal'}
 +									]
 +								});
-+							}.bind(this)
-+						})
-+					}catch(e){
-+						Mojo.Log.error("Facebook Patch Error: " + e);
++						}
++				 
 +					}
++					makeCall();
 +					break;
 +				
 +				//BAD KITTY
@@ -433,7 +444,7 @@ index 388cffc..268d167 100644
 +				
 +				//SPAZ
 +				case MenuData.ApplicationMenu.TweetViaSpaz.command:
-+					var spazappids = ['com.funkatron.app.spaz-sped', 'com.funkatron.app.spaz-beta', 'com.funkatron.app.spaz'], spazindex = 0;
++					var spazappids = ['com.funkatron.app.spaz-beta', 'com.funkatron.app.spaz-sped', 'com.funkatron.app.spaz'], spazindex = 0;
 +					var target = this;
 +					function makeCall() {
 +						if (spazindex < spazappids.length) {
@@ -563,7 +574,7 @@ index 388cffc..268d167 100644
 +				case MenuData.ApplicationMenu.TweetViaCarbon.command:
 +					// Send the URL to Carbon
 +					try{
-+						this.carbonappid = "com.dotsandlines.carbonbeta";
++						this.carbonappid = "com.dotsandlines.carbon";
 +						this.controller.serviceRequest("palm://com.palm.applicationManager", {
 +							method: 'open',
 +							parameters: {
@@ -598,6 +609,44 @@ index 388cffc..268d167 100644
 +					}
 +					break;
 +				
++				//QUICKPOST
++				case MenuData.ApplicationMenu.SendViaQuickPost.command:
++					try{
++						this.quickpostappid = "com.hedami.quickpost";
++						this.controller.serviceRequest("palm://com.palm.applicationManager", {
++							method: 'open',
++							parameters: {
++								id: this.quickpostappid,
++								params: {quickPost: this.currentTitle + ' - ' + this.currentUrl}
++							},
++							onFailure:function(){
++								this.controller.showAlertDialog({
++									onChoose: function(value){
++										if (value=="yes"){
++											//--> And weee'rrre.. of to see the wizard
++											this.controller.serviceRequest('palm://com.palm.applicationManager', { 
++												method:'open',
++												parameters:{
++													target: "http://developer.palm.com/appredirect/?packageid=" + this.quickpostappid
++												}
++											});
++										}
++									},
++									preventCancel: false,
++									title: $L("Quick Post Not Installed"),
++									message: $L("Quick Post is not installed. Would you like to download it?"),
++									choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++									]
++								});
++							}.bind(this)
++						})
++					}catch(e){
++						Mojo.Log.error("Quick Post Patch Error: " + e);
++					}
++					break;
++				
 +				//SMS
 +				case MenuData.ApplicationMenu.ShareViaSMS.command:
 +					// Set up the url
@@ -626,80 +675,8 @@ index 388cffc..268d167 100644
 +						});
 +						break;
 +				
-+				//PRIVATE BROWSING
-+					
-+				case 'enable-private-cmd':
-+					this.togglePrivate.command = 'disable-private-cmd';
-+					this.togglePrivate.label = $L('Disable Private Browsing');
-+					
-+					this.togglePrivate.enabled = true;
-+					
-+					this.controller.modelChanged(this.appMenuModel);
-+					Mojo.Controller.getAppController().showBanner("Private Browsing: Enabled!",  {source: 'notification'});
-+					break;
-+					
-+				case 'disable-private-cmd':
-+					this.togglePrivate.command = 'enable-private-cmd';
-+					this.togglePrivate.label = $L('Enable Private Browsing');
-+					
-+					this.togglePrivate.enabled = false;
-+					
-+					this.controller.modelChanged(this.appMenuModel);
-+					Mojo.Controller.getAppController().showBanner("Private Browsing: Disabled!",  {source: 'notification'});
-+					break;				
-+				
 +				//EMAIL
 +				case MenuData.ApplicationMenu.ShareViaEmail.command:
  					this._shareUrl(this.currentUrl, this._getDisplayTitle(), true /*capture*/);
  					break;
  
-diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
-index 0fbc276..4b88e00 100644
---- a/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
-+++ b/usr/palm/applications/com.palm.app.browser/app/controllers/startpage-assistant.js
-@@ -53,6 +53,16 @@ StartpageAssistant.prototype.setup = function() {
- 			MenuData.ApplicationMenu.ShowBookmarks,
- 			MenuData.ApplicationMenu.ShowHistory]
- 	};
-+	
-+	this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
-+			method: 'get', parameters: {'owner': "browser-sharing-super-mix", 
-+			keys: ["privateBrowsing"]},
-+			onSuccess: function(response) {
-+				if(response) {
-+					if(response.privateBrowsing == true)
-+						this.appMenuModel.items.splice(3,0,this.togglePrivate = MenuData.ApplicationMenu.TogglePrivate);
-+				}
-+		}.bind(this)});
- 
- 	this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
- 
-@@ -367,7 +377,27 @@ StartpageAssistant.prototype.handleCommand = function(event) {
- 				case MenuData.ApplicationMenu.ShowHistory.command:
- 					this._openHistoryView();
- 					break;
--
-+				
-+				case 'enable-private-cmd':
-+					this.togglePrivate.command = 'disable-private-cmd';
-+					this.togglePrivate.label = $L('Disable Private Browsing');
-+					
-+					this.togglePrivate.enabled = true;
-+					
-+					this.controller.modelChanged(this.appMenuModel);
-+					Mojo.Controller.getAppController().showBanner("Private Browsing: Enabled!",  {source: 'notification'});
-+					break;
-+					
-+				case 'disable-private-cmd':
-+					this.togglePrivate.command = 'enable-private-cmd';
-+					this.togglePrivate.label = $L('Enable Private Browsing');
-+					
-+					this.togglePrivate.enabled = false;
-+					
-+					this.controller.modelChanged(this.appMenuModel);
-+					Mojo.Controller.getAppController().showBanner("Private Browsing: Disabled!",  {source: 'notification'});
-+					break;
-+				
- 				case MenuData.ApplicationMenu.ShowBookmarks.command:
- 					this._openBookmarkView();
- 					break;
