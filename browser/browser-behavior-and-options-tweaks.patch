@@ -15,10 +15,10 @@ index 6bf5870..d1d1e7b 100644
  		label: $L('History'),
  		command: 'show-history-cmd',
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-index 388cffc..7764edf 100644
+index 388cffc..d15b6a7 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-@@ -93,8 +93,26 @@ PageAssistant.prototype.setup = function() {
+@@ -93,8 +93,29 @@ PageAssistant.prototype.setup = function() {
  		this._updateOrientation();
  
  		// Allow override of 'back' gesture in landscape mode.
@@ -43,10 +43,47 @@ index 388cffc..7764edf 100644
 +		}.bind(this)});
 +		
 +		this.controller.useLandscapePageUpDown(this.gestureScroll);
++		
++
++		
  		// Create the browser server status control.
  		this._browserServerStatus = new BrowserServerStatus(this.controller);
  		this._browserServerStatus.setup({
-@@ -304,6 +322,11 @@ PageAssistant.prototype.activate = function(message) {
+@@ -117,7 +138,10 @@ PageAssistant.prototype.setup = function() {
+ 		this.savedFlickRatio = scroller.mojo.kFlickRatio;
+ 		scroller.mojo.updatePhysicsParameters({flickSpeed: 0.12, flickRatio: 0.2});
+ 
+-
++		if (this.goFullscreen) {
++			this.controller.enableFullScreenMode(true);
++		}
++		
+ 		// Listen for drag events, and stop them when appropriate
+ 		Mojo.Event.listen(this.controller.getSceneScroller(), Mojo.Event.dragStart, this._stopSceneScrolling, true);
+ 
+@@ -217,6 +241,10 @@ PageAssistant.prototype._updateOrientation = function() {
+ 		this._orientation = Mojo.Controller.appController.getScreenOrientation();
+ 		targetWindow.PalmSystem.setWindowOrientation(this._orientation);
+ 	}
++	
++	if (this.goFullscreen) {
++			this.controller.enableFullScreenMode(true);
++	}
+ };
+ 
+ PageAssistant.prototype.orientationChanged = function(event) {
+@@ -245,6 +273,10 @@ PageAssistant.prototype.orientationChanged = function(event) {
+ 	}
+ 
+ 	this._setOrientation(this._orientation);
++	
++	if (this.goFullscreen) {
++			this.controller.enableFullScreenMode(true);
++	}
+ };
+ 
+ /*
+@@ -304,6 +336,11 @@ PageAssistant.prototype.activate = function(message) {
  		
  		this._updateOrientation();
  		
@@ -58,7 +95,7 @@ index 388cffc..7764edf 100644
  		// Update any pending web preferences changes
  		AppAssistant.WebPreferences.activate(this._webView.mojo);
  
-@@ -804,6 +827,20 @@ PageAssistant.prototype._setupMenus = function() {
+@@ -804,6 +841,20 @@ PageAssistant.prototype._setupMenus = function() {
  		};
  
  		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
@@ -79,7 +116,7 @@ index 388cffc..7764edf 100644
  
  		// Create the URL Bar
  		this._addressBar = new AddressBar(this.controller);
-@@ -1066,6 +1103,10 @@ PageAssistant.prototype._updateHistory = function() {
+@@ -1066,6 +1117,10 @@ PageAssistant.prototype._updateHistory = function() {
  	if (!this.currentUrl || (this.currentUrl.length === 0)) {
  		return;
  	}
@@ -90,7 +127,7 @@ index 388cffc..7764edf 100644
  
  	var title = this.currentTitle || null;
  	this.historyStore.addHistory(this.currentUrl, title, new Date(),
-@@ -1946,6 +1987,10 @@ PageAssistant.prototype.moved = function(scrollState) {
+@@ -1946,6 +2001,10 @@ PageAssistant.prototype.moved = function(scrollState) {
  			this._addressBar.hide();
  			this.chrome.hide();
  
@@ -101,7 +138,7 @@ index 388cffc..7764edf 100644
  			// Only focus this webview widget if this assistant has
  			// focus. All page-assisants can receive 'moved' events
  			// so we have to be careful when explicitly setting the
-@@ -1969,6 +2014,10 @@ PageAssistant.prototype.moved = function(scrollState) {
+@@ -1969,6 +2028,10 @@ PageAssistant.prototype.moved = function(scrollState) {
  		//Mojo.Log.info("-> TOP > 0 SO SHOWING");
  		this._addressBar.show();
  		this.chrome.show();
@@ -112,7 +149,7 @@ index 388cffc..7764edf 100644
  
  	} else {
  		//Mojo.Log.info("-> TOP == 0 Do Nothing.");
-@@ -2180,6 +2229,41 @@ PageAssistant.prototype.handleCommand = function(event) {
+@@ -2180,6 +2243,41 @@ PageAssistant.prototype.handleCommand = function(event) {
  				case MenuData.NavigationMenu.Back.command:
  					this._goBack();
  					break;
@@ -155,165 +192,49 @@ index 388cffc..7764edf 100644
  				case MenuData.NavigationMenu.Forward.command:
  					this._goForward();
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
-index 6ad7ebd..c03a552 100644
+index 6ad7ebd..cb55074 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-controls.js
-@@ -6,6 +6,17 @@
- */
- function PageControls (controller){
- 	this._controller = controller;
-+	
-+		this.hideIcons = false;
-+		this.getTweaksOptions = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
-+			method: 'get', parameters: {'owner': "browser-behavior-options-tweaks", 
-+			keys: ["hideIcons"]},
-+			onSuccess: function(response) {
-+				if(response) {
-+					if(response.hideIcons == true)
-+						this.hideIcons = true;
-+				}
-+		}.bind(this)});
- 
- 		// We can always go back.
- 		this._back = true;
-@@ -26,11 +37,12 @@ function PageControls (controller){
- 		};
- 
- 		this._model = {
--			visible: true,
-+			visible: !this.hideIcons,
- 			items: [this._backModel, {}, {}]
- 		};
- 
- 		this._currentPageModel = {};
-+		
- }
- 
- PageControls.prototype={
-@@ -64,7 +76,11 @@ PageControls.prototype={
- 
- 		var items = _.toArray();
- 		this._backModel.disabled = !back;
--		items.push(this._backModel);
-+		if (!this.hideIcons) {
-+			items.push(this._backModel);
-+		} else {
-+			items.push(false);
-+		}
- 
- 		if (forward) {
- 			this._forwardModel.disabled = !forward;
-@@ -74,7 +90,11 @@ PageControls.prototype={
- 		}
- 
- 		// The spacer... right aligns the following button.
--		items.push({});
-+		if (!this.hideIcons) {
-+			items.push({});
-+		} else {
-+			items.push(false);
-+		}
- 
- 		this._back = back;
- 		this._forward = forward;
-@@ -85,10 +105,14 @@ PageControls.prototype={
- 	updateBackForward: function(back, forward) {
- 
- 		// Add the back/forward buttons
--		this._model.items = this._setBackForward(back, forward);
-+		if(!this.hideIcons) {
-+			this._model.items = this._setBackForward(back, forward);
-+		} else {
-+			this._model.items = this._setBackForward(false);
-+		}
-+		
- 		// The spacer... right aligns the following button.
- 		this._model.items.push(this._currentPageModel);
--
- 		this._controller.modelChanged(this._model);
- 	},
- 
-@@ -106,13 +130,21 @@ PageControls.prototype={
- 			this._animation.stop();
- 			delete this._animation;
- 		}
-+		
-+		
- 
- 		// Add the back/forward buttons
--		this._model.items = this._setBackForward(this._back, this._forward);
-+		if(!this.hideIcons) {
-+			this._model.items = this._setBackForward(this._back, this._forward);
-+		} else {
-+			this._model.items = this._setBackForward(false);
-+		}
+@@ -112,7 +112,7 @@ PageControls.prototype={
  		// The spacer... right aligns the following button.
  		this._model.items.push(idleModel);
  		this._controller.modelChanged(this._model);
 -
-+		if(this.hideIcons) {
-+			this._controller.setMenuVisible(Mojo.Menu.commandMenu, false);
-+		}
++		this._controller.setMenuVisible(Mojo.Menu.commandMenu, false);
  		this._currentPageModel = idleModel;
  	},
  
-@@ -138,11 +170,17 @@ PageControls.prototype={
- 			});
- 
- 			// Add the back/forward buttons
--			this._model.items = this._setBackForward(this._back, this._forward);
-+			if(!this.hideIcons) {
-+				this._model.items = this._setBackForward(this._back, this._forward);
-+			} else {
-+				this._model.items = this._setBackForward(false);
-+			}
+@@ -142,7 +142,7 @@ PageControls.prototype={
  			this._model.items.push(progressModel);
  			this._controller.modelChanged(this._model);
  			this._animation.start(0);
 -
-+			if(this.hideIcons) {
-+				this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
-+			}
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
  			this._currentPageModel = progressModel;
  
  		} catch (e) {
-@@ -183,11 +221,17 @@ PageControls.prototype={
- 			});
- 
- 			// Add the back/forward buttons
--			this._model.items = this._setBackForward(this._back, this._forward);
-+			if(!this.hideIcons) {
-+				this._model.items = this._setBackForward(this._back, this._forward);
-+			} else {
-+				this._model.items = this._setBackForward(false);
-+			}
+@@ -187,7 +187,7 @@ PageControls.prototype={
  			this._model.items.push(searchModel);
  			this._controller.modelChanged(this._model);
  			this._animation.start();
 -
-+			if(this.hideIcons) {
-+				this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
-+			}
++			this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
  			this._currentPageModel = searchModel;
  
  		} catch (e) {
-@@ -204,6 +248,9 @@ PageControls.prototype={
+@@ -204,6 +204,7 @@ PageControls.prototype={
  					this._model.items[i].type='flash';
  					this._model.items[i].icon= MenuData.NavigationMenu.Cancel.icon;
  					this._model.items[i].command=MenuData.NavigationMenu.Cancel.command;
-+					if(this.hideIcons) {
-+						this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
-+					}
++					this._controller.setMenuVisible(Mojo.Menu.commandMenu, true);
  					break;
  				}
  				
-@@ -219,6 +266,9 @@ PageControls.prototype={
+@@ -219,6 +220,7 @@ PageControls.prototype={
  					this._model.items[i].type='idle';
  					this._model.items[i].icon= MenuData.NavigationMenu.Reload.icon;
  					this._model.items[i].command=MenuData.NavigationMenu.Reload.command;
-+					if(this.hideIcons) {
-+						this._controller.setMenuVisible(Mojo.Menu.commandMenu, false);
-+					}
++					this._controller.setMenuVisible(Mojo.Menu.commandMenu, false);
  					break;
  				}
  				
