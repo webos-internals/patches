@@ -148,6 +148,15 @@
  			uniquenessProperty: '_id',
  			initialScrollingDirection: 'up',
  			revisionProperty: '_rev',
+@@ -762,7 +774,7 @@
+ 		if (this.isScreenOn && chatThreadId === this.chatThreadId) {
+ 			Mojo.Log.info("[CV] ****** chatview considerForNotification --- screen is on!");
+ 			if (data.notificationType === this.Messaging.notificationTypes.newMessage) {
+-				data = {playSoundOnly:true};
++				data.playSoundOnly = true;
+ 			} else if (data.notificationType === this.Messaging.notificationTypes.sendFailure) {
+ 				data = {}; // wipe out the notification because we are in the chat
+ 			}
 @@ -1370,6 +1382,8 @@
  			return;
  		}
@@ -739,11 +748,14 @@
  	this.class0AlertData = {
  		list: []
  	};
-@@ -230,20 +231,20 @@
+@@ -230,20 +231,72 @@
   */
  
  NotificationAssistant.prototype.considerForNotification = function(notificationData){
 -	if (!this.Messaging.messagingPrefs.getNotificationsEnabled()) {
++	if(!notificationData.message)
++		return;
++
 +	if (!this.Messaging.messagingPrefs.getNotificationsEnabled(notificationData.message.serviceName)) {
  		Mojo.Log.info("Notification Assistant - Consider for Notification - Notifications are disabled");	
  		return;
@@ -754,8 +766,58 @@
 +	if(notificationData.playSoundOnly && this.Messaging.messagingPrefs.getNotificationSound(notificationData.message.serviceName)) {
  		var notifParams = {};
 -		this.setNotificationSound(notifParams);
-+		this.setNotificationSound(notifParams, notificationData);
- 		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
+-		this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++
++		var future;
++		if (MessagingLib.Utils.isTextMessage(notificationData.message.serviceName)) {
++			future = ContactsLib.Person.findByPhone(notificationData.message.from.addr);
++		}
++		else {
++			future = ContactsLib.Person.findByIM(notificationData.message.from.addr, notificationData.message.serviceName);
++		}
++		
++		future.then(this, function(future){
++			if (future.result) {
++				if(MessagingLib.Utils.isTextMessage(notificationData.message.serviceName)) {
++					notificationData.soundClass = future.result.getMsgAlert().getAlert();
++					notificationData.ringtonePath = future.result.getMsgRingtone().getLocation();
++				}
++				else {
++					notificationData.soundClass = future.result.getIMsgAlert().getAlert();
++					notificationData.ringtonePath = future.result.getIMsgRingtone().getLocation();
++				}
++							
++				this.setNotificationSound(notifParams, notificationData);
++				this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++
++				future.result = future.result;
++			}
++			else if(MessagingLib.Utils.isTextMessage(notificationData.message.serviceName)) {
++				if(this.contactPrefs)
++					delete this.contactPrefs;
++	
++				this.contactPrefs = new ContactsLib.AppPrefs(function(future) {
++					var prefs = this.contactPrefs.get(ContactsLib.AppPrefs.Pref.unknownContacts);
++
++					if((prefs) && (prefs.msgAlert)) {
++						notificationData.soundClass = prefs.msgAlert;
++						notificationData.ringtonePath = prefs.msgRingtonePath;
++					}
++					
++					this.setNotificationSound(notifParams, notificationData);
++					this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++										
++					future.result = future.result;
++				}.bind(this, future));			
++			}
++			else {
++				this.setNotificationSound(notifParams, notificationData);
++				this.controller.playSoundNotification(notifParams.soundClass, notifParams.soundFile);
++
++				future.result = future.result;
++			}
++		});
++		
  		return; // don't display any visual notification
  	}	
  	//TODO: does sendFailure and connectionFailure need displayName?
@@ -764,7 +826,7 @@
  		var notificationType = notificationData.notificationType;
  		if (notificationType === this.Messaging.notificationTypes.newMessage) {
  			this.preSendNewMessageNotificationAndUpdateDashboard(notificationData);
-@@ -344,10 +345,40 @@
+@@ -344,17 +397,51 @@
  		
  		future.then(this, function(future){
  			if (future.result) {
@@ -792,10 +854,14 @@
 +					if((prefs) && (prefs.msgAlert)) {
 +						notificationData.soundClass = prefs.msgAlert;
 +						notificationData.ringtonePath = prefs.msgRingtonePath;
-+					}
 +
++						this.sendNewMessageNotificationAndUpdateDashboard(notificationData, true);
++					}
++					else
++						this.sendNewMessageNotificationAndUpdateDashboard(notificationData);
++					
 +					future.result = future.result;
-+					this.sendNewMessageNotificationAndUpdateDashboard(notificationData);
++
 +				}.bind(this, future));			
 +			}
 +			else {
@@ -807,7 +873,15 @@
  		});
  	}
  	else {
-@@ -411,7 +442,7 @@
+ 		this.sendNewMessageNotificationAndUpdateDashboard(notificationData);
+ 	}
+ };
+-NotificationAssistant.prototype.sendNewMessageNotificationAndUpdateDashboard = function(notificationData){
++NotificationAssistant.prototype.sendNewMessageNotificationAndUpdateDashboard = function(notificationData, unknownContact){
+ 	var messageData = notificationData.message;
+ 	var chatThreadId;
+ 	if(messageData.conversations !== undefined && messageData.conversations.length > 0) {
+@@ -411,7 +498,7 @@
  	var bannerParams = {
  		messageText: notificationText
  	};
@@ -816,7 +890,7 @@
  	var bannerLaunchParams =  {
  		chatThreadId: chatThreadId,
  		clearBanner: true		
-@@ -480,11 +511,16 @@
+@@ -480,11 +567,16 @@
  	var dashboard = this.controller.getStageController(dashboardStagename);
  	
  	if (dashboard) {
@@ -835,16 +909,17 @@
  		}.bind(this);
  		var params = {
  			name: dashboardStagename,
-@@ -509,6 +545,8 @@
+@@ -509,6 +601,9 @@
  			createDashboard(); // if the screen is off, create the dashboard right away
  		}
  	}
 +	
-+	this.schedulePlayNotificationSoundTasks(notificationData.message.serviceName);
++	if(!unknownContact)
++		this.schedulePlayNotificationSoundTasks(notificationData.message.serviceName);
  };
  
  // ISSUES: what are the error types?  What is the max number / types of dashboards that we could have?
-@@ -542,7 +580,7 @@
+@@ -542,7 +637,7 @@
  	var bannerParams = {
  		messageText: notificationText.escapeHTML()
  	};
@@ -853,7 +928,7 @@
  		bannerParams.soundClass = "alerts";	
  	}
  	var bannerLaunchParams =  {
-@@ -747,6 +785,8 @@
+@@ -747,6 +842,8 @@
  };
  
  NotificationAssistant.prototype.clearNotificationsForChat = function(chatThreadId){	
@@ -862,7 +937,7 @@
  	var i;
  	var newestTimestamp = 0;
  	var newestChat;
-@@ -841,6 +881,8 @@
+@@ -841,6 +938,8 @@
  };
  
  NotificationAssistant.prototype.resetNewMessages = function(){
@@ -871,7 +946,7 @@
  	this.messageDashboardData = {};
  };
  
-@@ -849,8 +891,12 @@
+@@ -849,8 +948,12 @@
  };
  
  NotificationAssistant.prototype.clearMessageDashboard = function(){
@@ -885,7 +960,7 @@
  	if (dashboard) {
  		dashboard.delegateToSceneAssistant("closeDashboard");
  	}
-@@ -884,15 +930,26 @@
+@@ -884,15 +987,26 @@
  	}
  };
  
@@ -915,7 +990,7 @@
  			break;
  		case "vibrate":
  			bannerParams.soundClass = "vibrate";
-@@ -907,4 +964,74 @@
+@@ -907,4 +1021,74 @@
  	Mojo.Log.info("setNotificationSound result=%j", bannerParams);
  };
  
