@@ -1,0 +1,66 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js b/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
+index 2cb234a..c2af04b 100644
+--- a/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
++++ b/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
+@@ -480,15 +480,17 @@ var CalllogAssistant = Class.create({
+ 			};
+ 			view_contact = Mojo.View.render({template: 'calllog/listitem_contact', object: template_model});
+ 		}
+-		
++
+ 		var element = Mojo.View.convertToNode('<div name="rowdrawer" class="calllogdetails" x-mojo-element="Drawer"> '
+-											  + call_details + '<div name="contact_numbers_placeholder"></div>' + view_contact
++											  + call_details + '<div name="contact_numbers_placeholder"></div>'
++											  + '<div class="palm-row" x-mojo-touch-feedback="momentary" name="wplookup" value="' + itemModel.contactId + '" number="' + itemModel.number + '"><div class="palm-row-wrapper"><div class="title truncating-text">Lookup with WhitePages</div></div></div>'
++											  + view_contact
+ 									  		  + '</div>', this.controller.window.document);
+ 		
+ 		itemNode.querySelector(".palm-row-wrapper").appendChild(element);
+ 		
+ 		this.loadContactNumbers(element, itemModel, is_valid);
+-		
++
+ 		// no 'add to contact' or altnum row
+ 		if ( ! is_valid && itemModel.contactId == -1 ) {
+ 			element.querySelector('div[name="call-log-details-row"]').removeClassName('first').addClassName('single');
+@@ -620,6 +622,40 @@ var CalllogAssistant = Class.create({
+ 						this.dialNumber(details.number, itemModel.contactId, details.label);
+ 					}
+ 					return;
++				
++				case "wplookup":
++					this.controller.serviceRequest('palm://com.palm.applicationManager', {
++						method: 'launch',
++						parameters: {
++							id: "com.whitepages.mobile",
++							params:{action: "search", scene: "reverse", search_number: target.getAttribute('number'), autosearch:true}
++						},
++						onSuccess:function(){
++							Mojo.Log.info("launched just fine.");
++						}.bind(this),
++						onFailure:function(){
++							this.controller.showAlertDialog({
++								onChoose: function(value){
++									if (value=="open"){
++										this.controller.serviceRequest('palm://com.palm.applicationManager', {
++											method:'open',
++											parameters:{
++												target: "http://developer.palm.com/appredirect/?packageid=com.whitepages.mobile"
++											}
++										});
++									}
++								},
++								preventCancel: false,
++								title: $L("WhitePages App Not Installed"),
++								message: $L("Sorry! WhitePages is not installed on your device. You can download this app from the App Catalog (Free)."),
++								choices:[
++									{label:$L('Open in App Catalog'), value:"open", type:'affirmative'},
++									{label:$L('Ok'), value:"ok", type:'dismissal'}
++								]
++							});
++						}.bind(this)
++					});
++					return;
+ 					
+ 				case "contact":
+ 					if ( target.getAttribute('value') == -1 ) {

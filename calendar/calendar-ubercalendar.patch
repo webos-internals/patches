@@ -389,10 +389,10 @@ index a667ac9..81ac2a6 100644
  		else
  		{
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
-index 1bc0374..f114473 100644
+index 1bc0374..156342c 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
-@@ -140,10 +140,567 @@ var DatetimeAssistant = Class.create({
+@@ -140,10 +140,669 @@ var DatetimeAssistant = Class.create({
                  break;
          }
      },
@@ -764,7 +764,7 @@ index 1bc0374..f114473 100644
 +			} else {	// go out 1 year from the end date
 +				this.RMlast.recD = new Date(this.RMlast.eMY.year + 1, this.RMlast.eMY.month, this.RMlast.eD.getDate());
 +			}
-+		} else if((rccount !== -1) && (recfreqTS !== -1)) {
++		} else if((rccount !== -1) && (recfreqTS !== -1)) { //until set outside of webos excludes yearly & monthly
 +			this.RMlast.recD = new Date(rcstTS + (recfreqTS*rcint*rccount));
 +		}
 +		this.RMlast.recD.setUTCHours(12); // set end to noon UTC to match start, UTC get's the right day
@@ -822,37 +822,139 @@ index 1bc0374..f114473 100644
 +                //Monthly by date
 +				var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
 +                if (this.targetEvent.rruleModel.bymonthday.length > 0) {
-+                    var rcmonthday = this.targetEvent.rruleModel.bymonthday[0];
-+					var rcstmon = rcstD.getMonth();
-+					var rcstyear = rcstD.getFullYear();
-+					for(var i=0; i<rcmonths; i++) { //cycle through intervals
-+						var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
-+						var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
-+						var rcmonTS = Date.UTC(rcyear, rcmon, rcmonthday, 12);
-+						var rcmonChk = new Date(rcmonTS);
-+						if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
-+							for(var j=0; j<rcduraD; j++) { // cycle through duration
-+								this.recTS.push(rcmonTS + (j*dlen));
++					var rcmonthday = parseInt(this.targetEvent.rruleModel.bymonthday[0], 10);
++					if(rcmonthday > 0) {
++						var rcstmon = rcstD.getMonth();
++						var rcstyear = rcstD.getFullYear();
++						for(var i=0; i<rcmonths; i++) { //cycle through intervals
++							var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++							var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++							var rcmonTS = Date.UTC(rcyear, rcmon, rcmonthday, 12);
++							var rcmonChk = new Date(rcmonTS);
++							if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++								for(var j=0; j<rcduraD; j++) { // cycle through duration
++									this.recTS.push(rcmonTS + (j*dlen));
++								}
++							}
++						}
++					} else if(rcmonthday < 0) {
++						var rcstmon = rcstD.getMonth();
++						var rcstyear = rcstD.getFullYear();
++						for(var i=0; i<rcmonths; i++) { //cycle through intervals
++							var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++							var rcmonLast = (rcstmon + 1 + (i*rcint)) > 11 ? rcstmon +1 + (i*rcint) - 12 : rcstmon + 1 +(i*rcint);
++							var rcyear = (rcstmon + 1 + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++							var rcmonTS = Date.UTC(rcyear, rcmonLast, 1, 12) + rcmonthday*dlen;
++							var rcmonChk = new Date(rcmonTS);
++							if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++								for(var j=0; j<rcduraD; j++) { // cycle through duration
++									this.recTS.push(rcmonTS + (j*dlen));
++								}
 +							}
 +						}
 +					}
-+                } else {
-+                    var nth = getDOWCount(this.targetEvent.startTimestamp);
-+					var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
-+					var rcstmon = rcstD.getMonth();
-+					var rcstyear = rcstD.getFullYear();
-+					var rcwantday = rcstD.getDay();
-+					for(var i=0; i<rcmonths; i++) { // cycle through intervals
-+						var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
-+						var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear;
-+						var rcmonD = new Date(Date.UTC(rcyear, rcmon, 1, 12));
-+						var rcfstday = rcmonD.getDay();
-+						var rcaddTS = ((rcwantday - rcfstday) < 0) ? ((rcwantday - rcfstday) + 7)*dlen : (rcwantday - rcfstday)*dlen;
-+						var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth-1);
-+						var rcmonChk = new Date(rcmonTS);
-+						if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
-+							for(var j=0; j<rcduraD; j++) { // cycle through duration
-+								this.recTS.push(rcmonTS + (j*dlen));
++				} else {
++					// check for multiple by days and last week type set
++					var byDayLen = this.targetEvent.rruleModel.byday.length;
++					var byDayDefault = true;
++					if(byDayLen && byDayLen > 1) {
++						var byDayArray = [];
++						var ford = parseInt(this.targetEvent.rruleModel.byday[0], 10);
++						for(var i=0; i<byDayLen; i++) {
++							var ord = parseInt(this.targetEvent.rruleModel.byday[i], 10);
++							if(ord && ord !== ford) {//we only care about matching bysetpos type repeat
++								byDayDefault = true; //default to just using first byday
++								break; //cal doesn't support multiple pos days in monthly repeat 
++							} else if(ord && ord === ford) {
++								var DoW = this.recurrenceRule.dayMap.indexOf(this.targetEvent.rruleModel.byday[i].substring((ford<0?2:1)));
++								if(byDayArray.indexOf(DoW) === -1) {//not in previously
++									byDayArray.push(DoW);
++								}
++								byDayDefault = false;
++							}
++						} //should have an array with the last days wanted
++						if(!byDayDefault && byDayArray.length > 1) {
++							if(ford<0){
++								var rcmonthday = -1;
++							} else if(ford>0) {
++								var rcmonthday = 1;
++							}
++							var rcstmon = rcstD.getMonth();
++							var rcstyear = rcstD.getFullYear();
++							for(var i=0; i<rcmonths; i++) { //cycle through intervals
++								var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++								if(ford<0){
++									var rcmonLast = (rcstmon + 1 + (i*rcint)) > 11 ? rcstmon +1 + (i*rcint) - 12 : rcstmon + 1 +(i*rcint);
++									var rcyear = (rcstmon + 1 + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++									var rcmonTS = new Date(rcyear, rcmonLast, 1, 12).getTime() + rcmonthday*dlen;
++								} else if(ford>0){
++									var rcmonLast = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon +(i*rcint);
++									var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++									var rcmonTS = new Date(rcyear, rcmonLast, 1, 12).getTime();
++								}
++								var rcDoW = new Date(rcmonTS).getDay();
++								for(var k=0; k< Math.abs(ford); k++) {
++									while(byDayArray.indexOf(rcDoW) === -1) {
++										rcmonTS = rcmonTS + rcmonthday*dlen;
++										rcDoW = new Date(rcmonTS).getDay();
++									}
++									if(k !== Math.abs(ford) - 1){
++										rcmonTS = rcmonTS + rcmonthday*dlen;
++										var rcDoW = new Date(rcmonTS).getDay();
++									}
++								}
++								var rcmonChk = new Date(rcmonTS);
++								if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++									for(var j=0; j<rcduraD; j++) { // cycle through duration
++										this.recTS.push(rcmonTS + (j*dlen));
++									}
++								}
++							}
++						} else {
++							byDayDefault = true; // just one byday
++						}
++					} else if(byDayLen === 1 || byDayDefault) {
++						var ucoldByDay = parseInt(this.targetEvent.rruleModel.byday[0], 10);
++						if(ucoldByDay && ucoldByDay > 0) {
++							var nth = getDOWCount(this.targetEvent.startTimestamp);
++							var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
++							var rcstmon = rcstD.getMonth();
++							var rcstyear = rcstD.getFullYear();
++							var rcwantday = rcstD.getDay();
++							for(var i=0; i<rcmonths; i++) { // cycle through intervals
++								var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++								var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear;
++								var rcmonD = new Date(Date.UTC(rcyear, rcmon, 1, 12));
++								var rcfstday = rcmonD.getDay();
++								var rcaddTS = ((rcwantday - rcfstday) < 0) ? ((rcwantday - rcfstday) + 7)*dlen : (rcwantday - rcfstday)*dlen;
++								var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth-1);
++								var rcmonChk = new Date(rcmonTS);
++								if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++									for(var j=0; j<rcduraD; j++) { // cycle through duration
++										this.recTS.push(rcmonTS + (j*dlen));
++									}
++								}
++							}
++						} else if(ucoldByDay && ucoldByDay <0) {
++							var nth = ucoldByDay;
++							var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
++							var rcstmon = rcstD.getMonth();
++							var rcstyear = rcstD.getFullYear();
++							var rcwantday = rcstD.getDay();
++							for(var i=0; i<rcmonths; i++) { // cycle through intervals
++								var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++								var rcmonLast = (rcstmon + 1 + (i*rcint)) > 11 ? rcstmon +1 + (i*rcint) - 12 : rcstmon + 1 +(i*rcint);
++								var rcyear = (rcstmon + 1 + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++								var rcmonD = new Date(Date.UTC(rcyear, rcmonLast, 1, 12) - dlen);
++								var rcLstday = rcmonD.getDay();
++								var rcaddTS = ((rcwantday - rcLstday) > 0) ? ((rcwantday - rcLstday) - 7)*dlen : (rcwantday - rcLstday)*dlen;
++								var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth+1);
++								var rcmonChk = new Date(rcmonTS);
++								if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++									for(var j=0; j<rcduraD; j++) { // cycle through duration
++										this.recTS.push(rcmonTS + (j*dlen));
++									}
++								}
 +							}
 +						}
 +					}
@@ -962,7 +1064,7 @@ index 1bc0374..f114473 100644
  		this.appMenuModel= { visible:true, 
              label: $L('Calendar'),
  							items: [ Mojo.Menu.editItem,
-@@ -168,26 +725,59 @@ var DatetimeAssistant = Class.create({
+@@ -168,26 +827,59 @@ var DatetimeAssistant = Class.create({
          this.startDateModel = {
              date: new Date(this.targetModifiedTime.start)
          };
@@ -1026,7 +1128,7 @@ index 1bc0374..f114473 100644
          this.controller.listen('edit_endTime', Mojo.Event.propertyChange, this.endTimeCallback.bindAsEventListener(this));
          
          
-@@ -204,10 +794,133 @@ var DatetimeAssistant = Class.create({
+@@ -204,10 +896,133 @@ var DatetimeAssistant = Class.create({
          this.controller.setupWidget('dtl_allday_cb', this.allDayCheckboxAttribute, this.allDayCheckboxModel);
          
          this.updateTimedAllDay(false);
@@ -1163,7 +1265,81 @@ index 1bc0374..f114473 100644
      checktargetEventDirty: function(){
          //construct rrule
  		if(this.targetEvent.rruleModel)
-@@ -431,12 +1144,47 @@ var DatetimeAssistant = Class.create({
+@@ -413,10 +1228,70 @@ var DatetimeAssistant = Class.create({
+                 this.callBackAfterUpdate(this.targetId);
+             this.controller.stageController.popScene("datetime");
+         }
+-        
+-        
+-        
+     },
++	
++	saveThisAndFuture: function() {
++		// change end date, add  new event
++		this.newEvent = Object.clone(this.targetEvent);
++		if(this.targetEvent.startTimestamp === this.originalstartTimestamp) {
++			//first event same as series
++			this.saveEvent(undefined);
++			return;
++		}
++		var endtimestamp = new Date(this.targetEvent.endTimestamp);
++		var time = new Date(this.targetModifiedTime.end);
++		time.setHours(endtimestamp.getHours());
++		time.setMinutes(endtimestamp.getMinutes());
++		time.setSeconds(endtimestamp.getSeconds());
++		this.targetEvent.endValidity= time.addDays(-1).getTime();
++		this.recurrenceRule = getRecurrenceRule();
++		this.targetEvent.isRecurringForever = false;
++		if(this.targetEvent.rruleModel.count) {this.targetEvent.rruleModel.count = 0;}
++		this.targetEvent.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.targetEvent.endValidity);
++		this.recurrenceRule.constructRRuleFromModel(this.targetEvent);
++		
++		this.requests.push(this.service.setEvent(this.targetEvent, this.ThisAndFutureCB.bind(this), this.editSceneController));
++	},
++	
++	ThisAndFutureCB: function () {
++		this.newEvent.id = 0;
++		this.newEvent.parentId = undefined;
++		if(this.newEvent.backupID) {this.newEvent.backupID = undefined;}
++		this.targetId = 0;
++		if(!this.newEvent.isRecurringForever) {
++			var time = new Date(this.newEvent.endValidity);
++			var endtimestamp = new Date(this.targetModifiedTime.end);
++			time.setHours(endtimestamp.getHours());
++			time.setMinutes(endtimestamp.getMinutes());
++			time.setSeconds(endtimestamp.getSeconds());
++			this.newEvent.endValidity = time.getTime();
++			this.newEvent.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.newEvent.endValidity);
++		}else if(this.newEvent.isRecurringForever){
++			this.newEvent.endValidity = "Long.MAX_VALUE";
++			if(this.newEvent.rruleModel.until) {delete this.newEvent.rruleModel.until;}
++		}
++		this.newEvent.startTimestamp = this.targetModifiedTime.start;
++		this.newEvent.start = this.targetModifiedTime.start;
++		this.newEvent.endTimestamp = this.targetModifiedTime.end;
++		this.newEvent.end = this.targetModifiedTime.end;
++		
++		this.recurrenceRule.constructRRuleFromModel(this.newEvent);
++		if(this.newEvent.originalstartTimestamp) {this.newEvent.originalstartTimestamp = undefined;}
++		this.requests.push(this.service.setEvent(this.newEvent, this.createdEvent.bind(this), this.editSceneController));
++	},
++	
++	createdEvent: function(response) {
++		if(response.id) {
++			this.newEvent.id = response.id + "";
++			this.newEvent.dirty = false;
++		}
++		if(this.callBackAfterUpdate != undefined) {
++			this.callBackAfterUpdate(this.newEvent.id);
++		}
++		this.targetCallBack(this.newEvent, Object.clone(this.newEvent));
++		this.controller.stageController.popScene("datetime");
++	},
++	
+     renderSetEvent: function(response){
+         //this callback is called only in the case
+         //when we are in the scene and went into cardmode
+@@ -431,12 +1306,47 @@ var DatetimeAssistant = Class.create({
      },
      
      activate: function(){
@@ -1215,7 +1391,48 @@ index 1bc0374..f114473 100644
      	
  	//When the start date of the event is changed, WEEKLY:single day, WEEKLY:custom, MONTHLY repeating events 
  	//must update their rruleModel. DAILY, YEARLY, and WEEKLY:weekdays repeating events do not need to be changed.
-@@ -553,6 +1301,7 @@ var DatetimeAssistant = Class.create({
+@@ -493,15 +1403,32 @@ var DatetimeAssistant = Class.create({
+                 
+             case 'MONTHLY': // Do NOT Localize
+                 //Monthly by date
++				if(oldDate.getDate() === newDate.getDate() && oldDate.getMonth() === newDate.getMonth() && oldDate.getFullYear() === newDate.getFullYear()) {
++					return; // no reason to change - just changed time
++				}
++				var ucLastDay = getIsLastProps(newDate.getTime());
+                 if (this.targetEvent.rruleModel.bymonthday.length > 0) {
+-                    this.targetEvent.rruleModel.bymonthday = [];
+-                    this.targetEvent.rruleModel.bymonthday.push(newDate.toString("d"));
+-                }
+-                else {
+-                    var nth = getDOWCount(this.targetEvent.startTimestamp);
+-                    this.targetEvent.rruleModel.byday = [];
+-                    var byday = this.recurrenceRule.dayMap[newDate.getDay()];
+-                    this.targetEvent.rruleModel.byday.push(nth + byday);
++					var ord = parseInt(this.targetEvent.rruleModel.bymonthday[0], 10);
++                    if(ord >0 || (ord < 0 && ucLastDay.lastweek === false) ) {
++						this.targetEvent.rruleModel.bymonthday = [];
++						this.targetEvent.rruleModel.bymonthday.push(newDate.toString("d"));
++					} else if(ord < 0 && ucLastDay.lastweek) { //was a last day of month type
++						this.targetEvent.rruleModel.bymonthday = [];
++						this.targetEvent.rruleModel.bymonthday.push(ucLastDay.lastday);
++					}
++                } else {
++					var ord = this.targetEvent.rruleModel.byday.length > 0 ? parseInt(this.targetEvent.rruleModel.byday[0], 10) : -1;
++					if(ord >0 || (ord < 0 && ucLastDay.lastweek === false) ) {
++						var nth = getDOWCount(this.targetEvent.startTimestamp);
++						this.targetEvent.rruleModel.byday = [];
++						var byday = this.recurrenceRule.dayMap[newDate.getDay()];
++						this.targetEvent.rruleModel.byday.push(nth + byday);
++					} else if(ord < 0 && ucLastDay.lastweek) { //was a last day, week, weekend type
++						var nth = -1;
++						this.targetEvent.rruleModel.byday = [];
++						var byday = this.recurrenceRule.dayMap[newDate.getDay()];
++						this.targetEvent.rruleModel.byday.push(nth + byday);
++					}
+                 }
+ 				changed = true;
+                 break;
+@@ -553,6 +1480,7 @@ var DatetimeAssistant = Class.create({
              this.targetEvent.alldayReservedStartTimestamp = this.targetModifiedTime.start;
              this.targetEvent.alldayReservedEndTimestamp = this.targetModifiedTime.end;
          }
@@ -1223,7 +1440,7 @@ index 1bc0374..f114473 100644
      },
      
      endDateSet: function(isOnBack){
-@@ -642,8 +1391,10 @@ var DatetimeAssistant = Class.create({
+@@ -642,8 +1570,10 @@ var DatetimeAssistant = Class.create({
  				}
              }
              
@@ -1235,7 +1452,7 @@ index 1bc0374..f114473 100644
              this.targetModifiedTime.changed = true;
              if (this.datetimeoutID) {
                  this.controller.window.clearTimeout(this.datetimeoutID);
-@@ -751,6 +1502,7 @@ var DatetimeAssistant = Class.create({
+@@ -751,6 +1681,7 @@ var DatetimeAssistant = Class.create({
          this.controller.modelChanged(this.startTimeModel);
          this.controller.modelChanged(this.endTimeModel);
          this.targetModifiedTime.changed = false;
@@ -1243,7 +1460,7 @@ index 1bc0374..f114473 100644
          //Mojo.Log.info("Old event all day %o, new Event all day %o",this.oldEvent.allDay,this.allDayCheckboxModel);
          if (this.oldEvent.allDay != this.allDayCheckboxModel.value) {
          
-@@ -761,6 +1513,85 @@ var DatetimeAssistant = Class.create({
+@@ -761,6 +1692,85 @@ var DatetimeAssistant = Class.create({
          this.targetCallBack(this.targetEvent, null);
          
      },
@@ -1331,7 +1548,7 @@ index 1bc0374..f114473 100644
  
  });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
-index 84263c0..0dfde40 100644
+index 84263c0..a13e140 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 @@ -11,17 +11,113 @@ var DayAssistant = Class.create({
@@ -1640,16 +1857,17 @@ index 84263c0..0dfde40 100644
  		var buf2;
  		var index=0;
  		
-@@ -702,6 +889,8 @@ var DayAssistant = Class.create({
+@@ -702,6 +889,9 @@ var DayAssistant = Class.create({
  		//Mojo.Log.info("day-assistant: renderEvent");
  		if (this.animating && !event.animatible)
  			return;
++
 +
 +//Mojo.Log.error(Object.toJSON(event));
  	
  		var ctx = this.divs[whichDay].ctxEvents;
  		var marginLeft = 28;
-@@ -743,21 +932,101 @@ var DayAssistant = Class.create({
+@@ -743,21 +933,101 @@ var DayAssistant = Class.create({
  		ctx.fillRect(left+1, top+height-3, width-2, 1);
  		
  		var textTop = top + 30;
@@ -1762,7 +1980,7 @@ index 84263c0..0dfde40 100644
  			bottom = textTop+15;
  			this.fillText(event.location,ctx,left+4,textTop,width,bottom,15 /*line height*/);		
  			textTop += 15;
-@@ -765,11 +1034,18 @@ var DayAssistant = Class.create({
+@@ -765,11 +1035,18 @@ var DayAssistant = Class.create({
  		
  		// Notes
  		if (event.note && (event.note.length > 0) && (textTop < (top + height))) {
@@ -1783,7 +2001,7 @@ index 84263c0..0dfde40 100644
  		if (ghost) {
  			var selectedColor = "rgba(228, 228, 226, 0.85)"
  			ctx.fillStyle = selectedColor;
-@@ -789,17 +1065,24 @@ var DayAssistant = Class.create({
+@@ -789,17 +1066,24 @@ var DayAssistant = Class.create({
  		  ctx.fillRect(left, top, width, height);
  		}
  	},
@@ -1811,7 +2029,7 @@ index 84263c0..0dfde40 100644
  		
  		return {
  			top : (totalHeight * index + marginTop),
-@@ -822,14 +1105,50 @@ var DayAssistant = Class.create({
+@@ -822,29 +1106,94 @@ var DayAssistant = Class.create({
  					   dim.top, 
  					   dim.width, 
  					   this.colors[event.calendarColor].allday.syCenter);
@@ -1863,9 +2081,10 @@ index 84263c0..0dfde40 100644
 +			}
 +		}
  		if (selected) {
- 			var selectedColor = "rgba(4, 4, 4, 0.5)"
+-			var selectedColor = "rgba(4, 4, 4, 0.5)"
++			var selectedColor = "rgba(4, 4, 4, 0.5)";
  			ctx.fillStyle = selectedColor;
-@@ -837,14 +1156,39 @@ var DayAssistant = Class.create({
+ 			ctx.fillRect(dim.left, dim.top, dim.width, dim.height);
  		}
  	},
  	
@@ -1886,27 +2105,31 @@ index 84263c0..0dfde40 100644
  		day.busyTimes = day.busyTimes.sortBy(function(b) { return b.start_decimal; })
  
 +		if (this.compressedView && this.enhancedView) {
-+			if (day.events.length == 0) {
++			if (day.events.length == 0 && day.busyTimes.length == 0) {
 +				day.freeTimes.push({start_decimal: 0, end_decimal: 2400, duration: 2400});
 +			} else {
-+				if (day.events[0].start_decimal > 0) {
-+					day.freeTimes.push({start_decimal: 0, end_decimal: day.events[0].start_decimal, duration: day.events[0].start_decimal});
++				if ((day.events.length >0 && day.events[0].start_decimal > 0 )|| (day.busyTimes.length > 0 && day.busyTimes[0].start_decimal > 0)) {
++					var startDecimal = (day.events[0] ? day.events[0].start_decimal : 2400) < (day.busyTimes[0] ? day.busyTimes[0].start_decimal : 2400) ? day.events[0].start_decimal : day.busyTimes[0].start_decimal;
++					day.freeTimes.push({start_decimal: 0, end_decimal: startDecimal, duration: startDecimal});
 +				}
 +				// sort by end times to get last time
 +				var last = day.events.sortBy(function(f) { return f.end_decimal; });
-+				if (last[last.length-1].end_decimal < 2400) {
-+					day.freeTimes.push({start_decimal: last[last.length-1].end_decimal, end_decimal: 2400, duration: 2400 - last[last.length-1].end_decimal});
++				var lastBusy = day.busyTimes.sortBy(function(f) { return f.end_decimal; });
++				if ((last.length >0 && last[last.length-1].end_decimal < 2400 )||(lastBusy.length > 0 && lastBusy[lastBusy.length-1].end_decimal < 2400)) {
++					var endDecimal = (last[last.length-1] ? last[last.length-1].end_decimal : 0) > (lastBusy[lastBusy.length-1] ? lastBusy[lastBusy.length-1].end_decimal : 0) ? last[last.length-1].end_decimal : lastBusy[lastBusy.length-1].end_decimal;
++					day.freeTimes.push({start_decimal: endDecimal, end_decimal: 2400, duration: 2400 - endDecimal});
 +				}
 +			}
 +		}
 +		// Make sure that free times, busy times, and events are sorted by start times
 +		day.freeTimes = (this.enhancedView && this.dayViewShrink != "none") ? day.freeTimes = [] : day.freeTimes.sortBy(function(f) { return f.start_decimal; });
++		day.busyTimes = day.busyTimes.sortBy(function(b) { return b.start_decimal; });
 +
 +
  		day.animationTop = 0;
  		
  		var compressDelta = 0;
-@@ -975,7 +1319,7 @@ var DayAssistant = Class.create({
+@@ -975,7 +1324,7 @@ var DayAssistant = Class.create({
  				// ** ALL DAY EVENTS
  				// Determine whether there are any all day events
  				if (day.allDayEvents.size() > 0) {
@@ -1915,7 +2138,7 @@ index 84263c0..0dfde40 100644
  					
  					// Set the height of the canvas
  					if (this.divs[whichDay].alldayevents_list.offsetHeight != newHeight) {
-@@ -1108,7 +1452,7 @@ var DayAssistant = Class.create({
+@@ -1108,7 +1457,7 @@ var DayAssistant = Class.create({
  				}
  				//now that we have finished rendering the timelines and number 
  				//render am pm
@@ -1924,7 +2147,7 @@ index 84263c0..0dfde40 100644
  				//now show the am/pm indicators
  					this.calculatePosToDrawAmPm(Math.abs(this.tds[this.THIS_DAY].scroller.mojo.getScrollPosition().top));
  					this.controller.get('ampm_indicator').show();
-@@ -1254,7 +1598,18 @@ var DayAssistant = Class.create({
+@@ -1254,7 +1603,18 @@ var DayAssistant = Class.create({
  	
  	currentCalendarUpdated: function() {
  		var calMgr = getCalendarsManager();
@@ -1944,7 +2167,7 @@ index 84263c0..0dfde40 100644
  			this.controller.get('dv_current_calendar').update($L("All"));
  			this.controller.get('dv_calendar_source').setAttribute('class', 'header-cal-source');
  		} else {
-@@ -1466,7 +1821,12 @@ var DayAssistant = Class.create({
+@@ -1466,7 +1826,12 @@ var DayAssistant = Class.create({
  		this.controller.get('current_time').setStyle({	
  			top: yPixel+'px'
  		}).show();
@@ -1958,7 +2181,7 @@ index 84263c0..0dfde40 100644
  	},
  	
  	calculatePosWithCompression:function(day,hour)
-@@ -1500,31 +1860,44 @@ var DayAssistant = Class.create({
+@@ -1500,31 +1865,44 @@ var DayAssistant = Class.create({
  	
  	
  	scrollToDefault: function(whichDay) {
@@ -2026,7 +2249,7 @@ index 84263c0..0dfde40 100644
  		}
  	},
  	
-@@ -1556,10 +1929,25 @@ var DayAssistant = Class.create({
+@@ -1556,10 +1934,25 @@ var DayAssistant = Class.create({
  		this.dvScratchEventsDiv = this.controller.get('dv_scratch_events');
  		this.scratchEventActive = false;
  		this.scratchEvent = null;
@@ -2053,7 +2276,7 @@ index 84263c0..0dfde40 100644
  		this.firstActivated = true;
  		
  		this.buildViewHeader();
-@@ -1677,6 +2065,11 @@ var DayAssistant = Class.create({
+@@ -1677,6 +2070,11 @@ var DayAssistant = Class.create({
  		this.divs[this.NEXT_DAY].ctxAllDayEvents = this.divs[this.NEXT_DAY].alldayevents_list.getContext('2d');
  		this.divs[this.THIS_DAY].ctxAllDayEvents = this.divs[this.THIS_DAY].alldayevents_list.getContext('2d');
  		
@@ -2065,7 +2288,7 @@ index 84263c0..0dfde40 100644
  		this.fastScrollScrim = this.controller.get('dv_scroll_scrim');
  		this.fastScrollAnimateDiv = this.controller.get('dv_scrim_animate');
  		this.fastScrollScrim.hide();
-@@ -1824,17 +2217,20 @@ var DayAssistant = Class.create({
+@@ -1824,17 +2222,20 @@ var DayAssistant = Class.create({
  		this.menuModel = {
  			visible:true,
  			items: [
@@ -2089,7 +2312,7 @@ index 84263c0..0dfde40 100644
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		this.remindersUpdated(); 	// Update missed reminders menu item
-@@ -1854,6 +2250,9 @@ var DayAssistant = Class.create({
+@@ -1854,6 +2255,9 @@ var DayAssistant = Class.create({
  		this.controller.setupWidget(this.divs[this.PREV_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
  		this.controller.setupWidget(this.divs[this.NEXT_DAY].alldayevents_scroller, undefined, {mode: 'vertical'});
  
@@ -2099,7 +2322,7 @@ index 84263c0..0dfde40 100644
     		this.CalSelectorHandler = this.calSelector.bindAsEventListener(this);
  		
  		// IMPORTANT: Set up the height of the scrollers.  If this is not done
-@@ -1868,6 +2267,7 @@ var DayAssistant = Class.create({
+@@ -1868,6 +2272,7 @@ var DayAssistant = Class.create({
  		//and needs to be updated in the day view
  		this.updatingEventHandler =this.setEventUpdated.bind(this);
     },
@@ -2107,7 +2330,7 @@ index 84263c0..0dfde40 100644
    	vertScrollerListener:function(event){
  		var indicator =	this.controller.get('ampm_indicator');
  		indicator.setStyle({color:'rgba(0,0,0,0)'});
-@@ -2008,6 +2408,7 @@ var DayAssistant = Class.create({
+@@ -2008,6 +2413,7 @@ var DayAssistant = Class.create({
  		// Find all the EAS accounts if there are any
  		this.easAccountIds = null;
  		response.list.each(function(acct){
@@ -2115,7 +2338,7 @@ index 84263c0..0dfde40 100644
  			//Mojo.Log.info("acct domain %s", acct.domain);
  			if (acct.domain == 'eas') {
  				// Keep track of the list of eas accounts for Sync Accounts button
-@@ -2075,11 +2476,11 @@ var DayAssistant = Class.create({
+@@ -2075,11 +2481,11 @@ var DayAssistant = Class.create({
  				this.maybeCommitScratchEvent();
  			} else if(event.command =="newtimed"){
  				Event.stop(event);
@@ -2129,7 +2352,7 @@ index 84263c0..0dfde40 100644
  				this.maybeCommitScratchEvent();
  			} else if(event.command == Mojo.Menu.helpCmd){
  				this.maybeCommitScratchEvent(true);
-@@ -2087,6 +2488,13 @@ var DayAssistant = Class.create({
+@@ -2087,6 +2493,13 @@ var DayAssistant = Class.create({
  			} else if (event.command == 'jumpto') {
  				Event.stop(event);
  				this.showJumpTo(); // this may also commit the scratch event
@@ -2143,7 +2366,7 @@ index 84263c0..0dfde40 100644
  			} else if (event.command == 'reminders') {
  				Event.stop(event);
  				this.maybeCommitScratchEvent();
-@@ -2095,15 +2503,39 @@ var DayAssistant = Class.create({
+@@ -2095,15 +2508,39 @@ var DayAssistant = Class.create({
  				Event.stop(event);
  				this.maybeCommitScratchEvent(true);
  				this.syncAllCalendars();
@@ -2186,7 +2409,7 @@ index 84263c0..0dfde40 100644
  		}
  			
  	},
-@@ -2256,9 +2688,26 @@ var DayAssistant = Class.create({
+@@ -2256,9 +2693,26 @@ var DayAssistant = Class.create({
  		Event.stop(e);
  	    var listItems = buildCalendarsMenu(true /*includeAll*/, true /*includeReadOnly*/, true /*includeExcludedFromAll*/);
  	 
@@ -2214,7 +2437,7 @@ index 84263c0..0dfde40 100644
  	      // placeNear: e.target,
  		  manualPlacement:true,
  		  popupClass:"cal-selector-popup",
-@@ -2271,10 +2720,32 @@ var DayAssistant = Class.create({
+@@ -2271,10 +2725,32 @@ var DayAssistant = Class.create({
  		if (value) {
  			if(value=="viewOptions")
  			{
@@ -2247,7 +2470,7 @@ index 84263c0..0dfde40 100644
  			this.maybeCommitScratchEvent(true);
  			
  			setCurrentCal(value);
-@@ -2309,6 +2780,7 @@ var DayAssistant = Class.create({
+@@ -2309,6 +2785,7 @@ var DayAssistant = Class.create({
    activate: function() {
  		
  		this.active = true;
@@ -2255,7 +2478,7 @@ index 84263c0..0dfde40 100644
  		//this.resetPos(); // TEMP
  		
  		if (this.compressed)
-@@ -2337,6 +2809,13 @@ var DayAssistant = Class.create({
+@@ -2337,6 +2814,13 @@ var DayAssistant = Class.create({
  		this.calendarTapHandler = this.CalSelectorHandler.bindAsEventListener(this);
  	 	this.controller.get('dv_calendar_source').observe(Mojo.Event.tap, this.calendarTapHandler);
  		
@@ -2269,7 +2492,7 @@ index 84263c0..0dfde40 100644
  		// The colors have been updated, so we clear the cache and update everything
  		if (this.pendingCalendarSettingsUpdate == true) {
  			this.clearCache();
-@@ -2369,13 +2848,28 @@ var DayAssistant = Class.create({
+@@ -2369,13 +2853,28 @@ var DayAssistant = Class.create({
  		
  		this.keyDownHandler = this.handleKeyDown.bind(this);
  		this.controller.listen(this.controller.sceneElement, Mojo.Event.keydown, this.keyDownHandler);
@@ -2300,7 +2523,7 @@ index 84263c0..0dfde40 100644
  		this.tapHandler.deactivate();
  		this.tapHandlerCompressed.deactivate();
  		this.tapHandlerAllDay.deactivate();
-@@ -2396,6 +2890,7 @@ var DayAssistant = Class.create({
+@@ -2396,6 +2895,7 @@ var DayAssistant = Class.create({
                  this.controller.window.clearTimeout(this.updateUITimeoutID);
  				this.updateUITimeoutID=0;
           } 	
@@ -2308,7 +2531,7 @@ index 84263c0..0dfde40 100644
  	},
  	
  	
-@@ -2406,7 +2901,12 @@ var DayAssistant = Class.create({
+@@ -2406,7 +2906,12 @@ var DayAssistant = Class.create({
  		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
      	//Mojo.Log.info("handleKeyUp detected ORANGE key");
  			this.orangeKeyDown = false;
@@ -2322,7 +2545,7 @@ index 84263c0..0dfde40 100644
  	},
  	
  	handleKeyDown: function(event) {
-@@ -2414,9 +2914,25 @@ var DayAssistant = Class.create({
+@@ -2414,9 +2919,25 @@ var DayAssistant = Class.create({
  		if (event.originalEvent.altKey || event.originalEvent.keyCode === 129) {
      	//Mojo.Log.info("handleKeyDown detected ORANGE key");
  			this.orangeKeyDown = true;
@@ -2333,8 +2556,8 @@ index 84263c0..0dfde40 100644
 +    	//Mojo.Log.info("handleKeyUp detected gesture key");
 +			this.metaKeyDown = true;
 +		}		
-+	},
-+	
+ 	},
+ 	
 +	handleMini: function() {
 +		this.metaKeyDown = false;
 +	},
@@ -2343,13 +2566,13 @@ index 84263c0..0dfde40 100644
 +		// going from template to edit new event
 +		this.fromEditEventsCallBack = true;
 +		this.controller.stageController.pushScene('edit', event.id, new Date(event.startTimestamp), event.allDay, event.calendarId, event.subject, false, this.updatingEventHandler, editingTemplate);
- 	},
- 	
++	},
++	
 +	
  	updateSceneScrollerSize: function(event) {
  		//Mojo.Log.info("*** updateSceneScrollerSize");
  		this.updateEmptySpacer(this.THIS_DAY,false);
-@@ -2865,14 +3381,14 @@ var DayAssistant = Class.create({
+@@ -2865,14 +3386,14 @@ var DayAssistant = Class.create({
  	
  	handleAllDayTap: function(index, event) {
  		this.deletedeventId = undefined;
@@ -2368,7 +2591,7 @@ index 84263c0..0dfde40 100644
  			getCalendarService().getEvent(event.id, this.gotEventInlineDelete.bind(this),this.gotEventInlineDeleteFailed.bind(this), this.controller);
  		} else {
  			// Show the Event Details for the tapped all day event
-@@ -2941,6 +3457,18 @@ var DayAssistant = Class.create({
+@@ -2941,6 +3462,18 @@ var DayAssistant = Class.create({
  			getReminderManager().removeReminder(this.deletedeventId);
  	},
  	
@@ -2387,7 +2610,7 @@ index 84263c0..0dfde40 100644
  	handleEventsTap: function(event, tapEvent) {
  		//Mojo.Log.info("day-assistant: handleEventsTap event_being_held " + Object.toJSON(this.event_being_held));
  		
-@@ -2967,18 +3495,41 @@ var DayAssistant = Class.create({
+@@ -2967,18 +3500,41 @@ var DayAssistant = Class.create({
  				}
  			}
  		} else {
@@ -2434,7 +2657,7 @@ index 84263c0..0dfde40 100644
  				this.controller.stageController.pushScene('edit', 
  													  event.id, 
  													  new Date(event.startTimestamp), 
-@@ -2987,6 +3538,7 @@ var DayAssistant = Class.create({
+@@ -2987,6 +3543,7 @@ var DayAssistant = Class.create({
  													  event.subject, 
  													  false, 
  													  this.updatingEventHandler);
@@ -2442,7 +2665,7 @@ index 84263c0..0dfde40 100644
  			}
  		}
  	},
-@@ -3182,6 +3734,7 @@ var DayAssistant = Class.create({
+@@ -3182,6 +3739,7 @@ var DayAssistant = Class.create({
  			this.event_being_dragged = this.controller.get("dragging_event");
  			// Keep track of the initial hit point
  			this.dragLastPointY = event.down.y;
@@ -2450,7 +2673,7 @@ index 84263c0..0dfde40 100644
  			Event.stop(event);
  			return Mojo.Gesture.CONSUMED_EVENT;
  		}
-@@ -3197,6 +3750,21 @@ var DayAssistant = Class.create({
+@@ -3197,6 +3755,21 @@ var DayAssistant = Class.create({
  		return newTop;
  	},
  	
@@ -2472,7 +2695,7 @@ index 84263c0..0dfde40 100644
  	handleEventsDragging: function(event) {
  		//Mojo.Log.info("day-assistant handleEventsDragging");
  		if (this.event_being_dragged) {
-@@ -3213,6 +3781,15 @@ var DayAssistant = Class.create({
+@@ -3213,6 +3786,15 @@ var DayAssistant = Class.create({
  				this.dragLastPointY = pointerY;
  			}
  		
@@ -2488,7 +2711,77 @@ index 84263c0..0dfde40 100644
  			return Mojo.Gesture.CONSUMED_EVENT;
  		}
  	},
-@@ -3362,31 +3939,43 @@ var DayAssistant = Class.create({
+@@ -3314,6 +3896,69 @@ var DayAssistant = Class.create({
+ 
+ 	},
+ 	
++	saveThisAndFuture: function() {
++		// change end date, add exception, new event
++		var currentRecurrenceInstanceTimes = parseFromId(this.event_being_held.id);	
++		if(this.toBeSavedEvent.startTimestamp === currentRecurrenceInstanceTimes.start) {
++			//this is the first event so, this and future is the whole series
++			this.saveEvent(undefined);
++			return;
++		}
++		this.newEvent = Object.clone(this.toBeSavedEvent);
++		
++		this.toBeSavedEvent.endValidity = (new Date(currentRecurrenceInstanceTimes.end)).addDays(-1).getTime();
++		this.toBeSavedEvent.isRecurringForever = false;
++		if(this.toBeSavedEvent.rruleModel.count) {this.toBeSavedEvent.rruleModel.count = undefined;}
++		this.recurrenceRule = getRecurrenceRule();
++		this.toBeSavedEvent.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.toBeSavedEvent.endValidity);
++		this.recurrenceRule.constructRRuleFromModel(this.toBeSavedEvent);
++		getCalendarService().setEvent(this.toBeSavedEvent, this.ThisAndFutureCB.bind(this), this.controller);
++	},
++	
++	ThisAndFutureCB: function () {
++		 // Reset the dragging state
++		var currentRecurrenceInstanceTimes = parseFromId(this.event_being_held.id);
++		var originalStart = currentRecurrenceInstanceTimes.start;
++		this.resetEventBeingDragged();
++		//we also need to assign the start and end time stamp 
++		var startTime = new Date(originalStart);
++		var duration = this.toBeSavedEvent.endTimestamp - this.toBeSavedEvent.startTimestamp;
++        
++		if (this.newHour === undefined && this.newMinutes === undefined) {
++			// Calculate the new start time using the delta
++			startTime.addMinutes(this.newTimeDeltaInMinutes);
++		} else {
++			// Set the new startTimestamp 
++			startTime.set(
++			{	hour	: this.newHour
++			,	minute	: this.newMinutes
++			});
++		}
++		delete this.newEvent.id;
++		if(this.newEvent.backupID) {this.newEvent.backupID = undefined;}
++		this.newEvent.parentId = undefined;
++		this.newEvent.startTimestamp = +startTime;
++		this.newEvent.start = +startTime;
++		this.newEvent.endTimestamp = +startTime + duration;
++		this.newEvent.end = +startTime + duration;
++		if(this.newEvent.originalstartTimestamp) {this.newEvent.originalstartTimestamp = undefined;}
++		if(!this.newEvent.isRecurringForever) {
++			var time = new Date(this.newEvent.endValidity);
++			var endtime = new Date(this.newEvent.endTimestamp);
++			time.setHours(endtime.getHours());
++			time.setMinutes(endtime.getMinutes());
++			time.setSeconds(endtime.getSeconds());
++			this.newEvent.endValidity = time.getTime();
++			this.newEvent.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.newEvent.endValidity);
++		}else if(this.newEvent.isRecurringForever){
++			this.newEvent.endValidity = "Long.MAX_VALUE";
++			if(this.newEvent.rruleModel.until) {delete this.newEvent.rruleModel.until;}
++		}
++		this.recurrenceRule.constructRRuleFromModel(this.newEvent);
++		this.toBeSavedEvent = Object.clone(this.newEvent);
++		getCalendarService().setEvent(this.toBeSavedEvent, this.updatedEventTime.bind(this), this.controller);
++	},
++	
+ 	recurrenceCancel:function(){
+ 		//Mojo.Log.info('inside day- recurrene canceled %o',this.draggedEventTop);
+ 		this.event_being_held.top = this.event_being_held.origDragTop;
+@@ -3362,31 +4007,43 @@ var DayAssistant = Class.create({
  		//Mojo.Log.info("day-assistant handleEventsDragEnd");
  		
  		if (this.event_being_dragged) {
@@ -2556,7 +2849,7 @@ index 84263c0..0dfde40 100644
  		}
  	},
  	
-@@ -3587,10 +4176,12 @@ var DayAssistant = Class.create({
+@@ -3587,10 +4244,12 @@ var DayAssistant = Class.create({
  			Mojo.Animation.animateValue(Mojo.Animation.queueForElement(this.scrollDataDiv), 'bezier', function(value) {
  					this.animationValue = value;
  					this.renderDay(this.THIS_DAY, day, false);
@@ -2574,7 +2867,7 @@ index 84263c0..0dfde40 100644
  				}.bind(this), 
  				{
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
-index 9ba9c70..8e3ce2e 100644
+index 9ba9c70..d4f3b9b 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 @@ -8,13 +8,16 @@ var EditAssistant = Class.create({
@@ -2859,7 +3152,7 @@ index 9ba9c70..8e3ce2e 100644
  		var subject = (this.eventSubject)?this.eventSubject:'';
  		//for subject
  		var tfAttrs1 = {
-@@ -512,7 +683,8 @@ var EditAssistant = Class.create({
+@@ -512,12 +683,14 @@ var EditAssistant = Class.create({
  			modelProperty: 'location',
  			hintText: $L('Event location'),
  			acceptBack:true,
@@ -2869,7 +3162,13 @@ index 9ba9c70..8e3ce2e 100644
  	
  		};
  		 this.locationmodel = {
-@@ -644,6 +816,19 @@ var EditAssistant = Class.create({
+       		'location' : '',
+    		 };
++		this.uberLocationIcon = this.controller.get("edit_location");
+ 		this.controller.setupWidget('edit_location_field', tfAttrs2, this.locationmodel);
+ 		
+ 		//for notes
+@@ -644,6 +817,19 @@ var EditAssistant = Class.create({
  		if (this.eventCalendarId) {
  			this.updateContentCalendarType(this.eventCalendarId.sub('id',''));
  		}
@@ -2889,7 +3188,7 @@ index 9ba9c70..8e3ce2e 100644
  	 },
  	 
  	 setUpWidgetListeners: function(){
-@@ -662,24 +847,73 @@ var EditAssistant = Class.create({
+@@ -662,24 +848,73 @@ var EditAssistant = Class.create({
  		this.controller.get('edit_note').observe(Mojo.Event.propertyChange, this.noteChanged.bind(this));
  	
  	 },
@@ -2979,7 +3278,7 @@ index 9ba9c70..8e3ce2e 100644
  		}
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
  			// Enable prefs menuitem for this scene.
-@@ -704,11 +938,17 @@ var EditAssistant = Class.create({
+@@ -704,11 +939,17 @@ var EditAssistant = Class.create({
  	noteChanged: function(e) {
  		this.targetEvent.dirty =true;
  		
@@ -3000,7 +3299,68 @@ index 9ba9c70..8e3ce2e 100644
  	},
  	
      
-@@ -812,6 +1052,7 @@ var EditAssistant = Class.create({
+@@ -726,7 +967,7 @@ var EditAssistant = Class.create({
+ 		this.targetEvent.dirty =true;
+ 		Mojo.Log.info("edit-assistant:locationChanged");
+ 		
+-		 if (e.value != null && e.value!="") {
++		 if (e.value != null && e.value != "" && e.value !="\r" && e.value != "\n" && e.value != "\n\r") {
+ 		 	this.targetEvent.location = e.value;
+ 		 	this.appMenuModel.items[1].items[0].disabled = false;
+ 			this.appMenuModel.items[1].items[1].disabled = false;
+@@ -743,6 +984,51 @@ var EditAssistant = Class.create({
+ 			
+ 	},
+   
++	saveThisAndFuture: function() {
++		// change end date, add  new event
++		if(this.targetEvent.startTimestamp === this.targetModifiedTime.start) {
++			//first event same as series
++			this.saveEvent(undefined);
++			return;
++		}
++		this.newEvent = Object.clone(this.targetEvent);
++		this.oldEvent.endValidity = (new Date(this.targetModifiedTime.end)).addDays(-1).getTime();
++		this.oldEvent.isRecurringForever = false;
++		if(this.oldEvent.rruleModel.count) {this.oldEvent.rruleModel.count = undefined;}
++		this.oldEvent.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.oldEvent.endValidity);
++		this.recurrenceRule.constructRRuleFromModel(this.oldEvent);
++		delete this.targetEvent.id;
++		this.targetId = 0;
++		this.requests.push(this.service.setEvent(this.oldEvent, this.ThisAndFutureCB.bind(this), this.controller));
++	},
++	
++	ThisAndFutureCB: function () {
++		this.targetEvent.parentId = 0;
++		this.targetEvent.id = 0;
++		if(this.targetEvent.backupID) {this.targetEvent.backupID = undefined;}
++		if(this.targetEvent.originalstartTimestamp) {this.targetEvent.originalstartTimestamp = undefined;}
++		this.targetEvent.startTimestamp = this.targetModifiedTime.start;
++		this.targetEvent.start = this.targetModifiedTime.start;
++		this.targetEvent.endTimestamp = this.targetModifiedTime.end;
++		this.targetEvent.end = this.targetModifiedTime.end;
++		if(!this.targetEvent.isRecurringForever) {
++			var time = new Date(this.targetEvent.endValidity);
++			var endtimestamp = new Date(this.targetModifiedTime.end);
++			time.setHours(endtimestamp.getHours());
++			time.setMinutes(endtimestamp.getMinutes());
++			time.setSeconds(endtimestamp.getSeconds());
++			this.targetEvent.endValidity = time.getTime();
++			this.targetEvent.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.targetEvent.endValidity);
++		} else if(this.targetEvent.isRecurringForever){
++			this.targetEvent.endValidity = "Long.MAX_VALUE";
++			if(this.targetEvent.rruleModel.until) {delete this.targetEvent.rruleModel.until;}
++		}
++		this.recurrenceRule.constructRRuleFromModel(this.targetEvent);
++		this.oldEvent = null;
++		this.setupEvent();
++		this.saveEvent(null);
++	},
++	
+   saveEvent: function(parentId,inCardMode){
+   		
+ 		//Mojo.Log.info("edit-assistant:saveEvent");
+@@ -812,21 +1098,31 @@ var EditAssistant = Class.create({
  		this.controller.get('edit_repeatrow').stopObserving(Mojo.Event.tap, this.edit_repeatHander);
  		this.controller.get('edit_alarmrow').stopObserving(Mojo.Event.tap, this.edit_alarmHandler);
  		this.controller.get('edit_calendartypeParent').stopObserving(Mojo.Event.tap, this.event_calendarTypeHandler);
@@ -3008,7 +3368,237 @@ index 9ba9c70..8e3ce2e 100644
  		}
  	
  	   this.controller.get('edit_participantrow').stopObserving(Mojo.Event.tap,this.edit_participantHandler);	
-@@ -1076,6 +1317,52 @@ var EditAssistant = Class.create({
+ 	},
+   
+-	activate: function() {
++	activate: function(peoplePickResp) {
+ 		
+ 		this.controller.listen(this.controller.document, Mojo.Event.deactivate, this.blurStage);
+ 		if (this.targetEvent != undefined) {
+ 			this.setupEvent();
+ 		}
++		this.uberLocationHandler = this.handleUberLocation.bind(this);
++		this.uberLocationHoldHandler = this.handleHoldUberLocation.bind(this);
++		this.controller.listen(this.uberLocationIcon, Mojo.Event.tap, this.uberLocationHandler);
++		this.controller.listen(this.uberLocationIcon, Mojo.Event.hold, this.uberLocationHoldHandler);
++		if(peoplePickResp !== undefined) {
++			this.handleUberPicker(peoplePickResp);
++		}
+ 	},
+ 
+ 	deactivate: function() {
+ 		this.controller.stopListening(this.controller.document, Mojo.Event.deactivate, this.blurStage);
++		this.controller.stopListening(this.uberLocationIcon, Mojo.Event.tap, this.uberLocationHandler);
++		this.controller.stopListening(this.uberLocationIcon, Mojo.Event.hold, this.uberLocationHoldHandler);
+ 	},
+ 	/*
+ 	//Not relevant anymore - cleanup
+@@ -997,6 +1293,195 @@ var EditAssistant = Class.create({
+ 		this.controller.stageController.pushScene('datetime', this.targetEvent,this.targetModifiedTime,this.resettargetEvent.bind(this),this.oldEvent,this.setEventCallback,this.controller,this.callBackAfterUpdate,this.targetId);
+ 		
+ 	},	
++	
++	handleUberLocation: function(e) {
++		//tap on map icon
++		
++		if(e.srcElement.className === "icon left room"){
++			// Mojo.Log.error(" location icon");
++			if(this.targetEvent.location != undefined && this.targetEvent.location !== "") {
++				var items=[
++					{label: $L("Map"), command: 0},
++					{label: $L("Directions"), command: 1},
++					{label: $L("Insert address"), command: 2},
++					{label: $L("Clear location"), command: 3}
++					];
++					
++				this.controller.popupSubmenu({
++					onChoose: this.uberLocationChoose,
++					items: items,
++					placeNear: this.controller.get('edit_location_field')
++					});
++				
++			} else if(this.targetEvent.location === undefined || this.targetEvent.location === "") {
++				var items=[
++					{label: $L("Map"), command: 0},
++					{label: $L("Insert address"), command: 2},
++					];
++				
++				this.controller.popupSubmenu({
++					onChoose: this.uberLocationChoose,
++					items: items,
++					placeNear: this.controller.get('edit_location_field')
++					});
++			}
++		}
++	},
++	
++	uberLocationChoose: function(val) {
++		var value = parseInt(val);
++		this.uberEditLoc = false;
++		if(val !== undefined) {
++			switch (value) {
++				case 0: //map
++					getAppManagerService().launchMaps(this.controller,this.targetEvent.location,false);
++					break;
++					
++				case 1: //directions
++					getAppManagerService().launchMaps(this.controller,this.targetEvent.location,true);
++					break;
++				
++				case 2: //insert address
++					this.uberEditLoc = true;
++					this.controller.stageController.pushScene(
++					{ appId :'com.palm.app.contacts', name: 'list' },
++					{ mode: 'picker', message: $L("Pick a contact")}
++					);
++					break;
++					
++				case 3: //clear
++					this.locationmodel.location = "";
++					this.targetEvent.location = "";
++					this.controller.modelChanged(this.locationmodel);
++					this.targetEvent.dirty =true;
++					break;
++					
++				default: //cancel
++					break;
++			}
++		}
++	},
++	
++	handleHoldUberLocation: function(e) {
++		Event.stop(e);
++		if(e.srcElement.className === "icon left room"){
++			//Mojo.Log.error("hold location icon");
++			if(this.targetEvent.location != undefined && this.targetEvent.location !== "") {
++				getAppManagerService().launchMaps(this.controller,this.targetEvent.location,false);
++			} else if(this.targetEvent.location === undefined || this.targetEvent.location === "") {
++				this.controller.stageController.pushScene(
++					{ appId :'com.palm.app.contacts', name: 'list' },
++					{ mode: 'picker', message: $L("Pick a contact")}
++				);
++			}
++		}
++	},
++	
++	handleUberPicker: function(resp) {
++		if(resp && resp.details && resp.details.record) {
++			var adds = resp.details.record.addresses;
++			var lname = resp.details.record.lastName || "";
++			var fname = resp.details.record.firstName || "";
++			this.uberAdds = [];
++			var prevLoc = this.locationmodel.location !== "" ? this.locationmodel.location + " ": "";
++			if(adds && adds.length && adds.length > 0) {
++				if(adds.length === 1) {
++					if(adds[0].freeformAddress && adds[0].freeformAddress != ""){
++						this.locationmodel.location = this.uberEditLoc === true ? prevLoc + adds[0].freeformAddress : adds[0].freeformAddress;
++						this.targetEvent.location = this.uberEditLoc === true ? prevLoc + adds[0].freeformAddress : adds[0].freeformAddress;
++						this.controller.modelChanged(this.locationmodel);
++						this.targetEvent.dirty =true;
++						return;
++					} else if(adds[0].streetAddress || adds[0].city || adds[0].country || adds[0].state || adds[0].zipCode) {
++						var txt = adds[0].streetAddress ? adds[0].streetAddress : "";
++						txt += adds[0].city ? (txt !== "" ? ", " : "") + adds[0].city : "";
++						txt += adds[0].state ? (txt !== "" ? ", " : "") + adds[0].state : "";
++						txt += adds[0].zipCode ? (txt !== "" ? ", " : "") + adds[0].zipCode: "";
++						txt += adds[0].country ? (txt !== "" ? ", " : "") + adds[0].country  : "";
++						
++						this.locationmodel.location = this.uberEditLoc === true ? prevLoc + txt : txt;
++						this.targetEvent.location = this.uberEditLoc === true ? prevLoc + txt : txt;
++						this.controller.modelChanged(this.locationmodel);
++						this.targetEvent.dirty =true;
++						return;
++					}
++				} else {// have more than one address, setup choices
++					for(var i=0; i < adds.length; i++) {
++						if(adds[i].label != undefined ) { 
++							if(adds[i].freeformAddress && adds[i].freeformAddress != ""){
++								var txt = adds[i].freeformAddress;
++							} else if(adds[i].streetAddress || adds[i].city || adds[i].country || adds[i].state || adds[i].zipCode) {
++								var txt = adds[i].streetAddress ? adds[i].streetAddress : "";
++								txt += adds[i].city ? (txt !== "" ? ", " : "") + adds[i].city : "";
++								txt += adds[i].state ? (txt !== "" ? ", " : "") + adds[i].state : "";
++								txt += adds[i].zipCode ? (txt !== "" ? ", " : "") + adds[i].zipCode : "";
++								txt += adds[i].country ? (txt !== "" ? ", " : "") + adds[i].country  : "";
++							}
++							
++							this.uberAdds.push({
++								label: adds[i].label,
++								address: txt
++							});
++						}
++					}
++				}
++				// double check more than one address, choose
++				var len = this.uberAdds.length;
++				if(len === 1) {
++					var txt = this.uberEditLoc === true ? prevLoc + this.uberAdds[0].address : this.uberAdds[0].address;
++					this.locationmodel.location = txt;
++					this.targetEvent.location = txt;
++					this.controller.modelChanged(this.locationmodel);
++					this.targetEvent.dirty =true;
++					return;
++				} else if(len > 1) {
++					var addChoices = [];
++					for(var i=0; i < len; i++) {
++						var loc;
++						switch(this.uberAdds[i].label){
++							case 0:
++							loc = $L("HOME");
++							break;
++							
++							case 1:
++							loc = $L("WORK");
++							break;
++							
++							case 2:
++							default:
++							loc = $L("OTHER");
++							break;
++						}
++						
++						addChoices.push( {
++							label: loc + ":  " + this.uberAdds[i].address.substring(0, 20),
++							value: i
++						});
++					}
++					//add a cancel
++					addChoices.push( {label: $L("Cancel"), value: "", type: 'dismiss'} );
++					
++					this.controller.showAlertDialog({
++							title: fname + lname !== "" ? fname + " " + lname : $L("Multiple Addresses"),
++							message: $L("Choose an address"),
++							choices: addChoices,
++							onChoose: function(value) {
++								if(value !== undefined && value !== "") {
++									var txt = this.uberEditLoc === true ? prevLoc + this.uberAdds[value].address : this.uberAdds[value].address;
++									this.locationmodel.location = txt;
++									this.targetEvent.location = txt;
++									this.targetEvent.dirty =true;
++									this.controller.modelChanged(this.locationmodel);
++								}
++							}.bind(this)
++						});
++				}
++			}
++			//if we got this far the addresses were empty or cancelled
++			return;
++		}
++	},
++	
+ 	handleEditRepeat: function(e){
+ 		Mojo.Log.info("edit-assistant:handleEditRepeat");
+ 			var items=[];
+@@ -1040,7 +1525,7 @@ var EditAssistant = Class.create({
+ 	repeatChoose: function(val) {
+ 		//Mojo.Log.info("edit-assistant:repeatChoose");
+ 	
+-		value = parseInt(val);
++		var value = parseInt(val);
+ 		if (val != undefined && (value != this.repeatFreqChoice) ){			
+ 			this.targetEvent.onlyRepeatChanged = true;
+ 			if (this.repeatFreqChoice == 5) {
+@@ -1076,6 +1561,52 @@ var EditAssistant = Class.create({
  
  	},
  
@@ -3061,7 +3651,7 @@ index 9ba9c70..8e3ce2e 100644
  	handleEditAlarm: function(e){
  		Mojo.Log.info("edit-assistant:handleEditAlarm");
  		var items=[];
-@@ -1100,7 +1387,7 @@ var EditAssistant = Class.create({
+@@ -1100,7 +1631,7 @@ var EditAssistant = Class.create({
  
  	alarmChoose: function(val) {
  		
@@ -5724,7 +6314,7 @@ index cebe803..a6fcfba 100644
  });
 \ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-options-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-options-assistant.js
-index 5b1e36f..79faa9d 100644
+index 5b1e36f..457e7d9 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-options-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-options-assistant.js
 @@ -10,11 +10,54 @@ var PrefsOptionsAssistant = Class.create({
@@ -5908,7 +6498,7 @@ index 5b1e36f..79faa9d 100644
 +				var rID = this.userUberCalGroups[i].rId
 +				this.controller.setupWidget("ubercalscroller" + rID,{mode: 'vertical'});
 +				this.controller.setupWidget('ubercalgroup-text' + rID,
-+										this.txtAttr ={inputName: 'groupname', maxLength: 15, enterSubmits: true, preventResize: true, multiline: false, autoFocus: false, hintText: $L('Enter a group name'), modelProperty: 'value'},
++										this.txtAttr ={inputName: 'groupname', maxLength: 18, enterSubmits: true, preventResize: true, multiline: false, autoFocus: false, hintText: $L('Enter a group name'), modelProperty: 'value'},
 +										this.model = {type: "textfield", rId: rID, value: this.userUberCalGroups[i].groupname});
 +				this.controller.setupWidget('ubercallist' + rID, 
 +										this.uberCalAttrs = {itemTemplate: 'prefs-options/ubercalitem'},
@@ -6112,7 +6702,7 @@ index 5b1e36f..79faa9d 100644
 +			this.uberMod[len] = [];
 +			this.controller.setupWidget("ubercalscroller" + rID, {mode: 'vertical'});
 +			this.controller.setupWidget('ubercalgroup-text' + rID,
-+									this.txtAttr ={inputName: 'groupname', preventResize: true, multiline: false, enterSubmits: true, maxLength: 15, autoFocus: false, hintText: $L('Enter a group name'), modelProperty: 'value'},
++									this.txtAttr ={inputName: 'groupname', preventResize: true, multiline: false, enterSubmits: true, maxLength: 18, autoFocus: false, hintText: $L('Enter a group name'), modelProperty: 'value'},
 +									this.model = {type: "textfield", rId: rID, value: ""});
 +			this.controller.setupWidget('ubercallist' + rID, 
 +									this.uberCalAttrs = {itemTemplate: 'prefs-options/ubercalitem'},
@@ -6149,7 +6739,7 @@ index 5b1e36f..79faa9d 100644
  	handleListPropertyChange: function(event) {
  	
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
-index d190fd1..2b7d54f 100644
+index d190fd1..d933af5 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/reminder-assistant.js
 @@ -1,7 +1,35 @@
@@ -6485,7 +7075,19 @@ index d190fd1..2b7d54f 100644
  	},
  	
  	
-@@ -304,9 +550,34 @@ var ReminderAssistant = Class.create({
+@@ -271,7 +517,10 @@ var ReminderAssistant = Class.create({
+ 
+ 	onDismiss: function(event) {		
+ 		Mojo.Log.info("$$$$$$$$ Reminder-assistant onDismiss: start: " + this.reminder.id);
+-		
++		if (event.down.altKey) {
++			this.reminders.removeAllReminders();
++			return;
++		}
+ 		this.dismissed = true;
+ 		this.closeAlert();
+ 		this.removeReminder();
+@@ -304,9 +553,34 @@ var ReminderAssistant = Class.create({
  		this.reminder.userClosed = true;
  		this.reminder.scheduleStartTime = true;
  		this.reissueAutoSnoozedAlerts();
@@ -6520,7 +7122,7 @@ index d190fd1..2b7d54f 100644
  	removeReminder: function() {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeReminder: start: " + this.reminder.id);
  		this.reminders.removeReminder(this.reminder.id);
-@@ -333,6 +604,17 @@ var ReminderAssistant = Class.create({
+@@ -333,6 +607,17 @@ var ReminderAssistant = Class.create({
  		this.reminder.scheduleStartTime = false;
  	},
  	
@@ -6538,7 +7140,7 @@ index d190fd1..2b7d54f 100644
  	snooze: function(minutes) {
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: start: " + this.reminder.id);
  		
-@@ -342,13 +624,31 @@ var ReminderAssistant = Class.create({
+@@ -342,13 +627,31 @@ var ReminderAssistant = Class.create({
  			return;
  		}	
  		
@@ -6572,7 +7174,7 @@ index d190fd1..2b7d54f 100644
  													 			 'params': {'alarmsnooze': this.reminder.id}},
  													 key: 'calendar-snooze-' + this.reminder.id,
  													 start: {date: snooze.toUTCString()},
-@@ -356,15 +656,45 @@ var ReminderAssistant = Class.create({
+@@ -356,15 +659,45 @@ var ReminderAssistant = Class.create({
  													 misfirePolicy: {executeNow: true}}
  					                	});
  
@@ -6580,9 +7182,6 @@ index d190fd1..2b7d54f 100644
 +
 +		//use a powered/timeout alarm so that the reminder survives a reboot
 +		var alarmLaunchParams = '{"id":"com.palm.app.calendar","params":{"alarmsnooze":"' + this.reminder.id + '"}}';
-+
-+		var newParams = alarmLaunchParams.evalJSON();
-+		newParams.params.id = this.reminder.id;
  
 -		var templateModel = {};
 -		var templateStr = $L("Snoozed for #{num} minutes");
@@ -6591,8 +7190,11 @@ index d190fd1..2b7d54f 100644
 -		var snoozeText=template.evaluate(templateModel);
 -		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: showBanner" + this.reminder.id);
 -		Mojo.Controller.appController.showBanner({messageText: snoozeText}, null /*launchArguments*/, "calendar-snooze");
-+		var newParamsJSON = Object.toJSON(newParams);
++		var newParams = alarmLaunchParams.evalJSON();
++		newParams.params.id = this.reminder.id;
  
++		var newParamsJSON = Object.toJSON(newParams);
++
 +		var at = this.dateFormatForScheduler(snooze);
 +
 +        this.controller.serviceRequest("luna://com.palm.power/timeout/", {
@@ -6625,7 +7227,7 @@ index d190fd1..2b7d54f 100644
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant snooze: end" + this.reminder.id);
  	},
  	
-@@ -374,6 +704,11 @@ var ReminderAssistant = Class.create({
+@@ -374,6 +707,11 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant closeAlert: window.close() ");
  		this.controller.window.close();
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant closeAlert: end ");
@@ -6637,7 +7239,7 @@ index d190fd1..2b7d54f 100644
  	},
  	
  	autoCloseAlert: function() {
-@@ -383,6 +718,14 @@ var ReminderAssistant = Class.create({
+@@ -383,6 +721,14 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant autoCloseAlert: end " + this.reminder.id);
  	},
  	
@@ -6652,7 +7254,7 @@ index d190fd1..2b7d54f 100644
  	specialCleanup:function(){
  		//we need to do this so that cleanup cleans the reminder rightaway		
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant specialCleanup: window Name:" + this.controller.window.name);
-@@ -402,7 +745,18 @@ var ReminderAssistant = Class.create({
+@@ -402,7 +748,18 @@ var ReminderAssistant = Class.create({
  					                	});
  	},
  	
@@ -6671,7 +7273,7 @@ index d190fd1..2b7d54f 100644
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant scheduleAutoCloseTask: start " + this.reminder.id);
  		var minCloseTime = new Date(this.reminder.time).addMinutes(15);
  		var closeTime = new Date(this.reminder.time + this.reminder.duration);
-@@ -432,6 +786,34 @@ var ReminderAssistant = Class.create({
+@@ -432,6 +789,34 @@ var ReminderAssistant = Class.create({
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant removeAutoCloseTask: end " + this.reminder.id);
  	},
  	
@@ -6707,19 +7309,20 @@ index d190fd1..2b7d54f 100644
  		Mojo.Log.info("$$$$$$$$ Reminder-assistant replaceHTML:start");
        	var range = element.ownerDocument.createRange();
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js
-index d6a9c95..a448032 100644
+index d6a9c95..c2cc327 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js
-@@ -19,6 +19,8 @@ var RepeatAssistant = Class.create({
+@@ -19,6 +19,9 @@ var RepeatAssistant = Class.create({
  		{name: $L('Monthly on (by date)'), units: $L('month(s)')},
  		{name: $L('Monthly on (by week)'), units: $L('month(s)')},
  		{name: $L('Yearly on (by month)...)'), units: $L('year(s)')},
 +		{name: $L('Monthly on (by last DoW)...)'), units: $L('month(s)')},
 +		{name: $L('Monthly on (by last DofMonth)...)'), units: $L('month(s)')},
++		{name: $L('Monthly custom external'), units: $L('month(s)')}
  	],
  	
  	
-@@ -136,15 +138,26 @@ var RepeatAssistant = Class.create({
+@@ -136,15 +139,28 @@ var RepeatAssistant = Class.create({
  		 	this.repeatFreqIndex=2;
  		else if(this.targetEvent.rruleModel.frequency=='MONTHLY')
  		{
@@ -6732,23 +7335,28 @@ index d6a9c95..a448032 100644
  			var theDate = new Date(this.targetEvent.startTimestamp);
  		    var checkday = getDOWCount(this.targetEvent.startTimestamp).toString();
  			checkday += this.recurrenceRule.dayMap[theDate.getDay()];
- 			if ((this.targetEvent.rruleModel.byday) &&
- 				(this.targetEvent.rruleModel.byday.length > 0) &&
+-			if ((this.targetEvent.rruleModel.byday) &&
+-				(this.targetEvent.rruleModel.byday.length > 0) &&
 -				(this.targetEvent.rruleModel.byday[0] == checkday ))
-+				(this.targetEvent.rruleModel.byday[0] == checkday )) {
- 			 	this.repeatFreqIndex = 4;
+-			 	this.repeatFreqIndex = 4;
 -			else
-+			} else if(ucByDay && ucByDay < 0) {
-+				this.repeatFreqIndex = 6;
++			if (this.targetEvent.rruleModel.byday && this.targetEvent.rruleModel.byday.length > 0) {
++				if(this.targetEvent.rruleModel.byday.length >1){
++					this.repeatFreqIndex = 8;
++				} else if(this.targetEvent.rruleModel.byday[0] == checkday ){
++					this.repeatFreqIndex = 4;
++				} else if(ucByDay && ucByDay < 0) {
++					this.repeatFreqIndex = 6;
++				}
 +			} else if(ucByLastDay && ucByLastDay < 0 ){
-+				this.repeatFreqIndex = 7;
++					this.repeatFreqIndex = 7;
 +			} else {
  			 	this.repeatFreqIndex = 3;
 +			}
  		}
  		else if(this.targetEvent.rruleModel.frequency=='YEARLY')
  		  	this.repeatFreqIndex=5;
-@@ -247,8 +260,582 @@ var RepeatAssistant = Class.create({
+@@ -247,8 +263,643 @@ var RepeatAssistant = Class.create({
  				
  	},	
  	
@@ -7158,7 +7766,7 @@ index d6a9c95..a448032 100644
 +                //Monthly by date
 +				var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
 +                if (this.targetEvent.rruleModel.bymonthday.length > 0) {
-+                    var rcmonthday = parseInt(this.targetEvent.rruleModel.bymonthday[0], 10);
++					var rcmonthday = parseInt(this.targetEvent.rruleModel.bymonthday[0], 10);
 +					if(rcmonthday > 0) {
 +						var rcstmon = rcstD.getMonth();
 +						var rcstyear = rcstD.getFullYear();
@@ -7189,46 +7797,107 @@ index d6a9c95..a448032 100644
 +							}
 +						}
 +					}
-+                } else {
-+					var ucoldByDay = parseInt(this.targetEvent.rruleModel.byday[0], 10);
-+					if(ucoldByDay && ucoldByDay > 0) {
-+						var nth = getDOWCount(this.targetEvent.startTimestamp);
-+						var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
-+						var rcstmon = rcstD.getMonth();
-+						var rcstyear = rcstD.getFullYear();
-+						var rcwantday = rcstD.getDay();
-+						for(var i=0; i<rcmonths; i++) { // cycle through intervals
-+							var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
-+							var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear;
-+							var rcmonD = new Date(Date.UTC(rcyear, rcmon, 1, 12));
-+							var rcfstday = rcmonD.getDay();
-+							var rcaddTS = ((rcwantday - rcfstday) < 0) ? ((rcwantday - rcfstday) + 7)*dlen : (rcwantday - rcfstday)*dlen;
-+							var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth-1);
-+							var rcmonChk = new Date(rcmonTS);
-+							if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
-+								for(var j=0; j<rcduraD; j++) { // cycle through duration
-+									this.recTS.push(rcmonTS + (j*dlen));
++				} else {
++					// check for multiple by days and last week type set
++					var byDayLen = this.targetEvent.rruleModel.byday.length;
++					var byDayDefault = true;
++					if(byDayLen && byDayLen > 1) {
++						var byDayArray = [];
++						var ford = parseInt(this.targetEvent.rruleModel.byday[0], 10);
++						for(var i=0; i<byDayLen; i++) {
++							var ord = parseInt(this.targetEvent.rruleModel.byday[i], 10);
++							if(ord && ord !== ford) {//we only care about matching bysetpos type repeat
++								byDayDefault = true; //default to just using first byday
++								break; //cal doesn't support multiple pos days in monthly repeat 
++							} else if(ord && ord === ford) {
++								var DoW = this.recurrenceRule.dayMap.indexOf(this.targetEvent.rruleModel.byday[i].substring((ford<0?2:1)));
++								if(byDayArray.indexOf(DoW) === -1) {//not in previously
++									byDayArray.push(DoW);
++								}
++								byDayDefault = false;
++							}
++						} //should have an array with the last days wanted
++						if(!byDayDefault && byDayArray.length > 1) {
++							if(ford<0){
++								var rcmonthday = -1;
++							} else if(ford>0) {
++								var rcmonthday = 1;
++							}
++							var rcstmon = rcstD.getMonth();
++							var rcstyear = rcstD.getFullYear();
++							for(var i=0; i<rcmonths; i++) { //cycle through intervals
++								var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++								if(ford<0){
++									var rcmonLast = (rcstmon + 1 + (i*rcint)) > 11 ? rcstmon +1 + (i*rcint) - 12 : rcstmon + 1 +(i*rcint);
++									var rcyear = (rcstmon + 1 + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++									var rcmonTS = new Date(rcyear, rcmonLast, 1, 12).getTime() + rcmonthday*dlen;
++								} else if(ford>0){
++									var rcmonLast = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon +(i*rcint);
++									var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++									var rcmonTS = new Date(rcyear, rcmonLast, 1, 12).getTime();
++								}
++								var rcDoW = new Date(rcmonTS).getDay();
++								for(var k=0; k< Math.abs(ford); k++) {
++									while(byDayArray.indexOf(rcDoW) === -1) {
++										rcmonTS = rcmonTS + rcmonthday*dlen;
++										rcDoW = new Date(rcmonTS).getDay();
++									}
++									if(k !== Math.abs(ford) - 1){
++										rcmonTS = rcmonTS + rcmonthday*dlen;
++										var rcDoW = new Date(rcmonTS).getDay();
++									}
++								}
++								var rcmonChk = new Date(rcmonTS);
++								if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++									for(var j=0; j<rcduraD; j++) { // cycle through duration
++										this.recTS.push(rcmonTS + (j*dlen));
++									}
 +								}
 +							}
++						} else {
++							byDayDefault = true; // just one byday
 +						}
-+					} else if(ucoldByDay && ucoldByDay <0) {
-+						var nth = ucoldByDay;
-+						var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
-+						var rcstmon = rcstD.getMonth();
-+						var rcstyear = rcstD.getFullYear();
-+						var rcwantday = rcstD.getDay();
-+						for(var i=0; i<rcmonths; i++) { // cycle through intervals
-+							var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
-+							var rcmonLast = (rcstmon + 1 + (i*rcint)) > 11 ? rcstmon +1 + (i*rcint) - 12 : rcstmon + 1 +(i*rcint);
-+							var rcyear = (rcstmon + 1 + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
-+							var rcmonD = new Date(Date.UTC(rcyear, rcmonLast, 1, 12) - dlen);
-+							var rcLstday = rcmonD.getDay();
-+							var rcaddTS = ((rcwantday - rcLstday) > 0) ? ((rcwantday - rcLstday) - 7)*dlen : (rcwantday - rcLstday)*dlen;
-+							var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth+1);
-+							var rcmonChk = new Date(rcmonTS);
-+							if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
-+								for(var j=0; j<rcduraD; j++) { // cycle through duration
-+									this.recTS.push(rcmonTS + (j*dlen));
++					} else if(byDayLen === 1 || byDayDefault) {
++						var ucoldByDay = parseInt(this.targetEvent.rruleModel.byday[0], 10);
++						if(ucoldByDay && ucoldByDay > 0) {
++							var nth = getDOWCount(this.targetEvent.startTimestamp);
++							var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
++							var rcstmon = rcstD.getMonth();
++							var rcstyear = rcstD.getFullYear();
++							var rcwantday = rcstD.getDay();
++							for(var i=0; i<rcmonths; i++) { // cycle through intervals
++								var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++								var rcyear = (rcstmon + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear;
++								var rcmonD = new Date(Date.UTC(rcyear, rcmon, 1, 12));
++								var rcfstday = rcmonD.getDay();
++								var rcaddTS = ((rcwantday - rcfstday) < 0) ? ((rcwantday - rcfstday) + 7)*dlen : (rcwantday - rcfstday)*dlen;
++								var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth-1);
++								var rcmonChk = new Date(rcmonTS);
++								if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++									for(var j=0; j<rcduraD; j++) { // cycle through duration
++										this.recTS.push(rcmonTS + (j*dlen));
++									}
++								}
++							}
++						} else if(ucoldByDay && ucoldByDay <0) {
++							var nth = ucoldByDay;
++							var rcmonths = 1 + Math.floor(howManyMonthsBetween(rcstD ,this.RMlast.recD)/rcint);
++							var rcstmon = rcstD.getMonth();
++							var rcstyear = rcstD.getFullYear();
++							var rcwantday = rcstD.getDay();
++							for(var i=0; i<rcmonths; i++) { // cycle through intervals
++								var rcmon = (rcstmon + (i*rcint)) > 11 ? rcstmon + (i*rcint) - 12 : rcstmon + (i*rcint);
++								var rcmonLast = (rcstmon + 1 + (i*rcint)) > 11 ? rcstmon +1 + (i*rcint) - 12 : rcstmon + 1 +(i*rcint);
++								var rcyear = (rcstmon + 1 + (i*rcint)) > 11 ? rcstyear + 1 : rcstyear; 
++								var rcmonD = new Date(Date.UTC(rcyear, rcmonLast, 1, 12) - dlen);
++								var rcLstday = rcmonD.getDay();
++								var rcaddTS = ((rcwantday - rcLstday) > 0) ? ((rcwantday - rcLstday) - 7)*dlen : (rcwantday - rcLstday)*dlen;
++								var rcmonTS = rcmonD.getTime() + rcaddTS + 7*dlen*(nth+1);
++								var rcmonChk = new Date(rcmonTS);
++								if(rcmonChk.getMonth() === rcmon) { // test valid date in the month
++									for(var j=0; j<rcduraD; j++) { // cycle through duration
++										this.recTS.push(rcmonTS + (j*dlen));
++									}
 +								}
 +							}
 +						}
@@ -7258,7 +7927,7 @@ index d6a9c95..a448032 100644
 +					var rcyear = rcexstr[j].substring(0,4);
 +					var rcmon = parseInt(rcexstr[j].substring(4,6), 10) -1;
 +					var rcday = parseInt(rcexstr[j].substring(6,8), 10);
-+					this.rcexTS[j] = Date.UTC(rcyear, rcmon, rcday, 12);
++					this.rcexTS.push(Date.UTC(rcyear, rcmon, rcday, 12));
 +				}
 +				// pull exdates out of array
 +				for(var k=0; k<this.rcexTS.length; k++) {
@@ -7331,7 +8000,7 @@ index d6a9c95..a448032 100644
  		this.appMenuModel= { visible:true, 
  					label:$L('Calendar'), 
  					items: [ Mojo.Menu.editItem,
-@@ -271,6 +858,18 @@ var RepeatAssistant = Class.create({
+@@ -271,6 +922,18 @@ var RepeatAssistant = Class.create({
  		this.service = getCalendarService();
  		this.requests = [];	
  		
@@ -7350,7 +8019,7 @@ index d6a9c95..a448032 100644
  		this.foreverCheckboxModel = {
  			value: false
  		};
-@@ -348,6 +947,27 @@ var RepeatAssistant = Class.create({
+@@ -348,6 +1011,34 @@ var RepeatAssistant = Class.create({
  		var template = $L("1#Yearly on #{month} 1st|2#Yearly on #{month} 2nd|3#Yearly on #{month} 3rd|21#Yearly on #{month} 21st|22#Yearly on #{month} 22nd|23#Yearly on #{month} 23rd|31#Yearly on #{month} 31st|#Yearly on #{month} #{day}th");	
  		this.freqs[4].name = Mojo.Format.formatChoice(templateModel.day, template, templateModel);
  		
@@ -7375,10 +8044,17 @@ index d6a9c95..a448032 100644
 +			this.freqs[6].name = Mojo.Format.formatChoice(templateModel.dowCount, template, templateModel);
 +		}
 +		
++		if(this.repeatFreqIndex === 8) { //case of an unsupported repeat made externally
++			// save the original rrule 
++			this.uberExtRule = {rrule: this.targetEvent.rrule,
++								exdates: this.targetEvent.exdates,
++								rruleModel: Object.clone(this.targetEvent.rruleModel)};
++		}
++		
  		var button = Mojo.View.render({object: {text: this.freqs[this.repeatFreqIndex-1].name,
  									buttonId: 'freqButton'}, template: "edit/popupButton"});
  		this.controller.get('repeat_freq').insert(button);
-@@ -383,13 +1003,103 @@ var RepeatAssistant = Class.create({
+@@ -383,13 +1074,103 @@ var RepeatAssistant = Class.create({
  			modelProperty:'value'
  		}
  			
@@ -7483,7 +8159,7 @@ index d6a9c95..a448032 100644
  		this.constructRecurrenceString();
  		
  	},
-@@ -408,6 +1118,7 @@ var RepeatAssistant = Class.create({
+@@ -408,6 +1189,7 @@ var RepeatAssistant = Class.create({
  	
  	endDateUpdate: function(event) {
  		this.recurConstruct(new Date(event.value),true);
@@ -7491,7 +8167,7 @@ index d6a9c95..a448032 100644
  	},
  	
  	recurConstruct:function(time,setdefaultEndValidity){
-@@ -427,7 +1138,6 @@ var RepeatAssistant = Class.create({
+@@ -427,7 +1209,6 @@ var RepeatAssistant = Class.create({
  		this.targetEvent.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.targetEvent.endValidity);
  		//calculate the number of occurences from start date
  		this.constructRecurrenceString();
@@ -7499,7 +8175,7 @@ index d6a9c95..a448032 100644
  	},
  	
  	constructRecurrenceString:function(){
-@@ -444,11 +1154,13 @@ var RepeatAssistant = Class.create({
+@@ -444,11 +1225,13 @@ var RepeatAssistant = Class.create({
  			this.recurrenceRule.constructRRuleFromModel(this.targetEvent);
  			this.service.getOccurenceCount(this.targetEvent.startTimestamp, this.targetEvent.rrule,this.targetEvent.endValidity,this.buildRepeatInfo.bind(this), this.controller);
  		}
@@ -7514,7 +8190,7 @@ index d6a9c95..a448032 100644
  			this.repeatForeverChecked = false;
  		else
  			this.repeatForeverChecked = true;
-@@ -458,6 +1170,26 @@ var RepeatAssistant = Class.create({
+@@ -458,6 +1241,26 @@ var RepeatAssistant = Class.create({
  	handleWeekTap: function() {
  		//Mojo.Log.info('repeat-assistant: handleWeekTap');
      	this.constructRecurrenceString();
@@ -7541,7 +8217,7 @@ index d6a9c95..a448032 100644
  	},
  	
  	updateRecurUntil: function(transition) {
-@@ -478,14 +1210,14 @@ var RepeatAssistant = Class.create({
+@@ -478,18 +1281,17 @@ var RepeatAssistant = Class.create({
  		} else {
  			if (this.repeatForeverChecked == false) {
  				this.slideDown(this.controller.get('repeat_until_row'), 0.4);
@@ -7558,7 +8234,21 @@ index d6a9c95..a448032 100644
  				this.foreverCheckboxModel.value = true;
  				this.controller.modelChanged(this.foreverCheckboxModel);
  				this.controller.get('foreverdiv').addClassName('last');
-@@ -542,6 +1274,25 @@ var RepeatAssistant = Class.create({
+-
+ 			}
+ 		}
+ 		this.updateEndvalidity();
+@@ -498,7 +1300,9 @@ var RepeatAssistant = Class.create({
+ 	
+ 	updateRecurrence:function(){
+ 		//Mojo.Log.info("repeat-assistant:UpdateRecurrence");
++		if(this.repeatFreqIndex === 8) {return;} //custom external don't modify
+ 		var num=0;
++		var nth;
+ 		
+ 		var date = new Date(this.targetEvent.startTimestamp);
+ 		var until= this.targetEvent.rruleModel.until;
+@@ -542,6 +1346,29 @@ var RepeatAssistant = Class.create({
  			this.targetEvent.rruleModel.frequency ='YEARLY'; // Do NOT Localize
  			break;
  			
@@ -7581,10 +8271,14 @@ index d6a9c95..a448032 100644
 +			this.targetEvent.rruleModel.bymonthday.push(ucbymonthday.lastday); 
 +			break;
 +			
++			case 8:
++			//custom bymonthdays 
++			break;
++			
  		}
  		if(interval>1)
  			this.targetEvent.rruleModel.interval =interval;
-@@ -665,26 +1416,63 @@ var RepeatAssistant = Class.create({
+@@ -665,26 +1492,63 @@ var RepeatAssistant = Class.create({
  	},
  
  	activate: function() {
@@ -7657,7 +8351,7 @@ index d6a9c95..a448032 100644
  			
  		
  	},
-@@ -707,7 +1495,7 @@ var RepeatAssistant = Class.create({
+@@ -707,7 +1571,7 @@ var RepeatAssistant = Class.create({
  			
  			
  			//update the repeatuntil and reset it to forever
@@ -7666,7 +8360,18 @@ index d6a9c95..a448032 100644
  			this.updateEndvalidity();
  		
  			
-@@ -749,6 +1537,13 @@ var RepeatAssistant = Class.create({
+@@ -717,9 +1581,7 @@ var RepeatAssistant = Class.create({
+ 				units: this.freqs[this.repeatFreqIndex-1].units,
+ 			}
+ 		}));
+-		this.updateInterval();
+-
+-			
++		this.updateInterval();		
+ 		}
+ 	},
+ 	
+@@ -749,6 +1611,13 @@ var RepeatAssistant = Class.create({
  		}
  	},
  	
@@ -7680,7 +8385,7 @@ index d6a9c95..a448032 100644
  	slideDown: function(div, duration) {
  		div.show();
   		var divDimensions = div.getDimensions();
-@@ -779,7 +1574,123 @@ var RepeatAssistant = Class.create({
+@@ -779,7 +1648,123 @@ var RepeatAssistant = Class.create({
  	    this.controller.modelChanged(this.endDateModel);
  		this.recurConstruct(this.defaultendValidity,false);
  		
@@ -9257,6 +9962,69 @@ index 0000000..8e5536f
 +		#{-listElements} 
 +	</div>
 +</div>
+diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/confirm-deleteevent.js b/usr/palm/applications/com.palm.app.calendar/javascripts/confirm-deleteevent.js
+index a3c2d53..de13ca8 100644
+--- a/usr/palm/applications/com.palm.app.calendar/javascripts/confirm-deleteevent.js
++++ b/usr/palm/applications/com.palm.app.calendar/javascripts/confirm-deleteevent.js
+@@ -15,6 +15,7 @@ var DeleteEventConfirmDialogAssistant = Class.create({
+ 	
+ 	setup : function(widget) {
+ 		this.widget = widget;
++		
+ 		if((!this.event.rrule || this.event.rrule == "") 
+ 			&& this.event.parentId<=0)
+ 		{
+@@ -23,7 +24,19 @@ var DeleteEventConfirmDialogAssistant = Class.create({
+ 		} 
+ 		else
+ 		{
++			var cancelDiv = this.sceneAssistant.controller.get('Cancel');
++			var singleDiv = this.sceneAssistant.controller.get('Single');
++			singleDiv.setAttribute("class", "palm-button secondary");
++			var buttonDiv = this.sceneAssistant.controller.get('Cancel').parentNode;
++			var thisFutureBtn = this.sceneAssistant.controller.document.createElement("div");
++			thisFutureBtn.setAttribute("id", "ThisFuture");
++			thisFutureBtn.setAttribute("class", "palm-button negative");
++			thisFutureBtn.setAttribute("x-mojo-tap-highlight", "momentary");
++			thisFutureBtn.setAttribute("x-mojo-loc",'""');
++			thisFutureBtn.innerHTML = $L("Delete this and future events");
++			buttonDiv.insertBefore(thisFutureBtn, cancelDiv);
+ 			this.sceneAssistant.controller.get('Series').addEventListener(Mojo.Event.tap, this.handleSeries.bindAsEventListener(this));
++			this.sceneAssistant.controller.get('ThisFuture').addEventListener(Mojo.Event.tap, this.handleThisAndFuture.bindAsEventListener(this));
+ 			this.sceneAssistant.controller.get('Single').addEventListener(Mojo.Event.tap, this.handleSingle.bindAsEventListener(this));
+ 		}
+ 		this.sceneAssistant.controller.get('Cancel').addEventListener(Mojo.Event.tap, this.handleCancel.bindAsEventListener(this));
+@@ -54,6 +67,30 @@ var DeleteEventConfirmDialogAssistant = Class.create({
+ 		}
+ 	},
+ 	
++	handleThisAndFuture: function() {
++		//set the end date to this events end timestamp - 1 day
++		if(this.event.startTimestamp === this.date) {
++			//first event same as series
++			this.handleSeries();
++			return;
++		}
++		var endtimestamp = new Date(this.event.endTimestamp);
++		var time = new Date(this.date);
++		time.setHours(endtimestamp.getHours());
++		time.setMinutes(endtimestamp.getMinutes());
++		time.setSeconds(endtimestamp.getSeconds());
++		this.event.endValidity= time.addDays(-1).getTime();
++		this.recurrenceRule = getRecurrenceRule();
++		this.event.isRecurringForever = false;
++		this.event.rruleModel.count = 0;
++		this.event.rruleModel.until= this.recurrenceRule.calculateRecurTime(this.event.endValidity);
++		this.recurrenceRule.constructRRuleFromModel(this.event);
++		this.widget.mojo.close();
++		if (this.sceneAssistant.service.setEvent) {
++			this.sceneAssistant.service.setEvent(this.event, this.sceneAssistant.deletedEvent.bind(this.sceneAssistant),  this.sceneAssistant.controller);
++		}
++	},
++	
+ 	handleCancel:function(){
+ 		this.widget.mojo.close();
+ 	},
 diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/datejs/week.js b/usr/palm/applications/com.palm.app.calendar/javascripts/datejs/week.js
 new file mode 100644
 index 0000000..501c299
@@ -10203,6 +10971,45 @@ index c53e388..015497e 100644
  	},
  });
 \ No newline at end of file
+diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js b/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
+index e7499fe..4fca47e 100644
+--- a/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
++++ b/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
+@@ -13,7 +13,19 @@ var RecurrenceWarning = Class.create({
+ 	
+ 	setup : function(widget) {
+ 		this.widget = widget;
++		var cancelDiv = this.sceneAssistant.controller.get('Cancel');
++		var singleDiv = this.sceneAssistant.controller.get('Single');
++		singleDiv.setAttribute("class", "palm-button secondary");
++		var buttonDiv = this.sceneAssistant.controller.get('Cancel').parentNode;
++		var thisFutureBtn = this.sceneAssistant.controller.document.createElement("div");
++		thisFutureBtn.setAttribute("id", "ThisFuture");
++		thisFutureBtn.setAttribute("class", "palm-button");
++		thisFutureBtn.setAttribute("x-mojo-tap-highlight", "momentary");
++		thisFutureBtn.setAttribute("x-mojo-loc",'""');
++		thisFutureBtn.innerHTML = $L("Change this and future");
++		buttonDiv.insertBefore(thisFutureBtn, cancelDiv);
+ 		this.sceneAssistant.controller.get('Series').addEventListener(Mojo.Event.tap, this.handleSeries.bindAsEventListener(this));
++		this.sceneAssistant.controller.get('ThisFuture').addEventListener(Mojo.Event.tap, this.handleThisAndFuture.bindAsEventListener(this));
+ 		this.sceneAssistant.controller.get('Single').addEventListener(Mojo.Event.tap, this.handleSingle.bindAsEventListener(this));
+ 		this.sceneAssistant.controller.get('Cancel').addEventListener(Mojo.Event.tap, this.handleCancel.bindAsEventListener(this));
+ 		
+@@ -32,6 +44,14 @@ var RecurrenceWarning = Class.create({
+ 		
+ 		
+ 	},
++	
++	handleThisAndFuture: function() {
++		Mojo.Log.info("in handle this and future");
++		this.widget.mojo.close();
++		Event.stop(event);
++		this.sceneAssistant.saveThisAndFuture();
++	},
++
+ 	handleSingle: function(event) {
+ 		//Mojo.Log.info("************handling single");
+ 		this.widget.mojo.close();		
 diff --git a/usr/palm/applications/com.palm.app.calendar/sources.json b/usr/palm/applications/com.palm.app.calendar/sources.json
 index 3beec78..9741133 100644
 --- a/usr/palm/applications/com.palm.app.calendar/sources.json
