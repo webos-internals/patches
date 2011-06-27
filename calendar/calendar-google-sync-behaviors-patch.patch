@@ -1,0 +1,309 @@
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
+index 57cc297..5caefdd 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
+@@ -19,6 +19,35 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+ 		},
+ 
+ 		setup: function setup(service, accountId, launchConfig, launchArgs) {
++			try{
++				Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++				var configFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
++						"get",
++								{owner: "google-first-sync",
++								keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"]}
++						);
++				configFuture.then(Config, function(future)
++						{ var result = future.result;
++							if(result.returnValue === true) {
++								if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
++									Utils.error("TWEAKS preferences before sync: " + result.syncWindowMonthsBefore);
++									Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
++								}
++								if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
++									Utils.error("TWEAKS preferences after sync: " + result.syncWindowMonthsAfter);
++									Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
++								}
++								future.result = {returnValue: true};
++							} else{
++								Config.syncWindowMonthsAfter = 48;
++								Config.syncWindowMonthsBefore = 12;
++								Utils.error("failed to read TWEAKS preferences no result" + stringify(result));
++							}
++						});
++			} catch(e) {Utils.error("failed to read TWEAKS no service preferences");}
++			Utils.error("google sync start preferences: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++			
++			
+ 			var future = this._getAccount(accountId);
+ 			
+ 			future.then(this, function finishSetup() {
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
+index 73256cd..b1ae98f 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
+@@ -389,7 +389,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 						found = this._calendarEntries[i].remoteId === remoteId;
+ 						if (!found) {
+ 							// Second chance for calendars migrated from 1.4.5
+-							found = this._calendarEntries[i].UID === calendarEntries[j].content.src;
++							found = calendarEntries[j].content && (this._calendarEntries[i].UID === calendarEntries[j].content.src);
+ 							if (found) {
+ 								// Get the correct remoteId
+ 								Utils.log("---->>>> detectDeletedCalendars(): patchExistingCalendarRemoteId");
+@@ -1078,6 +1078,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 
+ 	_addOriginalEventInfoToChild: function (childObject, parent, isDeleting) {
+ 		var originalEvent = makeOriginalEvent(childObject.local.recurrenceId, parent),
++			reminders,
+ 			times,
+ 			transformer = new GoogleCalendarEventTransformer();
+ 
+@@ -1085,7 +1086,9 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 
+ 		times = childObject.remote.getTimes();
+ 		if (times && times.length) {
+-			transformer.alarm(times[0], parent);
++			reminders = GoogleCalendarEventTransformer.alarmsToReminders(parent.alarm);
++			times[0].setReminder(reminders);
++		//	transformer.alarm(times[0], parent);
+ 		}
+ 
+ 		if (isDeleting) {
+@@ -1263,7 +1266,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 							// The parent event was also part of this sync; get
+ 							// the ID directly from it
+ 							Utils.log("fixupChildEventIds(): parent: " + stringify(family.parent));
+-							that._addOriginalEventInfoToChild(child, family.parent);
++							that._addOriginalEventInfoToChild(child, family.parent, false);
+ 							return new Future(true);
+ 						}
+ 
+@@ -1275,7 +1278,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 							Assert.require(result.returnValue && result.results && result.results.length, "Google calendar sync: failed to find parent event for event '" + child.local._id);
+ 
+ 							parent = result.results[0];
+-							that._addOriginalEventInfoToChild(child, parent);
++							that._addOriginalEventInfoToChild(child, parent, false);
+ 
+ 							Utils.log("\n\n---->>>> Child event prepped: " + stringify(child.remote));
+ 
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
+index 92a1156..ac4ca9a 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
+@@ -13,6 +13,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 
+ 	errorStrings[403] = "no read permissions on calendar";
+ 	errorStrings[410] = "lastModTime outside of permitted query range";
++	errorStrings[500] = "Cannot access the calendar you requested (server error)";
+ 
+ 
+ 	function getLastModifiedTimeForCalendar(update) {
+@@ -126,6 +127,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 
+ 			Utils.log("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+ 		} else {
++			Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
+ 			if (lastModTime) {
+ 				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
+ 			} else {
+@@ -168,6 +170,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			switch (status) {
+ 				case 403:
+ 				case 410:
++				case 500: // Cannot access calendar requested
+ 					Utils.warn("---->>>> " + syncType(update) + " query error (" + status + "): " + errorStrings[status]);
+ 					Utils.warn("---->>>> Skipping " + syncType(update));
+ 					future.result = {
+@@ -182,7 +185,12 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 
+ 				default:
+ 					Utils.error("---->>>> " + syncType(update) + " query error: " + stringify(error));
+-					throw error;
++					future.result = {
++						count: 0,
++						modTime: undefined
++					};
++					//throw error;
++					break;
+ 			}
+ 		}));
+ 	}
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
+index ed2ef73..4120f76 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
+@@ -176,45 +176,8 @@ var GoogleCalendarEventTransformer = Class.create({
+ 			time = GoogleCalendarEventTransformer.getTimeOrAdd(to);
+ 		}
+ 
+-		// Utils.log("\n\n---->>>> Alarms: " + stringify(from.alarm));
+-		for (i = 0; i < from.alarm.length; ++i) {
+-			alarm = from.alarm[i];
+-			alarmTrigger = alarm.alarmTrigger;
+-			// Utils.log("---->>>> Alarm trigger[" + i + "]: " + stringify(alarmTrigger));
+-
+-			// "none" is a placeholder value used by the Calendar app, but is
+-			// not valid in this context, so we skip the alarm
+-			if (!alarmTrigger.value || alarmTrigger.value === "none") {
+-				continue;
+-			}
+-
+-			reminder = new google.gdata.Reminder();
+-			if (alarmTrigger.valueType.toUpperCase() === "DATETIME") {
+-				date = google.gdata.DateTime.fromIso8601(alarmTrigger.value);
+-				// Utils.log("----->>>>> alarm trigger date: " + stringify(date));
+-				reminder.setAbsoluteTime(date);
+-			} else if (alarmTrigger.valueType.toUpperCase() === "DURATION") {
+-				date = Calendar.IO.Utils.parseIso8601Duration(alarmTrigger.value);
+-				// Utils.log("----->>>>> alarm trigger date: " + stringify(date));
+-				reminder.setDays(date.days);
+-				reminder.setHours(date.hours);
+-				reminder.setMinutes(date.minutes);
+-			} else {
+-				console.error("Not a valid alarm valueType: " + alarmTrigger.valueType);
+-			}
+-
+-			if (alarm.action.toLowerCase() === "email") {
+-				reminder.setMethod(google.gdata.Reminder.METHOD_EMAIL);
+-			} else if (alarm.action.toLowerCase() === "display") {
+-				reminder.setMethod(google.gdata.Reminder.METHOD_ALERT);
+-			} else {
+-				console.error("Not a valid alarm action: " + alarm.action);
+-			}
+-
+-			// Utils.log("----->>>>> new gdata reminder: " + stringify(reminder));
+-			reminders.push(reminder);
+-		}
+-
++		reminders = GoogleCalendarEventTransformer.alarmsToReminders(from.alarm);
++		
+ 		// Stomp on whatever reminders we just pulled from the server
+ 		to.setReminders(reminders);
+ 		if (time) {
+@@ -574,6 +537,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
+ 	return time;
+ };
+ 
++GoogleCalendarEventTransformer.alarmsToReminders = function (alarms) {
++	var alarm,
++		alarmTrigger,
++		date,
++		i,
++		reminder,
++		reminders = [];
++
++	Utils.log("\n\n---->>>> Alarms: " + stringify(alarms));
++	for (i = 0; i < alarms.length; ++i) {
++		alarm = alarms[i];
++		alarmTrigger = alarm.alarmTrigger;
++		Utils.log("---->>>> Alarm trigger[" + i + "]: " + stringify(alarmTrigger));
++
++		// "none" is a placeholder value used by the Calendar app, but is
++		// not valid in this context, so we skip the alarm
++		if (!alarmTrigger.value || alarmTrigger.value === "none") {
++			continue;
++		}
++
++		reminder = new google.gdata.Reminder();
++		if (alarmTrigger.valueType.toUpperCase() === "DATETIME") {
++			date = google.gdata.DateTime.fromIso8601(alarmTrigger.value);
++			Utils.log("----->>>>> alarm trigger date: " + stringify(date));
++			reminder.setAbsoluteTime(date);
++		} else if (alarmTrigger.valueType.toUpperCase() === "DURATION") {
++			date = Calendar.IO.Utils.parseIso8601Duration(alarmTrigger.value);
++			Utils.log("----->>>>> alarm trigger date: " + stringify(date));
++			reminder.setDays(date.days);
++			reminder.setHours(date.hours);
++			reminder.setMinutes(date.minutes);
++		} else {
++			console.error("Not a valid alarm valueType: " + alarmTrigger.valueType);
++		}
++
++		if (alarm.action.toLowerCase() === "email") {
++			reminder.setMethod(google.gdata.Reminder.METHOD_EMAIL);
++		} else if (alarm.action.toLowerCase() === "display") {
++			reminder.setMethod(google.gdata.Reminder.METHOD_ALERT);
++		} else {
++			console.error("Not a valid alarm action: " + alarm.action);
++		}
++
++		Utils.log("----->>>>> new gdata reminder: " + stringify(reminder));
++		reminders.push(reminder);
++	}
++
++	return reminders;
++};
++
+ GoogleCalendarEventTransformer.dayHash = [
+ 	"SU",
+ 	"MO",
+@@ -586,7 +599,17 @@ GoogleCalendarEventTransformer.dayHash = [
+ 
+ // Catches form-feed, return, horizontal tab, vertical tab, space, non-breaking space, line separator, and paragraph separator
+ GoogleCalendarEventTransformer.collapseWhitespaceRegex = new RegExp("[\\f\\r\\t \u000B\u00A0\u2028\u2029]{2,}", 'g');
+-
++	
+ GoogleCalendarEventTransformer.collapseWhitespace = function (str) {
+-	return str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
++	str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
++	
++	var ESCAPE_REGEX =	/(,)|(")/g;
++	var ESCAPE_MAP = {"," : "\\,", "\"" : "\\\""};
++
++	var ESCAPE_BSLASH_REGEX = /(\\)/g;
++	var ESCAPE_BSLASH_MAP = {"\\":"\\\\"};
++	
++	var escString = str.replace(/(\\)/g,"\\\\");
++	escString.replace(/(,)/g, "\,");
++	return escString.replace(/(")/g, "\"");
+ };
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
+index 5167014..8f2105a 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
+@@ -43,12 +43,16 @@ function formatTime (dateTime) {
+ }
+ 
+ function formatDuration (duration) {
++	if (!duration || (!duration.days && !duration.hours && !duration.minutes && !duration.seconds)) {
++		return "-PT0M";
++	}
++
+ 	var s = '-P',	// 'P' is for 'period'
+ 		hasTime = false;
+ 
+ 	var appendTime = function (time, type) {
+ 		var ss = '';
+-		if (time) {
++		if (typeof time === "number") {
+ 			if (!hasTime) {
+ 				ss += 'T';
+ 				hasTime = true;
+@@ -58,7 +62,7 @@ function formatDuration (duration) {
+ 		return ss;
+ 	};
+ 
+-	if (duration.days) {
++	if (typeof duration.days === "number") {
+ 		s += duration.getDays() + 'D';
+ 	}
+ 
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
+index 6240d9a..150f56a 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
+@@ -35,6 +35,12 @@ var XMLHttpRequest = Class.create({
+ 	
+ 	send: function (postBody) {
+ 		this.result = undefined;
++		// if it is a POST request then make it work if there are also UTF-8 characters in it
++		// because google does not compute properly the content length in gdata library
++		if (this.httpMethod === "POST" && this.options.headers["Content-Length"]) {
++			this.options.bodyEncoding = "utf8";
++			try{delete this.options.headers["Content-Length"];}catch(e){Utils.log("can't delete header");}
++		}		
+ 		var future = AjaxCall.call(this.httpMethod, this.url, postBody, this.options);
+ 
+ 		future.onError(function () {
