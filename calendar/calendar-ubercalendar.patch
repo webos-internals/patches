@@ -202,10 +202,18 @@ index e1a8eb1..cfe7474 100644
  		this.reminderManager.addReminders([this.reminder]);
  	},
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
-index de09b4c..d4c92cf 100644
+index de09b4c..51d0348 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
-@@ -173,9 +173,692 @@ var DatetimeAssistant = Class.create({
+@@ -14,6 +14,7 @@ var DatetimeAssistant = Class.create({
+ 		this.app			= getAppAssistant();
+ 		this.eventManager	= new Calendar.EventManager();
+ 		this.prefsManager	= this.app.getPrefsManager();
++		this.tzMgr			= new Calendar.TimezoneManager();
+         this.targetEvent	= targetEvent;
+         this.targetCallBack	= callback;
+         this.oldEvent		= oldEvent;
+@@ -173,9 +174,696 @@ var DatetimeAssistant = Class.create({
          }
      },
      
@@ -215,8 +223,9 @@ index de09b4c..d4c92cf 100644
 +	
 +	rdayNames: function() {
 +		var stday = 0;
-+		if(this.startOfWeek==null || this.startOfWeek == 'undefined')
++		if(this.startOfWeek==null || this.startOfWeek == 'undefined'){
 +			this.startOfWeek = 1;
++		}
 +		stday = this.startOfWeek - 1;
 +		var tday = new Date();
 +		tday.moveToDayOfWeek(stday);
@@ -281,8 +290,8 @@ index de09b4c..d4c92cf 100644
 +		
 +		//setup number of days, 1st day(day of week), week number, number of weeks
 +		var rd1dayOfMon = rmon.getDay();
-+		var rwkNum = rmon.getISO8601Week();
-+		var maxwkn = new Date((month != 0 ? year : year -1), 11, 28).getISO8601Week();
++		//var rwkNum = rmon.getISO8601Week();
++		//var maxwkn = new Date((month != 0 ? year : year -1), 11, 28).getISO8601Week();
 +		var rwkNum = this.useISOweekNum === true ? rmon.getISO8601Week() : rmon.getWeekOfYear(this.prefStartDoW);
 +		var maxwkn = this.useISOweekNum === true ? new Date((month != 0 ? year : year -1), 11, 28).getISO8601Week() : new Date((month != 0 ? year : year -1), 11, 28).getWeekOfYear(this.prefStartDoW);
 +		maxwkn = maxwkn == 0 ? 53 : maxwkn;
@@ -855,6 +864,9 @@ index de09b4c..d4c92cf 100644
 +			
 +			this.rmdoRec = true;
 +			return;
++		} else {
++			this.rmdoRec = false;
++			return;
 +		}
 +	},
      setup: function(){
@@ -899,7 +911,7 @@ index de09b4c..d4c92cf 100644
  		this.appMenuModel= { visible:true, 
              label: $L('Calendar'),
  							items: [ Mojo.Menu.editItem,
-@@ -202,29 +885,62 @@ var DatetimeAssistant = Class.create({
+@@ -202,29 +890,75 @@ var DatetimeAssistant = Class.create({
          this.startDateModel = {
              date: new Date(this.targetModifiedTime.start)
          };
@@ -909,12 +921,25 @@ index de09b4c..d4c92cf 100644
 +        //startDiv.style.marginTop = "-40px";
 +        startDiv.removeChild(startDiv.firstChild);
 +        startDiv.innerHTML = '<table width="100%"><tr><td width="10%"><div x-mojo-element="Button" id="popCanvasBtn2" class="popCanvas"></div></td><td width="90%"><div class="datetime-picker"><div id="edit_startDate" x-mojo-element="DatePicker"></div></div></td></tr></table>';
++		
++		var startTimeDiv = this.controller.get("start_time_row");
++        startTimeDiv.style.paddingTop = "0px";
++        //startTimeDiv.style.marginTop = "-40px";
++        startTimeDiv.removeChild(startTimeDiv.firstChild);
++        startTimeDiv.innerHTML = '<table width="100%"><tr><td width="10%"><div x-mojo-element="Button" id="popTimezoneBtn2" class="popTimezone"></div></td><td width="90%"><div class="datetime-picker"><div id="edit_startTime" x-mojo-element="TimePicker"></div></div></td></tr></table>';
 +
 +        var endDiv = this.controller.get("end_date_row");
 +        endDiv.style.paddingTop = "0px";
 +        //endDiv.style.marginTop = "-40px";
 +        endDiv.removeChild(endDiv.firstChild);
 +        endDiv.innerHTML = '<table width="100%"><tr><td width="10%"><div x-mojo-element="Button" id="popCanvasBtn" class="popCanvas"></div></td><td width="90%"><div class="datetime-picker"><div id="edit_endDate" x-mojo-element="DatePicker"></div></div></td></tr></table>';
++		
++		var endTimeDiv = this.controller.get("end_time_row");
++        endTimeDiv.style.paddingTop = "0px";
++        //endTimeDiv.style.marginTop = "-40px";
++        endTimeDiv.removeChild(endTimeDiv.firstChild);
++        endTimeDiv.innerHTML = '<table width="100%"><tr><td width="10%"><div x-mojo-element="Button" id="popTimezoneBtn" class="popTimezone"></div></td><td width="90%"><div class="datetime-picker"><div id="edit_endTime" x-mojo-element="TimePicker"></div></div></td></tr></table>';
++
 +		var startdatePalmListDiv = this.controller.get("start_date_row").parentNode;
 +        var parentDiv = this.controller.get("datetime_view");
 +        var newDiv = this.controller.document.createElement("div");
@@ -954,7 +979,7 @@ index de09b4c..d4c92cf 100644
          };
      
 -		this.controller.setupWidget('edit_startTime', {label: $L('Time'),modelProperty:'time'}, this.startTimeModel);
-+		this.controller.setupWidget('edit_startTime', {label: $L('Time'),modelProperty:'time', minuteInterval:this.uberMinuteInterval}, this.startTimeModel);
++		this.controller.setupWidget('edit_startTime', {label: ' ',modelProperty:'time', minuteInterval:this.uberMinuteInterval}, this.startTimeModel);
          this.controller.listen('edit_startTime', Mojo.Event.propertyChange, this.startTimeCallback.bindAsEventListener(this));
          
          this.endTimeModel = {
@@ -962,11 +987,11 @@ index de09b4c..d4c92cf 100644
          };
      
 -		this.controller.setupWidget('edit_endTime', {label: $L('Time'), modelProperty:'time'}, this.endTimeModel);
-+		this.controller.setupWidget('edit_endTime', {label: $L('Time'), modelProperty:'time', minuteInterval:this.uberMinuteInterval}, this.endTimeModel);
++		this.controller.setupWidget('edit_endTime', {label: ' ', modelProperty:'time', minuteInterval:this.uberMinuteInterval}, this.endTimeModel);
          this.controller.listen('edit_endTime', Mojo.Event.propertyChange, this.endTimeCallback.bindAsEventListener(this));
          
          
-@@ -242,7 +958,127 @@ var DatetimeAssistant = Class.create({
+@@ -242,7 +976,243 @@ var DatetimeAssistant = Class.create({
          
          this.updateTimedAllDay(false);
          
@@ -989,8 +1014,28 @@ index de09b4c..d4c92cf 100644
 +		);
 +		this.canvasBtnHandler = this.DPtoggleDrawer.bind(this);
 +		this.popCanvasBtn2 = this.controller.get('popCanvasBtn2');
++		
++		this.controller.setupWidget("popTimezoneBtn",
++			{},
++			{
++				label : "",
++				disabled: false
++			}
++		);
++		this.popTimezoneBtn = this.controller.get('popTimezoneBtn');
++		this.controller.setupWidget("popTimezoneBtn2",
++			{},
++			{
++				label : "",
++				disabled: false
++			}
++		);
++		this.timezoneBtnHandler = this.DPtimezonePop.bind(this);
++		this.popTimezoneBtn2 = this.controller.get('popTimezoneBtn2');
 +		Mojo.Event.listen(this.popCanvasBtn, Mojo.Event.tap, this.canvasBtnHandler);
 +		Mojo.Event.listen(this.popCanvasBtn2, Mojo.Event.tap, this.canvasBtnHandler);
++		Mojo.Event.listen(this.popTimezoneBtn, Mojo.Event.tap, this.timezoneBtnHandler);
++		Mojo.Event.listen(this.popTimezoneBtn2, Mojo.Event.tap, this.timezoneBtnHandler);
 +		// drawer setup
 +		this.controller.setupWidget("DPscrol",{mode: 'horizontal-snap'}, {snapElements: {x:[this.controller.get("DPmonth_0"), this.controller.get("DPmonth_1"), this.controller.get("DPmonth_2"), this.controller.get("DPmonth_3"), this.controller.get("DPmonth_4"), this.controller.get("DPmonth_5")]}});
 +		this.dModel = {open:false};
@@ -1035,8 +1080,17 @@ index de09b4c..d4c92cf 100644
 +		this.rImg.src = "./images/day-event-yellow.png";
 +		this.rmScroller = this.controller.get('DPscrol');
 +		this.rmlastBtn = null;
++		this.tzlastBtn = null;
++		this.convertedTS = null;
 +		this.rtDate = new Date();
 +		this.rmcalHold = false;
++		var uberYear = new Date(this.targetModifiedTime.start).getFullYear();
++		var timezones = this.tzMgr.timezones;
++		this.uberTZIds = [];
++		if(timezones && timezones[uberYear]) {
++			var obj = timezones[uberYear];
++			this.uberTzIds = Object.values(obj);
++		}
 +    },
 +    
 +	// toggle drawer function:
@@ -1068,6 +1122,93 @@ index de09b4c..d4c92cf 100644
 +		}
 +	},	
 +	
++	DPtimezonePop: function(e) {
++		this.tzlastBtn = e.currentTarget.id && e.currentTarget.id;
++		//Mojo.Log.error("Pop timezone converter  :" + e.currentTarget.id);
++		var tz = this.targetEvent.tzId || this.app.getTimezoneName();
++		if(this.tzlastBtn != null && this.tzlastBtn == "popTimezoneBtn2") {
++			// start date
++			var dateStamp = new Date(this.startDateModel.date);
++			var timeStamp = new Date(this.startTimeModel.time);
++			timeStamp.setFullYear(dateStamp.getFullYear());
++			timeStamp.setMonth(dateStamp.getMonth());
++			timeStamp.setDate(dateStamp.getDate());
++		} else if(this.tzlastBtn !== null && this.tzlastBtn == "popTimezoneBtn") {
++			// end date
++			var dateStamp = new Date(this.endDateModel.date);
++			var timeStamp = new Date(this.endTimeModel.time);
++			timeStamp.setFullYear(dateStamp.getFullYear());
++			timeStamp.setMonth(dateStamp.getMonth());
++			timeStamp.setDate(dateStamp.getDate());
++		}
++		if(this.tzlastBtn !== null && timeStamp && tz && this.uberTzIds && this.uberTzIds.length > 0){
++			this.controller.showDialog({
++            template: 'shared/uber-timezone',
++            assistant: new UberTimezoneConverter(this.controller, this, tz, timeStamp.getTime(), this.uberTzIds.clone()),
++			});
++		}
++	},
++	
++	uberConverterCallBack: function(){
++		if(!this.convertedTS || this.tzlastBtn == null){
++			return;
++		}
++		if(this.tzlastBtn != null && this.tzlastBtn == "popTimezoneBtn2") {
++			// start date
++			var oldDura = this.targetModifiedTime.end - this.targetModifiedTime.start;
++			var cDate = new Date(this.convertedTS);
++			var oldDate = new Date(this.startDateModel.date);
++			if(cDate.getFullYear() === oldDate.getFullYear() && cDate.getMonth() === oldDate.getMonth() && cDate.getDate() === oldDate.getDate() ) {
++				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && this.convertedTS - oldDate.getTime() < oldDura)){this.targetModifiedTime.start = this.convertedTS;}
++				this.startTimeModel.time = new Date(cDate);
++				this.controller.modelChanged(this.startTimeModel);
++				Mojo.Event.send(this.controller.get('edit_startTime'), 'mojo-property-change', {value: this.startTimeModel.time} );
++			} else { //leave targetModifiedTime "date" alone until after time switch
++				var newDate = new Date(this.targetModifiedTime.start); 
++				newDate.setHours(cDate.getHours());
++				newDate.setMinutes(cDate.getMinutes());
++				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && this.convertedTS- oldDate.getTime() < oldDura)){this.targetModifiedTime.start = newDate.getTime();}
++				this.startTimeModel.time = new Date(newDate);
++				this.controller.modelChanged(this.startTimeModel);
++				Mojo.Event.send(this.controller.get('edit_startTime'), 'mojo-property-change', {value: this.startTimeModel.time} );
++				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && this.convertedTS - oldDate.getTime() < oldDura)){
++					this.targetModifiedTime.start = this.convertedTS;
++					this.changingStartDate = true;
++				}
++				this.startDateModel.date = new Date(cDate);
++				this.controller.modelChanged(this.startDateModel);
++				Mojo.Event.send(this.controller.get('edit_startDate'), 'mojo-property-change', {value: this.startDateModel.date} );
++				if(this.changingStartDate){this.changingStartDate = false;}
++			}
++			this.calcDuration();
++		} else if(this.tzlastBtn !== null && this.tzlastBtn == "popTimezoneBtn") {
++			// end date
++			var cDate = new Date(this.convertedTS);
++			var oldDate = new Date(this.endDateModel.date);
++			if(cDate.getFullYear() === oldDate.getFullYear() && cDate.getMonth() === oldDate.getMonth() && cDate.getDate() === oldDate.getDate() ) {
++				this.targetModifiedTime.end = cDate.getTime();
++				this.endTimeModel.time = new Date(cDate);
++				this.controller.modelChanged(this.endTimeModel);
++				Mojo.Event.send(this.controller.get('edit_endTime'), 'mojo-property-change', {value: this.endTimeModel.time} );
++			} else { //change time then day
++				//leave targetModifiedTime "date" alone until after time switch
++				var newDate = new Date(this.targetModifiedTime.end); 
++				newDate.setHours(cDate.getHours());
++				newDate.setMinutes(cDate.getMinutes());
++				this.targetModifiedTime.end = newDate.getTime();
++				this.endTimeModel.time = new Date(newDate);
++				this.controller.modelChanged(this.endTimeModel);
++				this.dateTimeoutID = 0;
++				//Mojo.Event.send(this.controller.get('edit_endTime'), 'mojo-property-change', {value: this.endTimeModel.time} );
++				this.targetModifiedTime.end = cDate.getTime();
++				this.endDateModel.date = new Date(this.targetModifiedTime.end);
++				this.controller.modelChanged(this.endDateModel);
++				Mojo.Event.send(this.controller.get('edit_endDate'), 'mojo-property-change', {value: this.endDateModel.date} );
++				this.targetModifiedTime.changed = true;
++			}
++		}
++	},
++	
 +	rmScrollTo: function(x) {
 +		if (x instanceof Date == true) { 
 +			var whatMn = x.getMonth();
@@ -1095,7 +1236,7 @@ index de09b4c..d4c92cf 100644
      },
      
      checkTargetEventDirty: function(){
-@@ -480,6 +1316,53 @@ var DatetimeAssistant = Class.create({
+@@ -480,6 +1450,53 @@ var DatetimeAssistant = Class.create({
          }
      },
  	
@@ -1149,7 +1290,7 @@ index de09b4c..d4c92cf 100644
      renderSetEvent: function(response){
          //this callback is called only in the case
          //when we are in the scene and went into cardmode
-@@ -512,11 +1395,46 @@ var DatetimeAssistant = Class.create({
+@@ -512,11 +1529,49 @@ var DatetimeAssistant = Class.create({
      },
  
      activate: function(){
@@ -1177,9 +1318,13 @@ index de09b4c..d4c92cf 100644
      },
      
      deactivate: function(){
+-        //Mojo.Log.info("datetime-assistant:deactivate");	
 +		Mojo.Event.stopListening(this.popCanvasBtn, Mojo.Event.tap, this.canvasBtnHandler);
-+		Mojo.Event.stopListening(this.popCanvasBtn, Mojo.Event.tap, this.canvasBtnHandler);
-         //Mojo.Log.info("datetime-assistant:deactivate");	
++		Mojo.Event.stopListening(this.popCanvasBtn2, Mojo.Event.tap, this.canvasBtnHandler);
++        Mojo.Event.stopListening(this.popTimezoneBtn, Mojo.Event.tap, this.timezoneBtnHandler);
++		Mojo.Event.stopListening(this.popTimezoneBtn2, Mojo.Event.tap, this.timezoneBtnHandler);
++       
++		//Mojo.Log.info("datetime-assistant:deactivate");	
          this.controller.stopListening(this.controller.document, Mojo.Event.deactivate, this.blurStage);
 +		Mojo.Event.stopListening(this.left0, Mojo.Event.tap, this.calTapHandler);
 +		Mojo.Event.stopListening(this.left1, Mojo.Event.tap, this.calTapHandler);
@@ -1196,7 +1341,7 @@ index de09b4c..d4c92cf 100644
      },
  
  
-@@ -629,12 +1547,35 @@ var DatetimeAssistant = Class.create({
+@@ -629,12 +1684,35 @@ var DatetimeAssistant = Class.create({
                  
              case 'MONTHLY': // Do NOT Localize
                  //Monthly by date
@@ -1238,7 +1383,7 @@ index de09b4c..d4c92cf 100644
                      rrule.rules[byDayRuleIndex].ruleValue = [{"ord": nth, "day": newDate.getDay()}];
                  }
                  break;
-@@ -684,6 +1625,7 @@ var DatetimeAssistant = Class.create({
+@@ -684,6 +1762,7 @@ var DatetimeAssistant = Class.create({
              this.targetEvent.alldayReserveddtstart = this.targetModifiedTime.start;
              this.targetEvent.alldayReserveddtstart = this.targetModifiedTime.end;
          }
@@ -1246,7 +1391,7 @@ index de09b4c..d4c92cf 100644
      },
      
      endDateSet: function(isOnBack){
-@@ -775,6 +1717,7 @@ var DatetimeAssistant = Class.create({
+@@ -775,6 +1854,7 @@ var DatetimeAssistant = Class.create({
              
              if (isOnBack === false) {
  				this.calcDuration();
@@ -1254,7 +1399,7 @@ index de09b4c..d4c92cf 100644
  			}
              this.targetModifiedTime.changed = true;
              if (this.datetimeoutID) {
-@@ -884,6 +1827,7 @@ var DatetimeAssistant = Class.create({
+@@ -884,6 +1964,7 @@ var DatetimeAssistant = Class.create({
          this.controller.modelChanged(this.startTimeModel);
          this.controller.modelChanged(this.endTimeModel);
          this.targetModifiedTime.changed = false;
@@ -1262,7 +1407,7 @@ index de09b4c..d4c92cf 100644
  		this.calcDuration();
          //Mojo.Log.info("Old event all day %o, new Event all day %o",this.oldEvent.allDay,this.allDayCheckboxModel);
          if (this.oldEvent.allDay != this.allDayCheckboxModel.value) {
-@@ -894,6 +1838,86 @@ var DatetimeAssistant = Class.create({
+@@ -894,6 +1975,86 @@ var DatetimeAssistant = Class.create({
          }
          this.targetCallBack(this.targetEvent, null);
          
@@ -2450,7 +2595,7 @@ index c7127f8..75f4960 100644
  			}.bind (this, this.tds [this.THIS_DAY].scroller.mojo.scrollTo)
  
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
-index 7b4c244..2f6630c 100644
+index 7b4c244..aa80514 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 @@ -14,16 +14,19 @@ var EditAssistant = Class.create({
@@ -2470,7 +2615,7 @@ index 7b4c244..2f6630c 100644
          this.calendarsManager	= this.app.getCalendarsManager();
  		this.eventManager		= new Calendar.EventManager();
  		this.prefsManager		= this.app.getPrefsManager();
-+		this.tzMgr				= new Calendar.TimezoneManager();
++		//this.tzMgr				= new Calendar.TimezoneManager();
  		this.targetId			= {string: targetId, id: 0};
  		this.targetModifiedTime	= {start: 0, end: 0, id: 0};
  
@@ -2640,11 +2785,11 @@ index 7b4c244..2f6630c 100644
 +		this.renderUberCat();
  		this.updateContentCalendarType(this.targetEvent.calendarId);
 -
-+		var uberYear = new Date(this.targetModifiedTime.start).getFullYear();
-+		var timezones = this.tzMgr.timezones;
-+		if(timezones && timezones[uberYear]) {
-+			this.uberTzIds = timezones[uberYear];
-+		}
++		//var uberYear = new Date(this.targetModifiedTime.start).getFullYear();
++		//var timezones = this.tzMgr.timezones;
++		//if(timezones && timezones[uberYear]) {
++		//	this.uberTzIds = timezones[uberYear];
++		//}
  	},
  	
  	updateCalendarTypeInfo:function(calendarId){
@@ -2957,7 +3102,15 @@ index 7b4c244..2f6630c 100644
  	},
  	/*
  	//Not relevant anymore - cleanup
-@@ -1182,6 +1478,188 @@ var EditAssistant = Class.create({
+@@ -1012,6 +1308,7 @@ var EditAssistant = Class.create({
+ 				this.targetEvent.rrule = 
+ 				{	freq: "DAILY"						// Do NOT Localize
+ 				,	interval: 1
++				,	rules: []
+ 				};				
+ 				break;
+ 				
+@@ -1182,6 +1479,188 @@ var EditAssistant = Class.create({
  		
  	},	
  	
@@ -3146,7 +3299,7 @@ index 7b4c244..2f6630c 100644
  	handleEditRepeat: function(e){
  		Mojo.Log.info("edit-assistant:handleEditRepeat");
  		//create popup menu
-@@ -1272,6 +1750,56 @@ var EditAssistant = Class.create({
+@@ -1272,6 +1751,56 @@ var EditAssistant = Class.create({
  		}
  	},
  
@@ -3922,7 +4075,7 @@ index f20a9ad..a04c272 100644
  			,	id		: this.reminderMenuItemId
  			,	label	: $L('Missed reminders...')
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
-index bb28b12..f241cf7 100644
+index bb28b12..8cd587a 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 @@ -8,7 +8,7 @@
@@ -3994,7 +4147,7 @@ index bb28b12..f241cf7 100644
  	chooseNotificationRingtone: function() {
  		var params = {
  			actionType: "attach",
-@@ -286,6 +304,984 @@ var PrefsAssistant	= Class.create({
+@@ -286,6 +304,1007 @@ var PrefsAssistant	= Class.create({
  		// Retrieve the prefs from the service
  		this.prefs		= this.prefsManager.getPrefs();
  		this.db			= new DatabaseManager();
@@ -4165,6 +4318,7 @@ index bb28b12..f241cf7 100644
 +				}
 +			}
 +		}
++		this.uberAlarmDura = this.prefs.uberAlarmDura;
 +		this.snoozeThrob = this.prefs.blinkNotification;
 +		this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");
 +		if (this.snoozeCookie) {
@@ -4284,6 +4438,18 @@ index bb28b12..f241cf7 100644
 +		newDiv13.appendChild(newDiv14);
 +		newDiv12.appendChild(newDiv13);
 +		dList.appendChild(newDiv12); // add max repeat to drawer list
++		
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv13.setAttribute('class', "palm-row-wrapper");
++		newDiv14.setAttribute('id', "pv_uber_alarm_dura");
++		newDiv14.setAttribute('x-mojo-element', "ListSelector");
++		newDiv13.appendChild(newDiv14);
++		newDiv12.appendChild(newDiv13);
++		dList.appendChild(newDiv12); // add alarm dura to drawer list
 +		
 +		var newDiv12 = document.createElement('div');
 +		var newDiv13 = document.createElement('div');
@@ -4801,6 +4967,16 @@ index bb28b12..f241cf7 100644
 +										value: this.prefs.notificationMaxRepeat
 +									}
 +		);
++		this.controller.setupWidget('pv_uber_alarm_dura',
++									this.alarmDuraAttrs = {
++										modelProperty: 'value',
++										label: $L("Vibration Duration"),
++								      	choices: this.uberAlarmDuration
++									},
++									this.alarmDuraModel = {
++										value: this.prefs.uberAlarmDura
++									}
++		);
 +		this.controller.setupWidget('pv_uber_open_in_view',
 +									this.uberOpenInViewAttrs = {
 +										modelProperty: 'value',
@@ -4979,7 +5155,7 @@ index bb28b12..f241cf7 100644
  		this.requests	= [];
  		this.syncSources= [];
  		this.dirty		= false;
-@@ -392,6 +1388,7 @@ var PrefsAssistant	= Class.create({
+@@ -392,6 +1411,7 @@ var PrefsAssistant	= Class.create({
  	},
  	
  	activate: function() {
@@ -4987,7 +5163,7 @@ index bb28b12..f241cf7 100644
  		//Mojo.Log.info('prefs-assistant: activate');
  		this.prefsManager.validateDefaultCalPref();
  		
-@@ -423,17 +1420,166 @@ var PrefsAssistant	= Class.create({
+@@ -423,17 +1443,168 @@ var PrefsAssistant	= Class.create({
  		
  		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
  		this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
@@ -4996,6 +5172,8 @@ index bb28b12..f241cf7 100644
 +		this.controller.get('pv_default_snooze_duration').observe(Mojo.Event.propertyChange, this.snoozeDurationSelectionHandler);
 +		this.repeatIntervalSelectionHandler = this.handleRepeatIntervalSelection.bindAsEventListener(this);
 +		this.controller.get('pv_notification_repeat_interval').observe(Mojo.Event.propertyChange, this.repeatIntervalSelectionHandler);
++		this.alarmDuraSelectionHandler = this.handleAlarmDuraSelection.bindAsEventListener(this);
++		this.controller.get('pv_uber_alarm_dura').observe(Mojo.Event.propertyChange, this.alarmDuraSelectionHandler);
 +		this.maxRepeatSelectionHandler = this.handleMaxRepeatSelection.bindAsEventListener(this);
 +		this.controller.get('pv_notification_max_repeat').observe(Mojo.Event.propertyChange, this.maxRepeatSelectionHandler);
 +		this.uberOpenInViewSelectionHandler = this.handleUberOpenInViewSelection.bindAsEventListener(this);
@@ -5154,13 +5332,14 @@ index bb28b12..f241cf7 100644
  		//Mojo.Log.info('prefs-assistant: deactivate');
  		this.controller.get('pv_start_of_week').stopObserving('mojo-tap', this.startOfWeekClickHandler);
  		
-@@ -456,6 +1602,48 @@ var PrefsAssistant	= Class.create({
+@@ -456,6 +1627,49 @@ var PrefsAssistant	= Class.create({
  		
  		this.controller.stopListening('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
 +		this.controller.get('pv_default_snooze_duration').stopObserving(Mojo.Event.propertyChange, this.snoozeDurationSelectionHandler);
 +		this.controller.get('pv_notification_repeat_interval').stopObserving(Mojo.Event.propertyChange, this.repeatIntervalSelectionHandler);
 +		this.controller.get('pv_notification_max_repeat').stopObserving(Mojo.Event.propertyChange, this.maxRepeatSelectionHandler);
++		this.controller.get('pv_uber_alarm_dura').stopObserving(Mojo.Event.propertyChange, this.alarmDuraSelectionHandler);
 +		this.controller.get('pv_uber_open_in_view').stopObserving(Mojo.Event.propertyChange, this.uberOpenInViewSelectionHandler);
 +		this.controller.get('pv_uber_back_gesture').stopObserving(Mojo.Event.propertyChange, this.uberBackGestureSelectionHandler);
 +		this.controller.get('pv_uber_dayviewshrink').stopObserving(Mojo.Event.propertyChange, this.uberShrinkDaySelectionHandler);
@@ -5203,7 +5382,7 @@ index bb28b12..f241cf7 100644
  	},
  	
  	// *** EVENT HANDLERS ***
-@@ -492,6 +1680,209 @@ var PrefsAssistant	= Class.create({
+@@ -492,13 +1706,222 @@ var PrefsAssistant	= Class.create({
  		}
  	},
  
@@ -5222,6 +5401,12 @@ index bb28b12..f241cf7 100644
 +	handleMaxRepeatSelection: function(event) {
 +		this.prefs.notificationMaxRepeat = this.maxRepeatModel.value;
 +		Mojo.Log.info("this.prefs.notificationMaxRepeat", this.prefs.notificationMaxRepeat);
++		this.dirty=true;
++	},
++	
++	handleAlarmDuraSelection: function(event) {
++		this.prefs.uberAlarmDura = this.alarmDuraModel.value;
++		Mojo.Log.info("this.uberAlarmDura", this.prefs.uberAlarmDura);
 +		this.dirty=true;
 +	},
 +	
@@ -5413,7 +5598,15 @@ index bb28b12..f241cf7 100644
  
  	startOfWeekChoose: function(val) {
  		//Mojo.Log.info('prefs-assistant: startOfWeekChoose: %s', val);
-@@ -558,8 +1949,20 @@ var PrefsAssistant	= Class.create({
+ 		var value = parseInt(val, 10);
+ 		if (val !== undefined && value != this.prefs.startOfWeek) {
+ 			this.prefs.startOfWeek = value ;
+-			this.prefs.userChangedstartOfWeek =true;
++			this.prefs.userChangedStartOfWeek =true;
+ 			this.renderStartOfWeek();
+ 			this.dirty = true;
+ 		}
+@@ -558,8 +1981,20 @@ var PrefsAssistant	= Class.create({
  					label: ONE_HOUR,
  					command: 60
  				}, {
@@ -5434,7 +5627,7 @@ index bb28b12..f241cf7 100644
  				}]
  			});
  	},
-@@ -639,6 +2042,26 @@ var PrefsAssistant	= Class.create({
+@@ -639,6 +2074,26 @@ var PrefsAssistant	= Class.create({
  		});
  	},
  	
@@ -5461,7 +5654,7 @@ index bb28b12..f241cf7 100644
  	// *** WIDGET ATTRS & MODELS
  
  	
-@@ -651,22 +2074,303 @@ var PrefsAssistant	= Class.create({
+@@ -651,22 +2106,310 @@ var PrefsAssistant	= Class.create({
  		listTitle: $L('Accounts'),
  		items: []
  	},
@@ -5765,6 +5958,13 @@ index bb28b12..f241cf7 100644
 +		{name: 'party'},
 +		{name: 'plane'},
 +		{name: 'vacation'},
++	],
++	
++	uberAlarmDuration: [
++		{label: '0.5 '+$L('second'), value: '0.5'}, // Do NOT Localize these
++		{label: '1.0 '+$L('second'), value: '1.0'},
++		{label: '1.5 '+$L('seconds'), value: '1.5'},
++		{label: '2.0 '+$L('seconds'), value: '2.0'}
  	]
  });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-options-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-options-assistant.js
@@ -9086,7 +9286,7 @@ index 4fa6e78..c021049 100644
  			,	id		: this.reminderMenuItemId
  			,	label	: $L('Missed reminders...')
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/models/calendar-prefs-manager.js b/usr/palm/applications/com.palm.app.calendar/app/models/calendar-prefs-manager.js
-index a06a493..af2dc8a 100644
+index a06a493..7071186 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/models/calendar-prefs-manager.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/models/calendar-prefs-manager.js
 @@ -43,16 +43,22 @@ var CalendarPrefsManager = Class.create ({
@@ -9138,15 +9338,16 @@ index a06a493..af2dc8a 100644
  
  		this.setDefaults();
  	},
-@@ -132,6 +139,7 @@ var CalendarPrefsManager = Class.create ({
+@@ -132,6 +139,8 @@ var CalendarPrefsManager = Class.create ({
  		,	startOfWeek					: startOfWeek
  		,	startTimeOfDay				: -226799992
  		,	userChangedStartOfWeek		: false
 +		,	blinkNotification			: true
++		,	uberAlarmDura				: '0.5'
  		};
  
  		// Cache the db service request to prevent if from being garbage collected:
-@@ -167,7 +175,7 @@ var CalendarPrefsManager = Class.create ({
+@@ -167,7 +176,7 @@ var CalendarPrefsManager = Class.create ({
  		this.prefs._rev = results.rev;
  
  		// Update preference change observers:
@@ -9156,7 +9357,7 @@ index a06a493..af2dc8a 100644
  
  	
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/models/database.manager.js b/usr/palm/applications/com.palm.app.calendar/app/models/database.manager.js
-index fcc3ba9..39b043c 100644
+index fcc3ba9..1d52e4c 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/models/database.manager.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/models/database.manager.js
 @@ -20,14 +20,15 @@ var DatabaseManager = Class.create ({
@@ -9177,8 +9378,22 @@ index fcc3ba9..39b043c 100644
  			},
  			onSuccess: successCB,
  			onFailure: failureCB
+@@ -368,7 +369,12 @@ var DatabaseManager = Class.create ({
+ 					"ids": eventIds
+ 				}
+ 			};
+-		
++			//make sure there are no eventIds in the cleanedEvents
++			for(var i=0; i<cleanedEvents.length; i++) {
++				if(cleanedEvents[i] && cleanedEvents[i]._id) {
++					cleanedEvents[i]._id = undefined;
++				}
++			}
+ 			//Add copies of the event and any children, now with the new kind.
+ 			var putEventsOp = {
+ 				method: "put",
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js b/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js
-index 3eaf78f..e29f1b1 100644
+index 3eaf78f..d6468f3 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/models/reminder-manager.js
 @@ -8,13 +8,101 @@ var ReminderManager = Class.create ({
@@ -9287,7 +9502,7 @@ index 3eaf78f..e29f1b1 100644
  		var reminderIdsLength = reminderIds.length;				
  		for(var i = 0; i < reminderIdsLength; i++){
  			Mojo.Log.info("========= RM: removeReminders: deleting "+reminderIds[i]);	
-+			if(this.reminders[reminderIds[i]].eventId != undefined && this.reminders[reminderIds[i]].eventId != null ) {
++			if(this.reminders && this.reminders[reminderIds[i]].eventId && this.reminders[reminderIds[i]].eventId != undefined && this.reminders[reminderIds[i]].eventId != null ) {
 +				this.updateSnoozedListItem(this.reminders[reminderIds[i]].eventId, 0, true);
 +			}
  			delete this.reminders[reminderIds[i]];
@@ -9359,11 +9574,53 @@ index 3eaf78f..e29f1b1 100644
  					reminderList.push(reminder);
  				}	
  			}
-@@ -621,3 +742,4 @@ var ReminderManager = Class.create ({
+@@ -480,9 +601,11 @@ var ReminderManager = Class.create ({
+ 
+ 		var sound;
+ 		var useSound = false;
++		var uberAlarmDura = 500;
+ 		var prefsMgr = getAppAssistant().getPrefsManager();
+ 		var prefs = prefsMgr.getPrefs();
+ 		var options = prefsMgr.getAlarmSoundOptions();
++		uberAlarmDura = parseFloat(prefs.uberAlarmDura)*1000;
+ 		
+ 		//due to previous implementations, it's possible that in the db, alarmSoundOn is a string ("1", "2", etc.) 
+ 		//OR a boolean (true, false), so let's convert it to a number, because switch statements use a strict equality test ( 2 != "2")
+@@ -534,6 +657,7 @@ var ReminderManager = Class.create ({
+ 			,	height					: height
+ 			}; 
+ 			params [(useSound ? "sound" : "soundclass")] = sound;
++			params["duration"] = uberAlarmDura + "";
+ 			Mojo.Log.info("========= RM: displayReminder: creating reminder assistant stage");
+ 			Mojo.Controller.getAppController().createStageWithCallback (params, pushReminderScene.bind (this, reminder, true), "popupalert");	
+ 		}
+@@ -621,3 +745,4 @@ var ReminderManager = Class.create ({
  ReminderManager.HIDDEN = 1;
  ReminderManager.SNOOZED = 2;
  ReminderManager.SHOWING = 3; 
 +ReminderManager.fromDash = false;
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/models/system-luna-service.js b/usr/palm/applications/com.palm.app.calendar/app/models/system-luna-service.js
+index 75cd6c9..6a99a34 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/models/system-luna-service.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/models/system-luna-service.js
+@@ -23,6 +23,17 @@ var SystemMojoService = Class.create( {
+ 			onSuccess: callback
+ 		});
+ 	},
++	
++	getTimeZoneValues: function(callback) {
++		var request = new Mojo.Service.Request(SystemMojoService.identifier, {
++			method: 'getPreferenceValues',
++			parameters: {"key":"timeZone"}, 
++			onSuccess: callback,
++			onFailure: callback
++		});
++		return request;
++	},
++	
+ 	getSystemTime: function(callback) {
+ 		if(Mojo.Host.current === Mojo.Host.mojoHost) {
+ 			// Mock service response.
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/prefs-options/ubercalgroupitem.html b/usr/palm/applications/com.palm.app.calendar/app/views/prefs-options/ubercalgroupitem.html
 new file mode 100644
 index 0000000..5fa3bf1
@@ -9398,6 +9655,43 @@ index 0000000..5cf1995
 +	<div class="title" x-mojo-loc="">#{-name}</div>
 +</div></div>
 \ No newline at end of file
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/shared/uber-timezone.html b/usr/palm/applications/com.palm.app.calendar/app/views/shared/uber-timezone.html
+new file mode 100644
+index 0000000..eb42d73
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.calendar/app/views/shared/uber-timezone.html
+@@ -0,0 +1,16 @@
++<div id="palm-dialog-content" class="palm-dialog-content">
++	<div class="dialog-message" id="uber-tz-msg" x-mojo-loc="">
++		Current Timezone:
++	</div>
++	<div class="palm-dialog-separator"></div>
++	<div  x-mojo-element="Scroller" id="TZscroller" >
++		<div id="uber-timezone-cont" class="palm-list" style="margin-top:-10px; padding:5px; max-height:230px">
++			<div x-mojo-element="FilterField" id="uberTimezonefilterField" class="filterFieldClass"></div>
++			<div id="uber-timezone-list" x-mojo-element="IndexedList"></div>
++		</div>
++	</div>
++</div>
++
++<div class="palm-dialog-buttons">                                              
++	<div id="Cancel" class="palm-button dismiss" x-mojo-tap-highlight="momentary" style="overflow:hidden" x-mojo-loc="">Cancel</div>
++</div>
+\ No newline at end of file
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/shared/uber-tz-listcontainer.html b/usr/palm/applications/com.palm.app.calendar/app/views/shared/uber-tz-listcontainer.html
+new file mode 100644
+index 0000000..81e8009
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.calendar/app/views/shared/uber-tz-listcontainer.html
+@@ -0,0 +1,8 @@
++<div class="palm-group" style="margin-left:-5px; margin-right:5px; padding-left:10px; padding-right:5px">
++	<div id="uber-timezone-grptitle" class="palm-group-title">
++		<span x-mojo-loc=''></span> 
++	</div>
++	<div class="palm-list">
++		#{-listElements}
++	</div>
++</div>
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubercat-emptylist.html b/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubercat-emptylist.html
 new file mode 100644
 index 0000000..f721577
@@ -9466,6 +9760,22 @@ index 0000000..8e5536f
 +<div class="palm-group unlabeled" style="margin-left:-5px; margin-right:5px; padding-left:10px; padding-right:5px">
 +	<div class="palm-list">
 +		#{-listElements} 
++	</div>
++</div>
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubertz-item.html b/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubertz-item.html
+new file mode 100644
+index 0000000..4c076f1
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubertz-item.html
+@@ -0,0 +1,10 @@
++<div class="palm-row" x-mojo-gesture='Mojo.Gesture.HorizontalDrag' x-mojo-tap-highlight='momentary'>
++	<div class="palm-row-wrapper">	
++		<div class="title">
++			<span class="timezone-country"style="font:18px bold prelude">#{Country}</span><div class="timezone-city"style="font:16px bold prelude">#{City}</div>
++			<div class="preview"style="font:14px bold prelude">
++			#{-DescriptionFormatted} 
++			</div>
++		</div>
 +	</div>
 +</div>
 diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/confirm-deleteevent.js b/usr/palm/applications/com.palm.app.calendar/javascripts/confirm-deleteevent.js
@@ -9581,10 +9891,10 @@ index 0000000..501c299
 +	return w;
 +};
 diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/jumpto.js b/usr/palm/applications/com.palm.app.calendar/javascripts/jumpto.js
-index bd33683..92fe7e0 100644
+index bd33683..ecd7c54 100644
 --- a/usr/palm/applications/com.palm.app.calendar/javascripts/jumpto.js
 +++ b/usr/palm/applications/com.palm.app.calendar/javascripts/jumpto.js
-@@ -9,40 +9,719 @@
+@@ -9,40 +9,720 @@
  
  var JumptoDialogAssistant = Class.create (
  
@@ -10278,6 +10588,7 @@ index bd33683..92fe7e0 100644
 +		Mojo.Event.stopListening(this.right0, Mojo.Event.hold, this.calHoldHandler);
 +		Mojo.Event.stopListening(this.right1, Mojo.Event.hold, this.calHoldHandler);
 +		Mojo.Event.stopListening(this.right2, Mojo.Event.hold, this.calHoldHandler);
++		this.controller.get('uberTemplatefilterField').mojo.close();
 +		Mojo.Event.stopListening(this.controller.get("uberTemplatefilterField"),Mojo.Event.filter, this.uberTemplateFilterHandler);
 +	},
 +
@@ -10315,7 +10626,7 @@ index bd33683..92fe7e0 100644
  		this.widget.mojo.close();
  	}
  
-@@ -54,6 +733,7 @@ var JumptoDialogAssistant = Class.create (
+@@ -54,6 +734,7 @@ var JumptoDialogAssistant = Class.create (
  		this.widget.mojo.close();
  
  		// Set the day to the one chosen by the user
@@ -10323,7 +10634,7 @@ index bd33683..92fe7e0 100644
  		if (whereTo == 'Today'){
  			this.app.setCurrentDateTime (new Date(), false /*dontNotify*/, true /*scrollToDefault*/);
  
-@@ -63,10 +743,237 @@ var JumptoDialogAssistant = Class.create (
+@@ -63,10 +744,237 @@ var JumptoDialogAssistant = Class.create (
  
  		// Run the transition
  		myTransition.run (function(){ Mojo.Log.info("intra-scene transition complete!"); });
@@ -10566,7 +10877,7 @@ index bd33683..92fe7e0 100644
  });
 \ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js b/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
-index 20fee62..443293c 100644
+index 20fee62..42a5e04 100644
 --- a/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
 +++ b/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
 @@ -17,7 +17,19 @@ var RecurrenceWarning = Class.create({
@@ -10594,7 +10905,7 @@ index 20fee62..443293c 100644
  		
  	},
 +	
-+	handleThisAndFuture: function() {
++	handleThisAndFuture: function(event) {
 +		Mojo.Log.info("in handle this and future");
 +		this.widget.mojo.close();
 +		Event.stop(event);
@@ -10604,6 +10915,188 @@ index 20fee62..443293c 100644
  	handleSingle: function(event) {
  		//Mojo.Log.info("************handling single");
  		this.widget.mojo.close();		
+@@ -53,4 +73,180 @@ var RecurrenceWarning = Class.create({
+ 		Event.stop(event);
+ 	}		
+ 	
++});
++
++var UberTimezoneConverter = Class.create({
++	
++	initialize: function(controller, sceneAssistant, tz, timeStamp, uberZones) {
++		this.app = getAppAssistant();
++		this.sceneAssistant = sceneAssistant;
++		this.systemService = this.app.getSystemService();
++		this.controller = controller;
++		this.timeStamp = timeStamp;
++		var uZones = uberZones.clone();
++		this.eventTimezone = tz;
++		if(uZones && uZones.length >0){
++			this.uberTzIds = [];
++			var len = uZones.length;
++			for(var i=0; i< len; i++){
++				var obj = {};
++				obj.Description = obj.ZoneID = uZones[i].tz;
++				obj.needMore = uZones[i].tz ? false : true;
++				this.uberTzIds.push(obj);
++			}
++			this.uberTzIds.push({Description:$L("Tap to retrieve more timezones"), needMore: true});
++		}
++		
++	},
++	
++	getTimeZoneList: function() {		
++		//this.timeZoneQuery = this.timeZoneQuery.bind(this);
++		this.getTimeZoneValuesReq = this.systemService.getTimeZoneValues(this.timeZoneQuery.bind(this));
++	},
++	
++	timeZoneQuery: function(payload) {
++		if(!payload.timeZone){
++			return;
++		}
++		var len = payload.timeZone.length;
++		for (var i = 0; i < len; i++) {
++			var obj = {};
++			var tZone = payload.timeZone[i];
++			obj.Country = $L(tZone.Country);
++			obj.City = $L(tZone.City);
++			obj.CountryAndCity = $L(tZone.Country) +' '+ $L(tZone.City);
++			obj.Description = $L(tZone.Description);
++			obj.ZoneID = tZone.ZoneID;
++			obj.needMore = false;
++			this.tzList.push(obj);
++		}
++		this.tzList.sort(this.compareCountry.bind(this));
++		this.tzListModel.items = this.tzList;
++		this.controller.modelChanged(this.tzListModel, this);
++		this.filtModel.disabled=false;
++		this.controller.modelChanged(this.filtModel, this);
++		this.controller.get('uber-timezone-grptitle').innerHTML = '<span x-mojo-loc="">' + $L("Choose the nearest major city") + '</span>';
++		Mojo.Event.listen(this.controller.get("uberTimezonefilterField"),Mojo.Event.filter, this.uberTimezoneFilterHandler);
++		this.controller.get('uberTimezonefilterField').mojo.setCount(this.tzList.length);
++		this.controller.get('uber-timezone-list').mojo.setLength(this.tzList.length);
++		this.controller.get('uber-timezone-list').mojo.noticeUpdatedItems(0, this.tzList);
++	},
++	
++	compareCountry: function(a,b) {
++		var nameA = a.CountryAndCity.toLocaleLowerCase();
++		var nameB = b.CountryAndCity.toLocaleLowerCase();
++		return nameA.localeCompare(nameB);
++	},
++	
++	handleUberTimezoneFilter: function(event) {
++		if(event.filterString == "" || !event.filterString) {
++			this.controller.get('uber-timezone-list').mojo.setLength(this.tzList.length);
++			this.controller.get('uber-timezone-list').mojo.noticeUpdatedItems(0, this.tzList);
++			//this.controller.get('uberTimezonefilterField').mojo.close();
++			return;
++		}
++		var matching, lowerFilter;
++		var filterString = event.filterString;
++		if (filterString) {
++			lowerFilter = filterString.toLocaleLowerCase();
++			function matchesName (tzone) {
++				return tzone.Country.toLocaleLowerCase().startsWith(lowerFilter) || tzone.City.toLocaleLowerCase().startsWith(lowerFilter) || tzone.Description.toLocaleLowerCase().include(lowerFilter);
++			}
++			matching = this.tzList.findAll(matchesName);
++		} else {
++			matching = this.tzList;
++		}
++		this.tzListModel.items = matching;	
++		this.controller.get('uber-timezone-list').mojo.noticeUpdatedItems(0, matching);		
++		this.controller.get('uber-timezone-list').mojo.setLength(matching.length);
++		this.controller.get('uberTimezonefilterField').mojo.setCount(matching.length);
++	},
++	
++	setup : function(widget) {
++		this.widget = widget;
++		this.controller.get('Cancel').innerHTML = $L('Cancel');
++		this.tzList = [];
++		this.tzListAttrs = {
++			itemTemplate:'shared/ubertz-item',
++			listTemplate:'shared/uber-tz-listcontainer',
++			formatters: {
++					Description: function(value, model) {
++						return model.Description;
++					}
++			}
++		};
++		this.controller.setupWidget("TZscroller",{mode: 'vertical'});
++		this.tzListModel = {listTitle: 'timezones', items: this.uberTzIds};
++		this.controller.setupWidget('uber-timezone-list', this.tzListAttrs, this.tzListModel);
++		this.newTS = this.timeStamp;
++		var msgDiv = this.controller.get('uber-tz-msg');
++		msgDiv.innerHTML = $L('Current Timezone') + ': ' + $L(this.eventTimezone);
++		this.uberTimezoneFilterHandler = this.handleUberTimezoneFilter.bind(this);
++		this.controller.setupWidget('uberTimezonefilterField',
++						this.filtAttrs = {filterFieldHeight: 40},
++						this.filtModel={disabled: true} 
++		);
++		
++	},
++	
++	handleTimezoneListTap: function(event){
++		if(event.item && event.item !== undefined){
++			if(event.item.needMore){ // timezone not there retrieve more
++				this.getTimeZoneList();
++				return;
++			} else { // don't need more just do the conversion
++				this.setPickedTimezone(event.item.ZoneID);
++			}
++		}
++		this.widget.mojo.close();
++	},
++	
++	activate: function(){
++		this.uberTimezoneTapHandler = this.handleTimezoneListTap.bind(this);
++		this.controller.listen(this.controller.get("uber-timezone-list"), Mojo.Event.listTap, this.uberTimezoneTapHandler);
++		this.cancelTapHandler=this.onCancel.bind(this);
++		this.controller.get ('Cancel').addEventListener(Mojo.Event.tap, this.cancelTapHandler);
++		var grpDiv = this.controller.get('uber-timezone-grptitle');
++		grpDiv.innerHTML = '<span x-mojo-loc="">' + $L("Timezones in calendars") + '</span>';
++	},
++	
++	deactivate: function(){
++		this.controller.stopListening(this.controller.get("uber-timezone-list"), Mojo.Event.listTap, this.uberTimezoneTapHandler);
++		this.controller.get ('Cancel').removeEventListener(Mojo.Event.tap, this.cancelTapHandler);
++		if(this.filtModel.disabled === false){
++			this.controller.get('uberTimezonefilterField').mojo.close();
++			Mojo.Event.stopListening(this.controller.get("uberTimezonefilterField"),Mojo.Event.filter, this.uberTimezoneFilterHandler);
++		}
++	},
++	
++	onCancel: function (event) {
++		this.controller.get('uber-timezone-list').mojo.setLength(this.tzList.length);
++		this.controller.get('uber-timezone-list').mojo.noticeUpdatedItems(0, this.tzList);
++		if(this.filtModel.disabled === false){
++			this.controller.get('uberTimezonefilterField').mojo.close();
++		}
++		this.widget.mojo.close();
++	},
++	
++	//have to load timezone selected if it was not in the original listing
++	setPickedTimezone: function(tzId) {
++		var year = new Date(this.timeStamp).getFullYear();
++		var tzFuture = this.sceneAssistant.tzMgr.loadTimezones([tzId], [year]);
++		tzFuture.then(this, function(future) {
++			future.getResult();
++			
++				// timezone loaded;
++				this.newTS = this.sceneAssistant.tzMgr.convertTime(this.timeStamp, tzId,this.eventTimezone);
++				// set the time and close
++				this.sceneAssistant.convertedTS = this.newTS && this.newTS;
++				if(this.filtModel.disabled === false){
++					this.controller.get('uberTimezonefilterField').mojo.close();
++				}
++				this.widget.mojo.close();
++				this.sceneAssistant.uberConverterCallBack();
++			
++		});
++		
++		return tzFuture;
++	}
+ });
+\ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/sources.json b/usr/palm/applications/com.palm.app.calendar/sources.json
 index 8488b5b..d933c8b 100644
 --- a/usr/palm/applications/com.palm.app.calendar/sources.json
@@ -10639,7 +11132,7 @@ index ad129f8..e0b9bee 100644
  .palm-menu-icon.today {
  		background-image: url(../images/menu-icon-today.png);
 diff --git a/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css b/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css
-index d49522c..90f8d03 100644
+index d49522c..c31a700 100644
 --- a/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css
 +++ b/usr/palm/applications/com.palm.app.calendar/stylesheets/datetime.css
 @@ -101,7 +101,44 @@ div.list-separator 		{
@@ -10688,7 +11181,7 @@ index d49522c..90f8d03 100644
  
  #dtl_allday_cb .checkbox {
  	margin-right:0px;
-@@ -115,6 +152,26 @@ div.list-separator 		{
+@@ -115,6 +152,50 @@ div.list-separator 		{
  .calendar-dtl-timedate .icon.timedate {
  	background: url(../images/calendar-dtl/timedate-icon.png) center center no-repeat;
  }
@@ -10704,6 +11197,30 @@ index d49522c..90f8d03 100644
 +	padding: 10px 0px 0px 0px;
 +	width: 50px;
 +	height: 50px;
++	vertical-align: bottom;
++	margin-top: 0px;
++	margin-left: 0px;
++	margin-right: 0px;
++	margin-bottom: 0px;
++	overflow: hidden;
++   -webkit-border-image: none; 
++}
++.popTimezone .palm-button
++{
++background-image:url('../images/calendar-dtl/timedate-icon.png');
++background-position: center top;
++background-repeat: repeat-y;
++}
++.popTimezone .palm-button.selected
++{
++background-image:url('../images/calendar-dtl/timedate-icon-press.png');
++background-position: center top;
++background-repeat: repeat-y;
++}
++.popTimezone .palm-button {
++	padding: 10px 0px 0px 0px;
++	width: 50px;
++	height: 60px;
 +	vertical-align: bottom;
 +	margin-top: 0px;
 +	margin-left: 0px;
