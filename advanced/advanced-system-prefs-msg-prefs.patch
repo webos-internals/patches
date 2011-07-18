@@ -1,6 +1,39 @@
 --- .orig/usr/palm/applications/com.palm.app.messaging/app/models/MojoDbInterfaces.js
 +++ /usr/palm/applications/com.palm.app.messaging/app/models/MojoDbInterfaces.js
-@@ -958,29 +958,55 @@
+@@ -374,13 +374,7 @@
+ 			var conversationId;
+ 			// Retrieve the message to delete
+ 
+-			Mojo.Log.info("About to deleteAttachments before retrievinggggg ", id);
+-
+-			var future = MessagingDB.MMS.deleteAttachments(id);
+-			future.then(this, function() {
+-				Mojo.Log.info("Back from deleting attachments");
+-				future.nest(MessagingDB.Messages.get(id));
+-			});
++			var future = MessagingDB.Messages.get(id);
+ 			future.then(this, function() {
+ 				// Entire message retrieved
+ 				results = future.result ? future.result.results : [];
+@@ -406,8 +400,15 @@
+ 					// There are still messages in the conversation, the summary could be stale
+ 					MessagingDB.Conversations.updateSummary(conversationId, results[results.length-1]);
+ 				}
+-				// Remove the message
+-				future.nest(MojoDB.del([ id ]));
++
++				Mojo.Log.info("About to deleteAttachments before deleting ", id);
++
++				future.nest(MessagingDB.MMS.deleteAttachments(id));
++				future.then(this, function() {
++					Mojo.Log.info("Back from deleting attachments");
++					// Remove the message
++					future.nest(MojoDB.del([ id ]));
++				});
+ 			});
+ 			return future;
+ 		},
+@@ -958,29 +959,55 @@
  //			return isValid;
  //		},
  		
@@ -207,7 +240,7 @@
  			var composeParams = {
  				messageText: text,
  				focusWindow: true,
-@@ -3104,8 +3145,26 @@
+@@ -3104,8 +3145,28 @@
  	
  	_getMessageFromDraft: function() {
  		MessagingDB.Messages.getMessageFromDraft(this.chatThreadId, function(result) {
@@ -218,8 +251,10 @@
 +				this.setTextFieldValue(result.messageText);
 +			}
 +
-+			if(this.Messaging.messagingPrefs.getUseClipboardMsgDrafts())
-+				this.controller.stageController.setClipboard(result.messageText);
++			if(this.Messaging.messagingPrefs.getUseClipboardMsgDrafts()) {
++				this.addTextToClipboard(result.messageText);
++				this.messageTextElement.focus();
++			}
 +
 +			if((result.serviceName == undefined) || (result.serviceName == "sms")) {
 +				var msg = this.Messaging.messagingPrefs.getMessageGreeting() + " " + 
