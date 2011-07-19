@@ -1,8 +1,115 @@
+diff --git a/usr/palm/applications/com.palm.app.browser/source/ActionBar.js b/usr/palm/applications/com.palm.app.browser/source/ActionBar.js
+index b680425..9d9046a 100644
+--- a/usr/palm/applications/com.palm.app.browser/source/ActionBar.js
++++ b/usr/palm/applications/com.palm.app.browser/source/ActionBar.js
+@@ -13,7 +13,8 @@ enyo.kind({
+ 		searchPreferences: {},
+ 		defaultSearch: "",
+ 		progress: 0,
+-		loading: false
++		loading: false,
++		private: false
+ 	},
+ 	events: {
+ 		onBack: "",
+@@ -63,6 +64,7 @@ enyo.kind({
+ 		this.canGoForwardChanged();
+ 		this.canShareChanged();
+ 		this.loadingChanged();
++		this.privateChanged();
+ 	},
+ 	urlChanged: function() {
+ 		this.$.search.setUrl(this.url);
+@@ -106,4 +108,11 @@ enyo.kind({
+ 			}
+ 		}
+ 	},
++	privateChanged: function() {
++		if (this.private) {
++			this.applyStyle('background-color', '#8B0000');
++		} else {
++			this.applyStyle('background-color', null);
++		}
++	}
+ });
+diff --git a/usr/palm/applications/com.palm.app.browser/source/Browser.js b/usr/palm/applications/com.palm.app.browser/source/Browser.js
+index 495775f..635d149 100644
+--- a/usr/palm/applications/com.palm.app.browser/source/Browser.js
++++ b/usr/palm/applications/com.palm.app.browser/source/Browser.js
+@@ -5,10 +5,12 @@ enyo.kind({
+ 	published: {
+ 		url: "",
+ 		searchPreferences: {},
+-		defaultSearch: ""
++		defaultSearch: "",
++		private: false
+ 	},
+ 	events: {
+ 		onPageTitleChanged: "",
++		privateChanged: "",
+ 		onPageLoadStopped: "",
+ 		onFileLoad: "",
+ 		onAddBookmark: "",
+@@ -100,7 +102,11 @@ enyo.kind({
+ 		this.defaultSearchChanged();
+ 		if (window.PalmSystem) {
+ 			this.$.view.setIdentifier(enyo.windowParams.webviewId);
++			
++			this.private = enyo.windowParams.private || false;
+ 		}
++		this.privateChanged();
++		this.doPrivateChanged(this.private);
+ 	},
+ 	resize: function() {
+ 		this.$.actionbar.resize();
+@@ -160,7 +166,6 @@ enyo.kind({
+ 		}
+ 	},
+ 	urlChanged: function() {
+-		this.log(this.url);
+ 		this.$.view.setUrl(this.url);
+ 		this.$.actionbar.setLoading(true);
+ 		this.$.actionbar.setUrl(this.url);
+@@ -171,6 +176,9 @@ enyo.kind({
+ 	defaultSearchChanged: function() {
+ 		this.$.actionbar.setDefaultSearch(this.defaultSearch);
+ 	},
++	privateChanged: function() {
++		this.$.actionbar.setPrivate(this.private);
++	},
+ 	pageTitleChanged: function(inSender, inTitle, inUrl, inBack, inForward) {
+ 		this.log(inUrl, inTitle, inBack, inForward);
+ 		this.url = inUrl;
+@@ -289,13 +297,13 @@ enyo.kind({
+ 		}
+ 	},
+ 	newCardClick: function(inTapInfo) {
+-		enyo.windows.openWindow("index.html", null, {url: inTapInfo.linkUrl});
++		enyo.windows.openWindow("index.html", null, {url: inTapInfo.linkUrl, private: this.private});
+ 	},
+ 	openNewCard: function() {
+-		enyo.windows.openWindow("index.html", null, null);
++		enyo.windows.openWindow("index.html", null, {private: this.private});
+ 	},
+ 	openNewCardWithIdentifier: function(inSender, inIdentifier) {
+-		enyo.windows.openWindow("index.html", null, {webviewId: inIdentifier});
++		enyo.windows.openWindow("index.html", null, {webviewId: inIdentifier, private: this.private});
+ 	},
+ 	copyLinkClick: function(inTapInfo) {
+ 		enyo.dom.setClipboard(inTapInfo.linkUrl);
 diff --git a/usr/palm/applications/com.palm.app.browser/source/BrowserApp.js b/usr/palm/applications/com.palm.app.browser/source/BrowserApp.js
-index 1afbc52..5aa5d91 100644
+index 1afbc52..1ef1276 100644
 --- a/usr/palm/applications/com.palm.app.browser/source/BrowserApp.js
 +++ b/usr/palm/applications/com.palm.app.browser/source/BrowserApp.js
-@@ -99,6 +99,7 @@ enyo.kind({
+@@ -35,6 +35,7 @@ enyo.kind({
+ 			},
+ 			{name: "browser", kind: "Browser",
+ 				onPageTitleChanged: "pageTitleChanged",
++				onPrivateChanged: "privateChanged",
+ 				onPageLoadStopped: "pageLoadStopped",
+ 				onFileLoad: "handleResource",
+ 				onAddBookmark: "addBookmark",
+@@ -99,6 +100,7 @@ enyo.kind({
  		{kind: "AppMenu", onBeforeOpen: "toggleAppMenuItems", components: [
  			//{caption: $L("Find on Page"), onclick: "showFindOnPage"},
  			{name: "preferencesItem", caption: $L("Preferences"), onclick: "preferencesClick"},
@@ -10,10 +117,20 @@ index 1afbc52..5aa5d91 100644
  			{name: "printMenuItem", caption: $L("Print"), onclick: "printClick"},
  			{caption: $L("Help"), onclick: "helpClick"}
  		]}
-@@ -221,6 +222,11 @@ enyo.kind({
+@@ -113,6 +115,8 @@ enyo.kind({
+ 		this.inherited(arguments);
+ 		this.fetchInitialPreferences();
+ 		this.log(enyo.json.stringify(enyo.windowParams));
++		
++		this.privateBrowsing = enyo.windowParams.private || false;
+ 	},
+ 	applicationRelaunchHandler: function(inSender) {
+ 		var c = enyo.windows.getActiveWindow();
+@@ -221,6 +225,12 @@ enyo.kind({
  		var browser = this.isBrowserShowing();
  		this.$.printMenuItem.setDisabled(!browser || this.isBrowserLoading());
  		this.$.preferencesItem.setDisabled(this.isPreferencesShowing());
++
 +		if (this.privateBrowsing) {
 +			this.$.privateMenuItem.setCaption($L("Disable Private Browsing"));
 +		} else {
@@ -22,7 +139,7 @@ index 1afbc52..5aa5d91 100644
  	},
  	applyPreference: function(inPreference, inValue) {
  		this.log(inPreference, inValue);
-@@ -477,6 +483,10 @@ enyo.kind({
+@@ -477,6 +487,10 @@ enyo.kind({
  		this.$.launchApplicationService.call({id: inAppId, params: {target: inUrl, mime: inMime}});
  	},
  	updateHistory: function(inTitle, inUrl) {
@@ -33,13 +150,54 @@ index 1afbc52..5aa5d91 100644
  		this.$.historyService.call(
  			{query: {where: [{prop:"url",op:"=",val:inUrl}]}},
  			{method: "delByQuery"});
-@@ -586,6 +596,9 @@ enyo.kind({
+@@ -586,6 +600,18 @@ enyo.kind({
  	preferencesClick: function() {
  		this.gotoView("preferences");
  	},
++	privateChanged: function() {
++		this.privateBrowsing = this.$.browser.getPrivate();
++		
++		this.$.browser.setPrivate(this.privateBrowsing);
++		this.$.startPage.setPrivate(this.privateBrowsing);
++	},
 +	privateClick: function() {
 +		this.privateBrowsing = !this.privateBrowsing;
++
++		this.$.browser.setPrivate(this.privateBrowsing);
++		this.$.startPage.setPrivate(this.privateBrowsing);
 +	},
  	helpClick: function() {
  		this.$.launchApplicationService.call({params: {target: "http://help.palm.com/web/index.html"}, id: "com.palm.app.help"});
  	},
+diff --git a/usr/palm/applications/com.palm.app.browser/source/StartPage.js b/usr/palm/applications/com.palm.app.browser/source/StartPage.js
+index 8252498..1ff1db0 100644
+--- a/usr/palm/applications/com.palm.app.browser/source/StartPage.js
++++ b/usr/palm/applications/com.palm.app.browser/source/StartPage.js
+@@ -5,7 +5,8 @@ enyo.kind({
+ 	published: {
+ 		url: "",
+ 		searchPreferences: {},
+-		defaultSearch: ""
++		defaultSearch: "",
++		private: false
+ 	},
+ 	events: {
+ 		onUrlChange: "",
+@@ -23,6 +24,7 @@ enyo.kind({
+ 		this.inherited(arguments);
+ 		this.searchPreferencesChanged();
+ 		this.defaultSearchChanged();
++		this.privateChanged();
+ 	},
+ 	addressSelect: function(inSender, inUrl) {
+ 		this.doUrlChange(inUrl);
+@@ -45,6 +47,9 @@ enyo.kind({
+ 	defaultSearchChanged: function() {
+ 		this.$.actionbar.setDefaultSearch(this.defaultSearch);
+ 	},
++	privateChanged: function() {
++		this.$.actionbar.setPrivate(this.private);
++	},
+ 	//* @public
+ 	resize: function() {
+ 		this.$.actionbar.resize();
