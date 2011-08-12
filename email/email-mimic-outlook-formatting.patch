@@ -12,22 +12,25 @@
  	this.originalText = this.text;
  	this.email = {
  		from: {},
-@@ -93,11 +96,14 @@
+@@ -93,11 +96,16 @@
  
  // Need to break this out of the regular prototype assignment, since it's used in the def'n of REPLY_FWD_HTML
  ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER = "<span style='font-family:Prelude, Verdana, san-serif;'><br><br></span><span id='signature'></span>";
-+ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px; color: #1F497D;'><br><br></span><span id='signature'></span>";
++ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px;'><br><br></span><span id='signature'></span>";
++ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK_PLUS = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px; color: #1F497D;'><br><br></span><span id='signature'></span>";
  
  ComposeAssistant.prototype.Composition.prototype = {
  
  	SIGNATURE_PLACEHOLDER: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER,
+-	REPLY_FWD_HTML: "<br><br>" + ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER + "<span style='color:navy; font-family:Prelude, Verdana, san-serif; '><hr align='left' style='width:75%'/>",
 +	SIGNATURE_PLACEHOLDER_OUTLOOK: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK,
- 	REPLY_FWD_HTML: "<br><br>" + ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER + "<span style='color:navy; font-family:Prelude, Verdana, san-serif; '><hr align='left' style='width:75%'/>",
-+	REPLY_FWD_HTML_OUTLOOK: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK + "<span style='color:black; font-family:Prelude, Calibri, san-serif;  font-size:15px;'><hr align='left' style='width:75%'/>",
++	REPLY_FWD_HTML: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER + "<span style='color:navy; font-family:Prelude, Verdana, san-serif; '><hr align='left' style='width:75%'/>",
++	REPLY_FWD_HTML_OUTLOOK: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK + "<span style='color:black; font-family:Prelude, Calibri, san-serif; font-size:15px; '>",
++	REPLY_FWD_HTML_OUTLOOK_PLUS: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK_PLUS + "<span style='color:black; font-family:Prelude, Calibri, san-serif; font-size:15px; '>",
  
  	SUBJECT_PREFIX_RE: $L("Re: "),
  	SUBJECT_PREFIX_FW: $L("Fw: "),
-@@ -275,7 +281,10 @@
+@@ -275,7 +283,10 @@
  		var recipients;
  		var parser = new MailtoURIParser(url);
  		this._setSubject(parser.getDecodedSubject());
@@ -39,7 +42,7 @@
  
  		var convertAddress = function(addr) {
  			return {addr: addr, name:addr};
-@@ -335,7 +344,10 @@
+@@ -335,7 +346,10 @@
  		}
  
  		if (params.text) {
@@ -51,13 +54,17 @@
  		}
  
  		// TODO: this should perform validation/fixup on the recipients
-@@ -499,79 +511,116 @@
+@@ -499,79 +513,120 @@
  		// It would be more robust to read the message body ourselves, and modify the message scene not to modify the object.
  		// So let's change this at some point.
  		if (original.text && original.text.length > 0) {
 -			text = this.REPLY_FWD_HTML;
-+			if(Mojo.Controller.appController.assistant.formatting == "outlook")
-+				text = this.REPLY_FWD_HTML_OUTLOOK;
++			if(Mojo.Controller.appController.assistant.formatting == "outlook") {
++				if(Mojo.Controller.appController.assistant.formattingReply == "plus")
++					text = this.REPLY_FWD_HTML_OUTLOOK_PLUS;
++				else
++					text = this.REPLY_FWD_HTML_OUTLOOK;
++			}
 +			else
 +				text = this.REPLY_FWD_HTML;
  			var fromObj = original.from;
@@ -215,15 +222,16 @@
  		
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
-@@ -13,6 +13,7 @@
+@@ -13,6 +13,8 @@
  
  
  function AppAssistant(appController) {
 +	this.formatting = "default";	
++	this.formattingReply = "default";	
  	
  	//window.logger = window.logger || new EmailApp.Util.PerfLogger();
  	Mojo.Log.warn("NOTE: AppAssistant() constructor");
-@@ -165,6 +166,20 @@
+@@ -165,6 +167,26 @@
  
  // Called when prefs & accounts are loaded, to handle any launches that were delayed earlier.
  AppAssistant.prototype.appInitializationComplete = function() {
@@ -231,8 +239,14 @@
 +		method: 'get', parameters: {'owner': "org.webosinternals.patches.email-mimic-outlook-formatting", 
 +		keys: ["emailReplyForward"]}, 
 +		onSuccess: function(response) {
-+			if((response) && (response.emailReplyForward != undefined))
-+				this.formatting = response.emailReplyForward;
++			if((response) && (response.emailReplyForward != undefined)) {
++				if(response.emailReplyForward == "outlook+") {
++					this.formatting = "outlook";
++					this.formattingReply = "plus";
++				}
++				else
++					this.formatting = response.emailReplyForward;
++			}
 +			this.appInitializationCompleteDone();
 +		}.bind(this),
 +		onFailure: function(response) {
@@ -266,24 +280,21 @@
  		editor.style.minHeight = '320px';
  		editor.style.fontSize = '18px';
 +
-+		if(Mojo.Controller.appController.assistant.formatting == "outlook") {
++/*		if(Mojo.Controller.appController.assistant.formatting == "outlook") {
 +			var forwardedMsg = this.controller.get('forwarded_msg_body');
 +			forwardedMsg.innerHTML = originalText;
 +		}
-+		else {
++		else {*/
 +			bodyText += originalText;
-+		}
++//		}
  	}
  	editor.innerHTML = bodyText;
  
-@@ -1232,8 +1242,9 @@
- ComposeAssistant.kReplyAllAction = 'replyAll';
+@@ -1233,6 +1243,7 @@
  ComposeAssistant.kAppMenuHighPriority = $L('Set as High Priority');
  ComposeAssistant.kAppMenuNormalPriority = $L('Set as Normal Priority');
--ComposeAssistant.kEmptySignatureRegex = /<span id="signature"><div style="font-family: arial, sans-serif; font-size: 12px;color: #999999;">[<br>]*<\/div>[<br>]*<\/span>/;
+ ComposeAssistant.kEmptySignatureRegex = /<span id="signature"><div style="font-family: arial, sans-serif; font-size: 12px;color: #999999;">[<br>]*<\/div>[<br>]*<\/span>/;
++ComposeAssistant.kEmptySignatureRegexOutlook = /<span id="signature"><div style="font-family: Calibri, sans-serif; font-size: 15px;color: #999999;">[<br>]*<\/div>[<br>]*<\/span>/;
  // Send Email Banner Messages
-+ComposeAssistant.kEmptySignatureRegex = /<span id="signature"><div style="font-family: arial, sans-serif; font-size: 12px;color: #999999;">[<br>]*<\/div>[<br>]*<\/span>/;
-+ComposeAssistant.kEmptySignatureRegexOutlook = /<span id="signature"><div style="font-family: Calibri, sans-serif; font-size: 15px;color: #999999;">[<br>]*<\/div>[<br>]*<\/span>/;// Send Email Banner Messages
  ComposeAssistant.kSendWDiscardSummary = $L("Sending email. #{discardSummary}");
  ComposeAssistant.kSaveWDiscardSummary = $L("Saving email to outbox. #{discardSummary}");
- ComposeAssistant.kSendSubject = $L("Sending \"#{subject}\"");
