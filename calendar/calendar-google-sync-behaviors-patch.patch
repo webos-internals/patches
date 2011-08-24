@@ -89,7 +89,7 @@ index 73256cd..b1ae98f 100644
  							Utils.log("\n\n---->>>> Child event prepped: " + stringify(child.remote));
  
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-index 92a1156..ac4ca9a 100644
+index 92a1156..484e0ff 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 @@ -13,6 +13,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
@@ -100,9 +100,12 @@ index 92a1156..ac4ca9a 100644
  
  
  	function getLastModifiedTimeForCalendar(update) {
-@@ -126,6 +127,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -124,8 +125,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			query.setUpdatedMin(startDate);
+ 			query.setUpdatedMax(endDate);
  
- 			Utils.log("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+-			Utils.log("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
  		} else {
 +			Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
  			if (lastModTime) {
@@ -131,10 +134,20 @@ index 92a1156..ac4ca9a 100644
  		}));
  	}
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-index ed2ef73..4120f76 100644
+index ed2ef73..955b342 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-@@ -176,45 +176,8 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -115,6 +115,9 @@ var GoogleCalendarEventTransformer = Class.create({
+ 		recurrence = formatDtTime("dtstart", from);
+ 		recurrence += formatDtTime("dtend", from, from.allDay);
+ 
++
++
++
+ 		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
+ 
+ 		Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
+@@ -176,45 +179,8 @@ var GoogleCalendarEventTransformer = Class.create({
  			time = GoogleCalendarEventTransformer.getTimeOrAdd(to);
  		}
  
@@ -182,7 +195,63 @@ index ed2ef73..4120f76 100644
  		// Stomp on whatever reminders we just pulled from the server
  		to.setReminders(reminders);
  		if (time) {
-@@ -574,6 +537,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
+@@ -253,40 +219,46 @@ var GoogleCalendarEventTransformer = Class.create({
+ 	attendees: function (to, from) {
+ 		// "type": ["$ref": "Attendee"]
+ 		// "optional": "true"
++		
+ 		if (!from.attendees) {
+ 			return;
+ 		}
+-
++		Utils.error("\n\n---->>>> attendees Google calendar event: " + (from.attendees && stringify(from.attendees)));
+ 		var i,
+ 			participant,
+ 			participants = [],
+ 			attendeeStatus;
+-		for (i = 0; i < from.length; ++i) {
+-			participant = new google.gdata.Attendee();
+-			participant.setRel(from.organizer ? google.gdata.Who.REL_ORGANIZER : google.gdata.Who.REL_ATTENDEE);
++		for (i = 0; i < from.attendees.length; ++i) {
++			participant = new google.gdata.Who();
++			participant.setRel(from.attendees[i].organizer ? google.gdata.Who.REL_EVENT_ORGANIZER : google.gdata.Who.REL_EVENT_ATTENDEE);
+ 
+ 			attendeeStatus = undefined;
+-			if (from.participationStatus === "ACCEPTED") {
++			if (from.attendees[i].participationStatus === "ACCEPTED") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_ACCEPTED);
+-			} else if (from.participationStatus === "DECLINED") {
++			} else if (from.attendees[i].participationStatus === "DECLINED") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_DECLINED);
+-			} else if (from.participationStatus === "TENTATIVE") {
++			} else if (from.attendees[i].participationStatus === "TENTATIVE") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_TENTATIVE);
++			} else if (from.attendees[i].participationStatus === "NEEDS-ACTION" && from.attendees[i].organizer) {
++				to.setSendEventNotifications({value: true});
+ 			}
+ 			if (attendeeStatus) {
+ 				participant.setAttendeeStatus(attendeeStatus);
+ 			}
+ 
+-			participant.setEmail(from.email);
+-			participant.setValueString(from.commonName);
++			participant.setEmail(from.attendees[i].email);
++			participant.setValueString(from.attendees[i].commonName);
+ 			participants.push(participant);
++			//Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + (participant && stringify(participant)));
++			//Utils.error("\n\n---->>>> to Google calendar event: " + (to && stringify(to)));
+ 		}
+ 
+ 		if (participants.length) {
+ 			to.setParticipants(participants);
++			Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + participants.length);
+ 		}
+ 	},
+ 
+@@ -574,6 +546,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
  	return time;
  };
  
@@ -239,7 +308,7 @@ index ed2ef73..4120f76 100644
  GoogleCalendarEventTransformer.dayHash = [
  	"SU",
  	"MO",
-@@ -586,7 +599,17 @@ GoogleCalendarEventTransformer.dayHash = [
+@@ -586,7 +608,17 @@ GoogleCalendarEventTransformer.dayHash = [
  
  // Catches form-feed, return, horizontal tab, vertical tab, space, non-breaking space, line separator, and paragraph separator
  GoogleCalendarEventTransformer.collapseWhitespaceRegex = new RegExp("[\\f\\r\\t \u000B\u00A0\u2028\u2029]{2,}", 'g');
@@ -260,7 +329,7 @@ index ed2ef73..4120f76 100644
 +	return escString.replace(/(")/g, "\"");
  };
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
-index 5167014..8f2105a 100644
+index 5167014..25a6e53 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 @@ -43,12 +43,16 @@ function formatTime (dateTime) {
@@ -290,8 +359,45 @@ index 5167014..8f2105a 100644
  		s += duration.getDays() + 'D';
  	}
  
+@@ -154,25 +158,27 @@ function transformReminder (reminder, obj) {
+ 
+ function transformAttendee(participant) {
+ 	var attendee = {},
++		attStatus,
+ 		attendeeType = participant.getRel(),
+ 		attendeeStatus = participant.getAttendeeStatus(),
+ 		attendeeEmail = participant.getEmail(),
+ 		attendeeCommonName = participant.getValueString();
+ 
+ 	attendee.organizer = attendeeType === google.gdata.Who.REL_EVENT_ORGANIZER;
+-
+-	attendeeStatus = attendeeStatus && attendeeStatus.getValue();
+-	if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_ACCEPTED) {
+-		attendee.participantStatus = "ACCEPTED";
+-	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_DECLINED) {
+-		attendee.participantStatus = "DECLINED";
+-	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_TENTATIVE) {
+-		attendee.participantStatus = "TENTATIVE";
++	//Utils.error("\n\n---->>>> transform attendee on Google calendar event: " + (participant && stringify(participant)));
++	//Utils.error("\n\n---->>>> transform attendee status: " + (attendeeStatus && attendeeStatus.getValue()));
++	attStatus = attendeeStatus && stringify(attendeeStatus.getValue());
++	if (attStatus && /event\.accepted/g.test(attStatus)) {
++		attendee.participationStatus = "ACCEPTED";
++	} else if (attStatus && /event\.declined/g.test(attStatus)) {
++		attendee.participationStatus = "DECLINED";
++	} else if (attStatus && /event\.tentative/g.test(attStatus)) {
++		attendee.participationStatus = "TENTATIVE";
+ 	}
+ 
+ 	attendee.email = attendeeEmail;
+ 	attendee.commonName = attendeeCommonName;
+-
++	Utils.error("\n\n---->>>> transform attendee on Google calendar event: " + (attendee && stringify(attendee)));
+ 	return attendee;
+ }
+ 
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
-index 6240d9a..150f56a 100644
+index 6240d9a..a802fac 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
 @@ -35,6 +35,12 @@ var XMLHttpRequest = Class.create({
@@ -307,3 +413,12 @@ index 6240d9a..150f56a 100644
  		var future = AjaxCall.call(this.httpMethod, this.url, postBody, this.options);
  
  		future.onError(function () {
+@@ -55,7 +61,7 @@ var XMLHttpRequest = Class.create({
+ 				/*jslint eqeqeq: true */
+ 				Utils.log("\n\n\n--->>> send called. post body: " + postBody + "");
+ 				Utils.log("--->>> method: " + this.httpMethod + ", url: " + this.url + ", options: " + stringify(this.options));
+-				Utils.log("\n\n\n--->>> status: " + this.result.status);
++				Utils.error("\n\n\n--->>> status: " + this.result.status);
+ 				Utils.log("\n--->>> responseText: " + this.result.responseText + " \n");
+ 				Utils.log("\n--->>> responseJSON: " + this.result.responseJSON + " \n");
+ 				Utils.log("\n--->>> response headers: " + stringify(this.result.getAllResponseHeaders()));
