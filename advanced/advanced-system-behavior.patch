@@ -1,0 +1,1424 @@
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/history-assistant.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/history-assistant.js
+@@ -54,11 +54,12 @@
+ 
+ HistoryAssistant.prototype.activate = function() {
+ 	this._historyListWidget.observe(Mojo.Event.listTap, this._onListSelectionHandler);
++	this._historyListWidget.observe(Mojo.Event.listDelete, this._onListDeleteHandler);
+ };
+ 
+ HistoryAssistant.prototype.deactivate = function() {
+ 	this._historyListWidget.stopObserving(Mojo.Event.listTap, this._onListSelectionHandler);
+-	
++	this._historyListWidget.stopObserving(Mojo.Event.listDelete, this._onListDeleteHandler);	
+ };
+ 
+ 
+@@ -89,6 +90,10 @@
+ 	});
+ };
+ 
++HistoryAssistant.prototype._onListDelete = function(event) {
++	this.historyStore.deleteHistoryEntry(event.item.url, function() {}, function() {});
++};
++
+ /**
+  * handle a menu command.
+  */
+@@ -228,13 +233,15 @@
+ 				item: "history/history-entry",
+ 				container: "history/history-container"
+ 			},
+-			onItemRendered: this._itemsCallback.bind(this)
++			onItemRendered: this._itemsCallback.bind(this),
++			swipeDelete: {autoConfirm: true}
+ 		};
+ 		
+ 		// finally, set up the widget
+ 		
+ 		this._historyListWidget = this.controller.get('historyList');
+ 		this._onListSelectionHandler = this._onListSelection.bind(this);
++		this._onListDeleteHandler = this._onListDelete.bind(this);
+ 		
+ 		this.controller.setupWidget('historyList', attributes, {});
+ 		
+--- .orig/usr/palm/applications/com.palm.app.browser/app/models/history-store.js
++++ /usr/palm/applications/com.palm.app.browser/app/models/history-store.js
+@@ -44,6 +44,26 @@
+ 	}
+ };
+ 
++HistoryStore.prototype.deleteHistoryEntry = function(url, onSuccess, onFailure) {
++	var response;
++
++	try {
++		if((!url) || (url.length === 0)) {
++			response ={ returnValue: "No URL" };
++			onFailure(response);
++			return;
++		}
++
++		var propOpValueArray=[{"prop": "url", "op": "=", "val": url}];
++		
++		this.mojoDbInterface.deleteHistory(propOpValueArray, onSuccess, onFailure);
++	} catch (e) {
++		Mojo.Log.logException(e);
++		response = { returnValue: "Unknown error" };
++		onFailure(response);
++	}
++};
++
+ HistoryStore.prototype.addHistory = function(url, title, date, onSuccess, onFailure) {
+ 	var response;
+ 	try	{
+--- .orig/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
++++ /usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
+@@ -81,6 +81,10 @@
+ 	this._onSpotlightEndHandler = this._onSpotlightEnd.bind(this);
+ 
+ 	this._stopSceneScrolling = this._stopSceneScrolling.bindAsEventListener(this);
++
++	// Power scroll handlers
++	this.gestureStart = this.handleGestureStart.bindAsEventListener(this);
++	this.gestureEnd = this.handleGestureEnd.bindAsEventListener(this);
+ }
+ 
+ /**
+@@ -284,6 +288,34 @@
+ 	}
+ };
+ 
++PageAssistant.prototype.handleGestureStart = function(event) {
++	this.gestureStartY = event.centerY;
++	this.gestureStartX = event.centerX;
++};
++ 
++PageAssistant.prototype.handleGestureEnd = function(event) {
++	if(((event.centerY - this.gestureStartY) > 200) &&
++		(Math.abs(event.centerX - this.gestureStartX) < 45))
++	{
++		this.controller.getSceneScroller().mojo.revealTop();
++	}
++	else if(((event.centerY - this.gestureStartY) < -200) &&
++		(Math.abs(event.centerX - this.gestureStartX) < 45))
++	{
++		this.controller.getSceneScroller().mojo.revealBottom();
++	}
++	else if(((this.gestureStartX - event.centerX) > 200) &&
++		(Math.abs(event.centerY - this.gestureStartY) < 45))
++	{	
++		this._openHistoryView();
++	}
++	else if(((this.gestureStartX - event.centerX) < -200) &&
++		(Math.abs(event.centerY - this.gestureStartY) < 45))
++	{
++		this._openBookmarkView();
++	}
++};
++
+ /**
+  * Show the startpage which displays the list of current bookmarks.
+  */
+@@ -318,6 +350,11 @@
+ 		// Signal we are interested in showing browser server status.
+ 		this._browserServerStatus.showActivateState();
+ 
++		// Add power scroll listening
++		
++		this.controller.listen(this.controller.document, "gesturestart", this.gestureStart);
++		this.controller.listen(this.controller.document, "gestureend", this.gestureEnd);
++
+ 		this.controller.document.addEventListener(Mojo.Event.activate, this._onCardActivateHandler, false);
+ 		this.controller.document.addEventListener(Mojo.Event.deactivate, this._onCardDeactivateHandler, false);
+ 
+@@ -422,6 +459,10 @@
+ 		// Signal we are not interesting in showing the browser server status.
+ 		this._browserServerStatus.showDeactivateState();
+ 
++		// Cleanup power scroll
++		this.controller.stopListening(this.controller.document, "gesturestart", this.gestureStart);
++		this.controller.stopListening(this.controller.document, "gestureend", this.gestureEnd);
++
+ 		// Cleanup focus handlers.
+ 		this.controller.document.removeEventListener(Mojo.Event.activate, this._onCardActivateHandler, false);
+ 		this.controller.document.removeEventListener(Mojo.Event.deactivate, this._onCardDeactivateHandler, false);
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
+@@ -323,10 +323,15 @@
+ 		
+ 		if(stage) {
+ 			Mojo.Log.info("AppAssistant.showEmailStage: Reusing existing stage.");
+-			stage.popScenesTo('accounts');
+ 			stage.activate();
+-			skipAccountsPush = true;
+-			stageExists(stage);
++
++			if(options.message)
++				setTimeout(AppAssistant.launchEmailCard.bind(this, options), 500);
++			else {
++				stage.popScenesTo('accounts');
++				skipAccountsPush = true;
++				stageExists(stage);
++			}
+ 		} else {
+ 			Mojo.Log.info("AppAssistant.showEmailStage: Creating new stage.");
+ 
+@@ -376,6 +381,20 @@
+ 	
+ };
+ 
++AppAssistant.launchEmailCard = function(params) {
++	var childCardId = AppAssistant.childCardId++;
++
++	var stageParams = {
++		name: 'childCard' + childCardId,
++		lightweight: Mojo.Controller.appInfo.lwStages
++	};
++
++	var callback = function(controller) {
++		controller.pushScene('message', params.message, false, null, childCardId);
++	};
++
++	Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++};
+ 
+ AppAssistant.focusEmailStage = function focusEmailStage() {
+ 	var emailStageController = Mojo.Controller.appController.getStageController("email");
+@@ -384,9 +403,10 @@
+ 	}
+ };
+ 
+-AppAssistant.composeStageId = 0;
++AppAssistant.childCardId = 1;
+ AppAssistant.openComposeStage = function openComposeStage(composeOptions, composeDoneFunc) {
+ 	// Ensure the stage name is unique for each compose stage
++	var childCardId = AppAssistant.childCardId++;
+ 	var createStage = function(stageName) {
+ 		// "nocache:true" tells sysmanager to not use the card caching strategy on compose cards
+ 		var params = {
+@@ -397,12 +417,11 @@
+ 			splashBackgroundName: 'images/splash-email-compose.png'
+ 		};
+ 		var callback = function(stageController) {
+-			stageController.pushScene('compose', composeOptions, stageName, composeDoneFunc);
++			stageController.pushScene('compose', composeOptions, stageName, composeDoneFunc, childCardId);
+ 		};
+ 		Mojo.Controller.getAppController().createStageWithCallback(params, callback, undefined, composeDoneFunc); // Call through to the composeDoneFunc if the stage fails to open.
+ 	};
+-	AppAssistant.composeStageId++;
+-	createStage("compose"+AppAssistant.composeStageId);
++	createStage("childCard" + childCardId);
+ };
+ 
+ AppAssistant.emailViewerStageId = 0;
+@@ -526,7 +545,14 @@
+ 			params = {params: params};
+ 		}
+ 
+-		AppAssistant.openComposeStage(params);
++		var stageController = Mojo.Controller.appController.getStageController("email");
++		
++		if(stageController) {
++			stageController.activate();
++			setTimeout(AppAssistant.openComposeStage.bind(this, params), 500);
++		}
++		else
++			AppAssistant.openComposeStage(params);
+ 	};
+ 	
+ 	LaunchHandler.prototype.handleViewEmailFile = function() {
+--- .orig/usr/palm/applications/com.palm.app.email/app/views/list/email_entry.html
++++ /usr/palm/applications/com.palm.app.email/app/views/list/email_entry.html
+@@ -1,4 +1,4 @@
+-<div class="palm-row #{-readFlag} email-entry" id="#{-id}" x-mojo-tap-highlight="momentary">
++<div class="palm-row #{-readFlag} email-entry" id="#{-_id}" x-mojo-tap-highlight="momentary">
+ 		
+ 		#{-unreadFlaggedIcon}
+ 		#{-replyIcon}
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/list-assistant.js
+@@ -36,6 +36,17 @@
+ 
+ 	//window.logger.log("ListAssistant ctor done");
+ 
++	this.focusAfterOpen = false;
++	this.alwaysOpenInNewCard = false;
++
++	Foundations.Comms.PalmCall.call('palm://org.webosinternals.tweaks.prefs/', 'get', {
++		owner: "org.e.lnx.wee.advanced-system-behavior-email", 
++		keys:["alwaysOpenInNewCard","openToBackground"]}).then( function(f) {
++			if((f.result) && (f.result.openToBackground != undefined))
++				this.focusAfterOpen = f.result.openToBackground;
++			if((f.result) && (f.result.alwaysOpenInNewCard != undefined))
++				this.alwaysOpenInNewCard = f.result.alwaysOpenInNewCard;
++		}.bind(this));
+ };
+ 
+ ListAssistant.prototype.setup = function() {
+@@ -187,6 +198,7 @@
+ 	this.emailListElement.addEventListener(Mojo.Event.listTap, this.handleClick.bind(this));
+ 	this.emailListElement.addEventListener(Mojo.Event.listDelete, this.handleDelete.bind(this));
+ 	this.emailListElement.addEventListener(Mojo.Event.filterImmediate, this.handleFilterChange.bind(this));
++	this.emailListElement.addEventListener(Mojo.Event.hold, this.handleListHold.bind(this));
+ 	this.controller.listen('email_list', Mojo.Event.filter, this.handleFilterBound, true);
+ 
+ 
+@@ -228,6 +240,7 @@
+ 	if (this.emailListElement) {
+ 		this.emailListElement.removeEventListener(Mojo.Event.listTap, this);
+ 		this.emailListElement.removeEventListener(Mojo.Event.listDelete, this.handleDelete);
++		this.emailListElement.removeEventListener(Mojo.Event.hold, this);
+ 	}
+ 
+ 	EmailApp.accounts.removeListener(this.handleAccountsChanged);
+@@ -709,6 +722,67 @@
+ 	});
+ };
+ 
++ListAssistant.prototype.handleListHold = function (event) {
++	var folderId = this.folder._id;
++	var that = this;
++	
++	if(this.handleClickInProgress) {
++		return;
++	}
++	
++	if((event.target.parentNode) && (event.target.parentNode.id)) {
++	 	event.target.parentNode.className = "palm-row read email-entry";
++	 
++		var emailMessageId = event.target.parentNode.id;
++
++		var stageController = Mojo.Controller.appController.getStageController("email" + emailMessageId);
++
++		if(stageController) {
++			stageController.activate();
++			return;
++		}
++
++		this.handleClickInProgress = true;
++
++		Foundations.Data.DB.get([emailMessageId]).then(function(future) {
++			that.handleClickInProgress = false;
++
++			var email = future.result.results[0];
++			var sendStatus = email.sendStatus;
++
++			if((folderId !== that.mailAccount.draftsFolderId) &&
++				(folderId !== that.mailAccount.outboxFolderId || sendStatus || sendStatus.fatalError))
++			{
++				that.eventAlreadyHandled = true;
++			
++				var emailParams = {
++					accountId: that.folder.accountId,
++					orderBy: that.orderBy,
++					isDescending: that.sortDesc,
++					nextPrevWhereClause: that.makeWhere()
++				};
++
++				if(that.filter) {
++					params.folderFilter = that.filter;
++					params.filteredSet = that.dataAssistant.localDSA.itemsArray;
++				}
++				
++				var childCardId = AppAssistant.childCardId++;
++				
++				var stageParams = { 
++					name: 'childCard' + childCardId, 
++					lightweight: Mojo.Controller.appInfo.lwStages
++				};
++
++				var callback = function(controller) {
++					controller.pushScene('message', {email: email, emailArgs: emailParams}, that.focusAfterOpen, null, childCardId);
++				};
++
++				Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++			}
++		});
++	}
++};
+ 
+ ListAssistant.prototype.handleClick = function (event) {
+ 	var id = event.item._id;
+@@ -719,6 +793,11 @@
+ 		return;
+ 	}
+ 
++	if(this.eventAlreadyHandled) {
++		this.eventAlreadyHandled = false;
++		return;
++	}
++
+ 	Mojo.Log.info("Trying to open email %s", event.item._id);
+ 	if (id) {
+ 
+@@ -756,10 +835,27 @@
+ 						params.folderFilter = that.filter;
+ 						params.filteredSet = that.dataAssistant.localDSA.itemsArray;
+ 					}
+-					that.controller.stageController.pushScene('message', {
+-						email: email,
+-						emailArgs: params
+-					}, true);
++					
++					if(that.alwaysOpenInNewCard) {
++						var childCardId = AppAssistant.childCardId++;
++				
++						var stageParams = { 
++							name: 'childCard' + childCardId, 
++							lightweight: Mojo.Controller.appInfo.lwStages
++						};
++
++						var callback = function(controller) {
++							controller.pushScene('message', {email: email, emailArgs: params}, that.focusAfterOpen, null, childCardId);
++						};
++
++						Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++					}
++					else {
++						that.controller.stageController.pushScene('message', {
++							email: email,
++							emailArgs: params
++						}, true);
++					}
+ 				}
+ 
+ 			}
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -11,9 +11,11 @@
+ 
+ 
+ 
+-var MessageAssistant = function(params, focusStage, detailsObj){
++var MessageAssistant = function(params, focusStage, detailsObj, childCard){
+ 	//window.logger.log("MessageAssistant ctor");
+ 
++	this.childCard = childCard;
++
+ 	this.lastPosition = Mojo.Controller.appController.getScreenOrientation();
+ 	this.positions = [
+         "face up",
+@@ -100,7 +102,7 @@
+ 	this.handleShowHideAttachmentList = this.showHideAttachmentList.bind(this);
+ 	
+ 	if (focusStage === true) {
+-		this.focusStageTimer = _.delay(this.focusEmailStage.bind(this), 600);
++		this.focusStageTimer = _.delay(this.focusEmailStage.bind(this), 500);
+ 	}
+ 	
+ 	//window.logger.log("MessageAssistant ctor done");
+@@ -118,7 +120,15 @@
+ 
+ 	MessageAssistant.prototype.setup = function() {
+ 		//window.logger.log("MessageAssistant setup");
+-		this.stageController = this.controller.stageController;
++
++		if(this.childCard) {
++			this.stageController = Mojo.Controller.appController.getStageController("childCard" + this.childCard);
++
++			this.stageController.setWindowOrientation("free");
++		}
++		else
++			this.stageController = Mojo.Controller.appController.getStageController("email");
++
+ 		this._setupMessage(); // get message details and setup message webview widget
+ 		this._setupMenus();
+ 		this.controller.setupWidget('email_recipients_drawer', {unstyled:true}, { open: false });
+@@ -1013,7 +1023,7 @@
+ 	
+ 	
+ 	MessageAssistant.prototype.addAsScrollListener = function(event) {
+-		if (event.scroller) {
++		if((event) && (event.scroller)) {
+ 			event.scroller.addListener(this);
+ 		}
+ 	};
+@@ -1051,6 +1061,9 @@
+ 	* @param {Object} resp
+ 	*/
+ 	MessageAssistant.prototype.displayContactAvatarAndPresence = function(baseId, storageId, contactPerson) {
++		if(!this.controller)
++			return;
++
+ 		var personId = contactPerson.getId();
+ 		this.contactResponses[personId] = contactPerson;
+ 		var nameId = baseId + "-name";
+@@ -2689,7 +2702,10 @@
+ 			window.close();
+ 		} else {
+ 			// Go back
+-			this.controller.stageController.popScene();
++			if(this.childCard)
++				this.controller.window.close();
++			else
++				this.controller.stageController.popScene();
+ 		}
+ 	};
+ 	
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/app-assistant.js
+@@ -35,7 +35,7 @@
+ //		this.appController.serviceRequest = this.serviceRequestHelper.serviceRequest.bind(this.serviceRequestHelper);
+ 		
+ 		this.considerForNotification = appController.notificationAssistant.considerForNotification.bind(appController.notificationAssistant);
+-			
++		this.appController.childCardId = 0;	
+ 	},
+ 	
+ 	handleLaunch: function(param){
+@@ -104,6 +104,32 @@
+ 		}		
+ 	},
+ 	
++	launchChatInNewCard: function(chatThreadId, params) {
++		var stageController = Mojo.Controller.appController.getStageController("childCard" + chatThreadId);
++
++		if(stageController) {
++			stageController.activate();
++			stageController.delegateToSceneAssistant("activate");
++		}
++		else {
++			if(!params)
++				params = {};
++
++			params.childCard = true;
++		
++			var stageParams = {
++				name: 'childCard' + chatThreadId,
++				lightweight: Mojo.Controller.appInfo.lwStages
++			};
++
++			var callback = function(controller) {
++				controller.pushScene('chatview', chatThreadId, params);
++			};
++
++			Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++		}
++	},
++
+ 	launchChatWithId: function(stageController, chatThreadId) {
+ 		if (stageController) {			
+ 			// Don't pop/push if the chat we want is already open
+@@ -111,20 +137,32 @@
+ 				return;
+ 			}
+ 			
+-			var params = {
++/*			var params = {
+ 				focusWindow: true
+ 			};			
+ 			this.addListViewClearBadgeForChatFnToParams(params,chatThreadId);				
+ 			stageController.popScenesTo("listview");
+ 			stageController.pushScene("chatview", chatThreadId, params);
++*/
++
++			stageController.activate();
++			setTimeout(this.launchChatInNewCard.bind(this, chatThreadId), 500);
+ 		} else {
+-			var afterCreate = function(stageController){
+-				stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
+-				stageController.pushScene("chatview", chatThreadId, {
+-					focusWindow: true
+-				});
+-			};
+-			this.createWindow(afterCreate, 'images/splash-messaging-chatview.png');
++			var stageController = Mojo.Controller.appController.getStageController("childCard" + chatThreadId);
++
++			if(stageController) {
++				stageController.activate();
++				stageController.delegateToSceneAssistant("activate");
++			}
++			else {
++				var afterCreate = function(stageController){
++					stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
++					stageController.pushScene("chatview", chatThreadId, {
++						focusWindow: true
++					});
++				};
++				this.createWindow(afterCreate, 'images/splash-messaging-chatview.png');
++			}
+ 		}		
+ 	},
+ 	
+@@ -141,8 +179,10 @@
+ 					focusWindow: true
+ 				};
+ 				this.addListViewClearBadgeForChatFnToParams(params, resp.chatThreadId);				
+-				stageController.popScenesTo("listview", {});
+-				stageController.pushScene("chatview", resp.chatThreadId, params);				
++				stageController.activate();
++				setTimeout(this.launchChatInNewCard.bind(this, resp.chatThreadId, params), 500);
++//				stageController.popScenesTo("listview", {});
++//				stageController.pushScene("chatview", resp.chatThreadId, params);				
+ 			} else {
+ 				var afterCreate = function(stageController){
+ 					stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
+@@ -231,8 +271,10 @@
+ 						
+ 					launchParams.focusWindow = true;
+ 					this.addListViewClearBadgeForChatFnToParams(launchParams, conversation._id);			
+-					stageController.popScenesTo("listview", {});
+-					stageController.pushScene("chatview", conversation._id, launchParams);
++					stageController.activate();
++					setTimeout(this.launchChatInNewCard.bind(this, conversation._id, launchParams), 500);
++//					stageController.popScenesTo("listview", {});
++//					stageController.pushScene("chatview", conversation._id, launchParams);
+ 				} else {
+ 					var afterCreate = function(stageController){
+ 						stageController.pushScene({name:'listview', id:CONSTANTS.SCENE_ID_LISTVIEW}, {});
+@@ -305,7 +347,12 @@
+ 
+ 	launchCompose: function(stageController, composeParams) {
+ 		composeParams.focusWindow = true;
+-		
++
++		if (stageController)
++			stageController.activate();
++
++		setTimeout(this.launchComposeInNewCard.bind(this, composeParams), 500);
++/*		
+ 		if (stageController) {
+ 			stageController.popScenesTo("listview", {});
+ 			stageController.pushScene("compose", composeParams);
+@@ -316,6 +363,22 @@
+ 			};
+ 			this.createWindow(afterCreate, 'images/splash-messaging-chatview.png');
+ 		}		
++*/
++	},
++
++	launchComposeInNewCard: function(params) {
++		params.childCard = true;
++	
++		var stageParams = {
++			name: 'childCard' + this.appController.childCardId++,
++			lightweight: Mojo.Controller.appInfo.lwStages
++		};
++
++		var callback = function(controller) {
++			controller.pushScene('compose', params);
++		};
++
++		Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
+ 	},
+ 	
+ 	launchListView: function(stageController, forceListView) {
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
++++ /usr/palm/applications/com.palm.app.messaging/app/views/listview/buddyList-row.html
+@@ -3,7 +3,7 @@
+ 	<div class="avatar-set" style="background-image:url(#{avatar})"><div class="avatar-frame"></div></div>
+     <div class="icon left status-#{availabilityClass} status-icon"></div>
+     <div class="title #{hideCustomMessage} #{unreadCountClass}" id="buddyBageContainer#{chatId}">
+-      <div class="truncating-text im-name-info">#{displayName}</div>
++      <div class="truncating-text im-name-info" id="#{displayNameDivId}">#{displayName}</div>
+       <div class="unread-count-container">
+         <div class="unread-count-wrapper">#{unreadCount}</div>
+       </div>
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -27,6 +27,8 @@
+ 		this.isSceneActive = false;
+ 		this.bottomBeforeDeactivate = null;
+ 		this.fixScrollPositionOnActivate = false;
++		this.singleEnterSubmits = false;
++		this.closeAfterSending = false;
+ 		this.avatarHash = {
+ 			initialized: false,
+ 			_hash: {},
+@@ -300,9 +302,30 @@
+ 		this.downloadButtons=[];
+ 		this.invitationAcceptButtons=[];
+ 		this.invitationDeleteButtons=[];
++
++/*		if (this.params.clearListBadgeFn) {
++			this.markReadForInboxMessages();
++
++			this.params.clearListBadgeFn();
++		}
++*/
+ 	},
+ 	
+ 	setup: function() {
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
++			parameters: {owner: "org.e.lnx.wee.advanced-system-behavior-messaging", 
++			keys: ["messageTimestamps", "singleEnterSubmits", "closeAfterSending"]}, 
++			onSuccess: function(response) {
++				if((response) && (response.messageTimestamps != undefined)) {
++					if(response.messageTimestamps == false)
++						this.controller.get("chatlist").addClassName("compact");
++				}
++				if((response) && (response.singleEnterSubmits != undefined))
++					this.singleEnterSubmits = response.singleEnterSubmits;
++				if((response) && (response.closeAfterSending != undefined))
++					this.closeAfterSending = response.closeAfterSending;
++			}.bind(this)});
++
+ 		Mojo.Log.info("++++++ChatviewAssistant::setup");
+ 		this.controller.get('footer').hide();
+ 		this.checkThreadLocked();
+@@ -316,7 +339,7 @@
+ 			hintText: $L('Enter message here...'),
+ 			multiline: true,
+ 			focus: false,
+-			enterSubmits: true,
++			enterSubmits: false,
+ 			inputName: "messageTextElement",
+ 			className: " ",
+ 			changeOnKeyPress: true
+@@ -696,6 +719,16 @@
+ 	
+ 	handleStageFocus: function() {
+ 		this.isWindowFocused = true;
++		this.markReadForInboxMessages();
++		if (this.params.clearListBadgeFn) {
++			this.params.clearListBadgeFn();
++		}
++		else {
++			var stageController = Mojo.Controller.getAppController().getStageController("messaging");
++
++			if(stageController)
++				stageController.delegateToSceneAssistant("clearListBadgeForChatThreadId", this.chatThreadId);
++		}
+ 		this.appController.notificationAssistant.clearNotificationsForChat(this.chatThreadId);
+ 	},
+ 	
+@@ -742,8 +775,10 @@
+ 					break;
+ 			}
+ 		} else if (event.type === Mojo.Event.back) {
+-			event.stop();
+-			this.popAndRevealListView();
++			if(!this.params.childCard) {
++				event.stop();
++				this.popAndRevealListView();
++			}
+ 			return;
+ 		}
+ 	},
+@@ -2078,6 +2113,7 @@
+ 				}
+ 				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
+ 				delayed.messageText = msg.messageText;
++				msg.messageText = msg.messageText.replace(/\n/g,"<br>");
+ 			}
+ 			
+ 			var icons = this.Messaging.IMAccounts.getIcons(msg.serviceName);
+@@ -2119,9 +2155,9 @@
+ 				
+ 				// Only show the message sent time if it is less than two days old
+ 				// from when it arrived on device
+-				if (today - msg.timeStamp <= 172800000) { //172800000 = (1000*60*60*24*2)
++//				if (today - msg.timeStamp <= 172800000) { //172800000 = (1000*60*60*24*2)
+ 					msg.timeStampDeltaMsg = new Template($L("Message Sent: #{dateTime}")).evaluate({dateTime:Mojo.Format.formatDate(sentTimeStamp,'short')});
+-				}
++//				}
+ //			}
+ 
+ 			if (msg.callbackNumber) {
+@@ -2945,39 +2981,86 @@
+ 	},
+ 	
+ 	handleTextAreaKeyDown: function(event) {
+-		// Check for return keys, and put a fake highlight on the send button.
+-		// It will be cleared on key up.
+ 		if (event) {
+-			if (Mojo.Char.isEnterKey(event.keyCode)) {
+-				this.sendButton.addClassName('selected');
+-			} else if (event.keyCode===129) {
++			if (event.keyCode===129) {
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
+ 				this.ctrlKeyPressed = true;
++			} else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (!this.ctrlKeyPressed) {
++					Event.stop(event);
++					
++					var selectedTransport = this.transportModel.getSelectedTransport();
++					
++					if ((this.singleEnterSubmits) || (selectedTransport.serviceName != "sms"))
++						this.sendButton.addClassName('selected');
++				}
++				else if (this.enterSendTimeout)
++					this.clearSendTimeout();
+ 			} else if (event.keyCode===Mojo.Char.spaceBar && this.ctrlKeyPressed) {
+-				Event.stop(event);
+-				var controller = this.controller;
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
++				var messageTextElement = this.messageTextElement;
+ 				var onselect = function onEmoticonSelect(emoticon) {
+-					controller.document.execCommand("insertText", true, emoticon);
++					messageTextElement.setValue(messageTextElement.getValue() + emoticon);
+ 				};
+ 				var emoticonPicker = new EmoticonPickerDialogAssistant(this, onselect);
+ 				emoticonPicker.show();
+ 			}
++			else if (this.enterSendTimeout)
++				this.clearSendTimeout();
+ 		}
+ 	},
+ 
+ 	handleTextAreaKeyUp: function(event) {
+ 		if (event) {
+-			if (Mojo.Char.isEnterKey(event.keyCode)) {
+-				this.considerForSend();
+-				Event.stop(event);
+-				
+-				// Remove highlight that was added on keydown.
+-				this.sendButton.removeClassName('selected');
+-			} else if (event.keyCode===129) {
++			if (event.keyCode===129) {
+ 				this.ctrlKeyPressed = false;
+ 			}
++			else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (this.ctrlKeyPressed) {
++					this.messageTextElement.blur();
++					this.messageTextElement.focus();
++				}
++				else {
++					var selectedTransport = this.transportModel.getSelectedTransport();
++					
++					if ((this.singleEnterSubmits) || 
++						(selectedTransport.serviceName != "sms")) 
++					{
++						this.considerForSend();
++						this.sendButton.removeClassName('selected');
++					}
++					else {
++						if (this.enterSendTimeout) {
++							this.clearSendTimeout();
++							this.considerForSend();
++						}
++						else {
++							this.setupSendTimeout();
++						}
++					}
++								
++					Event.stop(event);
++				}
++			}
+ 		}
+ 	},
+ 
++	setupSendTimeout: function() {
++		this.sendButton.addClassName('selected');
++		this.enterSendTimeout = setTimeout(this.clearSendTimeout.bind(this), 3000);				
++	},
++
++	clearSendTimeout: function() {
++		this.sendButton.removeClassName('selected');
++
++		if(this.enterSendTimeout)
++			clearTimeout(this.enterSendTimeout);
++
++		this.enterSendTimeout = null;
++	},
++
+ 	handleTextAreaChange: function() {
+ 		if (this.messageTextElement && this.messageTextElement.value === '' && this.outboundAttachment === undefined) {
+ 			this.actionButton.removeClassName('textentry');
+@@ -3316,6 +3399,9 @@
+ 		conversation.save();
+ 
+ 		this.sendMessageHelper(params, kind);
++		
++		if((this.closeAfterSending) && ((params.serviceName == "sms") || (params.serviceName == "mms")))
++			this.controller.window.close();
+ 	},
+ 	
+ 	addStatusMessageToChat: function(message, locked) {
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+@@ -9,6 +9,8 @@
+ 		this.prePopulatedRecipients = [];
+ 		this.sendMessageCount = 0;	// keep a count of how many times we call send so we know when the last callback is hit
+ 		this.sentRecipients = [];
++		this.singleEnterSubmits = false;
++		this.closeAfterSending = false;
+ 		
+ 		var listviewSceneAssistant = this.Messaging.listviewSceneAssistant;
+ 		if (listviewSceneAssistant) {
+@@ -30,6 +32,11 @@
+ 			this.launchedWithParams = true;
+ 			var i;
+ 			
++			this.childCard = params.childCard;
++			
++			if (params.launchedAsCompose)
++				this.launchedWithParams = false;
++			
+ 			if (params.launchedAsForward){
+ 				this.launchedAsForward = true;
+ 			}
+@@ -123,6 +130,7 @@
+ 		this.attachFilePicker = this.attachFilePicker.bind(this);
+ 		this.handleTextAreaChange = this.handleTextAreaChange.bind(this);
+ 		this.handleTextAreaKeyUp = this.handleTextAreaKeyUp.bind(this);
++		this.handleTextAreaKeyDown = this.handleTextAreaKeyDown.bind(this);
+ 		this.handleCancelAttachment = this.resetTextBox.bind(this,false);		
+ 		this.handleRecipientsChanged = this.handleRecipientsChanged.bind(this);
+ 		this.handleMaxRecipients = this.handleMaxRecipients.bind(this);
+@@ -138,6 +146,16 @@
+ 
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, this.appMenuAttrs, this.appMenuModel);
+ 
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
++			parameters: {owner: "org.e.lnx.wee.advanced-system-behavior-messaging", 
++			keys: ["singleEnterSubmits", "closeAfterSending"]}, 
++			onSuccess: function(response) {
++				if((response) && (response.singleEnterSubmits != undefined))
++					this.singleEnterSubmits = response.singleEnterSubmits;
++				if((response) && (response.closeAfterSending != undefined))
++					this.closeAfterSending = response.closeAfterSending;
++			}.bind(this)});
++
+ 		this.searchList = {
+ 			"property": "to$A",
+ 			"includeEmails": true,
+@@ -170,7 +188,7 @@
+ 		    hintText: $L('Enter message here...'),
+ 		    multiline: true,
+ 		    focus: (this.prePopulatedRecipients.length > 0),
+-		    enterSubmits: true,
++		    enterSubmits: false,
+ 			requiresEnterKey: true,
+ 		    modelProperty: "value",
+ 			changeOnKeyPress: true
+@@ -203,6 +221,7 @@
+ 
+ 	ready: function() {
+ 		this.actionButton = this.controller.get('ActionButton');
++		this.sendButton = this.controller.get('SendButton');
+ 		this.addressingForm = this.controller.get('addressingForm');
+ 		this.messageTextWidget = this.controller.get('messageTextWidget');
+ 		this.messageTextElement  = this.messageTextWidget.querySelector('[name=messageTextElement]');
+@@ -210,6 +229,7 @@
+ 		this.addressingWidgetSpacer = this.controller.get('addressingWidgetSpacer');
+ 
+ 		this.messageTextElement.observe('keyup', this.handleTextAreaKeyUp);
++		this.messageTextElement.observe('keydown', this.handleTextAreaKeyDown);
+ 		this.messageTextWidget.observe(Mojo.Event.propertyChange, this.handleTextAreaChange);
+ 	
+ 	    // Observe add/delete to the addressing widget
+@@ -447,6 +467,7 @@
+ 		var kind;
+ 		var future;
+ 		var mmsRecipients = [];
++		var hasIMRecipients = false;
+ 		for( var i=0; i<recipientsArray.length; i++ ){
+ 			kind = undefined; // ensure this starts out undefined each iteration
+ 			var recipient = recipientsArray[i];
+@@ -474,6 +495,7 @@
+ 			};
+ 			
+ 			if(recipient.type === "im") {
++				hasIMRecipients = true;
+ 				var dbkinds = this.Messaging.IMAccounts.getDbKinds(recipient.serviceName);
+ 				if (dbkinds) {
+ 					kind = dbkinds.immessage;
+@@ -536,14 +558,20 @@
+ 					Mojo.Log.info("Message stored.  Waiting for chatthreader create the chatthread.");
+ 					this._waitForChatThread(messageId, 
+ 						function(result) {
+-							this.launchChatView(result.conversations[0]);
++							if((this.closeAfterSending) && (!hasIMRecipients))
++								this.controller.window.close();
++							else
++								this.launchChatView(result.conversations[0]);
+ 						}.bind(this));
+ 				} else {
+ 					// Go to list view
+ 					// Could not find the new message or we sent to multiple recipients
+ 					Mojo.Log.info("Could not find the new message.  Popping scene to list view.");
+ 					this.Messaging.setListViewVisible(this.Messaging.Views.HISTORY);
+-					this.controller.stageController.popScenesTo('listview');
++					if((this.childCard) || ((this.closeAfterSending) && (!hasIMRecipients)))
++						this.controller.window.close()
++					else
++						this.controller.stageController.popScenesTo('listview');
+ 				}
+ 				future.result = true;
+ 			}.bind(this));
+@@ -652,8 +680,14 @@
+ 			params = {};
+ 		}
+ 		// swapScene
+-		this.controller.stageController.swapScene({name:'chatview', transition:Mojo.Transition.crossFade}, chatThreadId, params);
++//		this.controller.stageController.swapScene({name:'chatview', transition:Mojo.Transition.crossFade}, chatThreadId, params);
+ 		//this.controller.stageController.swapScene('chatview', chatThreadId, params);
++		
++		this.controller.serviceRequest("palm://com.palm.applicationManager", {
++			method: "launch", parameters: {id: "com.palm.app.messaging",
++			params: {chatThreadId: chatThreadId}} });
++			
++		this.controller.window.close();
+ 	},
+ 	
+ //	_handleSentMessageResponse: function (result) {
+@@ -688,11 +722,101 @@
+ 		} 
+ 	},
+ 
++	handleTextAreaKeyDown: function(event) {
++		if (event) {
++			if (event.keyCode===129) {
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
++				this.ctrlKeyPressed = true;
++			} else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (!this.ctrlKeyPressed) {
++					Event.stop(event);
++					
++					var hasSMSRecipients = false;
++					
++					var recipients = Mojo.View.serializeMojo(this.addressingForm, true).to$A;
++					
++					for (var i = 0; i < recipients.length; i++) {
++						if (MessagingLib.Utils.isTextMessage(recipients[i].serviceName)) {
++							hasSMSRecipients = true;
++							break;
++						}
++					}
++					
++					if ((this.singleEnterSubmits) || (!hasSMSRecipients))
++						this.sendButton.addClassName('selected');
++				}
++				else if (this.enterSendTimeout)
++					this.clearSendTimeout();
++			} else if (event.keyCode===Mojo.Char.spaceBar && this.ctrlKeyPressed) {
++				if (this.enterSendTimeout)
++					this.clearSendTimeout();
++				var messageTextElement = this.messageTextElement;
++				var onselect = function onEmoticonSelect(emoticon) {
++					messageTextElement.setValue(messageTextElement.getValue() + emoticon);
++				};
++				var emoticonPicker = new EmoticonPickerDialogAssistant(this, onselect);
++				emoticonPicker.show();
++			}
++			else if (this.enterSendTimeout)
++				this.clearSendTimeout();
++		}
++	},
++
+ 	handleTextAreaKeyUp: function(event) {
+-		if (event && Mojo.Char.isEnterKey(event.keyCode)) {
+-			this.considerForSend();
+-			Event.stop(event);
+-		}		
++		if (event) {
++			if (event.keyCode===129) {
++				this.ctrlKeyPressed = false;
++			}
++			else if (Mojo.Char.isEnterKey(event.keyCode)) {
++				if (this.ctrlKeyPressed) {
++					this.messageTextElement.blur();
++					this.messageTextElement.focus();
++				}
++				else {
++					var hasSMSRecipients = false;
++					
++					var recipients = Mojo.View.serializeMojo(this.addressingForm, true).to$A;
++					
++					for (var i = 0; i < recipients.length; i++) {
++						if (MessagingLib.Utils.isTextMessage(recipients[i].serviceName)) {
++							hasSMSRecipients = true;
++							break;
++						}
++					}
++					
++					if ((this.singleEnterSubmits) || (!hasSMSRecipients)) {
++						this.considerForSend();
++						this.sendButton.removeClassName('selected');
++					}
++					else {
++						if (this.enterSendTimeout) {
++							this.clearSendTimeout();
++							this.considerForSend();
++						}
++						else {
++							this.setupSendTimeout();
++						}
++					}
++								
++					Event.stop(event);
++				}
++			}
++		}
++	},
++
++	setupSendTimeout: function() {
++		this.sendButton.addClassName('selected');
++		this.enterSendTimeout = setTimeout(this.clearSendTimeout.bind(this), 3000);				
++	},
++
++	clearSendTimeout: function() {
++		this.sendButton.removeClassName('selected');
++
++		if(this.enterSendTimeout)
++			clearTimeout(this.enterSendTimeout);
++
++		this.enterSendTimeout = null;
+ 	},
+ 
+ 	handleTextAreaChange: function() {
+@@ -847,6 +971,7 @@
+ 		this.controller.stopListening('searchList', Mojo.Event.addressingMaxRecipients, this.handleMaxRecipients);
+ 	
+ 		this.messageTextElement.stopObserving('keyup', this.handleTextAreaKeyUp);
++		this.messageTextElement.stopObserving('keydown', this.handleTextAreaKeyDown);
+ 		this.messageTextWidget.stopObserving(Mojo.Event.propertyChange, this.handleTextAreaChange);
+ 	
+ 		this.characterCounter.destroy();
+@@ -871,7 +996,7 @@
+ 				event.stop();
+ 			} 
+ 		} else if(event.type === Mojo.Event.back) {
+-			if (this.launchedAsForward === undefined) {
++			if ((this.launchedAsForward === undefined) && (!this.childCard)) {
+ 				event.stop();
+ 				this.saveDraft = false;
+ 				this.controller.stageController.popScenesTo('listview');
+--- .orig/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
++++ /usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+@@ -10,6 +10,8 @@
+ 		this.Messaging.listviewSceneAssistant = this; // store a copy of the app assistant in the app controller
+ 													  // this is nulled out in the cleanup method.  Keep an eye on this
+ 													  // because we need to be sure to always destroy the reference.
++
++		this.alwaysOpenInNewCard = false;
+ 		this.isWindowFocused = true;
+ 		this.isSceneActive = false;
+ 		this.isScreenOn = true;
+@@ -212,6 +214,8 @@
+ 		
+ 		this.filterImmediate = this.filterImmediate.bind(this);
+ 		this.filter = this.filter.bind(this);
++		this.handleHistoryListHold = this.handleHistoryListHold.bindAsEventListener(this);
++		this.handleBuddyListHold = this.handleBuddyListHold.bindAsEventListener(this);
+ 		this.handleHistoryListTap = this.handleHistoryListTap.bindAsEventListener(this);
+ 		this.handleHistoryListDelete = this.handleHistoryListDelete.bindAsEventListener(this);
+ 		this.handleBuddyListTap = this.handleBuddyListTap.bindAsEventListener(this);
+@@ -429,9 +433,11 @@
+ 
+ 		// observe clicks on the buddy list & history list
+ 		this.historyIndexedList.observe(Mojo.Event.listTap, this.handleHistoryListTap);
++		this.historyIndexedList.observe(Mojo.Event.hold, this.handleHistoryListHold);
+ 		// observe swipe to delete on the history list
+ 		this.historyIndexedList.observe(Mojo.Event.listDelete, this.handleHistoryListDelete);
+ 		this.buddyIndexedList.observe(Mojo.Event.listTap, this.handleBuddyListTap);
++		this.buddyIndexedList.observe(Mojo.Event.hold, this.handleBuddyListHold);
+ 	
+ 		//set hint text later
+ 		this.customMessageTextWidgetAttributes = {
+@@ -447,6 +453,13 @@
+ 		this.controller.setupWidget('customMessageTextWidget', this.customMessageTextWidgetAttributes, this.customMessageTextWidgetModel);
+ 		this.handleIMAccountsChange(this.Messaging.IMAccounts.data);
+ 		this.updateAppMenuItems();
++
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get",	
++			parameters: {owner: "org.e.lnx.wee.advanced-system-behavior-messaging", keys: ["alwaysOpenInNewCard"]}, 
++			onSuccess: function(response) {
++				if((response) && (response.alwaysOpenInNewCard != undefined))
++					this.alwaysOpenInNewCard = response.alwaysOpenInNewCard;
++			}.bind(this)});
+ 	},
+ 
+ 	buddyListAddAvatarDecorator: function(items, doneCallback){
+@@ -627,24 +640,90 @@
+ 
+ 	    return dsa;
+ 	},
++
++	handleHistoryListHold: function(e) {
++		if(!e.target.hasClassName("im-name-info"))
++			var element = e.target.up(1).down(".im-name-info");
++		else
++			var element = e.target;
++
++		if((element) && (element.id)) {
++			this.eventAlreadyHandled = true;
++		
++			var chatThreadId = element.id.substring(16, element.id.length - 12);
++
++			var ele = e.target.up(".chat-balloon");
++			ele.removeClassName("selected");
++			
++			this.launchChatInNewCard(chatThreadId);
++		}
++	},
++
++	handleBuddyListHold: function(e) {
++		if(!e.target.hasClassName("im-name-info"))
++			var element = e.target.up(1).down(".im-name-info");
++		else
++			var element = e.target;
++
++		if((element) && (element.id)) {
++			this.eventAlreadyHandled = true;		
++		
++			var personId = element.id.substring(14, element.id.length - 12);
++
++			var ele = e.target.up(".buddyListRow");
++			ele.removeClassName("selected");
++
++			var future = MessagingDB.Conversations.findFromBuddy({personId: personId}, false);
++
++			future.then(this, function(future) {
++				this.launchChatInNewCard(future.result._id, {selectIMTransport: true});
++
++				future.result = true;
++			});
++
++		}
++	},      
+ 	
+ 	handleHistoryListTap: function(e) {
+-		this.launchChatView(e.item._id);
++		if(this.eventAlreadyHandled) {
++			this.eventAlreadyHandled = false;
++			return;
++		}
++	
++		if(this.alwaysOpenInNewCard)
++			this.launchChatInNewCard(e.item._id);
++		else
++			this.launchChatView(e.item._id);
+ 	},
+ 	
+ 	handleHistoryListDelete: function(event) {
+ 		var chatThreadId = event.item._id;
++		
++		var stageController = Mojo.Controller.appController.getStageController("messaging" + chatThreadId);
++
++		if(stageController)
++			Mojo.Controller.getAppController().closeStage("messaging" + chatThreadId);
++		
+ 		MessagingDB.Conversations.delChatAndMessages(chatThreadId);
+ 		//Mojo.Controller.appController.notificationAssistant.clearNotificationsForChat(chatThreadId);
+ 		//this.clearSpecificListBadgeForChatThreadId(chatThreadId, "buddyBageContainer", this.buddyIndexedList);
+ 	},
+ 	
+ 	handleBuddyListTap: function(e) {
++		if(this.eventAlreadyHandled) {
++			this.eventAlreadyHandled = false;
++			return;
++		}
++
+ 		var buddyStatusRec = e.item;
+ 		var future = MessagingDB.Conversations.findFromBuddy(buddyStatusRec, false);
+ 		future.then(this, function(future) {
+ 			// "selectIMTransport" tells the chatview to default to an IM address in the transport picker  
+-			this.launchChatView(future.result._id, { selectIMTransport: true, buddyStatus: buddyStatusRec });
++
++			if(this.alwaysOpenInNewCard)
++				this.launchChatInNewCard(future.result._id, { selectIMTransport: true, buddyStatus: buddyStatusRec });
++			else			
++				this.launchChatView(future.result._id, { selectIMTransport: true, buddyStatus: buddyStatusRec });
+ 			future.result = true;
+ 		});
+ 	},
+@@ -1003,6 +1082,9 @@
+ 		var unreadCountCache = this.getCacheUnreadCount();
+ 		for (var i = 0; i < result.length; i++) {
+ 			var buddy = result[i];
++			
++			buddy.displayNameDivId = "buddyList-row-"+buddy.personId+"-displayName";
++					
+ 			if(unreadCountCache.hasElement(buddy.personId)){
+ 				buddy.unreadCount = unreadCountCache.get(buddy.personId);
+ 			}
+@@ -1691,7 +1773,23 @@
+ 	},
+ 	
+ 	loadComposeView: function(params) {
+-		this.controller.stageController.pushScene('compose', params);
++		if(!params)
++			params = {launchedAsCompose: true};
++
++		params.childCard = true;
++
++		var stageParams = {
++			name: 'childCard' + this.appController.childCardId++,
++			lightweight: Mojo.Controller.appInfo.lwStages
++		};
++
++		var callback = function(controller) {
++			controller.pushScene('compose', params);
++		};
++
++		Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++	
++//		this.controller.stageController.pushScene('compose', params);
+ 	},
+ 	
+ 	loadPreferencesView: function() {
+@@ -1715,6 +1813,28 @@
+ 		this.controller.stageController.pushScene('chatview', chatThreadId, params);
+ 	},
+ 	
++	launchChatInNewCard: function(chatThreadId) {
++		var stageController = Mojo.Controller.appController.getStageController("childCard" + chatThreadId);
++
++		if(stageController) {
++			stageController.activate();
++			stageController.delegateToSceneAssistant("activate");
++			return;
++		}
++
++		var params = {focusWindow: true, childCard: true};
++
++		var stageParams = { 
++			name: 'childCard' + chatThreadId,
++			lightweight: Mojo.Controller.appInfo.lwStages };
++
++		var callback = function(controller) {
++			controller.pushScene('chatview', chatThreadId, params);             
++		};
++
++		Mojo.Controller.getAppController().createStageWithCallback(stageParams, callback);
++	},
++
+ 	clearListBadgeForChatThreadId: function(chatThreadId) {
+ 		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "buddyBageContainer", this.buddyIndexedList);
+ 		this.clearSpecificListBadgeForChatThreadId(chatThreadId, "historyBageContainer", this.historyIndexedList);
+@@ -1749,6 +1869,8 @@
+ 		this.Messaging.IMAccounts.stopObserving(this.handleIMAccountsChange);
+ 		this.filterField.stopObserving(Mojo.Event.filterImmediate, this.filterImmediate);
+ 		this.filterField.stopObserving(Mojo.Event.filter, this.filter);
++		this.historyIndexedList.stopObserving(Mojo.Event.hold, this.handleHistoryListHold);
++		this.buddyIndexedList.stopObserving(Mojo.Event.hold, this.handleBuddyListHold);
+ 		this.historyIndexedList.stopObserving(Mojo.Event.listTap, this.handleHistoryListTap);
+ 		this.historyIndexedList.stopObserving(Mojo.Event.listDelete, this.handleHistoryListDelete);
+ 		this.buddyIndexedList.stopObserving(Mojo.Event.listTap, this.handleBuddyListTap);
+--- .orig/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
++++ /usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
+@@ -526,6 +526,12 @@
+ .chatRow .message .delayedMessage {
+ 		font-style: italic;
+ 		color: #747474;
++		font-size: 12px;
++		margin-top: -10px;
++}
++
++.compact .chatRow .message .delayedMessage {
++		display: none;
+ }
+ 
+ /* grouped buttons */
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -103,6 +103,9 @@
+ 		// Initialize and Subscribe for VPN Notification
+ 		this.initOnServerStart("com.palm.vpn", this.VPNInit.bind(this), this.VPNDeInit.bind(this));
+ 		
++		//Subscribe to Keypad Notification.
++		this.monitorKeypadSwitch();
++
+ 		//Initialize and Subscribe for Storage / Media Mode Notification.			
+ 		this.storageInit();
+ 		
+@@ -2422,6 +2425,104 @@
+ },
+ 
+ /*
++ * Initialize keypad monitoring
++ */
++monitorKeypadSwitch: function() {
++	this.keyboardBrightnessLow = 25;
++	this.keyboardBrightnessHigh = 75;
++	
++	this.controller.serviceRequest('palm://org.webosinternals.tweaks.prefs/', {method: 'get', 
++		parameters: {owner: "org.e.lnx.wee.advanced-system-behavior-system", 
++		keys: ["keyboardBrightnessLow", "keyboardBrightnessHigh"]},
++		onSuccess: function(response) {
++			if((response) && (response.keyboardBrightnessLow != undefined))
++				this.keyboardBrightnessLow = response.keyboardBrightnessLow;
++
++			if((response) && (response.keyboardBrightnessHigh != undefined))
++				this.keyboardBrightnessHigh = response.keyboardBrightnessHigh;
++		}.bind(this)
++	});
++
++	this.sliderStateSubscribtion = new Mojo.Service.Request('palm://com.palm.keys/switches', {
++		method: 'status', parameters: {subscribe: true}, 
++		onSuccess: function(response) {
++			if(response.key == "slider") {
++				if(response.state == 'up') {
++					this.invertKeypadBrightness(true);
++
++					//Do this to catch quick up & down movements
++					this.checkSliderState.bind(this).delay(1); 
++				}
++				else if(response.state == 'down') {
++					this.invertKeypadBrightness(false);
++				}
++			}
++		}.bind(this)
++	});
++},
++
++invertKeypadBrightness: function(state) {
++	if(state == true) {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'getProperty', parameters: {properties: ["maximumBrightness"]},
++			onSuccess: function(response) {
++				if(response.maximumBrightness != undefined) {
++					if(this.keyboardBrightnessLow == this.keyboardBrightnessHigh)
++						var keypadBrightness = this.keyboardBrightnessLow;
++					else {
++						var keypadBrightness = 101 - parseInt(response.maximumBrightness);
++
++						if(keypadBrightness < this.keyboardBrightnessLow)
++							keypadBrightness = this.keyboardBrightnessLow;
++						else if(keypadBrightness > this.keyboardBrightnessHigh)
++							keypadBrightness = this.keyboardBrightnessHigh;
++					}
++					
++					this.controller.serviceRequest('palm://com.palm.power/backlight', {
++						method: 'set', parameters: {keypad: {brightness: keypadBrightness}} });
++
++					if(!this.displayStateSubscribtion) {
++						this.displayStateSubscribtion = this.controller.serviceRequest('palm://com.palm.display/control', {
++							method: 'status', parameters: {subscribe: true},
++							onSuccess: function(response) {
++								if((response) && (response.event)) {
++									if(response.event == "displayOn")
++										this.checkSliderState();
++								}
++							}.bind(this)
++						});
++					}
++				}
++			}.bind(this)
++		});
++	}
++	else if(state == false) {
++		if(this.displayStateSubscribtion) {
++			this.displayStateSubscribtion.cancel();
++
++			delete this.displayStateSubscribtion;
++		}
++
++		this.controller.serviceRequest('palm://com.palm.power/backlight', {
++			method: 'set', parameters:{keypad:{brightness: 0}} });
++	}
++},
++
++checkSliderState: function() {
++	this.controller.serviceRequest('palm://com.palm.keys/switches', {
++		method: 'status', parameters: {'get': 'slider'},
++		onSuccess: function(data) {
++			if(data.key === "slider") {
++				if(data.state === 'down')
++					this.invertKeypadBrightness(false);
++				else if (data.state === 'up')
++					this.invertKeypadBrightness(true);
++			}
++		}.bind(this)
++	});
++},
++
++/*
+  * Initialize power
+  */
+ powerInit:function() {
