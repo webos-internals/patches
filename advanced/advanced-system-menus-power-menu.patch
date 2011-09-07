@@ -49,7 +49,7 @@
 +	this.powerMenuCfg = {items: ["shutdownDevice", "restartDevice"], allowSleep: true};
 +
 +	var cookieContainer = new Mojo.Model.Cookie("powerMenu");
-+		
++
 +	var cookie = cookieContainer.get();
 +
 +	if(cookie) {
@@ -59,61 +59,79 @@
      this.powerOffNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
  		method: 'addmatch',
  		parameters: {
-@@ -2915,21 +2925,39 @@
+@@ -2911,11 +2921,48 @@
+ /*
+  * Show Power Off Alert
+  */
+-showPowerOffAlert: function() {
++showPowerOffAlert: function(showAll) {
  	
  	var appController = Mojo.Controller.getAppController();
  	var stageController = appController.getStageController("PowerOffAlert");
-+	
-+		if (stageController) {
-+			appController.closeStage("PowerOffAlert");
+-        // if the window already exists, don't do anything
 +
-+			var f = function(stageController){
-+		      stageController.pushScene('poweroffalert',this, this.powerMenuCfg, true);
-+		    }.bind(this);
-+		    var params = {name: 'PowerOffAlertEdit', height: 240,lightweight:true};
-+		
-+		    appController.createStageWithCallback(params,f,'popupalert');
++	if (stageController) {
++		appController.closeStage("PowerOffAlert");
++
++		if(showAll) {
++			var f = function(stageController) {
++				stageController.pushScene('poweroffalert', this, this.powerMenuCfg, false, true);
++			}.bind(this);
++
++			var params = {name: 'PowerOffAlert', height: 340,lightweight:true};
++
++			appController.createStageWithCallback(params,f,'popupalert');
++		}
++		else {
++			var f = function(stageController) {
++			   stageController.pushScene('poweroffalert', this, this.powerMenuCfg, true, false);
++				 }.bind(this);
++				 var params = {name: 'PowerOffAlertEdit', height: 240,lightweight:true};
++
++				 appController.createStageWithCallback(params,f,'popupalert');
++			}
 +		}
 +		else {
 +			appController.closeStage("PowerOffAlertEdit");
-+		
-         // if the window already exists, don't do anything
++
++			var f = function(stageController) {
++				stageController.pushScene('poweroffalert', this, this.powerMenuCfg, false);
++			}.bind(this);
++
++			var popupHeight = (this.powerMenuCfg.items.length + 1) * 55 + 10;
++
++		  var params = {name: 'PowerOffAlert', height: popupHeight,lightweight:true};
++
++			appController.createStageWithCallback(params,f,'popupalert');
++		}
++
++/*
++         // if the window already exists, don't do anything
          if (!stageController) {
           	// Create a popuo alert
  		    var f = function(stageController){
--		      stageController.pushScene('poweroffalert',this);
-+		      stageController.pushScene('poweroffalert',this, this.powerMenuCfg, false);
- 		    }.bind(this);
--		    var params = {name: 'PowerOffAlert', height: 175,lightweight:true};		    	    
-+		    
-+			 var popupHeight = (this.powerMenuCfg.items.length + 1) * 55 + 10;
-+		    
-+		    var params = {name: 'PowerOffAlert', height: popupHeight,lightweight:true};
- 		    appController.createStageWithCallback(params,f,'popupalert');
-         }
-+       }
- 	//Close the Storage Alert and create a USB dashboard.
--	var storageAlertStageController = appController.getStageController('StorageModeAlert');
-+/*	var storageAlertStageController = appController.getStageController('StorageModeAlert');
- 	if(storageAlertStageController) {
+@@ -2930,7 +2977,7 @@
  		storageAlertStageController.delegateToSceneAssistant("closeAndCreateDashboard");
  		this.createUSBDashboard.bind(this).delay(0.5,false);
--	}
-+	} */
- 			
+ 	}
+-			
++*/			
  },
      
+ startClock: function() {
 --- .orig/usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
 +++ /usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
-@@ -1,21 +1,43 @@
+@@ -1,24 +1,57 @@
  /* Copyright 2009 Palm, Inc.  All rights reserved. */
  
  var PoweroffalertAssistant = Foundations.Class.create({
 -    initialize: function(barAssistant) {	
-+    initialize: function(barAssistant, menuCfg, editMenu) {	
++    initialize: function(barAssistant, menuCfg, editMenu, fullMenu) {	
  		this.barAssistant = barAssistant;	
 +		this.menuCfg = menuCfg;
++
 +		this.editMenu = editMenu;
++		this.fullMenu = fullMenu;
      },
      
      setup: function() {		
@@ -124,11 +142,18 @@
 +			for(var i = 0; i < this.menuCfg.items.length; i++)
 +				this.controller.get(this.menuCfg.items[i] + "State").update($L("SHOW"));
 +		}
++		else if(this.fullMenu) {
++			this.controller.get("airplaneModeButton").show();
++			this.controller.get("deviceSleepButton").show();
++			this.controller.get("shutdownDeviceButton").show();
++			this.controller.get("restartDeviceButton").show();
++			this.controller.get("restartLunaButton").show();
++		}
 +		else {
 +			for(var i = 0; i < this.menuCfg.items.length; i++)
 +				this.controller.get(this.menuCfg.items[i] + "Button").show();
 +		}
-+		
++
 +		var luna = this.luna.bindAsEventListener(this);
 +		var sleep = this.sleep.bindAsEventListener(this);
 +		var restart = this.restart.bindAsEventListener(this);
@@ -136,24 +161,30 @@
 -		var powerOff = this.powerOff.bindAsEventListener(this);
 +		var powerOff = this.shutdown.bindAsEventListener(this);
  		var cancel = this.cancel.bindAsEventListener(this);
++		var toggle = this.toggle.bindAsEventListener(this);
  		var launchAirplaneModeHelp = this.launchAirplaneModeHelp.bindAsEventListener(this);
  		this.flightMode = this.barAssistant.getAirplaneMode();
  		if(this.flightMode)
  			this.controller.get('flightmode').innerHTML = $L('Turn off Airplane Mode');
 -		else
 -			this.controller.get('flightmode').innerHTML = "<div class='info-icon' id='airplaneInfo' x-mojo-touch-feedback='immediate'></div>" + $L('Airplane Mode');
+-			
 +//		else
 +//			this.controller.get('flightmode').innerHTML = "<div class='info-icon' id='airplaneInfo' x-mojo-touch-feedback='immediate'></div>" + $L('Airplane Mode');
 +		if(!this.menuCfg.allowSleep)
 +			this.controller.get('sleep').innerHTML = $L('Enable Device Sleep');
- 			
++
 +		this.controller.get('luna').addEventListener(Mojo.Event.tap, luna);
 +		this.controller.get('sleep').addEventListener(Mojo.Event.tap, sleep);
 +		this.controller.get('restart').addEventListener(Mojo.Event.tap, restart);
  		this.controller.get('poweroff').addEventListener(Mojo.Event.tap, powerOff);
  		this.controller.get('flightmode').addEventListener(Mojo.Event.tap, flightMode);
  		this.controller.get('cancel').addEventListener(Mojo.Event.tap, cancel);
-@@ -26,6 +48,35 @@
++		this.controller.get('cancel').addEventListener(Mojo.Event.hold, toggle);
+ 		if(this.controller.get('airplaneInfo'))
+ 			this.controller.get('airplaneInfo').addEventListener(Mojo.Event.tap, launchAirplaneModeHelp);
+ 		
+@@ -26,6 +59,35 @@
  			this.powerOffAlertCancel = this.cancel.bind(this);
  			this.powerOffAlertTimer = this.controller.window.setTimeout(this.powerOffAlertCancel, 30000);
  		}
@@ -164,32 +195,32 @@
 +		this.controller.get('restartDeviceEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "restartDevice"));
 +		this.controller.get('restartLunaEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "restartLuna"));
 +	},
-+	
++
 +	editToggle: function(item) {
 +		var index = this.menuCfg.items.indexOf(item);
-+		
++
 +		if(index == -1) {
 +			this.controller.get(item + "State").update($L("SHOW"));
-+			
++
 +			this.menuCfg.items.push(item);
 +		}
 +		else {
 +			this.controller.get(item + "State").update($L("HIDE"));
-+			
++
 +			this.menuCfg.items.splice(index, 1);
 +		}
-+		
++
 +		var cookieContainer = new Mojo.Model.Cookie("powerMenu");
-+		
++
 +		var cookie = {
 +			menuItems: this.menuCfg.items
 +		}
-+		
++
 +		cookieContainer.put(cookie);
  	},
  	
  	cleanup: function() {
-@@ -33,6 +84,49 @@
+@@ -33,6 +95,52 @@
              this.controller.window.clearTimeout(this.powerOffAlertTimer);
          } catch(e) {}
  	},
@@ -198,16 +229,19 @@
 +		if(!this.lunaRestartTimer)
 +			this.lunaRestartTimer = this.controller.window.setTimeout(this.lunaRestart, 250);
 +	},
-+	
++
 +	lunaRestart: function() {
 +		var request = new Mojo.Service.Request('palm://ca.canucksoftware.systoolsmgr', {
 +			method: "lunaRestart", parameters: {}});
 +	},
-+		
++
 +	sleep: function() {
 +		if(this.menuCfg.allowSleep) {
++			if(this.barAssistant.getBatteryState() == "Charging")
++				return;
++
 +			this.menuCfg.allowSleep = false;
-+			
++
 +			this.request = this.controller.serviceRequest("palm://com.palm.display/control", {
 +				method: "setProperty", parameters: {requestBlock: true, client: "powerMenu"}});
 +
@@ -222,16 +256,16 @@
 +
 +			this.request = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
 +				method: "activityEnd", parameters: {id: "com.palm.systemui"}});
-+		}	
++		}
 +
 +		this.controller.window.close();
 +	},
-+	
++
 +	restart: function() {
 +		this.barAssistant.machineReboot("Restart request by User");
 +		this.controller.window.close();
 +	},
-+	
++
 +	shutdown:function() {
 +		this.barAssistant.machineOffNow("Shutdown request by User");
 +		this.controller.window.close();
@@ -239,6 +273,19 @@
  	
  	powerOff:function() {	
  		var appController = Mojo.Controller.getAppController();
+@@ -69,6 +177,12 @@
+ 	cancel: function() {
+ 		this.controller.window.close();
+ 	},
++
++	toggle: function(event) {
++		event.stopPropagation();
++
++		this.barAssistant.showPowerOffAlert(true);
++	},
+ 	
+ 	launchAirplaneModeHelp: function() {
+ 		this.controller.serviceRequest("palm://com.palm.applicationManager", {
 --- .orig/usr/lib/luna/system/luna-systemui/app/views/poweroffalert/poweroffalert-scene.html
 +++ /usr/lib/luna/system/luna-systemui/app/views/poweroffalert/poweroffalert-scene.html
 @@ -1,5 +1,47 @@
@@ -330,19 +377,19 @@
 +		</div>
 +		<div id="deviceSleepEdit">
 +			<div id="deviceSleepState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
-+			<div style="font-size:16px;padding:8px;padding-left:25px;">Flugzeugmodus umschalten</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Ruhezustand umschalten</div>
 +		</div>
 +		<div id="shutdownDeviceEdit">
 +			<div id="shutdownDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
-+			<div style="font-size:16px;padding:8px;padding-left:25px;">Gerät ausschalten Aktion</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Gerät ausschalten</div>
 +		</div>
 +		<div id="restartDeviceEdit">
 +			<div id="restartDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
-+			<div style="font-size:16px;padding:8px;padding-left:25px;">Gerät neu starten Aktion</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Gerät neu starten</div>
 +		</div>
 +		<div id="restartLunaEdit">
 +			<div id="restartLunaState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
-+			<div style="font-size:16px;padding:8px;padding-left:25px;">Luna Neustart Aktion</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Luna Neustart</div>
 +		</div>
 +	</div>
  </div>

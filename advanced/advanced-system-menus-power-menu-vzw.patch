@@ -59,7 +59,12 @@
      this.powerOffNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
  		method: 'addmatch',
  		parameters: {
-@@ -2915,21 +2925,39 @@
+@@ -2911,25 +2921,53 @@
+ /*
+  * Show Power Off Alert
+  */
+-showPowerOffAlert: function() {
++showPowerOffAlert: function(showAll) {
  	
  	var appController = Mojo.Controller.getAppController();
  	var stageController = appController.getStageController("PowerOffAlert");
@@ -67,18 +72,29 @@
 +		if (stageController) {
 +			appController.closeStage("PowerOffAlert");
 +
-+			var f = function(stageController){
-+		      stageController.pushScene('poweroffalert',this, this.powerMenuCfg, true);
-+		    }.bind(this);
-+		    var params = {name: 'PowerOffAlertEdit', height: 240,lightweight:true};
++			if(showAll) {
++				var f = function(stageController){
++					stageController.pushScene('poweroffalert',this, this.powerMenuCfg, false, true);
++				}.bind(this);
++				 
++				var params = {name: 'PowerOffAlert', height: 340,lightweight:true};
++				appController.createStageWithCallback(params,f,'popupalert');
++			}
++			else {
++				var f = function(stageController){
++				   stageController.pushScene('poweroffalert',this, this.powerMenuCfg, true, false);
++				 }.bind(this);
++				 var params = {name: 'PowerOffAlertEdit', height: 240,lightweight:true};
 +		
-+		    appController.createStageWithCallback(params,f,'popupalert');
++				 appController.createStageWithCallback(params,f,'popupalert');
++			}
 +		}
 +		else {
 +			appController.closeStage("PowerOffAlertEdit");
 +		
          // if the window already exists, don't do anything
-         if (!stageController) {
+-        if (!stageController) {
++//        if (!stageController) {
           	// Create a popuo alert
  		    var f = function(stageController){
 -		      stageController.pushScene('poweroffalert',this);
@@ -90,7 +106,8 @@
 +		    
 +		    var params = {name: 'PowerOffAlert', height: popupHeight,lightweight:true};
  		    appController.createStageWithCallback(params,f,'popupalert');
-         }
+-        }
++//        }
 +       }
  	//Close the Storage Alert and create a USB dashboard.
 -	var storageAlertStageController = appController.getStageController('StorageModeAlert');
@@ -105,15 +122,17 @@
      
 --- .orig/usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
 +++ /usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
-@@ -1,21 +1,43 @@
+@@ -1,24 +1,57 @@
  /* Copyright 2009 Palm, Inc.  All rights reserved. */
  
  var PoweroffalertAssistant = Foundations.Class.create({
 -    initialize: function(barAssistant) {	
-+    initialize: function(barAssistant, menuCfg, editMenu) {	
++    initialize: function(barAssistant, menuCfg, editMenu, fullMenu) {	
  		this.barAssistant = barAssistant;	
 +		this.menuCfg = menuCfg;
++
 +		this.editMenu = editMenu;
++		this.fullMenu = fullMenu;
      },
      
      setup: function() {		
@@ -123,6 +142,13 @@
 +
 +			for(var i = 0; i < this.menuCfg.items.length; i++)
 +				this.controller.get(this.menuCfg.items[i] + "State").update($L("SHOW"));
++		}
++		else if(this.fullMenu) {
++			this.controller.get("airplaneModeButton").show();
++			this.controller.get("deviceSleepButton").show();
++			this.controller.get("shutdownDeviceButton").show();
++			this.controller.get("restartDeviceButton").show();
++			this.controller.get("restartLunaButton").show();
 +		}
 +		else {
 +			for(var i = 0; i < this.menuCfg.items.length; i++)
@@ -136,6 +162,7 @@
 -		var powerOff = this.powerOff.bindAsEventListener(this);
 +		var powerOff = this.shutdown.bindAsEventListener(this);
  		var cancel = this.cancel.bindAsEventListener(this);
++		var toggle = this.toggle.bindAsEventListener(this);
  		var launchAirplaneModeHelp = this.launchAirplaneModeHelp.bindAsEventListener(this);
  		this.flightMode = this.barAssistant.getAirplaneMode();
  		if(this.flightMode)
@@ -153,7 +180,11 @@
  		this.controller.get('poweroff').addEventListener(Mojo.Event.tap, powerOff);
  		this.controller.get('flightmode').addEventListener(Mojo.Event.tap, flightMode);
  		this.controller.get('cancel').addEventListener(Mojo.Event.tap, cancel);
-@@ -26,6 +48,35 @@
++		this.controller.get('cancel').addEventListener(Mojo.Event.hold, toggle);
+ 		if(this.controller.get('airplaneInfo'))
+ 			this.controller.get('airplaneInfo').addEventListener(Mojo.Event.tap, launchAirplaneModeHelp);
+ 		
+@@ -26,6 +59,35 @@
  			this.powerOffAlertCancel = this.cancel.bind(this);
  			this.powerOffAlertTimer = this.controller.window.setTimeout(this.powerOffAlertCancel, 30000);
  		}
@@ -189,7 +220,7 @@
  	},
  	
  	cleanup: function() {
-@@ -33,6 +84,49 @@
+@@ -33,6 +95,52 @@
              this.controller.window.clearTimeout(this.powerOffAlertTimer);
          } catch(e) {}
  	},
@@ -206,6 +237,9 @@
 +		
 +	sleep: function() {
 +		if(this.menuCfg.allowSleep) {
++			if(this.barAssistant.getBatteryState() == "Charging")
++				return;
++		
 +			this.menuCfg.allowSleep = false;
 +			
 +			this.request = this.controller.serviceRequest("palm://com.palm.display/control", {
@@ -239,6 +273,19 @@
  	
  	powerOff:function() {	
  		var appController = Mojo.Controller.getAppController();
+@@ -69,6 +177,12 @@
+ 	cancel: function() {
+ 		this.controller.window.close();
+ 	},
++
++	toggle: function(event) {
++		event.stopPropagation();
++
++		this.barAssistant.showPowerOffAlert(true);
++	},
+ 	
+ 	launchAirplaneModeHelp: function() {
+ 		this.controller.serviceRequest("palm://com.palm.applicationManager", {
 --- .orig/usr/lib/luna/system/luna-systemui/app/views/poweroffalert/poweroffalert-scene.html
 +++ /usr/lib/luna/system/luna-systemui/app/views/poweroffalert/poweroffalert-scene.html
 @@ -1,5 +1,47 @@
