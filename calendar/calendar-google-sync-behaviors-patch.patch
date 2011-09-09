@@ -1,0 +1,185 @@
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
+index dca630d..880ad3d 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
+@@ -28,6 +28,37 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+ 		},
+ 
+ 		setup: function setup(service, accountId, launchConfig, launchArgs) {
++			try{
++				Config.syncWindowMonthsAfter = 48; 
++				Config.syncWindowMonthsBefore = 12;
++				Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++				var configFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
++						"get",
++								{owner: "google-first-sync",
++								keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"]}
++						);
++				configFuture.then(Config, function(future)
++						{ var result = future.result;
++							if(result.returnValue === true) {
++								if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
++									Utils.error("TWEAKS preferences before sync: " + result.syncWindowMonthsBefore);
++									Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
++								}
++								if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
++									Utils.error("TWEAKS preferences after sync: " + result.syncWindowMonthsAfter);
++									Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
++								}
++								future.result = {returnValue: true};
++							} else{
++								Config.syncWindowMonthsAfter = 48;
++								Config.syncWindowMonthsBefore = 12;
++								Utils.error("failed to read TWEAKS preferences no result" + stringify(result));
++							}
++						});
++			} catch(e) {Utils.error("failed to read TWEAKS no service preferences");}
++			Utils.error("google sync start preferences: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++			
++			
+ 			var future = this._getAccount(accountId);
+ 			
+ 			future.then(this, function finishSetup() {
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
+index b05e15c..117ff69 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
+@@ -31,7 +31,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 
+ 	function setLastModifiedTimeForCalendar(update, time) {
+ 		function logTime(prefix, time) {
+-			Utils.log("\n\n\n----->>>>> " + prefix + " " + (update?"update":"fetch") + " for " + calendar.name + (time ? " is " + time : ""));
++			Utils.debug("\n\n\n----->>>>> " + prefix + " " + (update?"update":"fetch") + " for " + calendar.name + (time ? " is " + time : ""));
+ 		}
+ 
+ 		var calUID = calendar.UID,
+@@ -42,7 +42,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 		syncKey.calendar[calUID] = syncKey.calendar[calUID] || {};
+ 
+ 		if (time) {
+-			time = time.getDate();
++			Utils.debug("time: " + typeof(time) + ": " + JSON.stringify(time));
++			if(typeof(time) == 'string') { time = Calendar.IO.Utils.dateFromIso8601(time);} else {
++			time = time.getDate();}
+ 
+ 			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
+ 
+@@ -125,8 +127,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			query.setUpdatedMin(startDate);
+ 			query.setUpdatedMax(endDate);
+ 
+-			Utils.debug("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+ 		} else {
++			Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
+ 			if (lastModTime) {
+ 				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
+ 			} else {
+@@ -145,7 +148,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			query.setUpdatedMin(undefined);
+ 			query.setUpdatedMax(undefined);
+ 
+-			Utils.debug("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+ 		}
+ 	}
+ 
+@@ -222,6 +225,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 						setLastModifiedTimeForCalendar(update, queryResult.modTime);
+ 						// We just wrapped up an update query; now we'll do
+ 						// a fetch
++						Utils.debug("\n\n--->>> fetch from update mod time: " + JSON.stringify(queryResult.modTime));
+ 						update = false;
+ 						startIndex = 1;
+ 						join.result = true;
+@@ -229,9 +233,11 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 						if (!getLastModifiedTimeForCalendar(true)) {
+ 							// If this is the first sync, there'll be no stored
+ 							// "last update time", so store the fetch's time
++							Utils.debug("\n\n--->>> setting mod time: " + JSON.stringify(queryResult.modTime));
+ 							setLastModifiedTimeForCalendar(true, queryResult.modTime);
+ 						}
+-						setLastModifiedTimeForCalendar(false, query.getMaximumStartTime());
++						Utils.debug("\n\n--->>> setting last window: " + queryResult.modTime.date);
++						setLastModifiedTimeForCalendar(false, queryResult.modTime);
+ 						join.result = false;
+ 					}
+ 				} else {
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
+index 0cb829a..0255d1e 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
+@@ -224,27 +224,29 @@ var GoogleCalendarEventTransformer = Class.create({
+ 			participant,
+ 			participants = [],
+ 			attendeeStatus;
+-		for (i = 0; i < from.length; ++i) {
+-			participant = new google.gdata.Attendee();
+-			participant.setRel(from.organizer ? google.gdata.Who.REL_ORGANIZER : google.gdata.Who.REL_ATTENDEE);
++		for (i = 0; i < from.attendees.length; ++i) {
++			participant = new google.gdata.Who();
++			participant.setRel(from.attendees[i].organizer ? google.gdata.Who.REL_EVENT_ORGANIZER : google.gdata.Who.REL_EVENT_ATTENDEE);
+ 
+ 			attendeeStatus = undefined;
+-			if (from.participationStatus === "ACCEPTED") {
++			if (from.attendees[i].participationStatus === "ACCEPTED") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_ACCEPTED);
+-			} else if (from.participationStatus === "DECLINED") {
++			} else if (from.attendees[i].participationStatus === "DECLINED") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_DECLINED);
+-			} else if (from.participationStatus === "TENTATIVE") {
++			} else if (from.attendees[i].participationStatus === "TENTATIVE") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_TENTATIVE);
++			} else if (from.attendees[i].participationStatus === "NEEDS-ACTION" && from.attendees[i].organizer) {
++				to.setSendEventNotifications({value: true});
+ 			}
+ 			if (attendeeStatus) {
+ 				participant.setAttendeeStatus(attendeeStatus);
+ 			}
+ 
+-			participant.setEmail(from.email);
+-			participant.setValueString(from.commonName);
++			participant.setEmail(from.attendees[i].email);
++			participant.setValueString(from.attendees[i].commonName);
+ 			participants.push(participant);
+ 		}
+ 
+@@ -601,5 +603,15 @@ GoogleCalendarEventTransformer.dayHash = [
+ GoogleCalendarEventTransformer.collapseWhitespaceRegex = new RegExp("[\\f\\r\\t \u000B\u00A0\u2028\u2029]{2,}", 'g');
+ 
+ GoogleCalendarEventTransformer.collapseWhitespace = function (str) {
+-	return str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
++	str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
++	
++	var ESCAPE_REGEX =	/(,)|(")/g;
++	var ESCAPE_MAP = {"," : "\\,", "\"" : "\\\""};
++
++	var ESCAPE_BSLASH_REGEX = /(\\)/g;
++	var ESCAPE_BSLASH_MAP = {"\\":"\\\\"};
++	
++	var escString = str.replace(/(\\)/g,"\\\\");
++	escString.replace(/(,)/g, "\,");
++	return escString.replace(/(")/g, "\"");
+ };
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
+index 344599f..b799308 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
+@@ -167,11 +167,11 @@ function transformAttendee(participant) {
+ 
+ 	attendeeStatus = attendeeStatus && attendeeStatus.getValue();
+ 	if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_ACCEPTED) {
+-		attendee.participantStatus = "ACCEPTED";
++		attendee.participationStatus = "ACCEPTED";
+ 	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_DECLINED) {
+-		attendee.participantStatus = "DECLINED";
++		attendee.participationStatus = "DECLINED";
+ 	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_TENTATIVE) {
+-		attendee.participantStatus = "TENTATIVE";
++		attendee.participationStatus = "TENTATIVE";
+ 	}
+ 
+ 	attendee.email = attendeeEmail;
