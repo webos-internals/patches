@@ -1,0 +1,3263 @@
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js b/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
+index 3e022db..3c95aab 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
+@@ -216,11 +216,27 @@ enyo.kind ({
+ 
+ 		var	launchDate
+ 		,	timeMachine		= this.timeMachine
+-
++		,	prefsMgr	= enyo.application.prefsManager
++		,	openInView	= prefsMgr && prefsMgr.prefs.openInView
+ 		// Show day view at launch.  Turn off auto-propogation of the previous view's date.
+ 		,	view			= [{view:"DayView", autoDate:false}]
+ 		,	windowParams	= enyo.windowParams
+ 		;
++		
++		if(openInView) {
++			if(openInView === "last"){
++				var lastView = prefsMgr.getUberCalendarPrefs({name:"uberLastView"});
++				openInView	= lastView || "day";
++			}
++			if(openInView === "dayCarousel" || openInView === "day"){ 
++				view[0].view = "DayView";
++			} else if(openInView === "week" || openInView === "weekCarousel"){ 
++				view[0].view = "WeekView";
++			} else if(openInView === "month" || openInView === "monthCarousel"){ 
++				view[0].view = "MonthView";
++			}
++		}
++		DEBUG && this.log("launch view: ", view, "; lastView: ", lastView);
+ 		view.keep = true;
+ 		calendarWindow && (view.wait = true);									// If the window already exists, make it switch views first.
+ 		enyoApp.share ({showView: view});
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/AppView.js b/usr/palm/applications/com.palm.app.calendar/app/AppView.js
+index a14ce89..77096c0 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/AppView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/AppView.js
+@@ -20,7 +20,10 @@ enyo.kind({
+ 	{	calendars	: null	// Object	: For watching calendars' on/off states.
+ 	,	is24Hr		: null	// Boolean	: For watching 24hr clock mode changes.
+ 	,	showEvent	: null	// Object	: For watching all show event requests (i.e. From Day, Week, or Month views, ReminderDialog, or Cross Launch).
++	,	quickEdit	: null	// Object	: For watching all uc quick edit event requests (i.e. From Day, Week, agenda taps).
++	,	quickDate	: null	// date timestamp	: For watching all uc quick date event requests (i.e. From Day, Week, agenda taps).
+ 	,	showView	: null	// Object	: For watching all show view requests.
++	,	uberMode	: 2		// calendar mode: 0-move, 1-copy, 2-info
+ 	},
+ 
+ 	components: [
+@@ -48,30 +51,58 @@ enyo.kind({
+ 		,	onShowToday				: "showDate"
+ 		,	onSyncNow				: "syncNow"
+ 		},//End: AppMenu
+-
+ 		{kind: enyo.Pane, flex: 1, onSelectView: "viewSelected", components: [
+ 			{name: "calendar", kind: enyo.VFlexBox,
+ 				components: [
+ 					{kind:"calendar.CalendarList"},
+-					{name:"main", className:"view", kind:enyo.Pane, flex: 1, onSelectView: "viewSelected", components: [
+-						{name:"dayCarousel"		, kind:"calendar.day.DayCarousel"		, flex:1, lazy: true},
+-						{name:"weekCarousel"	, kind:"calendar.week.WeekCarousel"		, flex:1, lazy: true},
+-						{name:"monthCarousel"	, kind:"calendar.month.MonthCarousel"	, flex:1, lazy: true}
+-					]},
+-					{className:"view-controls", kind: enyo.HFlexBox, align:"center", pack:"center", components: [
+-						{name: "btnNew", kind: enyo.Button, className: "enyo-button-light" , caption:$L("New event"), i_con: "../images/menu-icon-createNew.png"	, onclick:"createTimedEvent"},
+-						{kind: enyo.Spacer},
+-						{name:"viewSwitcher", kind: enyo.RadioGroup, className: "Rbutton", onChange:"switchView", onclick:"switchViewClicked", value:-1, components: [
+-							{name:"daySwitch"	, kind: enyo.RadioButton, lab_el: $L("Day")		, icon: "../images/menu-icon-day.png"	, value: 0 },	// lab_el is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
+-							{name:"weekSwitch"	, kind: enyo.RadioButton, lab_el: $L("Week")	, icon: "../images/menu-icon-week.png"	, value: 1 },	// lab_el is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
+-							{name:"monthSwitch"	, kind: enyo.RadioButton, lab_el: $L("Month")	, icon: "../images/menu-icon-month.png"	, value: 2 }	// lab_el is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
++					{name: "uberView", kind: enyo.SlidingPane, style:"background:#fff;padding:0px;margin:0px;top:-8px;", onSlideComplete:"ucPaneMove", flex: 1,components: [
++						{name: "left", width: "320px", kind:enyo.SlidingView, dragAnywhere:false, fixedWidth:true, style:"background:#fff;margin:0px;padding:0px;", components: [
++								{name: "ucListView", kind: "calendar.uc.UberAgenda", linked:true, uberMode:2, flex:1, onUcSearchDone:"ucSearchDone", onUcSearchStart:"hideMiniMonth", onDelete:"showDeleteConfirm"},
++								{name:"miniMonthDrawer", kind: "DividerDrawer", caption: $L("mini month"), style:"background:#fff;",components:[
++									{kind:enyo.HFlexBox, pack:"center", align:"center", components:[
++										{name:"miniMonth", kind:"calendar.uc.MiniMonth", linked:true, onMiniMonDateTap:"miniMonDateTap", followMe: ["currentDate","days","prefs", "uberMode"]},
++									]}
++								]},
++								{className:"footerPageEffect"},
++								{kind: enyo.Toolbar, components: [
++									//{kind: enyo.GrabButton},
++									//{kind: enyo.Spacer},
++									{name: "appMiniLinked", kind: enyo.ToggleButton, onLabel:$L('link'), onChange:"ucMiniLinked", state:true},
++									{name:"uberModeSwitch", kind: enyo.RadioGroup, value:2, onChange:"switchUberMode", onclick:"uberModeClicked", components: [
++										{name:"uberMove", kind: enyo.RadioButton, l_abel:$L("T"), icon:"../images/menu-icon-showToday.png", value:0},
++										{name:"uberCopy", kind: enyo.RadioButton, l_abel:$L("C"), icon: "../images/menu-icon-jumpTo.png", value:1},
++										{name:"uberInfo", kind: enyo.RadioButton, label:$L("i"), value:2}
++									]},
++									{name:"uc_PrevDate", kind:enyo.ToolButton, icon:'/usr/palm/applications/com.palm.app.browser/images/chrome/menu-icon-refresh.png', onclick:"ucPrevDate"}
++									
++								]}
+ 						]},
+-						{kind: enyo.Spacer},
+-						{name: "btnJump",   kind: enyo.IconButton, className: "enyo-button-light", caption: $L("Jump to..."), i_con: "../images/menu-icon-jumpTo.png", onclick:"showJumpTo"}
+-						//{name: "btnJump",   kind: enyo.IconButton, className: "menuButtons enyo-button-light", ca_ption: $L("Jump to..."), icon: "../images/menu-icon-jumpTo.png", onclick:"showJumpTo"},				// ca_ption is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
+-						//{name: "btnToday",  kind: enyo.IconButton, className: "menuButtons btnToday enyo-button-light", ca_ption: $L("Show today"), icon: "../images/menu-icon-showToday.png", onclick:"showToday"}		// ca_ption is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
+-					]},
+-					{className:"footerPageEffect"}
++						{name: "right", kind:enyo.SlidingView, dragAnywhere:false, flex: 1,style:"background:#fff;padding:0px;margin:0px;", peekWidth: 0, components: [
++							{name:"main", className:"view", kind:enyo.Pane,style:"background:#fff;padding:1px;margin:0px;", flex: 1, onSelectView: "viewSelected", components: [
++								{name:"dayCarousel"		, kind:"calendar.day.DayCarousel"		, flex:1, lazy: true},
++								{name:"weekCarousel"	, kind:"calendar.week.WeekCarousel"		, flex:1, lazy: true},
++								{name:"monthCarousel"	, kind:"calendar.month.MonthCarousel"	, flex:1, lazy: true}
++							]},
++							{className:"footerPageEffect"},
++							{kind: enyo.Toolbar, components: [
++								{kind: enyo.GrabButton},
++								{kind:enyo.ToolButtonGroup, components:[
++							//	{kind: enyo.HFlexBox, align:"center", pack:"center", components: [
++									{name: "btnNew", kind: enyo.ToolButton, style:"padding-left:5px;", caption:$L("New event"), i_con: "../images/menu-icon-createNew.png"	, onclick:"createTimedEvent"},
++									{kind: enyo.Spacer},
++									{name:"viewSwitcher", kind: enyo.RadioGroup, onChange:"switchView", onclick:"switchViewClicked", value:-1, components: [
++										{name:"daySwitch"	, kind: enyo.RadioButton, lab_el: $L("Day")		, icon: "../images/menu-icon-day.png"	, value: 0 },	// lab_el is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
++										{name:"weekSwitch"	, kind: enyo.RadioButton, lab_el: $L("Week")	, icon: "../images/menu-icon-week.png"	, value: 1 },	// lab_el is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
++										{name:"monthSwitch"	, kind: enyo.RadioButton, lab_el: $L("Month")	, icon: "../images/menu-icon-month.png"	, value: 2 }	// lab_el is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
++									]},
++									{kind: enyo.Spacer},
++									{name: "btnJump",   kind: enyo.ToolButton, caption: $L("Jump to..."), i_con: "../images/menu-icon-jumpTo.png", onclick:"showJumpTo"}
++									//{name: "btnJump",   kind: enyo.IconButton, className: "menuButtons enyo-button-light", ca_ption: $L("Jump to..."), icon: "../images/menu-icon-jumpTo.png", onclick:"showJumpTo"},				// ca_ption is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
++									//{name: "btnToday",  kind: enyo.IconButton, className: "menuButtons btnToday enyo-button-light", ca_ption: $L("Show today"), icon: "../images/menu-icon-showToday.png", onclick:"showToday"}		// ca_ption is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
++								]},
++							]}
++						]}
++					]} //end sliding Pane
+ 			]},//End: calendar
+ 			{name:"editView"		, kind:"calendar.edit.EditView"			, lazy: true, showing: false, onExit:"closeView", onDelete:"showDeleteConfirm", flex:1},
+ 			{name:"prefsView"		, kind:"calendar.prefs.PreferencesView"	, lazy: true, showing: false, onExit:"closeView"}
+@@ -88,6 +119,16 @@ enyo.kind({
+ 		]},
+ 		{name: "deleteDialog", kind: enyo.ModalDialog, scrim:true, showing:false, components: [
+ 			{name: "deleteConfirm", kind: "calendar.edit.DeleteConfirm"}
++		]},
++		{name: "uberToolTip", kind: enyo.Popup, style:"padding:0px; margin: 0px; min-width:60px;", components: [
++		    {name:"uberToolTipText", content: "", kind:enyo.HFlexbox, style:"font-size: 0.8em;"}
++		]},
++		{name: "confirmUCAction", kind: enyo.ModalDialog, scrim:true,  caption: $L("Attention"), components:[
++			{name:"actionText", kind:enyo.Control, content: "hi", align:"center", pack:"center", className:"enyo-text-info"},
++			{kind:enyo.HFlexBox, align:"center", pack:"center", flex:1, components:[
++				{kind: enyo.Button, caption: $L("OK"), onclick: "ConfirmUberAction", className:"enyo-button-affirmative"},
++				{kind: enyo.Button, caption: $L('Cancel'), onclick: "CancelUberAction", className:"enyo-button-negative"}
++			]}
+ 		]}
+ 	],//End:popups
+ 
+@@ -112,20 +153,28 @@ enyo.kind({
+ 
+ 		var enyoApp	= enyo.application
+ 		,	ui		= this.$
++		,	prefsMgr = enyoApp.prefsManager
++		,	prefs = prefsMgr.prefs
+ 		;
+-		ui.daySwitch.clickHandler();
++		
++		ui.right.setPeekWidth((prefs && prefs.showPeek) ? 30 : 0);
++		ui.miniMonthDrawer.setOpen((prefs && prefs.showMini) ? true : false);
++		//ui.daySwitch.clickHandler();
++		
+ 		ui.pane.selectView (ui.calendar);
+ 
+ 		this.createComponents (this.popups);
++		ui.ucListView.uberMode = this.uberMode;
++		ui.uberModeSwitch.value = this.uberMode;
+ 
+ 		this.is24Hr = !enyoApp.fmts.isAmPm();	// Use the current 24hr mode system setting as default.
+ 		enyoApp.autoDate = true;				// When switching views (example: WeekView->DayView), use the previous view's date.
+-
+-		enyoApp.watch	({ calendars:this, is24Hr:this, showEvent:this, showView:this });
++		
++		enyoApp.watch	({ calendars:this, is24Hr:this, showEvent:this, quickEdit:this, quickDate: this, showView:this});
+ 	},
+ 
+ 	destroy: function destroy () {
+-		enyo.application.ignore ({ calendars:this, is24Hr:this, showEvent:this, showView:this });
++		enyo.application.ignore ({ calendars:this, is24Hr:this, showEvent:this,  quickEdit:this, quickDate: this, showView:this});
+ 		this.inherited (arguments);
+ 	},
+ 
+@@ -201,6 +250,63 @@ enyo.kind({
+ 	showEventChanged: function showEventChanged (lastEventShown) {
+ 		this.displayEvent (this, this.showEvent);
+ 	},
++	
++	quickEditChanged: function quickEditChanged (lastEventShown) {
++		if(!this.quickEdit){return;}
++		if(this.uberMode ===2) {
++			this.uberQuickEdit (this, this.quickEdit);
++		} else {
++			if(this.quickEdit){
++				var event = this.quickEdit;
++				var isReadOnly = enyo.application.calendarsManager.isCalendarReadOnly(event.calendarId)
++				if(isReadOnly){
++					var errorTxt = $L('Error!  Can not move or copy read only events')
++					this.quickEdit = null;
++					enyo.application.free ({quickEdit: true});
++					this.toolTipDisplay(errorTxt);
++					return;
++				}
++				//do move & copy here
++				var msg = '"'+(event && event.subject)+'"';
++				if(!this.quickDate){
++					msg = msg + $L("--> select date");
++					this.toolTipDisplay(msg);
++				} else {
++					var dtxt, dFMT, date = new Date(this.quickDate);
++					if((this.quickEdit && this.quickEdit.allDay) || (date.getHours() === 0 && date.getMinutes() === 0)){
++						dFMT = new enyo.g11n.DateFmt({date:"short"});
++					} else {
++						dFMT = new enyo.g11n.DateFmt({date:"short", time:(!!this.is24Hr ? "HH:mm" : "hh:mm a")});
++					}
++					dtxt = dFMT.format(date);
++					msg = this.uberMode === 0 ? $L('Move ') + msg + $L(" to ") + dtxt : $L('Copy ') + msg + $L(" to ") + dtxt; 
++					this.showConfirm(msg);
++				}
++			}
++		}
++	},
++	
++	quickDateChanged: function quickDateChanged(lastQuickDate){
++		if(this.uberMode === 2){
++			return;
++		}
++		var date, msg, dFMT, subject, dtxt;
++		date = !!this.quickDate ? new Date(this.quickDate) : new Date();
++		if((this.quickEdit && this.quickEdit.allDay) || (date.getHours() === 0 && date.getMinutes() === 0)){
++			dFMT = new enyo.g11n.DateFmt({date:"short"});
++		} else {
++			dFMT = new enyo.g11n.DateFmt({date:"short", time:(!!this.is24Hr ? "HH:mm" : "hh:mm a")});
++		}
++		dtxt = dFMT.format(date);
++		if(!this.quickEdit){
++			msg = '"' + dtxt +'"' + $L("--> select event");
++			this.toolTipDisplay(msg);
++		} else {
++			subject = this.quickEdit && this.quickEdit.subject;
++			msg = this.uberMode === 0 ? $L('Move ') + subject + $L(" to ") + dtxt : $L('Copy ') + subject + $L(" to ") + dtxt; 
++			this.showConfirm(msg);
++		}
++	},
+ 
+ 	showViewChanged: function showViewChanged (lastShowView) {
+ 		enyo.application.free ({showView:true});	// Free the showView from datahub just in case it is being kept.
+@@ -211,24 +317,28 @@ enyo.kind({
+ 		var	ui			= this.$
+ 		,	view		= showView.view
+ 		,	autoDate	= showView.autoDate
++		,	prefsMgr 	= enyo.application.prefsManager
+ 		;
+ 		switch (view) {
+ 			case calendar.day.DayView:
+ 			case "DayView":
+ 				enyo.application.autoDate = (autoDate === false) ? false : true;
+ 				ui.daySwitch.clickHandler();
++				//this.saveLastView("dayCarousel");
+ 				break;
+ 
+ 			case calendar.week.WeekView:
+ 			case "WeekView":
+ 				enyo.application.autoDate = (autoDate === false) ? false : true;
+ 				ui.weekSwitch.clickHandler();
++				//this.saveLastView("weekCarousel");
+ 				break;
+ 
+ 			case calendar.month.MonthView:
+ 			case "MonthView":
+ 				enyo.application.autoDate = (autoDate === false) ? false : true;
+ 				ui.monthSwitch.clickHandler();
++				//this.saveLastView("monthCarousel");
+ 				break;
+ 
+ 			default:
+@@ -307,6 +417,24 @@ enyo.kind({
+ 		return true;
+ 	},
+ 
++	uberQuickEdit: function uberQuickEdit(from, event){
++		if (!event) {
++			this.error ("\tUnable to quick edit non-existent event.\t");
++			return;
++		}
++		var	hasId	= ("_id" in event)
++		,	ui		= this.$
++		,	isReadOnly = enyo.application.calendarsManager.isCalendarReadOnly(event.calendarId)
++		,	view
++		;
++		if(hasId && !isReadOnly){
++			ui.pane.viewByName ("editView").setEvent (event);	//		Update Edit View with the event's content.
++			ui.pane.selectView (ui.editView);					//		then show Edit View.
++		} else{
++			this.displayEvent(from, event);
++		}
++	},
++	
+ 	displayEvent: function displayEvent (from, eventGUIOrEvent) {
+ 		DEBUG && this.log ("Event:", eventGUIOrEvent);
+ 
+@@ -412,6 +540,262 @@ enyo.kind({
+ 	jumpToDate: function jumpToDate (from, date) {
+ 		this.showDate (date);
+ 	},
++	
++	miniMonDateTap: function miniMonDateTap(from, date){
++		//depending on mode do something with date
++		if(date && ( date instanceof Date ==true)){
++			//test for mode here 
++			if(this.uberMode === 2){
++				enyo.application.shareCurrentDate({date: new Date(date)});
++			} else {
++				enyo.application.share({quickDate: date.getTime()});
++			}
++		}
++	},
++	
++	hideMiniMonth: function hideMiniMonth(inSender, inEvent){
++		var txt = this.$.ucListView.$.ucAgendaSearch.getValue();
++		if(txt ===""){
++			this.miniDrawerState = this.$.miniMonthDrawer.getOpen();
++		}
++		this.$.miniMonthDrawer.close();
++	},
++	
++	saveLastView: function saveLastView(viewName){
++		var prefsMgr = enyo.application.prefsManager;
++		DEBUG && this.log("previous Cookie setting: ", prefsMgr.getUberCalendarPrefs({name:"uberLastView"}));
++		prefsMgr.setUberCalendarPrefs({name:"uberLastView", values: viewName});
++		DEBUG && this.log("last Cookie setting: ", viewName);
++	},
++	
++	ucSearchDone: function ucSearchDone(){
++		if(this.miniDrawerState){
++			this.$.miniMonthDrawer.setOpen(true);
++		}
++	},
++	
++	ucPrevDate: function ucPrevDate(){
++		var prev = this.$.miniMonth.getPrevDate();
++		DEBUG && this.log("get miniMonth previous date:  ", prev);
++		if(prev && (prev instanceof Date == true)){
++			enyo.application.shareCurrentDate({date: new Date(prev)});
++		}
++	},
++	
++	ucMiniLinked: function ucMiniLinked(inSender, inState){
++		this.$.miniMonth.setLinked(inState);
++		this.$.ucListView.setLinked(inState);
++	},
++	
++	ucPaneMove: function ucPaneMove(inSender, inValue){
++		var view = this.$.main.getViewName();
++		DEBUG && this.log("why am I here??????????????????????????????????", inSender.name);
++		if(view == "weekCarousel"){
++			view && enyo.application.shareCurrentDate ({date: new Date(+enyo.application.currentDate)});
++		} else if(view == "dayCarousel"){
++			var dayview = this.$.main.getView();
++			dayview && dayview.broadcastMessage("childNeedsResize", [true]);
++			//enyo.application.shareCurrentDate({date: });
++		}
++	},
++	
++	switchUberMode: function switchUberMode(from, i){
++		var ui = this.$;
++		if(this.uberMode !== i){
++			this.uberMode = i;
++			//ui.ucListView.uberMode = this.uberMode;
++			//ui.miniMonth.uberMode = this.uberMode;
++			enyo.application.share({uberMode: this.uberMode});
++		}
++	},
++	
++	uberModeClicked: function uberModeClicked(from, domEvent){
++		var msg, mode = this.$.uberModeSwitch.getValue();
++		switch(mode){
++			case 0:
++				msg = $L("Move");
++				break;
++			case 1:
++				msg = $L("Copy");
++				break;
++			case 2:
++				msg = $L("Information");
++				this.quickEdit = null;
++				this.quickDate = null;
++				enyo.application.free({quickDate: true, quickEdit:true});
++				break;
++		}
++		this.toolTipDisplay(msg, domEvent);
++	},
++	
++	uberModeChanged: function uberModeChanged (oldMode){
++		
++	},
++	
++	showConfirm: function showConfirm(msg){
++		var time, ui = this.$;
++		ui.confirmUCAction.lazy && ui.confirmUCAction.validateComponents();
++		ui.actionText && ui.actionText.setContent(msg);
++		ui.confirmUCAction.openAtCenter();
++	},
++	
++	ConfirmUberAction: function ConfirmUberAction(from, inEvent){
++		this.$.confirmUCAction.close();
++		if(!this.quickDate || !this.quickEdit || !("_id" in this.quickEdit)){
++			return;
++		}
++		var event = this.quickEdit
++		,	date = new Date(this.quickDate)
++		,	start = event.currentLocalStart || event.dtstart
++		,	end = event.currentLocalEnd || event.dtend
++		,	duration = end - start
++		,	hours = date.getHours()
++		,	mins = date.getMinutes()
++		,	workDay = new Date()
++		,	ui = this.$
++		,	editView = ui.pane.viewByName("editView")
++		,	newStart, newEnd
++		;
++
++		if(this.uberMode === 0){ //move
++			if((hours === 0 && mins=== 0) || event.allDay){
++				var newTime = workDay.setTime(date);
++				if(event.allDay){
++					editView.setEvent(event);
++					editView.pickerStart = +date;
++					workDay.setTime(+date);
++					workDay.setHours(23);
++					workDay.setMinutes(59);
++					workDay.setSeconds(59);
++					workDay.setMilliseconds(0);
++					editView.pickerEnd = workDay.getTime();
++					newStart = new Date(+date);
++					newEnd = new Date(workDay);
++					editView.$.editMiniMonth.setViewDay();
++					editView.$.startDate.setValue(newStart);
++					editView.$.startTime.setValue(newStart);
++					editView.$.endDate.setValue(newEnd);
++					editView.$.endTime.setValue(newEnd);
++					ui.pane.selectView(ui.editView);
++				} else {
++					editView.setEvent(event);
++					workDay.setTime(start);
++					hours = workDay.getHours();
++					mins = workDay.getMinutes()
++					workDay.setTime(+date);
++					workDay.setHours(hours);
++					workDay.setMinutes(mins);
++					workDay.setSeconds(0);
++					workDay.setMilliseconds(0);
++					editView.pickerStart = workDay.getTime();
++					editView.pickerEnd = workDay.getTime() + duration;
++					newStart = new Date(workDay);
++					newEnd = new Date(workDay.getTime() + duration);
++					editView.$.editMiniMonth.setViewDay();
++					editView.$.startDate.setValue(newStart);
++					editView.$.startTime.setValue(newStart);
++					editView.$.endDate.setValue(newEnd);
++					editView.$.endTime.setValue(newEnd);
++					ui.pane.selectView(ui.editView);
++				}
++			} else {
++				editView.setEvent(event);
++				editView.pickerStart = +date;
++				workDay.setTime(+date + duration);
++				editView.pickerEnd = workDay.getTime();
++				newStart = new Date(+date);
++				newEnd = new Date(workDay.getTime());
++				editView.$.editMiniMonth.setViewDay();
++				editView.$.startDate.setValue(newStart);
++				editView.$.startTime.setValue(newStart);
++				editView.$.endDate.setValue(newEnd);
++				editView.$.endTime.setValue(newEnd);
++				ui.pane.selectView(ui.editView);
++			}
++		} else if(this.uberMode === 1){ //copy
++			event = JSON.parse(JSON.stringify(this.quickEdit));
++			event._id && delete event._id;
++			event.etag && delete event.etag;
++			if(event.rrule){event.rrule = null;}
++			event.parentId && delete event.parentId;
++			event.sequence && delete event.sequence;
++			event.parentDtstart && delete event.parentDtstart;
++			event.lastModified && delete event.lastModified;
++			event.recurrenceId && delete event.recurrenceId;
++			event.remoteId && delete event.remoteId;
++			event.exdates && delete event.exdates;
++			event.saveAsIs = true;
++			if((hours === 0 && mins=== 0) || event.allDay){
++				if(event.allday){
++					event.dtstart = +date;
++					workDay.setTime(+date);
++					workDay.setHours(23);
++					workDay.setMinutes(59);
++					workDay.setSeconds(59);
++					workDay.setMilliseconds(0);
++					event.dtend = +workDay;
++				} else {
++					workDay.setTime(start);
++					hours = workDay.getHours();
++					mins = workDay.getMinutes()
++					workDay.setTime(+date);
++					workDay.setHours(hours);
++					workDay.setMinutes(mins);
++					workDay.setSeconds(0);
++					workDay.setMilliseconds(0);
++					event.dtstart = +workDay;
++					event.dtend = +workDay + duration;
++				}
++			} else {
++				event.dtstart = +date;
++				workDay.setTime(+date + duration);
++				event.dtend = workDay.getTime();
++			}
++			
++			var createEvent =
++				{	event	: event
++				,	keepTime:true
++				,	then	: this.createLaunchEventThen
++				};
++			enyo.application.share ({createEvent: createEvent});	// Request event creation.
++		}
++		this.$.uberModeSwitch.setValue(2)
++		this.uberMode = 2;
++		this.quickEdit = null;
++		this.quickDate = null;
++		enyo.application.free({quickDate: true, quickEdit:true});
++		enyo.application.share({uberMode: this.uberMode});
++	},
++	
++	CancelUberAction: function CancelUberAction(from, inEvent){
++		this.$.confirmUCAction.close();
++		this.quickEdit = null;
++		this.quickDate = null;
++		enyo.application.free({quickDate: true, quickEdit:true});
++	},
++	
++	toolTipDisplay: function toolTipDisplay(msg, domEvent){
++		if(!msg){
++			return;
++		}
++		var time, ui = this.$;
++		ui.uberToolTip.lazy && ui.uberToolTip.validateComponents();
++		ui.uberToolTipText && ui.uberToolTipText.setContent(msg);
++		if(domEvent){
++			time = 1000;
++			ui.uberToolTip.openAtEvent(domEvent, {top: -80});
++		} else {
++			time = 2000;
++			ui.uberToolTip.openAtCenter();
++		}
++		setTimeout(enyo.bind(this, this.toolTipDown), 1000);
++	},
++	
++	toolTipDown: function toolTipDown(){
++		//console.log("firing nowwwwwwwwww");
++		var ui = this.$;
++		ui.uberToolTip.close();
++	},
+ 
+ 	resetMenu: function resetMenu (from) {
+ 		this.viewSelected (from, this.$.main.getView(), from);
+@@ -450,6 +834,7 @@ enyo.kind({
+ 	switchView: function switchView (from, i) {							// This is called when switching between views.
+ 		var name = this.viewIdNameMap [i];	
+ 		this.switchViewClicked.lastClickedViewName = name;				//	Set the view switching flag.
++		this.saveLastView(name);
+ 		this.$.main.selectViewByName (name);							//	Switch to the selected view.
+ 	},
+ 
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/MiniMonth.js b/usr/palm/applications/com.palm.app.calendar/app/MiniMonth.js
+new file mode 100644
+index 0000000..e540cea
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.calendar/app/MiniMonth.js
+@@ -0,0 +1,442 @@
++enyo.kind({
++	name: "calendar.uc.MiniMonth", 
++	kind: enyo.Control,
++    nodeTag: "canvas",
++    domAttributes: { 
++    	width:"240px", 
++    	height:"240px", 
++    	style: "border: 2px solid #000; background-color:#fff;"
++	},
++	
++	events:{
++		onMiniMonDateTap: ""
++	},
++	
++	published:
++	{	currentDate: null // for tracking current displayed day
++	,	days: null // for tracking current displayed day
++	,	linked: false // for following currentDate
++	,	uberMode: 2 // operational mode for calendar 0-move, 1-copy, 2-info
++	,	prevDate: ""
++	,	prefs: null	// watching start of week
++	,	viewDay: null // day used in EditView
++	,	followViewDay: false //set to true to follow days and redraw used in editView
++	},
++	
++	constructor: function MiniMonth () {
++		//this.followCD = this.getLinked();
++		this.inherited (arguments);
++		this.useISOweekNum = true;
++		this.startOfWeek = 1; // 1 = Sunday, this is to set first day for week numbering
++		this.prefStartDoW = 0; //0 = Sunday
++		this.weekNumOffset = 0;
++		this.weekModulusNum = 1;
++		this.RM = {};
++		this.RM.month = "";
++		this.RM.year = "";
++		this.RM.fstDayLidx = 1;
++		this.RM.fstDayTidx = 1;
++		this.RM.maxdays = 1;
++		this.CDchanging = false;
++	},
++	
++	create: function create(){
++		this.inherited (arguments);
++		this.startOfWeek = enyo.application.prefsManager.prefs.startOfWeek;
++		this.prefStartDoW = this.startOfWeek -1;
++		this.useISOweekNum = enyo.application.prefsManager.prefs.useISOWeekNumber;
++		this.weekNumOffset = enyo.application.prefsManager.prefs.weekNumberOffset;
++		this.weekModulusNum = enyo.application.prefsManager.prefs.weekModulusNum;
++		this.viewDay = this.viewDay ? new Date(this.viewDay) : new Date(+enyo.application.currentDate);
++		this.watching = this.followMe && this.followMe.length;
++		this.miniWatches = {};
++		for(var i=0; i<this.watching; i++){
++			this.miniWatches[this.followMe[i]] = this; 
++		}
++		if(this.watching) {
++			enyo.application.watch(this.miniWatches);
++		}
++		//enyo.application.watch({currentDate: this, days: this});
++		this.followCD = this.linked;
++		this.followViewDay = !!this.followViewDay;
++	},
++	
++	destroy: function destroy(){
++		//enyo.application.ignore({currentDate: this, date: this});
++		if(this.watching) {
++			enyo.application.ignore(this.miniWatches);
++		}
++		this.inherited(arguments);
++	},
++	
++	rdayNames: function() {
++		var stday = 0;
++		this._rdNames = [];
++		if(isNaN(this.startOfWeek) || this.startOfWeek == 'undefined')
++			this.startOfWeek = 1;
++		stday = this.startOfWeek - 1;
++		var tday = new Date();
++		tday.moveToDayOfWeek(stday);
++		var fmt = new enyo.g11n.DateFmt({date:"E"});
++		for (var i = 0; i < 7; i++) {
++			this._rdNames[i] = fmt.format(tday);
++			tday.addDays(1);
++		}
++	},
++	
++	_monthDays: [ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 ],
++	
++	isLeapYear: function(year) {
++		if (((year % 4 === 0) && (year % 100 !== 0)) || (year % 400 === 0)) {
++			return true;
++		}
++		return false;
++	},
++	
++	radvanceWk: function(wk, month, year, maxwkn) {
++		var wkn = parseInt(wk, 10);
++		if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++			var maxwkn = this.weekModulusNum;
++		}
++		if((wkn > 8) && (wkn < maxwkn)) {
++			return (wkn + 1);
++		} else if((wkn <= 8) && (wkn < maxwkn)) {
++			wkn +=1;
++			var zd = '0';
++			return zd + wkn.toString();
++		} else if(wkn == maxwkn || wkn > maxwkn) {
++			var zd = '01';
++			return zd;
++		}
++	},
++	
++	// draw month function, expects numbers 0 based month
++	canvasRM: function(month, year) {
++		// date object
++		this.RM.month = month;
++		this.RM.year = year;
++		var rmon = new Date(year, month, 1);
++		//setup number of days, 1st day(day of week), week number, number of weeks
++		var rd1dayOfMon = rmon.getDay();
++		var rwkNum = this.useISOweekNum === true ? rmon.getISO8601Week() : rmon.getWeekOfYear(this.prefStartDoW);
++		var maxwkn = this.useISOweekNum === true ? new Date((month != 0 ? year : year -1), 11, 28).getISO8601Week() : new Date((month != 0 ? year : year -1), 11, 28).getWeekOfYear(this.prefStartDoW);
++		maxwkn = maxwkn == 0 ? 53 : maxwkn;
++		rwkNum = rwkNum == 0 ? maxwkn : rwkNum;
++		if(this.weekNumOffset !== undefined && this.weekNumOffset !=0) {
++			var wkNum = parseInt(rwkNum,10) + this.weekNumOffset;
++			rwkNum = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			rwkNum = rwkNum < 10 ? '0' + rwkNum : rwkNum;
++		}
++		if(this.weekModulusNum != undefined && this.weekModulusNum <= 52 && this.weekModulusNum != 1) {
++			rwkNum = (parseInt(rwkNum, 10) % this.weekModulusNum);
++			rwkNum = rwkNum !== 0 ? rwkNum : this.weekModulusNum;
++			rwkNum = rwkNum < 10 ? '0' + rwkNum : rwkNum;
++		}
++		var r1offset = rd1dayOfMon - (this.startOfWeek - 1);
++		if (r1offset < 0) {r1offset += 7;}  //num of days of prev mon
++		if(this.isLeapYear(year)) {
++			this._monthDays[1] = 29;
++		} else {
++			this._monthDays[1] = 28;
++		}
++		this.RM.maxdays = this._monthDays[month];		
++		//setup fonts and spacing
++		this.mthctx.strokeStyle = "black";
++		this.mthctx.lineWidth =1;
++		this.mthctx.fillStyle = "rgb(0, 0, 0)";
++		this.mthctx.font = "bold 14px Prelude";
++		this.mthctx.textAlign = "left";
++		this.mthctx.textBaseline = "top";
++		var top = 7;
++		var leftmargin = 2;
++		var left = 0 + leftmargin;
++		var txt = "";
++		this.colHW = 30;
++		var maxW = 30;
++		this.topCor = 52 + (this.colHW/2); //top margin + half-cell
++		this.leftCor = this.colHW;
++		this.RM.fstDayLidx = r1offset;
++		this.RM.fstDayTidx = 1;
++		// setup title and week header
++		var fmtTitle = new enyo.g11n.DateFmt({date: "long", dateComponents: "my"})
++		var titleTxt = fmtTitle.format(rmon);
++		this.mthctx.strokeText(titleTxt, left + 75, top);
++		this.mthctx.textAlign = "center";
++		for (var i = 0; i < 7; i++) {
++			txt = this._rdNames[i];
++			left = (i * this.colHW) + this.leftCor + 8;//13 is for font &txt to ctr
++			top = 32;
++			this.mthctx.strokeText(txt, left, top);	
++		}
++		this.mthctx.fillStyle = "rgb(104, 104, 104)";
++		this.mthctx.font = "12px Prelude";
++		this.mthctx.textAlign = "left";
++		this.mthctx.textBaseline = "alphabetic";
++		for (var j = 0; j < 6; j++) {
++			txt = rwkNum;
++			left = leftmargin;
++			top = (j * this.colHW) + this.topCor + 3; // 3 is for font correction
++			this.mthctx.strokeText(txt, left, top);
++			rwkNum = this.radvanceWk(rwkNum, month, year, maxwkn);
++		}
++		//iterate through the date rows
++		var num = 1;
++		this.mthctx.fillStyle = "rgb(0, 0, 0)";
++		this.mthctx.font = "bold 12px Prelude";
++		this.mthctx.textAlign = "center";
++		for (var j=0; j<6; j++) {
++			if (num > this.RM.maxdays) {
++				break; }
++			top = (j * this.colHW) + this.topCor + 3;
++			for (var i=0; i<7; i++) {
++				if (j==0 && i ==0) {i = r1offset;}
++				txt = num;
++				left =  (i * this.colHW) + this.leftCor + 8;
++				this.mthctx.strokeText(txt, left, top);
++				num +=1;
++				if (num > this.RM.maxdays) {
++					break; }
++			}
++		}
++	},
++	
++	mousedownHandler: function(inSender, inEvent) {
++		this.startX = inEvent.offsetX;
++		this.startY = inEvent.offsetY;
++	},
++	
++	mouseupHandler: function(inSender, inEvent) {
++		this.endX = inEvent.offsetX;
++		this.endY = inEvent.offsetY;
++		this.nextMonth = this.startMonth;
++		this.nextYear = this.startYear;
++		if((this.endX - this.startX) < -40 ) {
++			this.nextMonth = this.startMonth +1 > 11 ? 0 : this.startMonth + 1;
++			this.nextYear = this.startMonth +1 > 11 ? this.startYear +1 : this.startYear;
++			this.goX = true;
++		} else if((this.endX - this.startX) > 40) {
++			this.nextMonth = this.startMonth -1 < 0 ? 11 : this.startMonth - 1;
++			this.nextYear = this.startMonth -1 < 0 ? this.startYear -1 : this.startYear;
++			this.goX = true;
++		} else {
++			this.goX = false;
++		}
++		if((this.endY - this.startY) < -40 ) {
++			this.nextYear = this.startYear +1;
++			this.goY=true;
++		} else if((this.endY - this.startY) > 40) {
++			this.nextYear = this.startYear -1 ;
++			this.goY=true;
++		} else {
++			this.goY=false;
++		}
++		if(this.goX || this.goY){
++			this.mthctx.clearRect(0, 0, 240,240);
++			this.canvasRM(this.nextMonth, this.nextYear);
++			this.startYear = this.nextYear;
++			this.startMonth = this.nextMonth;
++			this.markDay(new Date(), null/*img*/, "today"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++			//this.markDay(new Date(), null/*img*/, "event"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++			(this.followCD || this.followViewDay) && this.markDay(this.viewDay, null/*img*/, "repeat"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		} else if(this.startX && this.startY){ // tap to jump, copy
++			if(this.startX <= 30 || this.startY <= 50 || this.startX>= 235) {
++				return;
++			}
++			var calx = this.startX - this.colHW +4;
++			var caly = this.startY - 50;
++			var cald1idx = this.RM.fstDayLidx;
++			var calcol = Math.floor(calx/this.colHW);
++			var calrow = Math.floor(caly/this.colHW);
++			var caldate = ((calrow * 7) + calcol +1) - cald1idx;
++			if((caldate > this.RM.maxdays) || (caldate <= 0)) {
++				// tapped an area with invalid date
++				return;
++			}
++			var calmon = this.RM.month;
++			var calyear = this.RM.year;
++			if((calyear !== undefined) && (calmon !== undefined) && (caldate !== undefined)) {
++				var tappedDate = new Date(calyear, calmon, caldate, 0, 0, 0, 0);
++				this.doMiniMonDateTap(new Date(tappedDate));
++				//console.log("tapped date:  " + tappedDate);
++			}
++		}
++	},
++	
++	//mark days in calendar
++	markDay: function(rdate, imgsrc, color, rx, ry, rwt, rht) {
++		// determine which month, year, date
++		if (rdate instanceof Date == true) { 
++			var whatMn = rdate.getMonth();
++			var whatYr = rdate.getFullYear();
++			var whatDt = rdate.getDate();
++		} else if(rdate !== undefined) {
++			this.rtdate = new Date(rdate);
++			var whatMn = this.rtdate.getMonth();
++			var whatYr = this.rtdate.getFullYear();
++			var whatDt = this.rtdate.getDate();
++		}
++		var rmimgsrc = imgsrc;
++		if(whatMn !== this.RM.month || whatYr !== this.RM.year) { return; }
++		var fstDayLidx = this.RM.fstDayLidx;
++		var fstDayTidx = this.RM.fstDayTidx;
++		var rRow = Math.floor((whatDt + fstDayLidx -1) / 7);
++		var col = (whatDt + fstDayLidx - 1) % 7;
++		var itop = (rRow * this.colHW) + 50;
++		var ileft = (col * this.colHW) + this.colHW -6;
++		itop = (ry != undefined) ? itop + ry : itop;
++		ileft = (rx != undefined) ? ileft + rx : ileft;
++		if (rmimgsrc != undefined) {
++			this.mthctx.drawImage(rmimgsrc, ileft, itop, (rwt != undefined)? rwt : this.colHW,(rht != undefined)? rht : this.colHW);
++		} else if(color != undefined && color === "today") {
++			this.mthctx.strokeStyle = "blue";
++			this.mthctx.lineWidth = 2;
++			this.mthctx.strokeRect(ileft, itop, this.colHW, this.colHW);
++		} else if(color != undefined && color === "event") {
++			this.mthctx.strokeStyle = "green";
++			this.mthctx.lineWidth = 2;
++			this.mthctx.strokeRect(ileft+1, itop+1, this.colHW-5, this.colHW-5);
++		} else if(color != undefined && color === "repeat") {
++			this.mthctx.strokeStyle = "yellow";
++			this.mthctx.lineWidth = 2;
++			this.mthctx.strokeRect(ileft+6, itop+6, this.colHW-12, this.colHW-12);
++		} else if(color != undefined) {
++			this.mthctx.fillStyle = color;
++			this.mthctx.fillRect(ileft, itop, this.colHW, this.colHW);
++		} else {
++			this.mthctx.fillStyle = "rgba(232,227,124,0.5)";
++			this.mthctx.fillRect(ileft, itop, this.colHW, this.colHW);
++		}
++	},
++	
++	// After the canvas is rendered
++	rendered: function() {
++		// Fill in the canvas node property
++		this.hasNode();
++		this.startMonth = this.viewDay.getMonth();
++		this.startYear = this.viewDay.getFullYear();
++		this.rdayNames();
++		var can = this.node;
++		var c = can.getContext('2d');
++		this.mthctx = can.getContext('2d');
++		this.canvasRM(this.startMonth, this.startYear);
++		this.markDay(new Date(), null/*img*/, "today"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		(this.followCD || this.followViewDay) && this.markDay(this.viewDay, null/*img*/, "repeat"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		this.inherited(arguments);
++	},
++	
++	currentDateChanged: function currentDateChanged (oldDate) {
++		if(!this.prevDate){this.prevDate = oldDate ? oldDate : new Date(); this.prevDate.clearTime();};
++		if(oldDate && +oldDate !== +this.prevDate) {this.prevDate = new Date(+oldDate)};
++		//console.log("previous date:  " + this.prevDate);
++		if(!this.viewDay || (+this.viewDay != +enyo.application.currentDate)){
++			this.viewDay = new Date(+enyo.application.currentDate);
++			this.CDchanging = true;
++			if(this.followCD){
++				//console.log("new date:  " + this.viewDay);
++				this.mthctx.clearRect(0, 0, 240,240);
++				this.canvasRM(this.viewDay.getMonth(), this.viewDay.getFullYear());
++				this.startMonth = this.viewDay.getMonth();
++				this.startYear = this.viewDay.getFullYear();
++				this.markDay(new Date(), null/*img*/, "today"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++				//this.markDay(new Date(), null/*img*/, "event"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++				this.markDay(this.viewDay, null/*img*/, "repeat"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++			}
++		}
++	},
++	
++	daysChanged: function dateChanged () {
++		if(this.days && this.days[0] && this.days[0].date){
++			if(this.days.length > 7){ // compensate for month view behavior
++				var newDay = this.days[1].date;
++			} else{
++				var newDay = this.days[0].date;
++			}
++		}
++		if(newDay && (+this.viewDay != newDay)){
++			this.prevDate.setTime(+this.viewDay);
++			this.viewDay.setTime(+newDay);
++			if(this.followCD){
++				//console.log("new date:  " + this.viewDay + "  ; days length:" +this.days.length);
++				this.mthctx.clearRect(0, 0, 240,240);
++				this.canvasRM(this.viewDay.getMonth(), this.viewDay.getFullYear());
++				this.startMonth = this.viewDay.getMonth();
++				this.startYear = this.viewDay.getFullYear();
++				this.markDay(new Date(), null/*img*/, "today"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++				//this.markDay(new Date(), null/*img*/, "event"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++				this.markDay(this.viewDay, null/*img*/, "repeat"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++			}
++		}
++	},
++	
++	viewDayChanged: function viewDayChanged () {
++		if(!this.followViewDay){
++			return;
++		}
++		if(this.viewDay){
++			//console.log("viewDay changed:  " + this.viewDay);
++			this.mthctx.clearRect(0, 0, 240,240);
++			this.canvasRM(this.viewDay.getMonth(), this.viewDay.getFullYear());
++			this.startMonth = this.viewDay.getMonth();
++			this.startYear = this.viewDay.getFullYear();
++			this.markDay(new Date(), null/*img*/, "today"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++			//this.markDay(new Date(), null/*img*/, "event"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++			this.markDay(this.viewDay, null/*img*/, "repeat"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		}
++	},
++	
++	uberModeChanged: function uberModeChanged (oldMode){
++		if(oldMode === this.uberMode){
++			return;
++		}
++		//this.hasNode();
++		var ui = this;
++		//var can = this.node;
++		switch(this.uberMode){
++			case 0:
++				ui.setStyle("border: 2px solid blue; background-color:#fff;");
++				break;
++			case 1:
++				ui.setStyle("border: 2px solid green; background-color:#fff;");
++				break;
++			case 2:
++				ui.setStyle("border: 2px solid #000; background-color:#fff;");
++				break;
++		}
++	},
++	
++	prefsChanged: function prefsChanged (oldPrefs) {
++		var prefs = enyo.application.prefsManager.prefs;
++		if (!prefs || ((isNaN (prefs.startOfWeek) || prefs.startOfWeek === this.startOfWeek) && (this.useISOweekNum === prefs.useISOWeekNumber) && (this.weekNumOffset === prefs.weekNumberOffset) && (this.weekModulusNum === prefs.weekModulusNum))) {
++			return;
++		}
++		this.startOfWeek = prefs.startOfWeek;
++		this.prefStartDoW = this.startOfWeek -1;
++		this.useISOweekNum = prefs.useISOWeekNumber;
++		this.weekNumOffset = prefs.weekNumberOffset;
++		this.weekModulusNum = prefs.weekModulusNum;
++		this.rdayNames();
++		//console.log("new date:  " + this.viewDay);
++		this.mthctx.clearRect(0, 0, 240,240);
++		this.canvasRM(this.viewDay.getMonth(), this.viewDay.getFullYear());
++		this.startMonth = this.viewDay.getMonth();
++		this.startYear = this.viewDay.getFullYear();
++		this.markDay(new Date(), null/*img*/, "today"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		//this.markDay(new Date(), null/*img*/, "event"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		this.followCD && this.markDay(this.viewDay, null/*img*/, "repeat"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++	},
++	
++	linkedChanged: function linkChanged(oldState) {
++		this.followCD = this.linked;
++		if(!this.viewDay || (+this.viewDay != +enyo.application.currentDate)){
++			this.viewDay = new Date(+enyo.application.currentDate);
++		}
++		//console.log("new date:  " + this.viewDay);
++		this.mthctx.clearRect(0, 0, 240,240);
++		this.canvasRM(this.viewDay.getMonth(), this.viewDay.getFullYear());
++		this.startMonth = this.viewDay.getMonth();
++		this.startYear = this.viewDay.getFullYear();
++		this.markDay(new Date(), null/*img*/, "today"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		//this.markDay(new Date(), null/*img*/, "event"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++		this.followCD && this.markDay(this.viewDay, null/*img*/, "repeat"/*color*/, null/*x adjust*/,null/*y adjust*/ ,null /*wd adjust*/,null /*ht adjust*/);
++	}
++});
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js b/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
+new file mode 100644
+index 0000000..daff22a
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
+@@ -0,0 +1,517 @@
++enyo.kind({
++	name: "calendar.uc.UberAgenda",
++	kind: enyo.VFlexBox,
++	
++	events:{
++		onUcSearchDone: ""	// for notifying that the keyboard will come up
++	,	onUcSearchStart:""	// for notifying the keyboard will go down
++	,	onDelete: ""		// for swipe to delete
++	},
++	
++	published: {
++		//selectedRecord: null
++		days: null		//watching events from the views
++	,	is24Hr: false	//watching time format changes
++	,	currentDate: "" //for watching current date
++	,	calendars: null	//watching calendar list changes
++	//,	allCals: false	//for following check box
++	//,	incAllDay: false	//check box for allday
++	,	linked: true	//for following the views display date
++	,	uberMode: 2 	// operational mode for calendar 0-move, 1-copy, 2-info
++	},
++	
++	components: [
++		{kind: enyo.HFlexBox, components:[
++				{content: $L("All Calendars"), domStyles: {font: "14px prelude",display: "inline-block", padding: "2px 8px 10px 8px"}}, 
++				{name:"ucAllCals", kind: "CheckBox", checked:false, onChange:"allCalsChanged"},
++				{content: $L("All Day"), domStyles: {font: "14px prelude", display: "inline-block", padding: "2px 8px 10px 8px"}}, 
++				{name:"ucAllDay", checked:true, onChange:"incAllDayChanged", kind: "CheckBox"},
++				{kind:enyo.Spacer},
++				{name:"ucSearchBtn", kind:enyo.ToolButton, style:"height:25px;width:25px;padding-right:4px;", icon:"/usr/palm/applications/com.palm.app.dateandtime/images/search-icon.png", onclick:"toggleSearch"}
++		]},
++		{kind: 'SearchInput', name: 'ucAgendaSearch', hint: 'Search', spellcheck: false, autocorrect: false, autoCapitalize: "lowercase", changeOnInput: true, keypressInputDelay: 100, onfocus: 'SearchStart', onblur:"SearchDone", onchange:"SearchChanging", showing:false},
++		{kind: enyo.VFlexBox, flex:1, components:[	
++			{name:'uberDaysList', kind: enyo.VirtualList, flex:1, style:"background:#fff;", onSetupRow:"buildDaysList", components:[
++				{name: 'dayItemDrawer', kind: enyo.Divider },
++				{name: "dayEventItem", kind: enyo.VirtualRepeater, onSetupRow: "buildDayEvents", components:[
++					{name: "evtRow", kind:enyo.SwipeableItem, onConfirm:"ConfirmDelete", onclick:"EventSelected", style:"padding:0px;", components:[
++						{ kind:enyo.VFLexBox, flex:1, components: [
++							{kind: enyo.RowItem, style:"border:1px solid black;padding:1px;", components:[
++								{kind:enyo.HFlexBox, style:"padding:0px;", components: [
++									{name:"itemTimeBlock", kind:enyo.Control, components:[
++										{name: "itemStart", style:"font:14px prelude; padding-top:5px"},
++										{name: "itemEnd", style:"font:14px prelude;"}
++									]},
++									{kind: enyo.Control, style:"width:10px"},
++									{kind:enyo.Control, flex:1, align:"start", components:[
++										{name: "itemSubject", className:"ellipsis", style:"font:14px prelude"},
++										{name: "itemLocation", className:"ellipsis", style:"font:12px prelude"},
++										{name: "itemNote", className:"ellipsis", style:"font:12px prelude"}
++									]},
++									{kind:enyo.Control, style:"width:20px", align:"right", components:[
++										{name: "itemAlarmIcon", kind:enyo.Image, style:"height:12px", src:""},
++										{name: "itemAttendeeIcon", kind:enyo.Image, style:"height:12px", src:""},
++										{name: "itemUberIcon", kind:enyo.Image, style:"height:12px", src:""}
++									]}
++								]} // end event HFlexBox for event item in a horizontal layout
++							]} // end rowItem
++						]},// event VFlexBox ensures accurate vertical scroller in the Vlist
++					]}//end swipeableItem
++				]} // days[i].event[j] Virtual repeater
++			]},// end agenda list
++		]},
++		{kind: enyo.ModalDialog, name: "uberError", caption: $L("Attention"), onBeforeOpen:"errorOpening", components:[
++			{name:"errText", kind: enyo.Control, content: "Hi", className: "enyo-text-error warning-icon"},
++			{kind: "Button", caption: $L("OK"), onclick: "closeUberError", style: "margin-top:10px"},
++		]}
++	],	
++	
++	constructor: function UberAgenda() {
++		this.inherited(arguments);
++	},
++	
++	create: function create(){
++		this.inherited (arguments);
++		this.followCD = this.linked;
++		this.viewDay = (new Date(+enyo.application.currentDate)).clearTime();
++		this.agendaDays = [];
++		this.agendaCache = [];
++		this.allCals = false;
++		this.incAllDay = true;
++		this.renderedEvts = [];
++		this.renderedTS =[];
++		this.workDay = new Date();
++		this.buildDataSets();
++		
++		this.dayFmt = new enyo.g11n.DateFmt({date:"medium", dateComponents: "mdy", weekday:"medium"});
++		this._hourFmt12 = new enyo.g11n.DateFmt({time: "h:mm a"});
++		this._hourFmt24 = new enyo.g11n.DateFmt({time: "HH:mm"});
++
++		//enyo.application.watch({currentDate: this, date: this});
++		enyo.application.watch({currentDate: this, calendars:this, days: this, is24Hr: this, linked:this, uberMode:this});
++	},
++	
++	destroy: function destroy(){
++		//enyo.application.ignore({currentDate: this, date: this});
++		enyo.application.ignore({currentDate: this, calendars:this, days: this, is24Hr: this, linked:this, uberMode:this});
++		this.inherited(arguments);
++	},
++	
++	rendered: function rendered(){
++		this.inherited(arguments);
++		this.$.ucAgendaSearch.setShowing(enyo.application.prefsManager.prefs.showSearch)
++	},
++	
++	toggleSearch: function toggleSearch(){
++		var search = this.$.ucAgendaSearch;
++		if(search){
++			search.setShowing(!search.getShowing());
++		}
++	},
++	
++	SearchStart: function SearchStart(inSender, inEvent){
++		this.doUcSearchStart();
++	},
++	
++	SearchChanging: function SearchChanging(inSender, inEvent){
++		var txt = this.$.ucAgendaSearch.getValue();
++		if(txt !== "") {
++			this.listSearching = true;
++			this.searchTxt = txt;
++			this.$.uberDaysList.punt();
++			this.wasSearching = true;
++		} else {
++			this.listSearching = false;
++			this.searchTxt = "";
++		}
++		//console.log("search input txt:  "+ txt)
++	},
++	
++	SearchDone: function ucSearchDone(){
++		// check for empty and need to refresh list
++		var txt = this.$.ucAgendaSearch.getValue();
++		if(txt === "" ){
++			this.listSearching = false;
++			this.searchTxt ="";
++			this.doUcSearchDone();
++			if(this.wasSearching){
++				this.$.uberDaysList.punt();
++				this.uberScroll();
++				this.wasSearching = false;
++			}
++		}
++	},
++	
++	buildDataSets: function buildDataSets() {
++		//console.log("agenda list linked: " + this.followCD);
++		//format of this.days
++		// days[i] = {date: timestamp, allDayEvents: [], events: [], hiddenAllDay: [], hiddenEvents:[]}
++		// allDay event{_id:"e6", calendarId:"c4", dtstart: times[8], dtend: times[9], accountId:"a4", subject: "Building the future...", location: "Silicon Valley", 
++		//			attendees: [{commonName: "Mike Lee (Palm GBU)", role: "REQ-PARTICIPANT"}], allDay: true}
++		// event {_id:"e1", calendarId:"c2", dtstart: times[0], dtend: times[1], accountId:"a2", 	subject: "02:00 am", location: "t"	, note: "outside",
++		//		rrule:{freq:"WEEKLY", interval:4, wkst:0, rules: [{"ruleType": "BYDAY", "ruleValue": [{"day": 1},{"day": 3}]}] }}
++		if(this.days) {
++			if(this.followCD) {
++				var i, len = this.days.length;
++				this.renderedTS=[];
++				for(i=0; i<len;i++){
++					this.renderedTS.push(this.days[i].date);
++				}
++				this.agendaDays = this.days;
++			} else {
++				this.agendaCache = [];
++				this.renderedTS=[];
++				var i, len = this.days.length;
++				for(i=0; i<len;i++){
++					this.renderedTS.push(this.days[i].date);
++					this.agendaCache.push(JSON.parse(JSON.stringify(this.days[i])));
++				}
++			}
++		}
++	},
++	
++	buildDaysList: function buildDaysList(inSender, inIndex) {
++		// build divider for days of events
++		var dayTS, okay = false;
++		this.dayEvts = {events:[], allDayEvents:[], renderEvts:[]};
++		this.renderedEvts[inIndex] = [];
++		if(this.followCD && this.agendaDays && this.agendaDays[inIndex] && this.agendaDays[inIndex].date){
++			dayTS = this.agendaDays[inIndex].date;
++			if(!this.allCals && this.incAllDay){
++				this.dayEvts.events = this.agendaDays[inIndex].events;
++				this.dayEvts.allDayEvents = this.agendaDays[inIndex].allDayEvents
++			} else if(!this.allCals && !this.incAllDay) {
++				this.dayEvts.events = this.agendaDays[inIndex].events;
++			} else if(this.allCals && !this.incAllDay) {
++				// this.agendaDays is a reference array when linked is true, sorting will cause errors in other views
++				var i=0, evAr = this.agendaDays[inIndex].events, evlen = evAr.length;
++				var j=0, hidAr = this.agendaDays[inIndex].hiddenEvents, hidlen = hidAr.length;
++				if(hidlen===0 || hidlen === undefined) {
++					this.dayEvts.events = this.agendaDays[inIndex].events;
++				} else {
++					while(i < evlen || j < hidlen) {
++						if(hidAr[j] === undefined || !hidAr[j].renderStartTime || ((evAr[i] && evAr[i].renderStartTime) <= hidAr[j].renderStartTime)){
++							//console.log("evAr renderStartTime: " + hidAr[j]);
++							this.dayEvts.events.push(evAr[i]);
++							i++;
++						} else if(evAr[i] === undefined || !evAr[i].renderStartTime || (evAr[i].renderStartTime > (hidAr[j] && hidAr[j].renderStartTime))){
++							this.dayEvts.events.push(hidAr[j]);
++							j++;
++						}
++					}
++				}
++			} else if(this.allCals && this.incAllDay) {
++				this.dayEvts.allDayEvents = this.agendaDays[inIndex].allDayEvents.concat(this.agendaDays[inIndex].hiddenAllDay);
++				// this.agendaDays is a reference array when linked is true, sorting will cause errors in other views
++				var i=0, evAr = this.agendaDays[inIndex].events, evlen = evAr.length;
++				var j=0, hidAr = this.agendaDays[inIndex].hiddenEvents, hidlen = hidAr.length;
++				if(hidlen===0 || hidlen === undefined) {
++					this.dayEvts.events = this.agendaDays[inIndex].events;
++				} else {
++					while(i < evlen || j < hidlen) {
++						if(hidAr[j] === undefined || !hidAr[j].renderStartTime || ((evAr[i] && evAr[i].renderStartTime) <= hidAr[j].renderStartTime)){
++							this.dayEvts.events.push(evAr[i]);
++							i++;
++						} else if(evAr[i] === undefined || !evAr[i].renderStartTime || (evAr[i].renderStartTime > (hidAr[j] && hidAr[j].renderStartTime))){
++							this.dayEvts.events.push(hidAr[j]);
++							j++;
++						}
++					}
++				}
++			}
++			okay = true;
++		} else if(!this.followCD && this.agendaCache && this.agendaCache[inIndex] && this.agendaCache[inIndex].date){
++			dayTS = this.agendaCache[inIndex].date;
++			if(!this.allCals && this.incAllDay){
++				this.dayEvts.events = this.agendaCache[inIndex].events;
++				this.dayEvts.allDayEvents = this.agendaCache[inIndex].allDayEvents
++			} else if(!this.allCals && !this.incAllDay) {
++				this.dayEvts.events = this.agendaCache[inIndex].events;
++			} else if(this.allCals && !this.incAllDay) {
++				this.dayEvts.events = this.agendaCache[inIndex].events.concat(this.agendaCache[inIndex].hiddenEvents);
++				this.dayEvts.events.sort(function(ev1, ev2){
++						var score = 0;
++						if((ev1.renderStartTime && ev2.renderStartTime) && (ev1.renderStartTime === ev2.renderStartTime)){
++							score = (ev1.renderEndTime && ev2.renderEndTime) ? ev1.renderEndTime - ev2.renderEndTime : 0;
++						} else if(ev1.renderStartTime && ev2.renderStartTime){
++							score = ev1.renderStartTime - ev2.renderStartTime;
++						}
++						return  score;
++				});
++			} else if(this.allCals && this.incAllDay) {
++				this.dayEvts.allDayEvents = this.agendaCache[inIndex].allDayEvents.concat(this.agendaCache[inIndex].hiddenAllDay);
++				this.dayEvts.events = this.agendaCache[inIndex].events.concat(this.agendaCache[inIndex].hiddenEvents);
++				this.dayEvts.events.sort(function(ev1, ev2){
++						var score = 0;
++						if((ev1.renderStartTime && ev2.renderStartTime) && (ev1.renderStartTime === ev2.renderStartTime)){
++							score = (ev1.renderEndTime && ev2.renderEndTime) ? ev1.renderEndTime - ev2.renderEndTime : 0;
++						} else if(ev1.renderStartTime && ev2.renderStartTime){
++							score = ev1.renderStartTime - ev2.renderStartTime;
++						}
++						return  score;
++					});
++			}
++			okay = true;
++		}
++		if(okay) {
++			if(this.listSearching && this.searchTxt){
++				var txt = this.searchTxt.toLowerCase(), searchList = [], tempList = this.dayEvts.allDayEvents.concat(this.dayEvts.events);
++				var attLen, len = tempList.length, item ={};
++				if(len){
++					for(var i=0; i <len; i++){
++						item = tempList[i];
++						if(item.subject && item.subject.toLowerCase().indexOf(txt)>= 0){
++							searchList.push(item);
++						} else if(item.location && item.location.toLowerCase().indexOf(txt)>= 0) {
++							searchList.push(item);
++						} else if(item.note && item.note.toLowerCase().indexOf(txt)>= 0) {
++							searchList.push(item);
++						} else if(item.attendees && (attLen = item.attendees.length) > 1) {
++							for(var j=0;j<attLen; j++){
++								var atte = item.attendees[j];
++								if(atte.commonName && atte.commonName.toLowerCase().indexOf(txt)>= 0) {
++									searchList.push(item);
++								} else if(atte.email && atte.email.toLowerCase().indexOf(txt)>= 0) {
++									searchList.push(item);
++								}
++							}
++						}
++					}
++				}
++				this.renderedEvts[inIndex] = searchList;
++			} else {
++				this.renderedEvts[inIndex] = this.dayEvts.allDayEvents.concat(this.dayEvts.events);
++			}
++			this.dayEvts.renderEvts = this.renderedEvts[inIndex];
++			this.workDay.setTime(dayTS);
++			//console.log("days list index: "+ inIndex+", day TS: " + dayTS);
++			this.$.dayItemDrawer.setCaption(this.dayFmt.format(this.workDay));
++			return true;
++		}
++		
++	},
++	
++	buildDayEvents: function buildDayEvents(inSender, inIndex) {
++		//build rows of each days events
++		if(!this.followCD){
++			this.$.evtRow.setSwipeable(false);
++		} else{
++			this.$.evtRow.setSwipeable(true);
++		}
++		var evt = this.dayEvts.renderEvts[inIndex];
++		if(!evt){
++			//console.log("agenda list repeater no evts"); 
++			return;
++		}
++		if(evt && evt.subject){
++			if(evt.color){
++				this.$.itemTimeBlock.setClassName('theme-'+evt.color);
++			} else if(evt.calendarId){
++				var color = enyo.application.calendarsManager.getCalColor(evt.calendarId);
++				this.$.itemTimeBlock.setClassName('theme-'+color);
++			}
++			
++			this.$.itemSubject.setContent(evt.subject);
++			
++			if(evt.location) {
++				this.$.itemLocation.setContent(evt.location);
++			}
++			
++			if(evt.note) {
++				var cat, note, wholeNote = evt.note !== "\n" ? evt.note : "";
++				var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++				if(wholeNote && wholeNote !== "\n" && wholeNote.length > 0) {
++					var result = wholeNote.match(patt);
++					if(result && result[3]) {
++						cat = result[3];
++						note = result[1] + result[4];
++					} else {
++						note = wholeNote;
++					}
++				}
++				if(cat){
++					this.$.itemUberIcon.setSrc('/media/internal/.scrims/ubercalendar/icon-'+cat+'.png');
++				}
++				if(note){
++					this.$.itemNote.setContent(note);
++				}
++			}
++			var alarmIndex = Utilities.findDisplayAlarm(evt.alarm);
++			if(alarmIndex !== null){
++				if(evt.alarm  && evt.alarm[alarmIndex] &&  evt.alarm[alarmIndex].alarmTrigger && evt.alarm[alarmIndex].alarmTrigger.valueType && evt.alarm[alarmIndex].alarmTrigger.valueType === "DURATION" && evt.alarm[alarmIndex].alarmTrigger.value && evt.alarm[alarmIndex].alarmTrigger.value !== "" && evt.alarm[alarmIndex].alarmTrigger.value !== "none"){
++					this.$.itemAlarmIcon.setSrc('/media/internal/.scrims/ubercalendar/alarm-icon.png');
++				}
++			}
++			if(evt.allDay){
++				this.$.itemStart.setContent($L('All'));
++				this.$.itemEnd.setContent($L('Day'));
++			} else {
++				this.workDay.setTime(evt.renderStartTime);
++				var start, end;
++				start = this.is24Hr ? this._hourFmt24.format(this.workDay) : this._hourFmt12.format(this.workDay);
++				this.$.itemStart.setContent(start);
++				this.workDay.setTime(evt.renderEndTime);
++				end = this.is24Hr ? this._hourFmt24.format(this.workDay) : this._hourFmt12.format(this.workDay);
++				this.$.itemEnd.setContent(end);
++			}
++			if(evt.attendees && evt.attendees.length > 1){
++				this.$.itemAttendeeIcon.setSrc('/media/internal/.scrims/ubercalendar/icon-meeting.png');
++			}
++			
++			//console.log("scroll top:" + this.$.uberDaysList.$.scroller.top +", scroll y:" + this.$.uberDaysList.$.scroller.$.scroll.y + ", bottom: " +this.$.uberDaysList.$.scroller.bottom + ", day evt index: " + inIndex);
++			return true;
++		}
++	},
++	
++	showUberError: function showUberError(msg){
++		var errorBox = this.$.uberError;
++		this.uberTxt = msg || "Not possible in this mode";
++		//this.$.errText.content =$L(txt);
++		errorBox.openAtCenter();
++	},
++	
++	errorOpening: function(){
++		this.$.errText.setContent($L(this.uberTxt));
++	},
++	
++	closeUberError: function closeUberError(){
++		var errorBox = this.$.uberError;
++		errorBox.close();
++	},
++	
++	uberScroll: function uberScroll(timeStamp){
++		var tday = timeStamp || new Date().clearTime()
++		,	dayIndex = this.renderedTS.indexOf(+tday);
++		
++		if(dayIndex  === -1){
++			return;
++		}
++		
++		var top = this.$.uberDaysList.$.scroller.top
++		,	bottom = this.$.uberDaysList.$.scroller.bottom
++		,	diff = bottom - top
++		,	y	= this.$.uberDaysList.$.scroller.$.scroll.y;
++
++		this.$.uberDaysList.$.scroller.adjustTop(dayIndex);
++		//this.$.uberDaysList.$.scroller.adjustBottom(dayIndex-1);
++		this.$.uberDaysList.$.scroller.top = dayIndex;
++		this.$.uberDaysList.$.scroller.bottom = dayIndex-1;
++		this.$.uberDaysList.reset();
++		this.$.uberDaysList.prepareRow(dayIndex);
++		this.$.uberDaysList.update();
++		this.$.uberDaysList.refresh();
++		//this.$.uberDaysList.$.scroller.findBottom();
++		//console.log("moving !!!!!! top:" + this.$.uberDaysList.$.scroller.top +", scroll y:" + y + ", bottom: " +this.$.uberDaysList.$.scroller.bottom + ", dayIndex: " + dayIndex);
++	},
++	
++	ConfirmDelete: function ConfirmDelete(inSender, inIndex){
++		var row = this.$.uberDaysList.fetchRowIndex();
++		var event = this.renderedEvts[row][inIndex];
++		//this.log("this confirm delete evt: ",event);
++		this.renderedEvts[row].splice(inIndex,1);
++		this.$.uberDaysList.refresh();
++		this.doDelete(event);
++	},
++	
++	EventSelected: function EventSelected(inSender, inEvent){
++		if(!this.linked){
++			var msg, okay;
++			switch (this.uberMode){
++				case 0:
++					msg = "Link must be ON to move";
++					okay = false;
++					break;
++				case 1:
++					//msg = "Link must be ON to copy";
++					okay = true;
++					break;
++				case 2:
++					msg = "Link must be ON to edit";
++					if(enyo.application.prefsManager.prefs.tapInUberAgenda === "edit"){
++						okay = false;
++					} else {
++						okay = true;
++					}
++					break;
++			}
++			if(!okay) {
++				this.showUberError(msg);
++				return true;
++			}
++		}
++		var row = this.$.uberDaysList.fetchRowIndex();
++		var event = this.renderedEvts[row][inEvent.rowIndex];
++		if (!event) {
++			this.error ("\tUnable to quick edit non-existent event.\t");
++			return true;
++		}
++		//this.log("this select evt: ",event)
++		if(enyo.application.prefsManager.prefs.tapInUberAgenda === "edit" || this.uberMode !== 2){
++			enyo.application.share ({ quickEdit:event });
++		} else if(this.uberMode ===2){
++			if(!this.linked){
++				event.uberCached = true;
++			}
++			enyo.application.share ({ showEvent:event });
++		}
++		return true;
++	},
++	
++	uberModeChanged: function uberModeChanged(oldMode){
++		if(oldMode === this.uberMode){
++			return;
++		}
++		//console.log("Agenda List uberMode: " + this.uberMode);
++	},
++	
++	daysChanged: function daysChanged() {
++		//rebuild list if followCD is true
++		if(this.followCD){
++			this.buildDataSets();
++			this.$.uberDaysList.punt();
++			this.uberScroll();
++		}
++	},
++	
++	linkedChanged: function linkedChanged (oldState) {
++		if (oldState !== undefined && this.linked  == oldState) {		
++			return;														//	So do nothing.
++		}
++		this.followCD = this.linked;
++		this.buildDataSets();
++		this.$.uberDaysList.punt();
++		this.uberScroll();
++	},
++	
++	is24HrChanged: function is24HrChanged (was24Hr) {
++		this.is24Hr = !!this.is24Hr;
++		if (was24Hr !== undefined && this.is24Hr == was24Hr) {		// 24Hr mode was previously defined and still has the same value:
++			return;														//	So do nothing.
++		}
++		// refresh list?
++	},
++	
++	calendarsChanged: function calendarsChanged() {
++		//this.buildDataSets();
++		//this.$.uberDaysList.punt();
++	},
++	
++	allCalsChanged: function allCalsChanged() {
++		this.allCals = this.$.ucAllCals.getChecked();
++		if(this.followCD){
++			this.buildDataSets();
++		}
++		this.$.uberDaysList.punt();
++		this.uberScroll();
++	},
++	
++	incAllDayChanged: function incAllDayChanged(){
++		this.incAllDay = this.$.ucAllDay.getChecked();
++		if(this.followCD){
++			this.buildDataSets();
++		}
++		this.$.uberDaysList.punt();
++		this.uberScroll();
++	}
++	
++});
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js b/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
+index 5cf0926..36db714 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
+@@ -10,26 +10,55 @@ enyo.kind({
+ 	name		: "calendar.day.AllDayEvent",
+ 	className	: "allday-event",
+ 	kind		: "calendar.EventView",
++	
++	published:{
++		uberMode	: null //watching calendar mode
++	},
+ 
+ 	components: [
+-		{name:"text", className:"text", layoutKind: enyo.HLayout}
++		{name:"box", layoutKind: enyo.HLayout, components: [
++			{name:"text", className:"text", style:"top:3px;",layoutKind: enyo.HLayout},
++			{name: "image", kind: enyo.Image, showing:false, style:"right:-14px; top:8px;padding:0px;margin:0px;", src:""}
++		]}
+ 	],
+ 
+ 	create: function create () {
+ 		this.inherited (arguments);
++		enyo.application.watch({uberMode: this});
+ 	},
+ 
+ 	destroy: function destroy () {
+ 		this.inherited (arguments);
++		enyo.application.ignore({uberMode: this});
+ 	},
+ 
+ 	clickHandler: function allDayEventClicked (from, domEvent) {
+-		enyo.application.share ({ showEvent:this });
++		if(enyo.application.prefsManager.prefs.tapInView === "edit"  || this.uberMode !== 2){
++			enyo.application.share ({ quickEdit:this.event });
++		} else {
++			enyo.application.share ({ showEvent:this });
++		}
+ 		return true;
+ 	},
+ 
+ 	eventChanged: function allDayEventChanged (oldEvent) {
+ 		this.event && this.$.text.setContent (this.event.subject || $L("No Subject"));
++		try {
++				var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++				var bgimage, start = this.event.note.match(patt);
++				if (start && start[3]) {
++					var icon = start[3];
++					bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
++					var bgrepeat = "background-repeat: no-repeat";
++				}
++			} catch(e) {
++			}
++		if(this.event && this.event.note && (bgimage != undefined)){
++			this.$.image.setSrc(bgimage);
++			this.$.image.setShowing(true);
++		} else {
++			this.$.image.setShowing(false);
++		}
+ 		this.inherited (arguments);
+ 	}
+ });
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js b/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
+index baeb27c..6cb3b92 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
+@@ -17,6 +17,7 @@ enyo.kind({
+ 	published:
+ 	{	events		: null		// Object	: For setting this group's events.
+ 	,	date		: null
++	,	uberMode	: null
+ 	},
+ 
+ 	components: [
+@@ -27,11 +28,13 @@ enyo.kind({
+ 		this.inherited (arguments);
+ 		this.performResize = enyo.bind(this, this.performResize);
+ 		this.eventsChanged();
++		enyo.application.watch({uberMode: this});
+ 	},
+ 
+ 	destroy: function destroy () {
+ 		this.watched && window.removeEventListener('resize', this.performResize, true) && (this.watched = false);
+ 		this.inherited (arguments);
++		enyo.application.ignore({uberMode: this});
+ 	},
+ 	
+ 	rendered: function() {
+@@ -57,7 +60,11 @@ enyo.kind({
+ 				if(domSubstr.indexOf(event._id) >= 0)
+ 				{
+ 					DEBUG && this.log("You clicked on: " + event.subject);
+-					enyo.application.share ({ showEvent:event });
++					if(enyo.application.prefsManager.prefs.tapInView === "edit" || this.uberMode !== 2){
++						enyo.application.share ({ quickEdit:event });
++					} else {
++						enyo.application.share ({ showEvent:event });
++					}
+ 					return true;
+ 				}
+ 			}
+@@ -79,7 +86,8 @@ enyo.kind({
+ 	},
+ 	
+ 	becameCurrentPaneHandler: function becameCurrentPaneHandler(isCurrentPane){
+-		if(isCurrentPane && this.rotatedWhileHidden){
++		if(isCurrentPane){// && this.rotatedWhileHidden){
++			//console.log("resize event group fired!!!!!!!!!!!!!!!!!!!!!!");
+ 			this.rotatedWhileHidden = false;
+ 			this.isCurrentPane = true;
+ 			this.performResize();			
+@@ -165,6 +173,11 @@ enyo.kind({
+ 		date.clearTime();														// Set the event's time to midnight.
+ 		date.set({hour:hour, minute:minute});							// Set the event's hour and minute.
+ 
++		if(this.uberMode !== 2){
++			enyo.application.share({quickDate: date.getTime()});
++			return true;
++		}
++		
+ 		var	createEvent =
+ 		{	event	: {dtstart: +date}
+ 		,	then	: enyo.bind (this, this.createEventThen, hour, true)
+@@ -189,26 +202,69 @@ enyo.kind({
+ 		this.render();
+ 	},
+ 	
++	uberModeChanged: function uberModeChanged (oldMode){
++		//this.log("event group ubermode change");
++	},
++	
+ 	getInnerHtml: function() {
+ 		/* This control exists to encapsulate all would-be children, as such we don't actually create real enyo children, instead we generate the visual components ourselves, as done by the getInnerHtml routine */
+ 		var htmlString = '';
+ 		for(var i = 0; this.events && i < this.events.length; i++)
+ 		{
++			try {
++					var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++					var wholeNote, bgimage, bgposition, bgrepeat, start = this.events[i].note.match(patt);
++					if (start && start[3]) {
++						wholeNote = start[1] + start[4];
++						var icon = start[3];
++						bgimage = "url(/media/internal/.scrims/ubercalendar/icon-" + icon + ".png)";
++						bgrepeat = "no-repeat";
++						bgposition = "top right";
++					} else {
++						bgimage = false;
++						bgposition = false;
++						bgrepeat = false;
++					}
++					
++					if(this.events[i].alarm  && this.events[i].alarm[0] &&  this.events[i].alarm[0].alarmTrigger && this.events[i].alarm[0].alarmTrigger.valueType && this.events[i].alarm[0].alarmTrigger.valueType === "DURATION" && this.events[i].alarm[0].alarmTrigger.value && this.events[i].alarm[0].alarmTrigger.value !== "" && this.events[i].alarm[0].alarmTrigger.value !== "none"){
++						if(bgimage && bgposition){
++							bgimage += ", url(/media/internal/.scrims/ubercalendar/alarm-icon.png)";
++							bgposition += ", bottom left";
++							bgrepeat += ", no-repeat";
++						} else {
++							bgimage = "url(/media/internal/.scrims/ubercalendar/alarm-icon.png)";
++							bgposition = "bottom left";
++							bgrepeat = "no-repeat";
++						}
++					}
++					if(this.events[i].attendees && this.events[i].attendees.length > 1) {
++						if(bgimage && bgposition){
++							bgimage += ", url(/media/internal/.scrims/ubercalendar/icon-meeting.png)";
++							bgposition += ", center right";
++							bgrepeat += ", no-repeat";
++						} else {
++							bgimage = "url(/media/internal/.scrims/ubercalendar/icon-meeting.png)";
++							bgposition = "center right";
++							bgrepeat = "no-repeat";
++						}
++					}
++				} catch(e) {
++				}
+ 			var id = this.id + '_' + this.events[i]._id;
+ 			htmlString += '<div id="' + id +'" class="event theme-' + this.events[i].color + '" style="'
+ 			+	'top:'		+ (this.events[i].top)			+ 'px;'
+-			+	'left:'		+ (this.events[i].left + 16)	+ 'px;'
+-			+	'width:'	+ (this.events[i].width - 18)	+ 'px;'
+-			+	'height:'	+ (this.events[i].height)		+ 'px;">'
+-			;
+-			htmlString += '<div id="' + id + '_subject" class="ellipsis subject">' + enyo.string.escapeHtml(this.events[i].subject || $L("No Subject")) + '</div>';
++			+	'left:'		+ (this.events[i].left + 1)	+ 'px;'
++			+	'width:'	+ (this.events[i].width - 3)	+ 'px;'
++			+	'height:'	+ (this.events[i].height)		+ 'px;';
++			if(bgimage && bgrepeat) {htmlString += 'background-image:' + bgimage + '; background-position:'+ bgposition + "; background-repeat: " + bgrepeat + ';">';} else{htmlString += '">';}
++			htmlString += '<div id="' + id + '_subject" class="subject">' + enyo.string.escapeHtml(this.events[i].subject || $L("No Subject")) + '</div>';
+ 			/* Don't display location or note if we're too small */
+ 			if(this.events[i].height > 38)
+ 			{
+-				htmlString += '<div id="' + id + '_location" class="ellipsis location">' + enyo.string.escapeHtml(this.events[i].location || '') + '</div>';
++				htmlString += '<div id="' + id + '_location" class="location">' + enyo.string.escapeHtml(this.events[i].location || '') + '</div>';
+ 				/* Don't display note if we're too small */
+ 				if(this.events[i].height > 58)
+-					htmlString += '<div id="' + id + '_note" class="ellipsis note">' + enyo.string.escapeHtml(this.events[i].note || '') + '</div>'; 
++					htmlString += '<div id="' + id + '_note" class="note">' + enyo.string.escapeHtml((start ? wholeNote : this.events[i].note )|| '') + '</div>'; 
+ 			}
+ 			htmlString += '</div> ';
+ 		}
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css
+index 536d24e..6a23977 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css
++++ b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css
+@@ -10,12 +10,12 @@
+ 	border 						: none;
+ /*	border-bottom				: 1px dotted #ccc;*/
+ 	color						: #333;
+-	font-size					: 48px;
++	font-size					: 36px;
+ 	font-weight					: 100;
+ 	overflow 					: hidden;
+ 	padding						: 6px 22px 18px;
+ 	white-space					: pre;
+-	height						: 82px;
++	height						: 62px;
+ }
+ .calendar .day .header .date-highlight{
+ 	font-weight					: bold;
+@@ -42,14 +42,14 @@
+ 	background					: url(images/allday-header-border.png) repeat-x bottom;
+ 	border-right				: none;
+ 	border-left					: none;
+-	min-height					: 35px;
++	min-height					: 30px;
+ 	padding-bottom				: 2px;
+ 	overflow 					: hidden;
+ 	padding-left				: 22px;
+ }
+ .calendar .day .allday-header .label{
+ 	color 						: #666666;
+-	font-size					: 14px;
++	font-size					: 12px;
+ 	line-height					: 36px;
+ 	margin-right				: 10px;
+ }
+@@ -62,11 +62,11 @@
+ 	color 						: #333;
+ 	font-weight					: bold;
+ 	font-size					: 12px;
++	font						: prelude;
+ 	opacity 					: 0.8;
+ 	overflow 					: hidden;
+ 	padding						: 3px 0;
+ 	text-align					: center;
+-	text-overflow 				: ellipsis;
+ }
+ 
+ .calendar .hour					{
+@@ -133,7 +133,7 @@
+ 	position					: absolute;
+ 	top							: 28px;
+ 	left						: 27px;
+-	width						: 965px;
++	width						: 100%;
+ 	height						: 5px;
+ 	z-index						: -1;
+ }
+@@ -159,8 +159,8 @@
+ .calendar .day .event:after		{ /* Event's leading edge */
+ 	content						: "";
+ 	top							: -1px;
+-	left						: -16px;
+-	width						: 12px;
++	left						: -6px;
++	width						: 4px;
+ 	height						: 100%;
+ }
+ .calendar .day .event,
+@@ -177,28 +177,33 @@
+ .calendar .day .event .subject	,
+ .calendar .day .event .location	,
+ .calendar .day .event .note		{
+-	line-height					: 16px;
+-	margin-left					: 7px;
+-	margin-right				: 5px;
+-	min-height					: 16px;
++	line-height					: 12px;
++	margin-left					: 3px;
++	margin-right				: 4px;
++	min-height					: 12px;
+ 	overflow 					: hidden;
+-	text-overflow				: ellipsis;
+-	white-space					: nowrap;
++	white-space					: normal;
++	font						: prelude;
++	
+ }
+ .calendar .day .event .subject	{
+ 	margin-top					: 5px;
+ 	color 						: #333;
++	max-height					: 24px;
+ 	font-weight					: bold;
++	font-size					: 12px;
+ }
+ .calendar .day .event .location {
+ 	color 						: #666666;
+-	font-size					: 12px;
++	font-size					: 10px;
++	max-height					: 24px;
+ }
+ .calendar .day .event .note {
+ 	color 						: #666666;
+-	font-size					: 12px;
++	font-size					: 10px;
+ 	margin-bottom				: 1px;
+-	padding-top					: 1px;
++	text-overflow				: ellipsis;
++	white-space					: nowrap;
+ }
+ .calendar .day .eventGroup {
+ 	background					: -webkit-gradient( linear, 0 0, 0 100%, color-stop( .02, transparent ), color-stop( .0, #b9b9b9 ), to( rgba( 0, 0, 0, 0.0 ) ) );
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
+index a62a158..7008268 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
+@@ -26,6 +26,7 @@ enyo.kind({
+ 	,	tzId		: ""		// String	: For watching timezone changes.
+ 	,	weekEvents	: null		// Array	: For watching weekEvents when acting as a WeekView day.
+ 	,	weekRange	: null		// Object	: {start:Number, end:Number}: The start and end of this day's week.
++	,	weekAllDayHeader : null	// pointer to week All Day Header
+ 	},
+ 
+ 	G11N:
+@@ -61,6 +62,7 @@ enyo.kind({
+ 
+ 	create: function create () {
+ 		this.inherited (arguments);
++		this.wkAllDayHeader = this.weekAllDayHeader;
+ 
+ 		this.is24Hr === undefined && this.setIs24Hr(!enyo.application.fmts.isAmPm());	// If 24Hr isn't set yet, grab the default setting.
+ 
+@@ -75,22 +77,26 @@ enyo.kind({
+ 			({name:"header", className:"header", kind:enyo.HFlexBox, components:[
+ 				{name:"dateHeader"		, kind:"calendar.DateHeader", formats:this.G11N.DateFormat, date:new Date(this.date), flex:1}
+ 			,	{name:"today"			, className:"today", showing:false}
++			,	{name:"weekNumber"		, className:"today", showing:false}
+ 			]});
++			this.uberWeekNumber();
+ 			this.isToday();		// TODO: The device needs this to size properly, confirm this is still needed with webkit updates.
+ 		}
+ 
+-		this.createComponent
+-		({name:"allDayContainer", className:"allday-header", kind: enyo.HFlexBox, showing:false, components: [
+-			{name:"allDayLabel", className:"label"},
+-			{kind:enyo.Scroller, vertical:false, flex:1, components: [
+-				{name:"allDayHeader", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:"createAllDayEvent"}
+-			]}
+-		]});
++		if(!this.inWeekView) {
++			this.createComponent
++			({name:"allDayContainer", className:"allday-header", kind: enyo.HFlexBox, showing:false, components: [
++				{name:"allDayLabel", className:"label"},
++				{kind:enyo.Scroller, vertical:false, flex:1, components: [
++					{name:"allDayHeader", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:"createAllDayEvent"}
++				]}
++			]});
++		}
+ 
+ 		this.createDay();
+ 
+ 		var	ui = this.$;
+-		this.inWeekView && ui.allDayLabel.destroy();
++		//this.inWeekView && ui.allDayLabel.destroy();
+ 
+ 		if (!this.inWeekView) {									// If not being show as part of Week View:
+ 			ui.today		.setContent (this.G11N.Today);		//		Update the "Today" indicator.
+@@ -139,7 +145,11 @@ enyo.kind({
+ 		enyo.application [handle] (this.commonWatches);
+ 		enyo.application [handle] (this.inWeekView ? this.weekdayWatches : this.dayWatches);	// Adjust watches based on whether this day is part of WeekView.
+ 
+-		this.$.allDayHeader.broadcastMessage ("isActive", [isActive]);		// Notify all-day events of active state.
++		if(!this.inWeekView) {
++			this.$.allDayHeader.broadcastMessage ("isActive", [isActive]);		// Notify all-day events of active state.
++		} else {
++			this.wkAllDayHeader.broadcastMessage("isActive", [isActive]);
++		}
+ 		this.$.hours.broadcastMessage ("isActive", [isActive]);				// Notify timed events of active state.
+ 	},
+ 
+@@ -173,6 +183,10 @@ enyo.kind({
+ 	},
+ 
+ 	calendarsChanged: function calendarsChanged(oldCalendars){
++		if(JSON.stringify(this.calendars) === JSON.stringify(oldCalendars)){
++			this.log("\tNo Change in calendars returning....\n\n\t");
++			return;
++		}
+ 		var day;
+ 		if(this.inWeekView){			
+ 			var weekEvents = this.weekEvents;			
+@@ -211,6 +225,10 @@ enyo.kind({
+ 			this.warn ("\tNo event updates available for: ",this.date,"\t");
+ 			return;
+ 		}
++		if(this.inWeekView) {
++			this.log("\tDays Changed in week view did cals actually change????????\n\n\t");
++			//return;
++		}
+ 		
+ //		DEBUG &&
+ 		this.log ("\tRequest rendering events for ",days.length," day(s): ",this.date,"...:\n\n\t");//, days, "\n\n\t");
+@@ -311,7 +329,7 @@ enyo.kind({
+ 
+ 		var eventGUI;
+ 		if(event.allDay){
+-			eventGUI = this.$.allDayHeader.createComponent ({event:event})					//	create an all-day event GUI
++			eventGUI = this.inWeekView ? this.wkAllDayHeader.createComponent({event:event}) : this.$.allDayHeader.createComponent ({event:event})					//	create an all-day event GUI
+ 		}
+ 		else{
+ 			eventGUI = event;
+@@ -332,6 +350,38 @@ enyo.kind({
+ 		}
+ 		return isToday;
+ 	},
++	
++	uberWeekNumber: function uberWeekNumber (){
++		var prefs	= this.prefs || enyo.application.prefsManager.prefs;
++		if(!prefs.showWkNumber) {
++			return;
++		}
++		var useISOweekNum = prefs.useISOWeekNumber
++		,	dayDate		= new Date (this.date || Date.now())
++		,	weekNumOffset = prefs.weekNumberOffset
++		,	weekModulusNum = prefs.weekModulusNum
++		,	prefStartDoW = prefs.startOfWeek -1
++		,	year = dayDate.getFullYear()
++		,	month = dayDate.getMonth()
++		,	maxwkn = useISOweekNum === true ? new Date((month != 0 ? year : year -1), 11, 28).getISO8601Week() : new Date((month != 0 ? year : year -1), 11, 28).getWeekOfYear(prefStartDoW)
++		,	weekNumber = useISOweekNum === true ? dayDate.getISO8601Week() : dayDate.getWeekOfYear(prefStartDoW);
++		
++		maxwkn = maxwkn == 0 ? 53 : maxwkn;
++		weekNumber = weekNumber == 0 ? maxwkn : weekNumber;
++		if(weekNumOffset !== undefined && weekNumOffset !=0) {
++			var wkNum = parseInt(weekNumber,10) + weekNumOffset;
++			weekNumber = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			weekNumber = weekNumber < 10 ? '0' + weekNumber : weekNumber;
++		}
++		if(weekModulusNum != undefined && weekModulusNum <= 52 && weekModulusNum != 1) {
++			modNumber = (parseInt(weekNumber, 10) % weekModulusNum);
++			modNumber = modNumber !== 0 ? modNumber : weekModulusNum;
++			weekNumber = weekNumber + ' (' + modNumber +')';
++		}
++		
++		this.$.weekNumber.setShowing(true);
++		this.$.weekNumber.setContent($L("Wk ") + weekNumber);
++	},
+ 
+ 	updateCurrentHour: function updateCurrentHour (options) {
+ 		/*	Update the now indicator for the currently displayed day or hide it
+@@ -345,16 +395,22 @@ enyo.kind({
+ 		,	isToday		= this.isToday (dayDate, now)							// Store whether this day is today.
+ 		,	ui			= this.$
+ 		,	hourLabels	= ui.hourLabels.hours
++		,	prefs		= this.prefs || enyo.application.prefsManager.prefs
++		,	prefsHour	= (new Date(prefs.startTimeOfDay)).getHours()
+ 		;
+ 		isFinite(this.currentHour) && hourLabels[this.currentHour].setIsCurrentHour (false);					// Clear the now indicator if this isn't today or the current hour is wrong.
+ 		isToday	&& hourLabels[currentHour].setIsCurrentHour (true);				// If this day is today, update the now (current hour) indicator.
+ 		this.currentHour = currentHour;
+ 		
+-		if (options && options.scroll) {
++		if (options && options.scroll && isToday && prefs.scrollToCurrentTime) {
+ 			(currentHour > 0) && (--currentHour); 								// Scroll to the hour before the current hour.
+ 			currentHour = Math.min(currentHour, 17); 							// Can't scroll past 4pm anyway
+ 			var top = 59 * currentHour;
+ 			isFinite(top) && ui.hours.setScrollTop(top);
++		} else {
++			var	top = 59* prefsHour;
++			//console.log(this.ucWeekScrollTop);
++			isFinite (top) && ui.hours.setScrollTop (top);
+ 		}
+ 	},
+ 
+@@ -431,7 +487,7 @@ enyo.kind({
+ 		}
+ 		var	calendar
+ 		,	event
+-		,	allDayHeader		= this.$.allDayHeader
++		,	allDayHeader		= this.inWeekView ? this.wkAllDayHeader : this.$.allDayHeader
+ 		,	calendars			= this.calendars
+ 		,	foundAllDay			= false
+ 		,	groups				= {}
+@@ -456,7 +512,7 @@ enyo.kind({
+ 		?	(hasRenderContent ? allDayHeader.renderContent() : allDayHeader.render())	// renderContent does less work but the enyo team is deprecating it...
+ 		:	allDayHeader.destroyComponents()
+ 		;
+-		this.$.allDayContainer.setShowing (foundAllDay || !!this.inWeekView);
++		if(!this.inWeekView) {this.$.allDayContainer.setShowing (foundAllDay || !!this.inWeekView);}
+ 		
+ 		var timedEvents = events.events;
+ 		var numTimed = timedEvents.length;		
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/depends.js b/usr/palm/applications/com.palm.app.calendar/app/depends.js
+index 0db78d4..eae85a4 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/depends.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/depends.js
+@@ -9,6 +9,9 @@ enyo.depends
+ ,	"AppMenu.js"
+ ,	"AppView.css"
+ ,	"AppView.js"
++,	"MiniMonth.js"
++,	"UberAgenda.js"
++,	"week.js"
+ ,	"header/CalendarList.css"
+ ,	"header/CalendarList.js"
+ ,	"day/"
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/edit/DetailView.js b/usr/palm/applications/com.palm.app.calendar/app/edit/DetailView.js
+index 8c764bf..c986f83 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/edit/DetailView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/edit/DetailView.js
+@@ -270,7 +270,7 @@ enyo.kind({
+ 
+ 		ui.noteContainer.setShowing(!!(event.note && event.note.length));
+ 
+-		var isReadOnly = enyo.application.calendarsManager.isCalendarReadOnly(event.calendarId);
++		var isReadOnly = (enyo.application.calendarsManager.isCalendarReadOnly(event.calendarId) || (event.uberCached && event.uberCached));
+ 		ui.btnDelete.setShowing(!isReadOnly);
+ 		ui.btnEdit.setShowing(!isReadOnly);
+ 	},
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js b/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
+index f696643..ce7ea35 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
+@@ -115,21 +115,27 @@ enyo.kind({
+ 				{kind: enyo.Group, className: "group", components: [
+ 					{kind: enyo.HFlexBox, align: "center", height: "48px", components: [
+ 						{name: "allDay", kind: enyo.CheckBox, style: "margin-left: 10px", onChange: "changeAllDay"},
+-						{content: $L("All day event"), style: "padding-left: 5px;"}
++						{content: $L("All day event"), style: "padding-left: 5px;padding-right:15px;"},
++						{name:"uberMinuteInt", kind: "calendar.prefs.UberMinuteInt", value:5, onChange:"changeMinInt"}
+ 					]},
+ 					{components: [
+ 						{content: $L("From"), className: "edit-view-label"},
+ 						{kind: enyo.HFlexBox, className: "horizontal-space", components: [	
++							{name: "popCanvasBtn2", kind: enyo.IconButton, icon:"../images/header-icon-calendar.png", onclick:"popCanvas"},
+ 							{name: "startDate", kind: enyo.DatePicker, label: " ", onChange:"changeStartDate"},
+ 							{name: "startTimeDrawer", kind: enyo.BasicDrawer, animate:false, components: [
+-								{name: "startTime", kind: enyo.TimePicker, label: " ", className:"spacer", onChange:"changeStartTime"}
++								{name: "startTime", kind: enyo.TimePicker, label: " ", minuteInterval:5, className:"spacer", onChange:"changeStartTime"}
+ 							]}	
+ 						]},
++						{name: "miniDrawer", open:false, kind:enyo.Drawer, components:[
++							{name: "editMiniMonth",kind:"calendar.uc.MiniMonth", linked:false, followViewDay:true, onMiniMonDateTap:"miniMonDateTap", followMe: ["prefs"]}
++						]},
+ 						{content: $L("To"), className: "edit-view-label"},
+ 						{kind: enyo.HFlexBox, className: "horizontal-space", components: [
++						{name: "popCanvasBtn", kind: enyo.IconButton, icon:"../images/header-icon-calendar.png", onclick:"popCanvas"},
+ 							{name:"endDate", kind: enyo.DatePicker, label: " ", onChange:"changeEndDate"},
+ 							{name: "endTimeDrawer", kind: enyo.BasicDrawer, animate:false, components: [
+-								{name: "endTime", kind: enyo.TimePicker, label: " ", className:"spacer", onChange:"changeEndTime"}
++								{name: "endTime", kind: enyo.TimePicker, label: " ", minuteInterval:5, className:"spacer", onChange:"changeEndTime"}
+ 							]}
+ 						]},
+ 					]},
+@@ -223,6 +229,10 @@ enyo.kind({
+ 		,	customMonthly	: $L("Custom Monthly")
+ 		,	customYearly	: $L("Custom Yearly")
+ 		};
++		var prefs = enyo.application.prefsManager.getPrefs();
++		if(prefs && prefs.uberMinuteInt){
++			this.$.uberMinuteInt.setValue(prefs.uberMinuteInt);
++		}
+ 	},
+ 
+ 	destroy: function destroy () {
+@@ -285,7 +295,9 @@ enyo.kind({
+ 		this.pickerStart = event.currentLocalStart;
+ 		this.pickerEnd   = event.currentLocalEnd;
+ 		var start = new Date (this.pickerStart);
+-		var end   = new Date (this.pickerEnd);		
++		var end   = new Date (this.pickerEnd);
++		ui.editMiniMonth.setViewDay(start);
++		this.rmlastBtn = null;
+ 		ui.startDate.setValue	(start);
+ 		ui.startTime.setValue	(start);
+ 
+@@ -334,7 +346,8 @@ enyo.kind({
+ 			this.startDateOld	=	this.endDateOld	= null;
+ 			this.pickerStart	=	this.pickerEnd	= null;
+ 			enyo.call(document.activeElement, "blur");
+-			
++			ui.miniDrawer.close();
++
+ 			if (this.hasCustomReminderItem && this.hasCustomReminderItem.selector) {
+ 				var	selector	= this.hasCustomReminderItem.selector
+ 				,	items		= selector.getItems()
+@@ -421,6 +434,50 @@ enyo.kind({
+ 		this.$.contentScroller.setScrollTop (0);	// Reset the scroll position.
+ 	},
+ 
++	changeMinInt: function changeMinInt(inSender, inValue, inOldValue){
++		if(inValue !== inOldValue){
++			this.$.startTime.setMinuteInterval(inValue);
++			this.$.endTime.setMinuteInterval(inValue);
++		}
++	},
++	
++	miniMonDateTap: function(inSender, inValue){
++		//do something
++		if(this.rmlastBtn != null && this.rmlastBtn == "popCanvasBtn2") {
++			// start date
++			this.$.startDate.setValue(inValue);
++			this.changeStartDate();
++		} else if(this.rmlastBtn != null && this.rmlastBtn == "popCanvasBtn") {
++			// end date
++			this.$.endDate.setValue(inValue);
++			this.changeEndDate();
++		}
++		DEBUG && this.log("edit view mini month date tapped", inValue);
++	},
++	
++	popCanvas: function popCanvas(inSender){
++		DEBUG && this.log("edit view button pushed", inSender.name);
++		var curBtn = inSender.name;
++		var	date, ui = this.$;
++		if(curBtn == "popCanvasBtn2") {
++			date = ui.startDate.getValue();
++			ui.editMiniMonth.setViewDay(date);
++		} else {
++			date = ui.endDate.getValue();
++			ui.editMiniMonth.setViewDay(date);
++		}
++		if (curBtn == this.rmlastBtn)  {
++			ui.miniDrawer.setOpen(false);
++			this.rmlastBtn = null;
++		} else {
++			this.rmlastBtn = curBtn;
++			var state = ui.miniDrawer.getOpen();
++			if(!state) {
++				ui.miniDrawer.setOpen(true);
++			}
++		}
++	},
++
+ 	setupRepeatValue: function setupRepeatValue(sender, repeatType){
+ 		var	customType
+ 		,	event = this.event
+@@ -561,6 +618,10 @@ enyo.kind({
+ 		,	end = new Date(timestamp);
+ 		ui.endTime.setValue (end);
+ 		ui.endDate.setValue (end);	
++		
++		if(this.rmlastBtn === "popCanvasBtn"){
++			this.$.editMiniMonth.setViewDay(end);
++		}
+ 	},
+ 	 
+ 	//Rules for date and time changes:
+@@ -592,6 +653,9 @@ enyo.kind({
+ 		var event	= this.event;
+ 		
+ 		this.changeStartTime();
++		if(this.rmlastBtn === "popCanvasBtn2"){
++			this.$.editMiniMonth.setViewDay(this.$.startDate.getValue());
++		}
+ 			
+ 		if (this.pickerStart != this.undoEvent.dtstart && event.rrule && event.rrule.freq) {
+ 			var removeDate = this.oldStartValue || event.dtstart;
+@@ -633,6 +697,9 @@ enyo.kind({
+ 		,	changedDate = false
+ 		;
+ 
++		if(this.rmlastBtn === "popCanvasBtn"){
++			this.$.editMiniMonth.setViewDay(date);
++		}
+ 		time.setFullYear	(date.getFullYear());
+ 		time.setMonth		(date.getMonth());
+ 		time.setDate		(date.getDate());
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
+index 7e764a3..e5ff18f 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
+@@ -20,6 +20,7 @@ enyo.kind({
+ 	,	currentDate	: null	// Date		: For watching when the current date changes.
+ 	,	events		: null	// Object	: For watching Calendar Events (aka cache updates).
+ 	,	prefs		: null	// Object	: For watching calendar prefs
++	,	uberMode	: null	// Object	: For watching calendar mode
+ 	},
+ 
+ 	G11N:
+@@ -40,11 +41,11 @@ enyo.kind({
+ 
+ 	create: function create () {
+ 		this.inherited (arguments);
+-		enyo.application.watch ({ calendars:this, events:this, prefs:this });
++		enyo.application.watch ({ calendars:this, events:this, prefs:this, uberMode: this });
+ 	},
+ 
+ 	destroy: function destroy () {
+-		enyo.application.ignore ({ calendars:this, currentDate:this, events:this, prefs: this });	// !!! Ignore currentDate here b/c DomNode.showingChanged() is only called on create() not on destroy() !!!
++		enyo.application.ignore ({ calendars:this, currentDate:this, events:this, prefs: this, uberMode: this });	// !!! Ignore currentDate here b/c DomNode.showingChanged() is only called on create() not on destroy() !!!
+ 		this.inherited (arguments);
+ 	},
+ 
+@@ -53,10 +54,15 @@ enyo.kind({
+ 	clickHandler: function monthClicked (from, domEvent) {
+ 		if (from instanceof this.MonthDay) {							// If any part of a MonthDay was clicked
+ 			DEBUG && this.log ("\tMonthDay: [",from.date,"]\t");
+-			this.monthDayClicked = true;
+-			this.currentMonth.setTime	(from.date);							//	update the currentMonth with that specific date's timestamp
+-			enyo.application.share		({ showView: {view:calendar.day.DayView} });	//	and switch to DayView.
+-			return true;
++			if(this.uberMode !==2) {
++				enyo.application.share({quickDate: from.date});
++				return true;
++			} else {
++				this.monthDayClicked = true;
++				this.currentMonth.setTime	(from.date);							//	update the currentMonth with that specific date's timestamp
++				enyo.application.share		({ showView: {view:calendar.day.DayView} });	//	and switch to DayView.
++				return true;
++			}
+ 		}
+ 	},
+ 
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
+index 905c388..3fd1b3e 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
+@@ -140,7 +140,27 @@ enyo.kind({
+ 				(extras.length < 3) && extras.push ({ className:"event ellipsis", event:event, watchCalendars:false });
+ 			} else {
+ 				eventView.event = event;
+-				eventViews.createComponent (eventView);
++				try {
++					var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++					var bgimage, start = event.note.match(patt);
++					if (start && start[3]) {
++						var icon = start[3];
++						bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
++						//event && event.note && icon && bgimage && eventView && eventView.style= "background-color: " + bgimage; // + bgrepeat + bgposition;
++						//eventViews.createComponent (eventView);
++						var uberCont = bgimage && eventViews.createComponent({kind: enyo.HFlexBox, style:"position:relative; height: 13px;", defaultKind: "calendar.EventView"});//, className:"events"});
++						eventView.owner = eventViews;
++						bgimage && uberCont.createComponent({kind: enyo.Image, className:"ubermonthicon", style:"position:relative;height:10;width:10;top:-6px;left:-3px;z-index:3;padding: 0px;margin:0px;", owner: eventViews, src:bgimage});
++						uberCont && uberCont.createComponent(eventView);
++						
++						var uberDone = true;
++					} else{
++						eventViews.createComponent (eventView);
++						var uberDone = true;
++					}
++				} catch(e) {
++				}
++				//if(!uberDone) {eventViews.createComponent (eventView);}
+ 			}
+ 		}
+ 		if (extras.length == 1) {
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
+index 592cb6e..2498b0d 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
+@@ -20,10 +20,13 @@ enyo.kind({
+ 	},
+ 
+ 	components: [
+-		{name:"dateHeader", kind:"calendar.DateHeader", className:"date", fit: false, formats:{
+-			short	: new enyo.g11n.DateFmt({date: "medium", dateComponents: "my"})
+-		,	full	: new enyo.g11n.DateFmt({date: "long", dateComponents: "my"})
+-		}},
++		{kind:enyo.HFlexBox, components:[
++			{name:"dateHeader", kind:"calendar.DateHeader", className:"date", fit: true, flex: 1, formats:{
++				"short"	: new enyo.g11n.DateFmt({date: "medium", dateComponents: "my"})
++			,	full	: new enyo.g11n.DateFmt({date: "long", dateComponents: "my"})
++			}},
++			{name:"weekNumber"	, className:"today", showing:false}
++		]},
+ 		{name:"weekHeader", className:"weeks", kind: enyo.HFlexBox}
+ 	],
+ 
+@@ -42,25 +45,73 @@ enyo.kind({
+ 		,	date	= this.date || new Date()
+ 		;
+ 		ui.dateHeader.setDate (new Date(date));
++		this.uberWeekNumber();
++	},
++	
++	uberWeekNumber: function uberWeekNumber (){
++		var prefs	= this.prefs || enyo.application.prefsManager.prefs;
++		if(!prefs.showWkNumber) {
++			this.$.weekNumber.setShowing(false);
++			return;
++		}
++		var useISOweekNum = prefs.useISOWeekNumber
++		,	dayDate		= new Date (this.date || Date.now())
++		,	dayDate2	= (new Date (this.date || Date.now())).addMonths(1).addDays(-1)
++		,	weekNumOffset = prefs.weekNumberOffset
++		//,	weekModulusNum = prefs.weekModulusNum
++		,	prefStartDoW = prefs.startOfWeek -1
++		,	year = dayDate.getFullYear()
++		,	year2 = dayDate2.getFullYear()
++		,	month = dayDate.getMonth()
++		,	month2 = dayDate.getMonth()
++		,	maxwkn = useISOweekNum === true ? new Date((month != 0 ? year : year -1), 11, 28).getISO8601Week() : new Date((month != 0 ? year : year -1), 11, 28).getWeekOfYear(prefStartDoW)
++		,	weekNumber = useISOweekNum === true ? dayDate.getISO8601Week() : dayDate.getWeekOfYear(prefStartDoW)
++		,	weekNumber2 = useISOweekNum === true ? dayDate2.getISO8601Week() : dayDate2.getWeekOfYear(prefStartDoW);
++		
++		maxwkn = maxwkn == 0 ? 53 : maxwkn;
++		weekNumber = weekNumber == 0 ? maxwkn : weekNumber;
++		weekNumber2 = weekNumber2 == 0 ? maxwkn : weekNumber2;
++		if(weekNumOffset !== undefined && weekNumOffset !=0) {
++			var wkNum = parseInt(weekNumber,10) + weekNumOffset;
++			var wkNum2 = parseInt(weekNumber2,10) + weekNumOffset;
++			weekNumber = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			weekNumber2 = wkNum2 > maxwkn ? (wkNum2 - maxwkn) : wkNum2;
++			weekNumber = weekNumber < 10 ? '0' + weekNumber : weekNumber;
++			weekNumber2 = weekNumber2 < 10 ? '0' + weekNumber2 : weekNumber2;
++		}
++		// if(weekModulusNum != undefined && weekModulusNum <= 52 && weekModulusNum != 1) {
++			// modNumber = (parseInt(weekNumber, 10) % weekModulusNum);
++			// modNumber = modNumber !== 0 ? modNumber : weekModulusNum;
++			// weekNumber = weekNumber + ' (' + modNumber +')';
++		// }
++		
++		this.$.weekNumber.setShowing(true);
++		this.$.weekNumber.setContent($L("Wk ") + weekNumber + "-" + weekNumber2);
+ 	},
+ 
+ 	startOfWeekChanged: function startOfWeekChanged (oldStartOfWeek) {
+ 		if (this.startOfWeek === oldStartOfWeek) {
+ 			return;
+ 		}
+-		var dayFormats	= this.G11N.fmts.dateTimeHash.long.day
++		var dayFormats	= this.G11N.fmts.dateTimeHash.short.day
+ 		,	headers		= this.$.weekHeader.getComponents()
+ 		,	startOfWeek	= this.startOfWeek
+ 		,	weekLength	= dayFormats.length
++		,	fmt = new enyo.g11n.DateFmt({date:"EEE"})
++		,	dt = new Date()
++		, txt
+ 		;
++		dt.moveToDayOfWeek(startOfWeek);
+ 		for (var dayIndex, i=0; i < weekLength; ++i) {
+ 			dayIndex = (i + startOfWeek) % weekLength;
+-			headers[i].setContent (dayFormats [dayIndex]);
++			txt = fmt.format(dt);
++			headers[i].setContent (txt);
++			dt.addDays(1);
+ 		}
+ 	},
+ 
+ 	makeDayHeaders: function makeDayHeaders () {
+-		var dayFormats	= this.G11N.fmts.dateTimeHash.long.day
++		var dayFormats	= this.G11N.fmts.dateTimeHash.short.day
+ 		,	weekLength	= dayFormats.length
+ 		,	weekHeader	= this.$.weekHeader
+ 		;
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
+index a385dba..c027a99 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
+@@ -23,9 +23,42 @@ enyo.kind(
+ 	,	{caption: $L("5 minutes before")	, value: "-PT5M"}
+ 	,	{caption: $L("10 minutes before")	, value: "-PT10M"}
+ 	,	{caption: $L("15 minutes before")	, value: "-PT15M"}
++	,	{caption: $L("20 minutes before")	, value: "-PT20M"}
+ 	,	{caption: $L("30 minutes before")	, value: "-PT30M"}
++	,	{caption: $L("45 minutes before")	, value: "-PT45M"}
+ 	,	{caption: $L("1 hour before")		, value: "-PT1H"}
++	,	{caption: $L("1 hour, 30 minutes before")	, value: "-PT90M"}
++	,	{caption: $L("2 hours before")		, value: "-PT2H"}
++	,	{caption: $L("2 hours, 30 minutes before")	, value: "-PT150M"}
++	,	{caption: $L("3 hours before")		, value: "-PT3H"}
++	,	{caption: $L("3 hours, 40 minutes before")	, value: "-PT220M"}
++	,	{caption: $L("4 hours before")		, value: "-PT4H"}
++	,	{caption: $L("5 hours before")		, value: "-PT5H"}
++	,	{caption: $L("6 hours before")		, value: "-PT6H"}
++	,	{caption: $L("7 hours before")		, value: "-PT7H"}
++	,	{caption: $L("8 hours before")		, value: "-PT8H"}
++	,	{caption: $L("10 hours before")		, value: "-PT10H"}
++	,	{caption: $L("23 hours before")		, value: "-PT23H"}
+ 	,	{caption: $L("1 day before")		, value: "-P1D"}
++	,	{caption: $L("36 hours before")		, value: "-PT36H"}
++	,	{caption: $L("2 days before")		, value: "-P2D"}
++	,	{caption: $L("2 days, 12 hours before")		, value: "-PT60H"}
++	,	{caption: $L("3 days before")		, value: "-P3D"}
++	,	{caption: $L("3 days, 12 hours before")		, value: "-PT84H"}
++	,	{caption: $L("4 days before")		, value: "-P4D"}
++	,	{caption: $L("5 days before")		, value: "-P5D"}
++	,	{caption: $L("6 days before")		, value: "-P6D"}
++	,	{caption: $L("1 week before")		, value: "-P1W"}
++	,	{caption: $L("2 weeks before")		, value: "-P2W"}
++	,	{caption: $L("3 weeks before")		, value: "-P3W"}
++	,	{caption: $L("4 weeks before")		, value: "-P4W"}
++	,	{caption: $L("8 weeks before")		, value: "-P8W"}
++	,	{caption: $L("12 weeks before")		, value: "-P12W"}
++	,	{caption: $L("16 weeks before")		, value: "-P16W"}
++	,	{caption: $L("20 weeks before")		, value: "-P20W"}
++	,	{caption: $L("24 weeks before")		, value: "-P24W"}
++	,	{caption: $L("52 weeks before")		, value: "-P52W"}
++
+ 	]
+ });
+ 
+@@ -38,10 +71,27 @@ enyo.kind(
+ ,	items	:
+ 	[	{caption: $L("No Reminder")			, value: "none"}
+ 	,	{caption: $L("At start time")		, value: "-PT0M"}
++	,	{caption: $L("12 hours before")		, value: "-PT12H"}
+ 	,	{caption: $L("1 day before")		, value: "-P1D"}
++	,	{caption: $L("36 hours before")		, value: "-PT36H"}
+ 	,	{caption: $L("2 days before")		, value: "-P2D"}
++	,	{caption: $L("60 hours before")		, value: "-PT60H"}
+ 	,	{caption: $L("3 days before")		, value: "-P3D"}
++	,	{caption: $L("84 hours before")		, value: "-PT84H"}
++	,	{caption: $L("4 days before")		, value: "-P4D"}
++	,	{caption: $L("5 days before")		, value: "-P5D"}
++	,	{caption: $L("6 days before")		, value: "-P6D"}
+ 	,	{caption: $L("1 week before")		, value: "-P1W"}
++	,	{caption: $L("2 weeks before")		, value: "-P2W"}
++	,	{caption: $L("3 weeks before")		, value: "-P3W"}
++	,	{caption: $L("4 weeks before")		, value: "-P4W"}
++	,	{caption: $L("8 weeks before")		, value: "-P8W"}
++	,	{caption: $L("12 weeks before")		, value: "-P12W"}
++	,	{caption: $L("16 weeks before")		, value: "-P16W"}
++	,	{caption: $L("20 weeks before")		, value: "-P20W"}
++	,	{caption: $L("24 weeks before")		, value: "-P24W"}
++	,	{caption: $L("52 weeks before")		, value: "-P52W"}
++	
+ 	]
+ });
+ 
+@@ -52,7 +102,11 @@ enyo.kind(
+ ,	items	:
+ 	[	{caption: $L("30 minutes")	, value: 30}
+ 	,	{caption: $L("1 hour")		, value: 60}
++	,	{caption: $L("90 minutes")	, value: 90}
+ 	,	{caption: $L("2 hours")		, value: 120}
++	,	{caption: $L("3 hours")		, value: 180}
++	,	{caption: $L("4 hours")		, value: 240}
++	,	{caption: $L("8 hours")		, value: 480}
+ 	]
+ });
+ 
+@@ -78,6 +132,19 @@ enyo.kind(
+ ,	textAlign	: "left"
+ });
+ 
++enyo.kind({name:"calendar.prefs.UberMinuteInt"
++, kind: enyo.ListSelector
++, value:5
++, textAlign: "left"
++, items:[
++	{caption: $L("Minute Interval")+": 1", value: 1},
++	{caption: $L("Minute Interval")+": 5", value: 5},
++	{caption: $L("Minute Interval")+": 10", value: 10},
++	{caption: $L("Minute Interval")+": 15", value: 15},
++	{caption: $L("Minute Interval")+": 30", value: 30}
++	]
++});
++
+ /*
+  * Custom item kind for the ColorPicker popup menu.  Required so we could show the color swatch not using an image.
+  * The regular MenuItem only allows a caption and an image-based icon.  Normally we could just add components
+@@ -183,17 +250,17 @@ enyo.kind({
+ 					{kind: enyo.RowGroup, caption: $L("First Day of Week"), components:[
+ 						{kind: "calendar.day.DayPicker", name: "startOfWeek", onChange: "chooseStartOfWeek"}
+ 					]},
+-//					Commenting out the following but keeping it in case it is needed again.
+-//					{kind: enyo.RowGroup, caption: $L("Day Start and End"), components:[
+-//						{kind: enyo.HFlexBox, components: [
+-//							{content: $L("Start"), width: "3em", className: "enyo-picker-label"},
+-//							{name: "dayStartTime", kind: enyo.TimePicker, label: " ", onChange: "chooseDayStartTime"}
+-//						]},
+-//						{kind: enyo.HFlexBox, components: [
+-//							{content: $L("End"), width: "3em", className: "enyo-picker-label"},
+-//							{name: "dayEndTime", kind: enyo.TimePicker, label: " ", onChange: "chooseDayEndTime"}
+-//						]}
+-//					]},
++					//Commenting out the following but keeping it in case it is needed again.
++					{kind: enyo.RowGroup, caption: $L("Day Start and End"), components:[
++						{kind: enyo.HFlexBox, components: [
++							{content: $L("Start"), width: "3em", className: "enyo-picker-label"},
++							{name: "dayStartTime", kind: enyo.TimePicker, label: " ", onChange: "chooseDayStartTime"}
++						]},
++						{kind: enyo.HFlexBox, components: [
++							{content: $L("End"), width: "3em", className: "enyo-picker-label"},
++							{name: "dayEndTime", kind: enyo.TimePicker, label: " ", onChange: "chooseDayEndTime"}
++						]}
++					]},
+ 					{kind: enyo.RowGroup, caption: $L("Default Event Duration"), components:[
+ 						{kind: "calendar.prefs.DurationSelector", onChange: "chooseDuration"}
+ 					]},
+@@ -207,6 +274,67 @@ enyo.kind({
+ 						{kind: "calendar.prefs.AlertSelector", onChange: "chooseAlert"}
+ 					]},
+ 
++					{kind: enyo.RowGroup, caption: $L("Enhanced Features"), components:[
++						{name:"uberCalDrawer", kind: enyo.Drawer, caption: $L("UberCalendar Prefs"), style:"padding:5px;", open:false, components: [
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout,  style:"margin-top:10px;",components:[
++								{flex: 1, content: $L("Show week number")},
++								{name:"showWkNumber", kind: enyo.ToggleButton, state: false, onChange:"chooseShowWkNumber"}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Peek at agenda list")},
++								{name:"showPeek", kind: enyo.ToggleButton, state: false, onChange:"chooseShowPeek"}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Show agenda search")},
++								{name:"showSearch", kind: enyo.ToggleButton, state: false, onChange:"chooseShowSearch"}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Show mini month at start")},
++								{name:"showMini", kind: enyo.ToggleButton, state: true, onChange:"chooseShowMini"}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Use ISO week number")},
++								{name:"useISOWeekNumber", kind: enyo.ToggleButton, state: true, onChange:"chooseISOWeek"}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Scroll to current time")},
++								{name:"scrollToCurrentTime", kind: enyo.ToggleButton, state: true, onChange:"chooseScrollToCurrentTime"}
++							 ]},
++							{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{name:"weekModulusNum", kind: enyo.IntegerPicker, label: $L("Week-Number Modulo"), value:1, min: 1, max: 52, onChange: "chooseWeekModulusNum"}
++							]},
++							{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{name:"weekNumberOffset", kind: enyo.IntegerPicker, label: $L("Week-Number Offset"), value:0, min: 0, max: 52, onChange: "chooseWeekNumberOffset"}
++							]},
++							 {kind: enyo.RowItem, tapHighlight: false, components:[
++								{name:"openInView", kind: enyo.ListSelector, label: $L("Open In View"), value: "week", onChange:"chooseOpenInView",
++									items: [{caption: $L("Day"), value: "day"}
++											,{caption: $L("Week"), value: "week"}
++											,{caption: $L("Month"), value: "month"}
++											,{caption: $L("Last"), value: "last"}
++											]
++								}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, components:[
++								{name:"tapInView", kind: enyo.ListSelector, label: $L("Tap in view"), value: "view", onChange:"chooseTapInView",
++									items: [{caption: $L("Edit"), value: "edit"}
++											,{caption: $L("View"), value: "view"}
++											]
++								}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, components:[
++								{name:"tapInUberAgenda", kind: enyo.ListSelector, label: $L("Tap in agenda list"), value: "view", onChange:"chooseTapInUberAgenda",
++									items: [{caption: $L("Edit"), value: "edit"}
++											,{caption: $L("View"), value: "view"}
++											]
++								}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, components:[
++								{name:"uberMinuteInt", kind:"calendar.prefs.UberMinuteInt", label: $L("Event Minute Interval"), value: 5, onChange:"chooseUberMinuteInt"}
++							 ]}
++						]}
++					]},
++
+ 					{kind: enyo.Group, caption: $L("Calendar Colors"), components: [
+ 						{name: "calendarList", kind: enyo.VirtualRepeater, onSetupRow: "getCalendar", components: [
+ 							{kind: enyo.Item, name: "calendarItem", onclick: "calendarClick", layoutKind: enyo.HFlexLayout, className:"accounts-list-item", components: [
+@@ -301,15 +429,28 @@ enyo.kind({
+ 		ui.allDayReminder	.setValue (this.prefs.defaultAllDayEventReminder);
+ 		ui.durationSelector	.setValue (this.prefs.defaultEventDuration);
+ 		ui.alertSelector	.setValue (this.prefs.alarmSoundOn);
++		ui.showWkNumber		.setState (this.prefs.showWkNumber);
++		ui.showPeek			.setState (this.prefs.showPeek);
++		ui.showSearch		.setState (this.prefs.showSearch);
++		ui.showMini			.setState (this.prefs.showMini);
++		ui.useISOWeekNumber	.setState (this.prefs.useISOWeekNumber);
++		ui.scrollToCurrentTime	.setState (this.prefs.scrollToCurrentTime);
++		ui.openInView		.setValue (this.prefs.openInView);
++		ui.tapInView		.setValue (this.prefs.tapInView);
++		ui.tapInUberAgenda	.setValue (this.prefs.tapInUberAgenda);
++		ui.uberMinuteInt	.setValue (this.prefs.uberMinuteInt);
++		ui.weekModulusNum	.setValue (this.prefs.weekModulusNum);
++		ui.weekNumberOffset	.setValue (this.prefs.weekNumberOffset);
++		ui.uberCalDrawer.close();
+ 
+ //		Commenting out the following but keeping it in case it is needed again.
+-//		var utcStartTime = new Date (this.prefs.startTimeOfDay);
+-//		utcStartTime.addMinutes (utcStartTime.getTimezoneOffset());
+-//		ui.dayStartTime.setValue (utcStartTime);
+-//
+-//		var utcEndTime = new Date (this.prefs.endTimeOfDay);
+-//		utcEndTime.addMinutes (utcEndTime.getTimezoneOffset());
+-//		ui.dayEndTime.setValue (utcEndTime);
++		var utcStartTime = new Date (this.prefs.startTimeOfDay);
++		utcStartTime.addMinutes (utcStartTime.getTimezoneOffset());
++		ui.dayStartTime.setValue (utcStartTime);
++
++		var utcEndTime = new Date (this.prefs.endTimeOfDay);
++		utcEndTime.addMinutes (utcEndTime.getTimezoneOffset());
++		ui.dayEndTime.setValue (utcEndTime);
+ 		this.setupDefaultCalendar();
+ 	},
+ 
+@@ -359,25 +500,25 @@ enyo.kind({
+ 	},
+ 
+ //	Commenting out the following but keeping it in case it is needed again.
+-//	chooseDayStartTime: function chooseDayStartTime () {
+-//		var value = this.$.dayStartTime.getValue()
+-//		,	newStartOfDay = new Date(this.prefs.startTimeOfDay);
+-//		newStartOfDay.setHours(value.getHours());
+-//		newStartOfDay.setMinutes(value.getMinutes());
+-//		// Convert the time back to utc
+-//		newStartOfDay.addMinutes(-newStartOfDay.getTimezoneOffset());
+-//		this.prefs.startTimeOfDay = newStartOfDay.getTime();
+-//	},
+-//
+-//	chooseDayEndTime: function chooseDayEndTime () {
+-//		var value = this.$.dayEndTime.getValue()
+-//		,	newEndOfDay = new Date(this.prefs.endTimeOfDay);
+-//		newEndOfDay.setHours(value.getHours());
+-//		newEndOfDay.setMinutes(value.getMinutes());
+-//		// Convert the time back to utc
+-//		newEndOfDay.addMinutes(-newEndOfDay.getTimezoneOffset());
+-//		this.prefs.endTimeOfDay = newEndOfDay.getTime();
+-//	},
++	chooseDayStartTime: function chooseDayStartTime () {
++		var value = this.$.dayStartTime.getValue()
++		,	newStartOfDay = new Date(this.prefs.startTimeOfDay);
++		newStartOfDay.setHours(value.getHours());
++		newStartOfDay.setMinutes(value.getMinutes());
++		// Convert the time back to utc
++		newStartOfDay.addMinutes(-newStartOfDay.getTimezoneOffset());
++		this.prefs.startTimeOfDay = newStartOfDay.getTime();
++	},
++
++	chooseDayEndTime: function chooseDayEndTime () {
++		var value = this.$.dayEndTime.getValue()
++		,	newEndOfDay = new Date(this.prefs.endTimeOfDay);
++		newEndOfDay.setHours(value.getHours());
++		newEndOfDay.setMinutes(value.getMinutes());
++		// Convert the time back to utc
++		newEndOfDay.addMinutes(-newEndOfDay.getTimezoneOffset());
++		this.prefs.endTimeOfDay = newEndOfDay.getTime();
++	},
+ 	chooseReminder: function chooseReminder () {
+ 		this.prefs.defaultEventReminder = this.$.reminder.getValue();
+ 	},
+@@ -408,6 +549,54 @@ enyo.kind({
+ 		}
+ 	},
+ 
++	chooseShowWkNumber: function chooseShowWkNumber(inSender, inState) {
++		this.prefs.showWkNumber = inState;
++	},
++	
++	chooseShowPeek: function chooseShowPeek(inSender, inState) {
++		this.prefs.showPeek = inState;
++	},
++	
++	chooseShowSearch: function chooseShowSearch(inSender, inState) {
++		this.prefs.showSearch = inState;
++	},
++	
++	chooseShowMini: function chooseShowMini(inSender, inState) {
++		this.prefs.showMini = inState;
++	},
++	
++	chooseISOWeek: function chooseISOWeek(inSender, inState) {
++		this.prefs.useISOWeekNumber = inState;
++	},
++	
++	chooseScrollToCurrentTime: function chooseScrollToCurrentTime(inSender, inState) {
++		this.prefs.scrollToCurrentTime = inState;
++	},
++	
++	chooseWeekModulusNum: function chooseWeekModulusNum() {
++		this.prefs.weekModulusNum = this.$.weekModulusNum.getValue();
++	},
++	
++	chooseWeekNumberOffset: function chooseWeekNumberOffset() {
++		this.prefs.weekNumberOffset = this.$.weekNumberOffset.getValue();
++	},
++	
++	chooseOpenInView: function chooseOpenInView() {
++		this.prefs.openInView = this.$.openInView.getValue();
++	},
++	
++	chooseTapInView: function chooseTapInView() {
++		this.prefs.tapInView = this.$.tapInView.getValue();
++	},
++	
++	chooseTapInUberAgenda: function chooseTapInUberAgenda() {
++		this.prefs.tapInUberAgenda = this.$.tapInUberAgenda.getValue();
++	},
++	
++	chooseUberMinuteInt: function chooseUberMinuteInt() {
++		this.prefs.uberMinuteInt = this.$.uberMinuteInt.getValue();
++	},
++	
+ 	calendarClick: function calendarClick(inSender, inEvent) {
+ 		var calendar = this.calendars[inEvent.rowIndex];
+ 		this.$.colorPicker.setCalendarId(calendar._id);
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/CacheManager.js b/usr/palm/applications/com.palm.app.calendar/app/shared/CacheManager.js
+index c779d90..90abee3 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/shared/CacheManager.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/shared/CacheManager.js
+@@ -74,6 +74,7 @@ enyo.kind ({
+ 		,	hidden		= this.hiddenCalendars = {}
+ 		,	ids			= Object.keys (calendars)
+ 		;
++		this.log("cache calendar changed");
+ 		for (var calendar, id, i=0, j=ids.length; i < j; ++i) {
+ 			id = ids [i];
+ 			!calendars [id].on && (hidden [id] = true);
+@@ -205,6 +206,7 @@ enyo.kind ({
+ 	},
+ 	
+ 	filterEvents: function filterEvents(eventSet, dates, calendars){
++		this.log("cache manager filter events from day");
+ 		this.calendars = calendars;
+ 		this.calendarsChanged();
+ 		return this.eventManager.utils.formatResponse(eventSet, dates, undefined, this.hiddenCalendars);
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js b/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
+index f9086e4..e239089 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
+@@ -11,6 +11,7 @@ function PrefsManager () {
+ 	this.readPrefsFailed	= enyo.bind (this, this.readPrefsFailed);
+ 	this.savedPrefs			= enyo.bind (this, this.savedPrefs);
+ 	this.readPrefs();
++	this.loadUberCalendarPrefs();
+ }
+ 
+ PrefsManager.prototype.plog = function plog(str){
+@@ -271,6 +272,60 @@ PrefsManager.prototype.getDefaultCalendar = function getDefaultCalendar () {
+ 	}
+ };
+ 
++PrefsManager.prototype.getUberCalendarPrefs = function(request){
++	if(request && request.name && this.uberParams[request.name]){
++			return this.uberParams[request.name];
++	} else {
++		return false;
++	}
++};
++
++PrefsManager.prototype.setUberCalendarPrefs = function(data){
++	var idx;
++	
++	if(data && data.name) {
++		if((idx = this.uberCookieNames.indexOf(data.name)) !== -1){
++			if(data.values) {
++				this.uberParams[data.name] = data.values;
++				enyo.setCookie(data.name, enyo.json.stringify(data.values));
++				//console.log("updating cookie:  " + data.name + ", values: "+ enyo.json.stringify(data.values));
++			} else { //when value is false clear cookie
++				delete this.uberParams[data.name];
++				this.uberCookieNames.splice(idx,1);
++				enyo.setCookie(data.name, "empty", {"Max-Age": 0});
++				//console.log("deleting cookie:  " + data.name + ", cookieNames: "+ enyo.json.stringify(this.uberCookieNames));
++			}
++		} else if(data.values != undefined && data.values !== ""){ //only saving cookies with values
++			this.uberCookieNames.push(data.name);
++			this.uberParams[data.name] = data.values;
++			enyo.setCookie(data.name, enyo.json.stringify(data.values));
++			enyo.setCookie("uberCookieNames", enyo.json.stringify(this.uberCookieNames));
++			//console.log("adding new cookie:  " + data.name + ", values: "+ enyo.json.stringify(data.values));
++		}
++	}
++};
++
++PrefsManager.prototype.loadUberCalendarPrefs = function(){
++	var i, values, cNames = enyo.getCookie("uberCookieNames");
++	this.uberCookieNames = [];
++	this.uberParams = {};
++	if(!cNames) {
++		return;
++	}
++	var cookieNames = enyo.json.parse(cNames);
++	var len = cookieNames.length;
++	if(cookieNames && len > 0){
++		for(i=0; i< len; i++){
++			values = enyo.getCookie(cookieNames[i]);
++			if(values != undefined) {
++				this.uberParams[cookieNames[i]] = enyo.json.parse(values);
++				this.uberCookieNames.push(cookieNames[i]);
++			}
++		}
++	}
++	console.log("uberParams:  " + enyo.json.stringify(this.uberParams));
++};
++
+ PrefsManager.prototype.alarmSoundOptions =
+ {	mute		: 0
+ ,	systemSound	: 1
+@@ -288,8 +343,20 @@ PrefsManager.prototype.defaultPrefs =
+ ,	defaultEventReminder		: "-PT15M"
+ ,	endTimeOfDay				: -111599994	// This is based on UTC
+ ,	isFirstUse					: true
+-//,	nextLaunch					: "last"		// Remember last used view. Other values are agenda, day, week, and month.
++//,	nextLaunch					: ""		// Remember last used view. Other values are agenda, day, week, and month.
+ ,	startOfWeek					: 1				// Sunday
+ ,	startTimeOfDay				: -226799992	// This is based on UTC
+ ,	userChangedStartOfWeek		: false
++,	showWkNumber				: false			// show week number in calendar
++,	showPeek					: false			// show peek of agenda list
++,	showSearch					: false			// show search of agenda list
++,	showMini					: true			// show mini month on start
++,	useISOWeekNumber			: true			// use iso week numbers first week contains Thursday
++,	openInView					: "week"		//setting for first open
++,	uberMinuteInt				: 5				//setting for edit event minute interval
++,	weekModulusNum				: 1				//setting for week modulus
++,	weekNumberOffset			: 0				//setting for week offset
++,	scrollToCurrentTime			: true			//setting for whether to scroll to current time in day & week
++,	tapInView					: "view"		//setting for whether to edit or view
++,	tapInUberAgenda				: "view"		//setting for whether to edit or view
+ };
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js b/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js
+index 8bf9d31..d79cdd1 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js
+@@ -286,12 +286,39 @@
+ 			case '-P1D':
+ 			case '-P2D':
+ 			case '-P3D':
++			case '-P4D':
++			case '-P5D':
++			case '-P6D':
+ 			case '-P1W':
+ 			case '-PT5M':
+ 			case '-PT10M':
+ 			case '-PT15M':
++			case '-PT20M':
+ 			case '-PT30M':
++			case '-PT45M':
++			case '-PT90M':
++			case '-PT150M':
++			case '-PT220M':
+ 			case '-PT1H':
++			case '-PT2H':
++			case '-PT3H':
++			case '-PT4H':
++			case '-PT5H':
++			case '-PT6H':
++			case '-PT7H':
++			case '-PT8H':
++			case '-PT10H':
++			case '-PT23H':
++			case '-PT36H':
++			case '-P2W':
++			case '-P3W':
++			case '-P4W':
++			case '-P8W':
++			case '-P12W':
++			case '-P16W':
++			case '-P20W':
++			case '-P24W':
++			case '-P52W':
+ 				isStandard = true;
+ 		}	
+ 		if(isAllDay){
+@@ -300,10 +327,26 @@
+ 				case '-PT0M':
+ 				case 'PT0M':
+ 				case '+PT0M':
++				case '-PT12H':
+ 				case '-P1D':
++				case '-PT36H':
+ 				case '-P2D':
++				case '-PT60H':
+ 				case '-P3D':
++				case '-PT84H':
++				case '-P4D':
++				case '-P5D':
++				case '-P6D':
+ 				case '-P1W':
++				case '-P2W':
++				case '-P3W':
++				case '-P4W':
++				case '-P8W':
++				case '-P12W':
++				case '-P16W':
++				case '-P20W':
++				case '-P24W':
++				case '-P52W':
+ 					isStandardForType = true;
+ 			}
+ 		}
+@@ -319,6 +362,41 @@
+ 				case '-PT30M':
+ 				case '-PT1H':
+ 				case '-P1D':
++				case '-P2D':
++				case '-P3D':
++				case '-P4D':
++				case '-P5D':
++				case '-P6D':
++				case '-P1W':
++				case '-PT5M':
++				case '-PT10M':
++				case '-PT15M':
++				case '-PT20M':
++				case '-PT30M':
++				case '-PT45M':
++				case '-PT90M':
++				case '-PT150M':
++				case '-PT220M':
++				case '-PT1H':
++				case '-PT2H':
++				case '-PT3H':
++				case '-PT4H':
++				case '-PT5H':
++				case '-PT6H':
++				case '-PT7H':
++				case '-PT8H':
++				case '-PT10H':
++				case '-PT23H':
++				case '-PT36H':
++				case '-P2W':
++				case '-P3W':
++				case '-P4W':
++				case '-P8W':
++				case '-P12W':
++				case '-P16W':
++				case '-P20W':
++				case '-P24W':
++				case '-P52W':
+ 					isStandardForType = true;
+ 			}
+ 		}
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/week.js b/usr/palm/applications/com.palm.app.calendar/app/week.js
+new file mode 100644
+index 0000000..501c299
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.calendar/app/week.js
+@@ -0,0 +1,44 @@
++Date.prototype.getWeek = function() {
++	var date = new Date(this);
++	var year = date.getFullYear();
++	var month = date.getMonth();
++	var day = date.getDate();
++	
++	var when = new Date(year,month,day);
++	var newYear = new Date(year,0,1);
++	var modDay = newYear.getDay();
++
++	if(this.startDay != 1)
++		if (modDay == 0) modDay=6; else modDay--;
++
++	var daynum = ((Date.UTC(year,when.getMonth(),when.getDate(),0,0,0) -
++		Date.UTC(year,0,1,0,0,0)) /1000/60/60/24) + 1;
++
++	if (modDay < 4 ) {
++		var weekno = Math.floor((daynum+modDay-1)/7)+1;
++	}
++	else {
++		var weekno = Math.floor((daynum+modDay-1)/7);
++	
++		if (weekno == 0) {
++			year--;
++		
++			var prevNewYear = new Date(year,0,1);
++			var prevmodDay = prevNewYear.getDay();
++			if (prevmodDay == 0) prevmodDay = 6; else prevmodDay--;
++			if (prevmodDay < 4) weekno = 53; else weekno = 52;
++		}
++	}
++
++	return weekno;
++};
++
++Date.prototype.getISO8601Week = function() {
++	var d = new Date(this);
++	d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7 + 3);
++	var ms = d.valueOf();
++	d.setUTCMonth(0, 4);
++	var w = Math.round((ms - d.valueOf()) / 604800000) + 1;
++	if (w <= 9) { w = "0" + w; }
++	return w;
++};
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js b/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js
+index 6bc90c4..9f1f038 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js
+@@ -30,10 +30,13 @@ enyo.kind({
+ 	},
+ 
+ 	components: [
+-		{name:"dateHeader", kind:"calendar.DateHeader", className:"date", duration:6, fit: false, formats:{
+-				"short"	: new enyo.g11n.DateFmt ({date:"medium"})
+-			,	full	: new enyo.g11n.DateFmt ({date:"long"})
+-		}},
++		{kind:enyo.HFlexBox, components:[
++			{name:"dateHeader", kind:"calendar.DateHeader", className:"date", duration:6, fit: true, flex:1, formats:{
++					"short"	: new enyo.g11n.DateFmt ({date:"medium"})
++				,	full	: new enyo.g11n.DateFmt ({date:"long"})
++			}},
++			{name:"weekNumber"	, className:"today", showing:false}
++		]},
+ 		{name:"dayHeader", className:"days-header", kind: enyo.HFlexBox}
+ 	],
+ 
+@@ -70,6 +73,40 @@ enyo.kind({
+ 		;
+ 		ui.dateHeader.setDate (new Date(startDate));
+ 		this.startOfWeekChanged();
++		this.uberWeekNumber();
++	},
++	
++	uberWeekNumber: function uberWeekNumber (){
++		var prefs	= this.prefs || enyo.application.prefsManager.prefs;
++		if(!prefs.showWkNumber) {
++			this.$.weekNumber.setShowing(false);
++			return;
++		}
++		var useISOweekNum = prefs.useISOWeekNumber
++		,	dayDate		= new Date (this.date || Date.now())
++		,	weekNumOffset = prefs.weekNumberOffset
++		,	weekModulusNum = prefs.weekModulusNum
++		,	prefStartDoW = prefs.startOfWeek -1
++		,	year = dayDate.getFullYear()
++		,	month = dayDate.getMonth()
++		,	maxwkn = useISOweekNum === true ? new Date((month != 0 ? year : year -1), 11, 28).getISO8601Week() : new Date((month != 0 ? year : year -1), 11, 28).getWeekOfYear(prefStartDoW)
++		,	weekNumber = useISOweekNum === true ? dayDate.getISO8601Week() : dayDate.getWeekOfYear(prefStartDoW);
++		
++		maxwkn = maxwkn == 0 ? 53 : maxwkn;
++		weekNumber = weekNumber == 0 ? maxwkn : weekNumber;
++		if(weekNumOffset !== undefined && weekNumOffset !=0) {
++			var wkNum = parseInt(weekNumber,10) + weekNumOffset;
++			weekNumber = wkNum > maxwkn ? (wkNum - maxwkn) : wkNum;
++			weekNumber = weekNumber < 10 ? '0' + weekNumber : weekNumber;
++		}
++		if(weekModulusNum != undefined && weekModulusNum <= 52 && weekModulusNum != 1) {
++			modNumber = (parseInt(weekNumber, 10) % weekModulusNum);
++			modNumber = modNumber !== 0 ? modNumber : weekModulusNum;
++			weekNumber = weekNumber + ' (' + modNumber +')';
++		}
++		
++		this.$.weekNumber.setShowing(true);
++		this.$.weekNumber.setContent($L("Wk ") + weekNumber);
+ 	},
+ 
+ 	startOfWeekChanged: function startOfWeekChanged (oldStartOfWeek) {
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
+index 49117d2..000c898 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
++++ b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
+@@ -9,7 +9,7 @@
+ 
+ .calendar .week-view .week-header .date	{
+ 	color					: #333;
+-	font-size				: 40px;
++	font-size				: 36px;
+ 	font-weight				: 100;
+ 	margin 					: 0;
+ 	overflow 				: hidden;
+@@ -24,6 +24,10 @@
+ /*	font-family: PreludeWGL-Light;*/
+ }
+ 
++.calendar .week-view {
++	overflow:hidden;
++}
++
+ /* Week View Header Days Styling */
+ .calendar .week-view .week-header .days-header {
+ 	border					: none;
+@@ -44,7 +48,7 @@
+ .calendar .week-view .week-hours{
+ 	border 					: 1px solid #dbdbdb;
+ 	overflow 				: hidden;
+-}
++}/*
+ .calendar .week-view .week-hours .allday-header {
+ 	font-size				: 16px;
+ 	text-align				: left;
+@@ -60,6 +64,25 @@
+ 	font-size				: 14px;
+ 	line-height				: 36px;
+ 	margin-right			: 10px;
++	overflow				:hidden;
++}
++*/
++.calendar .week-view .allday-header {
++	background-color		: #fff;
++	min-height				: 30px;
++	font-size				: 14px;
++	text-align				: left;
++/*	padding-left			: 10px;
++	background				: url(images/allday-header-border.png) repeat-x bottom;
++*/	overflow				:hidden;
++}
++.calendar .week-view .allday-header .label{
++	color 					: #666666;
++	font-size				: 14px;
++	line-height				: 30px;
++	margin-right			: 0px;
++	background-color		: #fff;
++	overflow				: hidden;
+ }
+ .calendar .week-view .week-hours .days {
+ 	background				: transparent;
+@@ -67,7 +90,7 @@
+ 	height					: 1479px;
+ }
+ .calendar .week-view .week-hours .hours {
+-	margin-top				: 29px!important;
++	margin-top				: 0px!important;
+ }
+ .calendar .week-view .week-hours .hour {
+ 	background				: url(../day/images/day-hour-markers.png) no-repeat;
+@@ -101,13 +124,26 @@
+ .calendar .week-view .todayDate	{
+ 	color					: #333;
+ }
+-
++.calendar .week-view .allday-header .allday-event	{
++	margin						: 8px 3px 8px 0px;
++	padding						: 0px 8px;
++	-webkit-border-radius		: 16px;
++}
++.calendar .week-view .allday-header .allday-event	.text{
++	color 						: #333;
++	font-weight					: bold;
++	font-size					: 12px;
++	opacity 					: 0.8;
++	overflow 					: hidden;
++	padding						: 3px 3px;
++	text-align					: center;
++}/*
+ .calendar .week-view .day .allday-header {
+ 	background				: none;
+ }
+ .calendar .week-view .day .allday-header .label {
+ 	display 				: none;
+-}
++}*/
+ .calendar .week-view .day .hour	{
+ 	background				: none;
+ 	padding					: 0;
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
+index 943727e..82e6cf1 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
+@@ -31,6 +31,7 @@ enyo.kind({
+ 	,	prefs	: null		// Object	: For watching Preferences changes (i.e. startOfWeek).
+ 	,	range	: null		// Object	: {start:Number, end:Number}: This week's start and end timestamps.
+ 	,	tzId	: ""		// String	: For watching timezone changes.
++	,	ucWeekScrollTop: 0	// number	: for remembering where the previous scroll was
+ 	},
+ 
+ 	G11N:
+@@ -39,11 +40,32 @@ enyo.kind({
+ 
+ 	components:	[
+ 		{name:"header", kind:"calendar.week.WeekHeader"},
+-		{name:"weekHours", className:"week-hours", kind: enyo.Scroller, flex:1, autoHorizontal:false, horizontal:false, vertical:true, components: [
++		{name:"allDayContainer", className:"allday-header", kind: enyo.HFlexBox, components: [
++			{name:"allDayLabel", style:"padding-left:3px;width:62px;border-right:3px double #eaeaea;padding-right:0px;background:#fff;", className:"label"},
++			{kind:enyo.Scroller, autoVertical: false, vertical:false, style:"padding:0px;margin-left:-2px;border-right:1px solid #dbdbdb;overflow:hidden;", flex:1, components: [
++				{name:"allDayHeader0", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			]},
++			{kind:enyo.Scroller, autoVertical: false, vertical:false, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader1", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			]},
++			{kind:enyo.Scroller, autoVertical: false, vertical:false, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader2", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			]},
++			{kind:enyo.Scroller, autoVertical: false, vertical:false, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader3", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			]},
++			{kind:enyo.Scroller, autoVertical: false, vertical:false, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader4", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			]},
++			{kind:enyo.Scroller, autoVertical: false, vertical:false, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader5", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			]},
++			{kind:enyo.Scroller, autoVertical: false, vertical:false, flex:1, style:"margin-right:-4px;padding-right:4px;overflow:hidden;", components: [
++				{name:"allDayHeader6", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			]}
++		]},
++		{name:"weekHours", className:"week-hours", kind: enyo.Scroller, flex:1, autoHorizontal:false, horizontal:false, vertical:true, onScrollStop:"hoursScrollStop", components: [
+ 			{name: "weekContainer", className: "week-container", kind: enyo.Control, components: [
+-				{name:"allDayContainer", className:"allday-header", kind: enyo.HFlexBox, components: [
+-					{name:"allDayLabel", className:"label"}
+-				]},
+ 				{name:"hours"	, className:"hours", kind:"calendar.day.DayHours"},
+ 				{name:"week"	, className:"days enyo-fit", kind: HJSFlex, defaultKind:"calendar.day.DayView"}
+ 			]}
+@@ -77,6 +99,7 @@ enyo.kind({
+ 			,	inWeekView		: true
+ 			,	owner			: this
+ 			,	weekRange		: this.range
++			,	weekAllDayHeader: this.$["allDayHeader"+i]
+ 			});
+ 
+ 			(+date == today) && day.addClass ("today");
+@@ -169,7 +192,16 @@ enyo.kind({
+ 		}
+ 		this.$.hours.setIs24Hr (is24Hr);
+ 	},
+-
++	
++	hoursScrollStop: function hoursScrollStop(inSender) {
++		//this.log("scroll stop:", inSender.scrollTop);
++		//this.log("uc scroll stop:", this.ucWeekScrollTop);
++		if(inSender.scrollTop) {
++			this.setUcWeekScrollTop(inSender.scrollTop);
++			
++		}
++	},
++	
+ 	prefsChanged: function prefsChanged (oldPrefs) {
+ 		var header	= this.$.header
+ 		,	prefs	= this.prefs || enyo.application.prefsManager.prefs
+@@ -246,15 +278,25 @@ enyo.kind({
+ 		,	weekStart	= this.date.getTime()
+ 		,	weekEnd		= weekStart + (7 * 86400000) - 1000						// 1 week ahead minus 1 second (i.e. Saturday at 23:59:59)
+ 		,	isToday		= clock >= weekStart && clock <= weekEnd				// Store whether this day is today.
++		,	prefs		= this.prefs || enyo.application.prefsManager.prefs
++		,	prefsHour	= (new Date(prefs.startTimeOfDay)).getHours()
+ 		;
+ 		currentHour		=	dayHours.currentHour = today.getHours();			// Get the # of the real current hour.
+ 		isToday			&&	dayHours [currentHour].setIsCurrentHour (true);		// If this day is the current day update the now indicator.
+ 		this.$.today	&&	this.$.today.setShowing (isToday);					// Update "today" indicator.
+ 
+-		//if (options && options.scroll) {
++		if (isToday && prefs.scrollToCurrentTime) {
+ 			(currentHour > 0) && (--currentHour);												// Scroll to the hour before the current hour.
+ 			var	top = dayHours [currentHour].hasNode();
+ 			isFinite (top && (top = top.offsetTop)) && this.$.weekHours.setScrollTop (top);
+-		//}
++		} else {
++			var top = dayHours [prefsHour].hasNode();
++			//console.log(this.ucWeekScrollTop);
++			if(this.ucWeekScrollTop){
++				this.$.weekHours.setScrollTop (this.ucWeekScrollTop);
++			} else{
++				isFinite (top && (top = top.offsetTop)) && this.$.weekHours.setScrollTop (top);
++			}
++		}
+ 	}
+ });
