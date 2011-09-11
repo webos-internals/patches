@@ -1,12 +1,14 @@
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-index 57cc297..5caefdd 100644
+index 57cc297..8fe04e4 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-@@ -19,6 +19,35 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+@@ -19,6 +19,37 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
  		},
  
  		setup: function setup(service, accountId, launchConfig, launchArgs) {
 +			try{
++				Config.syncWindowMonthsAfter = 48; 
++				Config.syncWindowMonthsBefore = 12;
 +				Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
 +				var configFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
 +						"get",
@@ -17,11 +19,11 @@ index 57cc297..5caefdd 100644
 +						{ var result = future.result;
 +							if(result.returnValue === true) {
 +								if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
-+									Utils.error("TWEAKS preferences before sync: " + result.syncWindowMonthsBefore);
++									Utils.log("TWEAKS preferences before sync: " + result.syncWindowMonthsBefore);
 +									Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
 +								}
 +								if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
-+									Utils.error("TWEAKS preferences after sync: " + result.syncWindowMonthsAfter);
++									Utils.log("TWEAKS preferences after sync: " + result.syncWindowMonthsAfter);
 +									Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
 +								}
 +								future.result = {returnValue: true};
@@ -89,7 +91,7 @@ index 73256cd..b1ae98f 100644
  							Utils.log("\n\n---->>>> Child event prepped: " + stringify(child.remote));
  
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-index 92a1156..484e0ff 100644
+index 92a1156..8ced0fd 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 @@ -13,6 +13,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
@@ -100,7 +102,21 @@ index 92a1156..484e0ff 100644
  
  
  	function getLastModifiedTimeForCalendar(update) {
-@@ -124,8 +125,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -41,9 +42,11 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 		syncKey.calendar[calUID] = syncKey.calendar[calUID] || {};
+ 
+ 		if (time) {
+-			time = time.getDate();
++			Utils.log("time: " + typeof(time) + ": " + JSON.stringify(time));
++			if(typeof(time) == 'string') { time = Calendar.IO.Utils.dateFromIso8601(time);} else {
++			time = time.getDate();}
+ 
+-			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
++			logTime("setting update google", Calendar.IO.Utils.dateToIso8601(time));
+ 
+ 			if (update) {
+ 				now = new Date();
+@@ -124,8 +127,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			query.setUpdatedMin(startDate);
  			query.setUpdatedMax(endDate);
  
@@ -111,7 +127,16 @@ index 92a1156..484e0ff 100644
  			if (lastModTime) {
  				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
  			} else {
-@@ -168,6 +170,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -144,7 +148,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			query.setUpdatedMin(undefined);
+ 			query.setUpdatedMax(undefined);
+ 
+-			Utils.log("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+ 		}
+ 	}
+ 
+@@ -168,6 +172,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			switch (status) {
  				case 403:
  				case 410:
@@ -119,7 +144,7 @@ index 92a1156..484e0ff 100644
  					Utils.warn("---->>>> " + syncType(update) + " query error (" + status + "): " + errorStrings[status]);
  					Utils.warn("---->>>> Skipping " + syncType(update));
  					future.result = {
-@@ -182,7 +185,12 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -182,7 +187,12 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  
  				default:
  					Utils.error("---->>>> " + syncType(update) + " query error: " + stringify(error));
@@ -133,21 +158,67 @@ index 92a1156..484e0ff 100644
  			}
  		}));
  	}
+@@ -224,7 +234,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 							// "last update time", so store the fetch's time
+ 							setLastModifiedTimeForCalendar(true, queryResult.modTime);
+ 						}
+-						setLastModifiedTimeForCalendar(false, query.getMaximumStartTime());
++						setLastModifiedTimeForCalendar(false, queryResult.modTime);
+ 						join.result = false;
+ 					}
+ 				} else {
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-index ed2ef73..955b342 100644
+index ed2ef73..e6fd271 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-@@ -115,6 +115,9 @@ var GoogleCalendarEventTransformer = Class.create({
- 		recurrence = formatDtTime("dtstart", from);
- 		recurrence += formatDtTime("dtend", from, from.allDay);
+@@ -70,7 +70,7 @@ var GoogleCalendarEventTransformer = Class.create({
+ 	dtstart: function (to, from) {
+ 		// "type": "long",
+ 		// "description": "start date and time of the event. Formerly startTimestamp"
+-		if (!from.rrule || _.values(from.rrule).length === 0) {
++		if (from.dtstart && (!from.rrule || _.values(from.rrule).length === 0)) {
+ 			var time = GoogleCalendarEventTransformer.getTimeOrAdd(to),
+ 				date = new google.gdata.DateTime(new Date(from.dtstart), from.allDay);
  
-+
-+
-+
- 		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
+@@ -81,7 +81,7 @@ var GoogleCalendarEventTransformer = Class.create({
+ 	dtend: function (to, from) {
+ 		// "type": "long",
+ 		// "description": "end date and time of the event. Formerly endTimestamp"
+-		if (!from.rrule || _.values(from.rrule).length === 0) {
++		if (from.dtend && (!from.rrule || _.values(from.rrule).length === 0)) {
+ 			var time = GoogleCalendarEventTransformer.getTimeOrAdd(to),
+ 				date;
  
- 		Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
-@@ -176,45 +179,8 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -111,16 +111,20 @@ var GoogleCalendarEventTransformer = Class.create({
+ 			str += ":" + Calendar.IO.Utils.dateToIso8601(date, {justDate: model.allDay, noPunct: true, noMS: true, noTzOffset: true}) + "\r\n";
+ 			return str;
+ 		}
++		
++		if(from.rrule && _.values(from.rrule).length > 0) {
++			recurrence = formatDtTime("dtstart", from);
++			recurrence += formatDtTime("dtend", from, from.allDay);
+ 
+-		recurrence = formatDtTime("dtstart", from);
+-		recurrence += formatDtTime("dtend", from, from.allDay);
++			recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
+ 
+-		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
+-
+-		Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
+-		grecur = new google.gdata.Recurrence();
+-		grecur.setValue(recurrence);
+-		to.setRecurrence(grecur);
++			Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
++			grecur = new google.gdata.Recurrence();
++			grecur.setValue(recurrence);
++			to.setRecurrence(grecur);
++		} else {
++			to.setRecurrence(null);
++		}
+ 	},
+ 
+ 	subject: function (to, from) {
+@@ -176,45 +180,8 @@ var GoogleCalendarEventTransformer = Class.create({
  			time = GoogleCalendarEventTransformer.getTimeOrAdd(to);
  		}
  
@@ -195,7 +266,7 @@ index ed2ef73..955b342 100644
  		// Stomp on whatever reminders we just pulled from the server
  		to.setReminders(reminders);
  		if (time) {
-@@ -253,40 +219,46 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -253,40 +220,46 @@ var GoogleCalendarEventTransformer = Class.create({
  	attendees: function (to, from) {
  		// "type": ["$ref": "Attendee"]
  		// "optional": "true"
@@ -247,11 +318,11 @@ index ed2ef73..955b342 100644
  
  		if (participants.length) {
  			to.setParticipants(participants);
-+			Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + participants.length);
++			//Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + participants.length);
  		}
  	},
  
-@@ -574,6 +546,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
+@@ -574,6 +547,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
  	return time;
  };
  
@@ -308,7 +379,7 @@ index ed2ef73..955b342 100644
  GoogleCalendarEventTransformer.dayHash = [
  	"SU",
  	"MO",
-@@ -586,7 +608,17 @@ GoogleCalendarEventTransformer.dayHash = [
+@@ -586,7 +609,17 @@ GoogleCalendarEventTransformer.dayHash = [
  
  // Catches form-feed, return, horizontal tab, vertical tab, space, non-breaking space, line separator, and paragraph separator
  GoogleCalendarEventTransformer.collapseWhitespaceRegex = new RegExp("[\\f\\r\\t \u000B\u00A0\u2028\u2029]{2,}", 'g');
@@ -329,7 +400,7 @@ index ed2ef73..955b342 100644
 +	return escString.replace(/(")/g, "\"");
  };
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
-index 5167014..25a6e53 100644
+index 5167014..f513379 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 @@ -43,12 +43,16 @@ function formatTime (dateTime) {
@@ -392,10 +463,38 @@ index 5167014..25a6e53 100644
  	attendee.email = attendeeEmail;
  	attendee.commonName = attendeeCommonName;
 -
-+	Utils.error("\n\n---->>>> transform attendee on Google calendar event: " + (attendee && stringify(attendee)));
++	Utils.log("\n\n---->>>> transform attendee on Google calendar event: " + (attendee && stringify(attendee)));
  	return attendee;
  }
  
+@@ -241,7 +247,26 @@ Transforms = {
+ 					// Utils.log("\n\n---->>>> transformed rrule: " + stringify(recurrence));
+ 					Utils.log("\n\n---->>>> Recurrence exceptions: " + stringify(from.getRecurrenceException()));
+ 				}
+-				return (recurrence && recurrence.rrule) || undefined;
++				// In the "from" object...
++				// 1. if there is recurrence rule, return it.
++				// 2. if there is "exdates" but no "rrule", do not remove the 
++				//    existing "rrule".  Return "undefined" to 
++				//    leave the existing "rrule" unchanged (This happens when an 
++				//    exception is created on server).
++				// 3. if there is no "rrule" and no "exdates", remove the 
++				//    existing "rrule" by returning an empty string. (This happen 
++				//    when the user remove the recurrence from server).
++				
++				if(recurrence && recurrence.rrule) {
++					Utils.log("\n\n---->>>> has rrule");
++					return (recurrence && recurrence.rrule)
++				} else if (from.exdates && from.exdates.length) {
++					Utils.log("\n\n---->>>> undefined rrule, use existing rrule");
++					return undefined;
++				} else {
++					Utils.log("\n\n---->>>> removing rrule");
++					return "";
++				}
+ 			},
+ 			subject: function (from) {
+ 				// "type": "string"
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
 index 6240d9a..a802fac 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
@@ -422,3 +521,21 @@ index 6240d9a..a802fac 100644
  				Utils.log("\n--->>> responseText: " + this.result.responseText + " \n");
  				Utils.log("\n--->>> responseJSON: " + this.result.responseJSON + " \n");
  				Utils.log("\n--->>> response headers: " + stringify(this.result.getAllResponseHeaders()));
+diff --git a/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js
+index bbd7562..1e4f508 100644
+--- a/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js
++++ b/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js
+@@ -52,7 +52,12 @@ var XMLHttpRequest = Class.create({
+ 			this.options.customRequest = this.httpMethod;
+ 			this.httpMethod = AjaxCall.RequestMethod.POST;
+ 		}
+-		
++		// if it is a POST request then make it work if there are also UTF-8 characters in it
++		// because google does not compute properly the content length in gdata library
++		if (this.httpMethod === "POST" && this.options.headers["Content-Length"]) {
++			this.options.bodyEncoding = "utf8";
++			delete this.options.headers["Content-Length"];
++		}
+ 		var future = AjaxCall.call(this.httpMethod, this.url, postBody, this.options);
+ 		
+ 		future.onError(function () {
