@@ -1,0 +1,101 @@
+diff --git a/usr/palm/frameworks/metascene.videos/submission/105.7/concatenated.js b/usr/palm/frameworks/metascene.videos/submission/105.7/concatenated.js
+index 18f2c50..7346e1e 100755
+--- a/usr/palm/frameworks/metascene.videos/submission/105.7/concatenated.js
++++ b/usr/palm/frameworks/metascene.videos/submission/105.7/concatenated.js
+@@ -1157,6 +1157,12 @@ var NowplayingAssistant = Class.create(metascene.Base, {
+ 		if (this._isLocal(this.video.path)){
+ 			this.sliderModel.progressEnd = 100;
+ 			this.controller.modelChanged(this.sliderModel);
++		} else if((this.video.path.indexOf(".mp4")>-1) || (this.video.path.indexOf("googlevideo.com/videoplayback")>-1) || (this.video.path.indexOf("ytapi-PalmInc-PalmPre")>-1)) {
++			var saveBtn = this.controller.get("video_share_item");
++			saveBtn.children[0].removeClassName("video-share");
++			saveBtn.children[0].addClassName("save");
++			saveBtn.style.display = "block";
++			this.autoListen(saveBtn, Mojo.Event.tap, this.saveVideo.bind(this), false);
+ 		}
+ 		
+ 		if(this.aboutToActivateCallback){
+@@ -1194,6 +1200,64 @@ var NowplayingAssistant = Class.create(metascene.Base, {
+ 		}
+ 	},
+ 	
++	saveVideo: function(event) {
++		if(!this.isSavingVideo) {
++			this.isSavingVideo = true;
++			this.controller.window.PalmSystem.setWindowProperties({suppressBannerMessages:false});
++			this.controller.get("video_share_item").children[0].addClassName("disabled");
++			var filename = this.video.title;
++			if((this.video.path.indexOf("googlevideo.com/videoplayback")==-1) && (this.video.path.indexOf("ytapi-PalmInc-PalmPre")==-1)) { //not youtube
++				if(filename.lastIndexOf("/")>-1) {
++					filename = filename.substring(filename.lastIndexOf("/")+1);
++				}
++				if(filename.indexOf(".mp4")>-1) {
++					filename = filename.substring(0, filename.indexOf(".mp4"));
++				}
++			}
++			filename = filename.replace(/\s+/ig, " ");
++			filename = filename.replace(/[^ a-z0-9_-]/ig, "");
++			this.dlRequest = this.controller.serviceRequest('palm://com.palm.downloadmanager/', {
++				method: 'download',
++				parameters: {
++					target: this.video.path,
++					mime: "video/mp4",
++					targetFilename: filename + ".mp4",
++					subscribe: true
++				},
++				onSuccess: function(response) {
++					if(response.completed) {
++						this.dlRequest.cancel();
++						this.isSavingVideo = false;
++						//this.controller.window.PalmSystem.setWindowProperties({suppressBannerMessages:true});
++						this.controller.get("video_share_item").children[0].removeClassName("disabled");
++						this.controller.showBanner("Download finished!", "");
++
++					} else {
++						if(response.amountReceived && response.amountTotal) {
++							var percent = (response.amountReceived / response.amountTotal)*100;
++							percent = Math.round(percent);
++							if(percent!=NaN) {
++								if(this.currSaveProgress != percent) {
++									this.currSaveProgress = percent;
++									this.controller.showBanner("Downloading: " + percent + "%", "");
++								}
++							}
++						}
++					}
++				}.bind(this),
++				onFailure: function(fail) {
++					this.dlRequest.cancel();
++					Mojo.Controller.errorDialog(fail.errorText);
++					this.isSavingVideo = false;
++					//this.controller.window.PalmSystem.setWindowProperties({suppressBannerMessages:true});
++					this.controller.get("video_share_item").children[0].removeClassName("disabled");
++					this.currSaveProgress = -1;
++				}.bind(this)
++			});
++			event.stop(event);
++		}
++	},
++	
+ 	setupFitFill: function(){
+ 		//comPalmAppVideoPlayerPrefs: { "inFillMode" : true/false } 
+ 		this.videoPlayerPrefs = new Mojo.Model.Cookie("comPalmAppVideoPlayerPrefs");
+diff --git a/usr/palm/frameworks/metascene.videos/submission/105.7/styles/media-video.css b/usr/palm/frameworks/metascene.videos/submission/105.7/styles/media-video.css
+index d5039d9..3f0b84b 100644
+--- a/usr/palm/frameworks/metascene.videos/submission/105.7/styles/media-video.css
++++ b/usr/palm/frameworks/metascene.videos/submission/105.7/styles/media-video.css
+@@ -354,6 +354,14 @@ body.palm-default,
+ .palm-menu-icon.video-trim { background-position: -64px -64px; }
+ .selected > .palm-menu-icon.video-trim { background-position: -64px -96px; }
+ 
++.palm-menu-icon.save {
++	margin-left:-10px !important;
++}
++
++.palm-menu-icon.save.disabled {
++	opacity:0.4;
++}
++
+ .menu-sans-bg .palm-menu-icon.video-stop,
+ .menu-sans-bg .palm-menu-icon.video-play,
+ .menu-sans-bg .palm-menu-icon.video-pause {
