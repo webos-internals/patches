@@ -1,12 +1,14 @@
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-index b47ecac..4f2af5c 100644
+index b47ecac..7b9cc25 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-@@ -28,6 +28,34 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+@@ -28,6 +28,36 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
  		},
  
  		setup: function setup(service, accountId, launchConfig, launchArgs) {
 +			try{
++				Config.syncWindowMonthsAfter = 48; 
++				Config.syncWindowMonthsBefore = 12;
 +				Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
 +				var configFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
 +						"get",
@@ -38,28 +40,52 @@ index b47ecac..4f2af5c 100644
  			
  			future.then(this, function finishSetup() {
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-index b05e15c..3a5b526 100644
+index b05e15c..e708b4d 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-@@ -127,6 +127,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -42,8 +42,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 		syncKey.calendar[calUID] = syncKey.calendar[calUID] || {};
  
- 			Utils.debug("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+ 		if (time) {
+-			time = time.getDate();
+-
++			Utils.debug("time: " + typeof(time) + ": " + JSON.stringify(time));
++			if(typeof(time) == 'string') { time = Calendar.IO.Utils.dateFromIso8601(time);} else {
++			time = time.getDate();}
+ 			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
+ 
+ 			if (update) {
+@@ -125,8 +126,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			query.setUpdatedMin(startDate);
+ 			query.setUpdatedMax(endDate);
+ 
+-			Utils.debug("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
  		} else {
 +			Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
  			if (lastModTime) {
  				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
  			} else {
-@@ -145,7 +146,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -145,7 +147,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			query.setUpdatedMin(undefined);
  			query.setUpdatedMax(undefined);
  
 -			Utils.debug("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
-+			Utils.log("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
  		}
  	}
  
+@@ -231,7 +233,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 							// "last update time", so store the fetch's time
+ 							setLastModifiedTimeForCalendar(true, queryResult.modTime);
+ 						}
+-						setLastModifiedTimeForCalendar(false, query.getMaximumStartTime());
++						setLastModifiedTimeForCalendar(false, queryResult.modTime);
+ 						join.result = false;
+ 					}
+ 				} else {
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-index cf5c6b9..d7cb793 100644
+index cf5c6b9..ea5cc6d 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
 @@ -234,32 +234,35 @@ var GoogleCalendarEventTransformer = Class.create({
@@ -71,7 +97,7 @@ index cf5c6b9..d7cb793 100644
 -			participant.setRel(from.organizer ? google.gdata.Who.REL_ORGANIZER : google.gdata.Who.REL_ATTENDEE);
 +		for (i = 0; i < from.attendees.length; ++i) {
 +			participant = new google.gdata.Who();
-+			participant.setRel(from.attendees[i].organizer ? google.gdata.Who.REL_ORGANIZER : google.gdata.Who.REL_ATTENDEE);
++			participant.setRel(from.attendees[i].organizer ? google.gdata.Who.REL_EVENT_ORGANIZER : google.gdata.Who.REL_EVENT_ATTENDEE);
  
  			attendeeStatus = undefined;
 -			if (from.participationStatus === "ACCEPTED") {
@@ -102,7 +128,7 @@ index cf5c6b9..d7cb793 100644
  
  		if (participants.length) {
  			to.setParticipants(participants);
-+			Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + participants.length);
++			//Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + participants.length);
  		}
  	},
  
