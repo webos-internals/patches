@@ -96,7 +96,7 @@
  		}
  		
  		EmailApp.AccountList.saveAccountOrder(freshList);
-+		
++
 +		EmailApp.prefs.set('defaultAccountId', freshList[0].accountId);
  	};
  	
@@ -155,7 +155,7 @@
  		}
  	};
 -	
-+*/	
++*/
  AccountmanagerAssistant.prototype.deletionOptions = {
  	modelProperty: "confirmDeleteOnSwipe",
  	trueValue: true,
@@ -254,7 +254,7 @@
  		this.accountPrefs.notifications.type = AccountpreferencesAssistant.kNotifyTypeSystem;
  	}
 -	
-+*/	
++*/
  	// richtextedit doesn't use data model so manually copy the signature
  	var signature = this.controller.get('signature').innerHTML;
  	if (signature.length === 0) {
@@ -299,7 +299,7 @@
  	// Update the UI now (this calls modelChanged)
  	this.showNotificationChanged();
 -	
-+*/	
++*/
  	if (this.readyToActivateCallback) {
  		this.readyToActivateCallback();
  		this.readyToActivateCallback = null;
@@ -370,7 +370,7 @@
  
 +	// Send list of localized strings to the service.
 +	//ServiceStrings.sendLocalizedStrings();
-+	
++
  	// this is used to debounce the launch requests in case the user impatiently
  	// taps on a banner notification
  	this.debounceIds = {};
@@ -378,24 +378,25 @@
  										},
  								syncronizer.wrap(Mojo.doNothing));
  	
-+		
++
 +	// Load contacts.
 +	EmailApp.emails = new EmailApp.Util.MojoDBEmails('com.palm.person:1', syncronizer.wrap(Mojo.doNothing));
 +
  	// Configure initial carrier defaults, and load/reload them from the db as needed:
  	this.kDefaultCarrierDefaults = {
  		defaultSignature: EmailAccount.addStylingToSig(ServiceStrings.stringsNeededByService.defaultSignature)
-@@ -463,6 +467,9 @@
+@@ -463,6 +467,10 @@
  	
  	LaunchHandler.prototype.handleLaunch = function() {
  		var params = this.launchParameters;
-+		
-+		this.notificationAssistant.removePlayNotificationSoundTasks();		
++
++		if(!params.playNotificationSound)
++			this.notificationAssistant.removePlayNotificationSoundTasks();
 +
  		if (params.securityPolicyError) {
  			this.handleSecurityPolicyError(params);
  		} else if (params.certificateError) {
-@@ -481,11 +488,21 @@
+@@ -481,11 +489,21 @@
  			this.handleEditAccount();
  		} else if (params.reminderPersonId) { 
  			this.handleContact(params);
@@ -410,10 +411,10 @@
  	
 +	LaunchHandler.prototype.playNotificationSound = function(accountId) {
 +		this.notificationAssistant.playNotificationSound(accountId);
-+			
++
 +		this.notificationAssistant.schedulePlayNotificationSoundTasks(accountId);
 +	};
-+	
++
  	LaunchHandler.prototype.handleCompose = function() {
  		var params = this.launchParameters;
  		var mailToURL = params.uri || params.target;
@@ -457,7 +458,7 @@
  	this.errorDashboards = {};
 +	this.notificationsData = {};
 +	this.newEmails = [];
-+	
++
 +	this.notifyTimeout = null;
  	
  	this.windowActivate = this.windowActivate.bind(this);
@@ -489,7 +490,7 @@
 +	this.notifyTimeout = setTimeout(this._processNewEmails.bind(this), 5000);
 +}
 +
-+NotificationAssistant.prototype._processNewEmails = function() {	
++NotificationAssistant.prototype._processNewEmails = function() {
 +	var emails = this.newEmails.slice(0);
  	
 +	this.newEmails = [];
@@ -508,20 +509,20 @@
 -	// Make our dashboards reflect the data. 
 -	this._updateDirtyDashboards();
 +	var allUnknown = true;
-+	
++
 +	var notifications = {};
  	
 +	emails.forEach(function(email) {
 +		if(EmailApp.emails.check(email.from.addr))
 +			allUnknown = false;
-+		
++
 +		notifications[email.accountId] = true;
-+	}, this);	
++	}, this);
 +
 +	if(allUnknown) {
 +		if(this.contactPrefs)
 +			delete this.contactPrefs;
-+	
++
 +		this.contactPrefs = new window.Contacts.AppPrefs(function() {
 +			var prefs = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownContacts);
 +
@@ -529,7 +530,7 @@
 +				_.map(_.keys(notifications), this._doNotificationForAccount, this);
 +			else 
 +				this._doNotificationForUnknown(prefs.emailAlert, prefs.emailRingtonePath);
-+			
++
 +			// Make our dashboards reflect the data. 
 +			this._updateDirtyDashboards();
 +		}.bind(this));
@@ -537,7 +538,7 @@
 +	else {
 +		_.map(_.keys(notifications), this._doNotificationForAccount, this);
 +
-+		// Make our dashboards reflect the data. 
++		// Make our dashboards reflect the data.
 +		this._updateDirtyDashboards();
 +	}
  };
@@ -585,7 +586,7 @@
  		} else {
  			Mojo.Log.info("Creating dashboard for account %s, %d messages.", accountId, messages.length);
  			db = this.appController.createDashboard(NotificationAssistant.kNewEmailDashboardStageName+accountId, messages, {
-+				onSuccess: function(sceneController){
++				onSuccess: function(sceneController) {
 +					if(this.blinkNotify)
 +						sceneController.stageController.indicateNewContent(true);
 +				}.bind(this),
@@ -624,7 +625,7 @@
  	// No need to check for AccountpreferencesAssistant.kNotifyTypeMute, since mute is what happens if we don't do anything.
  	
 +	this.schedulePlayNotificationSoundTasks(accountId);
-+	
++
  	return; 
  };
  
@@ -644,25 +645,24 @@
  	// Others use account icon
  	
 +	var stageName = NotificationAssistant.kErrorDashboardStageName+accountId;
-+	
++
  	if(!db) {
  		Mojo.Log.error("Creating error dashboard for account %s: %s, %s", accountId, details.title, details.text);
  		tapHandler = this._errorTapper.bind(this, accountId);
 -		db = this.appController.createDashboard(NotificationAssistant.kErrorDashboardStageName+accountId, [details], {
 +		db = this.appController.createDashboard(stageName, [details], {
- 			mainTapHandler: tapHandler,
--			iconTapHandler: tapHandler
-+			iconTapHandler: tapHandler,
-+			onSuccess: function(accountId, sceneController){
++			onSuccess: function(sceneController){
 +				sceneController.stageController.indicateNewContent(true);
-+			}.bind(this, accountId)			
++			}.bind(this),
+ 			mainTapHandler: tapHandler,
+ 			iconTapHandler: tapHandler
  		});
  		this.errorDashboards[accountId] = db;
  	} else {
  		db.pushContent(details);
-+		
++
 +		var stageController = this.appController.getStageController(stageName);
-+		
++
 +		if(stageController)
 +			stageController.indicateNewContent(true);
  	}
@@ -670,58 +670,58 @@
  };
  
  // Generic tap handler for all error dashboards.  Bound to handle both iconTap and mainTap.
-@@ -768,8 +867,76 @@
+@@ -768,8 +867,75 @@
  	}
  };
  
 +NotificationAssistant.prototype.schedulePlayNotificationSoundTasks = function(accountId) {
-+	var repeatDelay = 0;
 +	var currentTime = new Date();
- 
++
 +	if(this.notificationsData[accountId] == undefined)
 +		this.notificationsData[accountId] = 0;
- 
-+	for(var accountId in this.notificationsData) {
-+		var accData = EmailApp.accounts.mailAccounts[accountId];
 +
-+		if((!accData) || (!accData.notifications) || (accData.notifications.enabled == false)) {
++	var accData = EmailApp.accounts.mailAccounts[accountId];
++
++	if((!accData) || (!accData.notifications) || (accData.notifications.enabled == false) ||
++		(accData.notifications.type == "mute") || (accData.notifications.repeatInterval == 0))
++	{
++		delete this.notificationsData[accountId];
++	}
++	else {
++		var repeatLimitation = parseInt(accData.notifications.repeatLimit);
++
++		if(this.notificationsData[accountId]++ >= repeatLimitation) {
 +			delete this.notificationsData[accountId];
 +		}
-+		else if((accData.notifications.type != "mute") && (accData.notifications.repeatInterval != 0))
-+		{
-+			if(this.notificationsData[accountId]++ >= accData.notifications.repeatLimit) {
-+				delete this.notificationsData[accountId];
-+			}
-+			else {
-+				var repeatInterval = accData.notifications.repeatInterval;
-+		
-+				var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) + (repeatDelay++ * 10));
++		else {
++			var repeatInterval = parseInt(accData.notifications.repeatInterval);
 +
-+				var month = playSoundTime.getUTCMonth()+1;
-+				if(month < 10) month = "0" + month;
-+				var day = playSoundTime.getUTCDate();
-+				if(day < 10) day = "0" + day;
-+				var year = playSoundTime.getUTCFullYear();
++			var playSoundTime = new Date(currentTime.getTime() + (repeatInterval * 1000));
 +
-+				var hours = playSoundTime.getUTCHours();
-+				if(hours < 10) hours = "0" + hours;
-+				var minutes = playSoundTime.getUTCMinutes();
-+				if(minutes < 10) minutes = "0" + minutes;
-+				var seconds = playSoundTime.getUTCSeconds();
-+				if(seconds < 10) seconds = "0" + seconds;
++			var month = playSoundTime.getUTCMonth()+1;
++			if(month < 10) month = "0" + month;
++			var day = playSoundTime.getUTCDate();
++			if(day < 10) day = "0" + day;
++			var year = playSoundTime.getUTCFullYear();
 +
-+				var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
-+		
-+				this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
-+					'method': "set", 'parameters': { 'key': 'emailPlayNotificationSound-' + accountId, 
-+					'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open", 
-+					'params': {'id': 'com.palm.app.email', 'params': {'accountId': accountId,
-+						'playNotificationSound': this.notificationsData[accountId]}}} }); 
-+			}
++			var hours = playSoundTime.getUTCHours();
++			if(hours < 10) hours = "0" + hours;
++			var minutes = playSoundTime.getUTCMinutes();
++			if(minutes < 10) minutes = "0" + minutes;
++			var seconds = playSoundTime.getUTCSeconds();
++			if(seconds < 10) seconds = "0" + seconds;
++
++			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++
++			this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++				'method': "set", 'parameters': { 'key': 'emailPlayNotificationSound-' + accountId,
++				'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open",
++				'params': {'id': 'com.palm.app.email', 'params': {'accountId': accountId,
++					'playNotificationSound': this.notificationsData[accountId]}}} });
 +		}
 +	}
 +};
-+	
++
 +NotificationAssistant.prototype.removePlayNotificationSoundTasks = function() {
 +	for(var accountId in this.notificationsData) {
 +		if(this.notificationsData[accountId] > 0) {
@@ -730,10 +730,10 @@
 +		}
 +	}
 +};
-+
+ 
 +NotificationAssistant.prototype.playNotificationSound = function(accountId) {
 +	var accData = EmailApp.accounts.mailAccounts[accountId];
-+	
+ 
 +	if((accData) && (accData.notifications) && (accData.notifications.enabled == true)) {
 +		if(accData.notifications.type === AccountpreferencesAssistant.kNotifyTypeRingtone)
 +			this.appController.playSoundNotification("notifications", accData.notifications.ringtonePath);
@@ -743,7 +743,6 @@
 +			this.appController.playSoundNotification("vibrate");
 +	}
 +};
-+	
  
  /*
  NotificationAssistant.prototype.handleNewEmailNotification = function(list) {
@@ -767,7 +766,7 @@
  
 +/******************************************************************************
 +	Loads and manages changes to a persons email objects, stored in MojoDB.
-+	
++
 +	The object's "ready" property will be true once initialization is complete.
 + ******************************************************************************/
 +EmailApp.Util.MojoDBEmails = function(kind, onReady) {
@@ -777,7 +776,7 @@
 +	this._onReady = onReady;
 +
 +	this._handleResult = this._handleResult.bind(this);
-+	
++
 +	this._doQuery();
 +};
 +
@@ -793,7 +792,7 @@
 +	}
 +	else {
 +		var emails = [];
-+	
++
 +		for(var i = 0; i < result.results.length; i++) {
 +			if(result.results[i].emails) {
 +				for(var j = 0; j < result.results[i].emails.length; j++) {
@@ -805,9 +804,9 @@
 +
 +		this._emails = emails;
 +		this.ready = true;
-+	
++
 +		Mojo.Log.info("MojoDBEmails: Emails loaded for ", this._kind);
-+	
++
 +		if(this._onReady) {
 +			this._onReady();
 +			this._onReady = undefined;
