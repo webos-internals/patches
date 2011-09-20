@@ -452,10 +452,11 @@
   * email read-view (message) specifics
 --- .orig/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
 +++ /usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
-@@ -39,6 +39,10 @@
+@@ -39,6 +39,11 @@
  	this.pending = {};
  	this.dashboards = {};
  	this.errorDashboards = {};
++	this.blinkNotification = {};
 +	this.notificationsData = {};
 +	this.newEmails = [];
 +
@@ -463,7 +464,7 @@
  	
  	this.windowActivate = this.windowActivate.bind(this);
  	this._handleNewEmails = this._handleNewEmails.bind(this);
-@@ -106,7 +110,6 @@
+@@ -106,7 +111,6 @@
  NotificationAssistant.prototype._handleNewEmails = function(emails) {
  	var maxRev = 0, count;
  	var i;
@@ -471,7 +472,7 @@
  	
  	// Update showAllInboxes, in case it changed.
  	this.showAllInboxes = EmailApp.prefs.get('showAllInboxes');
-@@ -128,8 +131,26 @@
+@@ -128,8 +132,26 @@
  	for(i=0; i<emails.length; i++) {
  		emails[i].accountId = this.appController.assistant.getEmailAccount(emails[i]);
  	}
@@ -498,7 +499,7 @@
  	// Filter out anything we don't currently care about:
  	count = emails.length;
  	emails = _.select(emails, this._shouldNotify, this);
-@@ -140,13 +161,40 @@
+@@ -140,13 +162,40 @@
  	emails.forEach(this._addNewEmail, this);	
  	
  	// Build a list of accounts with new emails, and then map the "play sound for account" function over them.
@@ -544,34 +545,21 @@
  };
  
  
-@@ -332,6 +380,8 @@
- // Update the dashboard for the given accountId (or the unified one if unspecified) to display the given message,
- // creating it if necessary.
- NotificationAssistant.prototype._updateDashboard = function(accountId, messages) {
-+	var blinkNotify = false;
-+
- 	var db = this.dashboards[accountId];
- 	
- 	if(messages.length > 0) {
-@@ -347,13 +397,39 @@
+@@ -347,13 +396,35 @@
  		var lastMessage = messages[messages.length-1];
  		Mojo.Log.info("Updating  dashboard... textLen:%s, titleLen:%d, icon:%s", lastMessage.text && lastMessage.text.length, lastMessage.title && lastMessage.title.length, lastMessage.icon);
  		
-+		if(accountId == this.kUnifiedAccountId) {
-+			for(var accId in this.notificationsData) {
-+				var accData = EmailApp.accounts.mailAccounts[accId];
++		var blinkNotify = false;
 +
-+				if((accData) && (accData.notifications) && (accData.notifications.blink)) {
++		if(accountId == this.kUnifiedAccountId) {
++			for(var accId in this.blinkNotification) {
++				if(this.blinkNotification[accId]) {
 +					blinkNotify = true;
 +					break;
 +				}
 +			}
-+		}
-+		else {
-+			var accData = EmailApp.accounts.mailAccounts[accountId];
-+
-+			if((accData) && (accData.notifications) && (accData.notifications.blink))
-+				blinkNotify = true;
++		} else {
++			blinkNotify = this.blinkNotification[accountId];
 +		}
 +		
  		// Update the dashboard content:
@@ -593,7 +581,7 @@
  				mainTapHandler: this._dashboardMainTap.bind(this, accountId),
  				iconTapHandler: this._dashboardIconTap.bind(this, accountId),
  				cleanup: this._dashboardClosed.bind(this, accountId)
-@@ -460,7 +536,11 @@
+@@ -460,7 +531,12 @@
  	if(messages) {
  		messages.length = 0;
  	}
@@ -601,13 +589,18 @@
 +
 +	this.removePlayNotificationSoundTasks();
 +
++	this.blinkNotification = {};
 +	this.notificationsData = {};
 +
  	Mojo.Log.info("NotificationAssistant._dashboardClosed for account ", accountId);
  };
  
-@@ -592,18 +672,28 @@
+@@ -590,20 +666,32 @@
+ 	var notifPrefs = acct.notifications;
+ 	var notifType = notifPrefs.type;
  	
++	this.blinkNotification[accountId] = notifPrefs.blink;
++
  	Mojo.Log.info("_doNotificationForAccount %s: ", accountId, notifType);
  	
 -	if (notifType === AccountpreferencesAssistant.kNotifyTypeSystem) {
@@ -640,7 +633,7 @@
  
  // Utility for display of general notifications in a transient banner.
  NotificationAssistant.prototype.generalNotification = function(msg) {
-@@ -631,18 +721,27 @@
+@@ -631,18 +719,27 @@
  	// send errors use alert icon, from fw: ../images/notification-alert.png
  	// Others use account icon
  	
@@ -671,7 +664,7 @@
  };
  
  // Generic tap handler for all error dashboards.  Bound to handle both iconTap and mainTap.
-@@ -768,8 +867,75 @@
+@@ -768,8 +865,75 @@
  	}
  };
  
