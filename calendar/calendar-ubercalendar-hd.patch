@@ -1606,7 +1606,7 @@ index 5cf0926..d6ea91a 100644
  	}
  });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js b/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
-index baeb27c..ddb38fb 100644
+index baeb27c..4b336ef 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
 @@ -17,6 +17,7 @@ enyo.kind({
@@ -1656,10 +1656,12 @@ index baeb27c..ddb38fb 100644
  			this.rotatedWhileHidden = false;
  			this.isCurrentPane = true;
  			this.performResize();			
-@@ -165,6 +175,11 @@ enyo.kind({
+@@ -164,7 +174,12 @@ enyo.kind({
+ 		;
  		date.clearTime();														// Set the event's time to midnight.
  		date.set({hour:hour, minute:minute});							// Set the event's hour and minute.
- 
+-
++		this.uberMode = enyo.application.uberMode !== undefined ? enyo.application.uberMode : 2;
 +		if(this.uberMode !== 2){
 +			enyo.application.share({quickDate: date.getTime()});
 +			return true;
@@ -1859,7 +1861,7 @@ index 536d24e..6a23977 100644
  .calendar .day .eventGroup {
  	background					: -webkit-gradient( linear, 0 0, 0 100%, color-stop( .02, transparent ), color-stop( .0, #b9b9b9 ), to( rgba( 0, 0, 0, 0.0 ) ) );
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
-index a62a158..7008268 100644
+index a62a158..e4f13bf 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
 @@ -26,6 +26,7 @@ enyo.kind({
@@ -2010,10 +2012,11 @@ index a62a158..7008268 100644
 -		if (options && options.scroll) {
 +		if (options && options.scroll && isToday && prefs.scrollToCurrentTime) {
  			(currentHour > 0) && (--currentHour); 								// Scroll to the hour before the current hour.
- 			currentHour = Math.min(currentHour, 17); 							// Can't scroll past 4pm anyway
+-			currentHour = Math.min(currentHour, 17); 							// Can't scroll past 4pm anyway
++			currentHour = Math.min(currentHour, 16); 							// Can't scroll past 4pm anyway
  			var top = 59 * currentHour;
  			isFinite(top) && ui.hours.setScrollTop(top);
-+		} else {
++		} else if(options && options.scroll){
 +			var	top = 59* prefsHour;
 +			//console.log(this.ucWeekScrollTop);
 +			isFinite (top) && ui.hours.setScrollTop (top);
@@ -2052,6 +2055,29 @@ index 0db78d4..eae85a4 100644
  ,	"header/CalendarList.css"
  ,	"header/CalendarList.js"
  ,	"day/"
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/edit/DeleteConfirm.js b/usr/palm/applications/com.palm.app.calendar/app/edit/DeleteConfirm.js
+index c640035..834f90f 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/edit/DeleteConfirm.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/edit/DeleteConfirm.js
+@@ -94,7 +94,8 @@ enyo.kind({
+ 		,	hasAttendees= attendees && !!(attendees.length)
+ 		,	isEditable	= Utilities.isEventEditable(event)
+ 		,	sendable	= enyo.application.calendarsManager.isInvitationEnabledCalendar(event.calendarId)
+-		,	shouldNotify = (hasAttendees && sendable && isEditable && event.status == "CONFIRMED")		
++		,	shouldNotify = (hasAttendees && sendable && isEditable && event.status == "CONFIRMED")
++		,	notGoogle = (enyo.application.calendarsManager.getCalAccountKind(event.calendarId) != "com.palm.calendarevent.google:1")
+ 		;
+ 
+ 		if (event.rrule && event.rrule.freq){
+@@ -102,7 +103,7 @@ enyo.kind({
+ 			var date = event.currentLocalStart || event.dtstart; //TODO: Use currentLocalStart
+ 			Utilities.addException(event, new Date(date));
+ 
+-			if(shouldNotify){	// Only create a child event to mark the deletion if we need to send a notification
++			if(shouldNotify && notGoogle){	// Only create a child event to mark the deletion if we need to send a notification
+ 				var deletedChild = this.createDeletedChild(date);
+ 				enyo.application.databaseManager.updateParentAddChild (event, deletedChild, this.deletedEvent, this.deletedEvent, true);
+ 			}
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/edit/DetailView.js b/usr/palm/applications/com.palm.app.calendar/app/edit/DetailView.js
 index 8c764bf..c986f83 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/edit/DetailView.js
@@ -2447,7 +2473,7 @@ index f696643..56df21e 100644
  	
  	confirmSave: function confirmSave(){
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
-index 7e764a3..d5b5f32 100644
+index 7e764a3..e9dc730 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
 @@ -20,6 +20,7 @@ enyo.kind({
@@ -2482,7 +2508,7 @@ index 7e764a3..d5b5f32 100644
 -			this.currentMonth.setTime	(from.date);							//	update the currentMonth with that specific date's timestamp
 -			enyo.application.share		({ showView: {view:calendar.day.DayView} });	//	and switch to DayView.
 -			return true;
-+			this.log ("\tMonthDay: [",from.date,"]\t   :::" + this.uberMode);
++			DEBUG && this.log ("\tMonthDay: [",from.date,"]\t   :::" + this.uberMode);
 +			this.uberMode = enyo.application.uberMode !== undefined ? enyo.application.uberMode : 2;
 +			if(this.uberMode !==2) {
 +				enyo.application.share({quickDate: from.date});
@@ -2506,9 +2532,18 @@ index 7e764a3..d5b5f32 100644
  		this.inherited (arguments);
  		if (!this.generated) { return; }								// Avoid GUI updates if not rendered. !!!this.generated is a protected enyo property!!!
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
-index 905c388..3fd1b3e 100644
+index 905c388..256801e 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
+@@ -108,7 +108,7 @@ enyo.kind({
+ 		}
+ 		eventViews.getComponents().length && eventViews.destroyComponents();	// Remove all of this day's existing events. TODO: Reuse them instead.
+ 
+-		var events = this.monthEvents && this.monthEvents [this.date];
++		var events = this.monthEvents && this.monthEvents [+this.date];
+ 
+ 		if (!events || !this.inCurrentMonth) {				// There are no events for this MonthDay or this day isn't in the current month, so:
+ 			enyo.application.ignore ({calendars:this});		//	Ignore calendars updates.
 @@ -140,7 +140,27 @@ enyo.kind({
  				(extras.length < 3) && extras.push ({ className:"event ellipsis", event:event, watchCalendars:false });
  			} else {
@@ -2637,6 +2672,19 @@ index 592cb6e..2498b0d 100644
  		,	weekLength	= dayFormats.length
  		,	weekHeader	= this.$.weekHeader
  		;
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js
+index 80540ee..e35f391 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js
+@@ -112,7 +112,7 @@ enyo.kind({
+ 
+ 				if (events.length) {
+ 					eventCount += events.length;
+-					monthEvents [date] = events;
++					monthEvents [+date] = events;
+ 				}
+ 			}
+ 		}
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 index a385dba..5259bb7 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
@@ -3206,6 +3254,25 @@ index c779d90..90abee3 100644
  		this.calendars = calendars;
  		this.calendarsChanged();
  		return this.eventManager.utils.formatResponse(eventSet, dates, undefined, this.hiddenCalendars);
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js b/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js
+index 1722bec..15b565e 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js
+@@ -566,7 +566,13 @@ enyo.kind({
+ 
+ 	isInvitationEnabledCalendar: function isInvitationEnabledCalendar(calendarId){
+ 		var kind = this.getCalAccountKind(calendarId);
+-		return (kind == "com.palm.calendarevent.eas:1");
++			//console.log("calendars Manager kind:::::: " + kind + " read only: "+ !!(this.isCalendarReadOnly(calendarId)));
++		if(kind == "com.palm.calendarevent.google:1"){
++			var readonly =  !!(this.isCalendarReadOnly(calendarId));
++			return !readonly;
++		} else {
++			return (kind == "com.palm.calendarevent.eas:1");
++		}
+ 	},
+ 
+ 	getCal: function getCal(calId) {
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js b/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
 index f9086e4..e239089 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
@@ -3625,7 +3692,7 @@ index 49117d2..000c898 100644
  	background				: none;
  	padding					: 0;
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
-index 943727e..82e6cf1 100644
+index 943727e..6edf1a9 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
 @@ -31,6 +31,7 @@ enyo.kind({
@@ -3699,7 +3766,7 @@ index 943727e..82e6cf1 100644
  	prefsChanged: function prefsChanged (oldPrefs) {
  		var header	= this.$.header
  		,	prefs	= this.prefs || enyo.application.prefsManager.prefs
-@@ -246,15 +278,25 @@ enyo.kind({
+@@ -246,15 +278,26 @@ enyo.kind({
  		,	weekStart	= this.date.getTime()
  		,	weekEnd		= weekStart + (7 * 86400000) - 1000						// 1 week ahead minus 1 second (i.e. Saturday at 23:59:59)
  		,	isToday		= clock >= weekStart && clock <= weekEnd				// Store whether this day is today.
@@ -3713,6 +3780,7 @@ index 943727e..82e6cf1 100644
 -		//if (options && options.scroll) {
 +		if (isToday && prefs.scrollToCurrentTime) {
  			(currentHour > 0) && (--currentHour);												// Scroll to the hour before the current hour.
++			currentHour = Math.min(currentHour, 16);
  			var	top = dayHours [currentHour].hasNode();
  			isFinite (top && (top = top.offsetTop)) && this.$.weekHours.setScrollTop (top);
 -		//}
