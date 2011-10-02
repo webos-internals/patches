@@ -1,0 +1,1704 @@
+--- .orig/usr/palm/applications/com.palm.app.phone/dashWorkaround/DashboardContent.js
++++ /usr/palm/applications/com.palm.app.phone/dashWorkaround/DashboardContent.js
+@@ -86,7 +86,7 @@
+ 		this.docPath = this.docPath.slice(0,this.docPath.lastIndexOf('/')+1);
+ 		this.layers = params.layers;
+ 		this.layerCount = this.layers.length;
+-		this.indicateNewContent(true);	
++//		this.indicateNewContent(true);
+ 		// Configure layer clipping properly.
+ 		// This lets upper layers clip out lower ones, which is needed since they're transparent.
+ 		this.$.layer1.setClipControl(this.$.layer0);
+@@ -122,6 +122,15 @@
+ 			window.close();
+ 			return;
+ 		}
++
++		this.indicateNewContent(false);
++
++		for(var i = 0; i < len; i++) {
++			if(!this.layers[i].disableBlink) {
++				this.indicateNewContent(true);
++				break;
++			}
++		}
+ 		// Configure last 3 layers in our list:
+ 		var layers = this.layers.slice(-3);
+ 		this.$.layer2.setLayer(layers[2]);
+--- .orig/usr/palm/applications/com.palm.app.phone/index.html
++++ /usr/palm/applications/com.palm.app.phone/index.html
+@@ -16,6 +16,12 @@
+ 			enyo.PopupLayer.prototype.wantsEvents = false; 
+ 			// main app object that's responsible for window management and keeping references to app globals
+ 			enyo.application = {
++				tweaks: {},
++
++				sliderOpen: false,
++
++				proximityEventAction: "none",
++				audioSourceChangedManually: false,
+ 				
+ 				// true for tablet with 1024. This works regardless of device orientation
+ 				isTablet: ((deviceDetails && deviceDetails.screenWidth == 1024) || (!window.PalmSystem && (window.innerWidth == 1024 || window.innerWidth == 768)) ),
+@@ -178,10 +184,15 @@
+ 					
+ 					} else if (params.preferences) {
+ 						enyo.application.UI.event('preferences', params);
+-						
+-					// default: maybe current state can handle this launch
+ 					} else {
+-						enyo.application.UI.event('launch', params);
++						// default: maybe current state can handle this launch
++						if((localStorage) && (localStorage["phonePrefs"])) {
++							var phonePrefs = enyo.json.parse(localStorage["phonePrefs"]);
++
++							enyo.application.UI.event('launch', phonePrefs.startView, params);
++						}
++						else
++							enyo.application.UI.event('launch', "dialpad", params);
+ 					}
+ 					
+ 					// tell sysmgr we're handling the launch
+@@ -230,14 +241,14 @@
+ 					// keep track of open popup so we close it when opening a new one
+ 					var activePhoneAppPopupName;
+ 					
+-					return function(type, name, params, height, throb) {
++					return function(type, name, params, height, throb, attributes) {
+ 						params = params || {};
++						attributes = attributes || {};
+ 						params.popupType = type;
+ 						// framework bug workaround
+ 						closeCard(activePhoneAppPopupName);
+ 						activePhoneAppPopupName = name;
+-						throb = throb || true;
+-						enyo.windows.openPopup("phonePopups/index.html", name, params, {}, height, throb);
++						enyo.windows.openPopup("phonePopups/index.html", name, params, attributes, height, throb);
+ 					};
+ 				})()
+ 			};
+@@ -317,7 +328,13 @@
+ 				enyo.application.openMainCard();
+ 				
+ 				// need to synthesize this event in browser
+-				enyo.application.UI.event('launch');
++				if((localStorage) && (localStorage["phonePrefs"])) {
++					var phonePrefs = enyo.json.parse(localStorage["phonePrefs"]);
++
++					enyo.application.UI.event('launch', phonePrefs.startView);
++				}
++				else
++					enyo.application.UI.event('launch', "dialpad");
+ 			}
+ 			
+ 			
+--- .orig/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
++++ /usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
+@@ -19,8 +19,9 @@
+ 	        {kind: enyo.Label, name: "lastSync", content: "Synched: 12/8/10, 12:00PM", style: "font-size: 14px;color: darkgray;"},
+         ]},
+ 		{name: "testClearCookie", className: 'item-label', caption: "TEST: clear cookie", onclick: "onTestClearCookie", showing: false},
+-		{caption: $L("Sounds & Ringtones"), className: 'item-label', onclick: "sounds"},
+-		{caption: $L("Preferences & Accounts"), className: 'item-label', onclick: "preferences"},
++		{caption: $L("Sound Settings"), className: 'item-label', onclick: "sounds"},
++		{caption: $L("Network Services"), className: 'item-label', onclick: "preferences"},
++		{caption: $L("Preferences & Accounts"), className: 'item-label', onclick: "prefsandaccounts"},
+ 		{kind: enyo.HelpMenu, className: "help-menu", target: 'http://help.palm.com/phone/index.html', },
+ 		{name:"launchSoundsAndAlerts", kind:"PalmService",  service: enyo.palmServices.application, method: "open", params: {id: "com.palm.app.soundsandalerts"}},
+ 		{name: "clearCallHistoryPrompt", kind: "DialogPrompt", 
+@@ -91,6 +92,10 @@
+ 		this.doLaunchingPreferences();
+ 		enyo.application.UI.event('preferences');
+ 	},
++	prefsandaccounts: function() {
++		this.doLaunchingPreferences();
++		enyo.application.UI.event('preferences', {launchType: "preferences"});
++	},
+ 	clearCallHistoryConfirm: function() {
+ 		//luna-send -a com.palm.app.phone -n 1 luna://com.palm.db/del '{"query":{"from":"com.palm.phonecallgroup:1"},"purge":false}'
+ 		this.$.purgeCallHistory.call({
+--- .orig/usr/palm/applications/com.palm.app.phone/phoneApp/source/CallLogView.js
++++ /usr/palm/applications/com.palm.app.phone/phoneApp/source/CallLogView.js
+@@ -335,10 +335,30 @@
+ 	},
+ 	
+ 	onDrawerSubItemClick: function(inSrc, inEvent) {
++		if (this.$.HiddenDrawerItem.getOpen() === true) {
++			this.$.HiddenDrawerItem.toggleOpen();
++			this.$.toggleFrame.setClassName("avatar-frame unOpened");
++			this.animationCount = 1;
++			this.curItemIndex = -1;
++			this.curOpenItemId = null;
++			this.lastOpen = null;
++			this.areHistoryAndOptionsValid = false;
++		}
++
+ 		this.$.subItemActionHandler.executeAction(this.callOptionsDataArray[inEvent.rowIndex]);
+ 	},
+ 	
+ 	onSmsIconClicked: function(inSrc, inEvent) {
++		if (this.$.HiddenDrawerItem.getOpen() === true) {
++			this.$.HiddenDrawerItem.toggleOpen();
++			this.$.toggleFrame.setClassName("avatar-frame unOpened");
++			this.animationCount = 1;
++			this.curItemIndex = -1;
++			this.curOpenItemId = null;
++			this.lastOpen = null;
++			this.areHistoryAndOptionsValid = false;
++		}
++
+ 		this.$.subItemActionHandler.executeSendSMS(this.callOptionsDataArray[inEvent.rowIndex]);
+ 	},
+ 	
+--- .orig/usr/palm/applications/com.palm.app.phone/phoneApp/source/Favorites.js
++++ /usr/palm/applications/com.palm.app.phone/phoneApp/source/Favorites.js
+@@ -417,11 +417,33 @@
+ 	},
+ 	
+ 	onDrawerSubItemClick: function(inSrc, inEvent) {
++		if(this.curOpenItemId) {
++			this.$.favoritesList.prepareRow(this.curItemIndex);
++			this.$.drawer.toggleOpen();
++			this.$.toggleFrame.setClassName("avatar-frame unOpened");
++			this.animationCount++;
++			this.curItemIndex = -1;
++			this.curOpenItemId = null;
++			this.lastOpen = null;
++			this.areHistoryAndOptionsValid = false;
++		}
++
+ 		this.$.subItemActionHandler.executeAction(this.callOptionsDataArray[inEvent.rowIndex]);
+ 		enyo.stopEvent(inEvent);
+ 	},
+ 	
+ 	onSmsIconClicked: function(inSrc, inEvent) {
++		if(this.curOpenItemId) {
++			this.$.favoritesList.prepareRow(this.curItemIndex);
++			this.$.drawer.toggleOpen();
++			this.$.toggleFrame.setClassName("avatar-frame unOpened");
++			this.animationCount++;
++			this.curItemIndex = -1;
++			this.curOpenItemId = null;
++			this.lastOpen = null;
++			this.areHistoryAndOptionsValid = false;
++		}
++
+ 		this.$.subItemActionHandler.executeSendSMS(this.callOptionsDataArray[inEvent.rowIndex]);
+ 		enyo.stopEvent(inEvent);
+ 	},
+--- .orig/usr/palm/applications/com.palm.app.phone/phoneApp/source/FavoritesDrawerItem.css
++++ /usr/palm/applications/com.palm.app.phone/phoneApp/source/FavoritesDrawerItem.css
+@@ -155,7 +155,7 @@
+ }
+ 
+ .fav-drawer-subItem-itemTextLbl {
+-	padding: 8px 3px 3px 5px;
++	padding: 12px 3px 3px 5px;
+ 	width: 58%; /* width:58% so that there is space for long text in phTypeLbl like "ASSISTANT" */
+ 	white-space: nowrap;
+ 	overflow: hidden;
+--- .orig/usr/palm/applications/com.palm.app.phone/phoneApp/index.html
++++ /usr/palm/applications/com.palm.app.phone/phoneApp/index.html
+@@ -30,13 +30,29 @@
+ 			// These methods are required to let us know when sysmgr is showing and hiding our card.
+ 			// We send special phoneAppShow/phoneAppHide events for this unique functionality.
+ 			Mojo.show = function(params) {
+-				window.hidden = false;
+-				
+-				enyo.windows.events.dispatchEvent(window, {type: "phoneAppShow"});
+-				
+-				// Mojo.show is called in lieu of Mojo.relaunch if the card is open but hidden.
+-				// Simulate a relaunch by telling enyo.application directly.
+-				enyo.application.applicationRelaunchHandler(enyo.json.parse(params || "{}"));
++				var launchParams = enyo.json.parse(params || "{}");
++
++				if (launchParams.closeMissedCallPopup) {
++					window.close();
++
++					enyo.application.closePhoneAppPopup("missedCallPopup");
++				} else if (launchParams.playNotificationSound) {
++					window.close();
++
++					enyo.application.CallSynergizer.playNotificationSound(launchParams.accountId);
++
++					enyo.application.CallSynergizer.scheduleNotificationTasks(launchParams.accountId);
++				} else {
++					window.hidden = false;
++
++					enyo.application.CallSynergizer.removeNotificationTasks();
++
++					enyo.windows.events.dispatchEvent(window, {type: "phoneAppShow"});
++
++					// Mojo.show is called in lieu of Mojo.relaunch if the card is open but hidden.
++					// Simulate a relaunch by telling enyo.application directly.
++					enyo.application.applicationRelaunchHandler(enyo.json.parse(params || "{}"));
++				}
+ 			};
+ 			
+ 			Mojo.hide = function() {
+--- .orig/usr/palm/applications/com.palm.app.phone/phoneApp/source/PhoneTabs.js
++++ /usr/palm/applications/com.palm.app.phone/phoneApp/source/PhoneTabs.js
+@@ -198,7 +198,7 @@
+ 				this.$.menu.setValue(this.$.pane.getViewName());
+ 			} else {
+ 				// Always specifiy a transport to avoid having the Cache.phonePreferredDomesticPhoneService from opening the PreferredPhSvcDlg
+-				enyo.application.CallSynergizer.dial(number, undefined, undefined, enyo.application.CallSynergizer.TRANSPORTS.TIL);
++				enyo.application.CallSynergizer.doDial(number, undefined, undefined, enyo.application.CallSynergizer.TRANSPORTS.TIL);
+ 			}
+ 		// CASE: vvm enabled, always to it
+ 		} else {
+--- .orig/usr/palm/applications/com.palm.app.phone/phoneApp/source/styles.css
++++ /usr/palm/applications/com.palm.app.phone/phoneApp/source/styles.css
+@@ -153,7 +153,7 @@
+ }
+ 
+ .drawer-subItem-itemTextLbl {
+-	padding: 3px 3px 3px 5px;
++	padding: 8px 3px 3px 5px;
+ 	width: 70%;
+ /*	white-space: nowrap;*/
+ 	overflow: hidden;
+--- .orig/usr/palm/applications/com.palm.app.phone/phonePopups/sources/IncomingCall.js
++++ /usr/palm/applications/com.palm.app.phone/phonePopups/sources/IncomingCall.js
+@@ -19,7 +19,7 @@
+ 				]},
+ 			]},
+ 		
+-			{kind: "CustomButton", name: "reject_button", className: "incoming-reject-button", onclick: "cancelCall"}
++			{kind: "CustomButton", name: "reject_button", className: "incoming-reject-button", onmousehold: "cancelCall", onclick: "cancelCallAlt"}
+ 		]}
+ 	]
+ });
+--- .orig/usr/palm/applications/com.palm.app.phone/phonePopups/sources/IncomingCallImpl.js
++++ /usr/palm/applications/com.palm.app.phone/phonePopups/sources/IncomingCallImpl.js
+@@ -28,7 +28,10 @@
+ 		{name: "dnastSub", kind:"PalmService", service:"palm://com.palm.display/control/", subscribe: true, },
+ 		{name: "displayOn", kind:"PalmService", service:"palm://com.palm.display/control/"},
+ 
+-		{name: "muteRingtone", kind:"PalmService", service:"palm://com.palm.audio/ringtone/", method: "setMuted"}
++		{name: "muteRingtone", kind:"PalmService", service:"palm://com.palm.audio/ringtone/", method: "setMuted"},
++
++		{name: "openMessagingApp", kind:"PalmService", service:"palm://com.palm.applicationManager/", method: "launch"},
++		{name: "getAppPreferences", kind: enyo.PalmService, service: enyo.palmServices.system, method: "getPreferences"}
+ 	],
+ 	resizeHandler: function() {
+ 		this.inherited(arguments);
+@@ -92,10 +95,11 @@
+ 	    this.blockIgnore = true;
+ 	    this.exitStatus = "";
+ 	    this.muted = false;
++	    this.mutedTimeStamp = 0;
+ 
+ 	    // NOTE: this is a potentially dangerous assumption
+ 	    // as long as the subscription doesn't provide initial status, this will be fine.
+-	    this.sliderOpen = false;
++	    enyo.application.sliderOpen = false;
+ 
+ 	    this.defaultCallOnCallSound = enyo.application.SystemStatus.getDefaultCallOnCallSound();
+ 
+@@ -109,6 +113,9 @@
+ 	        soundClass = "ringtones";
+ 	    }
+ 
++	    if(call.contact.callAlert)
++	        soundClass = call.contact.callAlert;
++
+ 	    if (!enyo.application.CallSynergizer.activeLine() && call.contact.ringtoneLoc) {
+ 	        soundFile = call.contact.ringtoneLoc;
+ 
+@@ -243,6 +250,21 @@
+ 		close();
+ 	},
+ 
++	cancelCallAlt: function(inSender, inEvent) {
++		enyo.stopEvent(inEvent);
++
++		enyo.application.CallSynergizer.callIgnore(this.incomingLine.calls[0]);
++		this.exitStatus = "ignore";
++		this.announceIgnored();
++
++		this.$.getAppPreferences.call({
++			keys: ["callRejection"]
++		}, {
++			onSuccess: "doAutoReply",
++			onFailure: "doAutoReply"
++		});
++	},
++
+ 	// hide alert and instruct blur handler to disconnect call & show ignored UI
+ 	rejectCall: function() {
+ 	    /*if (this.blockIgnore) {
+@@ -255,10 +277,36 @@
+ 	    enyo.application.CallSynergizer.callIgnore(this.incomingLine.calls[0]);
+ 	    this.exitStatus = "rejected";
+ 	    this.announceIgnored();
+-	    close();
+-	},
++//	    close();
+ 
++		this.$.getAppPreferences.call({
++			keys: ["callRejection"]
++		}, {
++			onSuccess: "doAutoReply",
++			onFailure: "doAutoReply"
++		});
++	},
++
++	doAutoReply: function(inSender, response) {
++		if((response) && (response.callRejection) &&
++			(response.callRejection.rejectAction != "none"))
++		{
++			if(this.incomingLine.calls[0].contact.canBeCalled()) {
++				this.$.openMessagingApp.call({
++					id: "com.palm.app.messaging", params: {
++						composeRecipients: [{address: 
++						this.incomingLine.calls[0].contact.addressFormatted}],
++						messageText: response.callRejection.rejectTemplate }
++				});
++			}
++		}
++
++		close();
++	},
++	
+ 	mute: function() {
++		this.mutedTimeStamp = 0;
++
+ 	    if (!this.muted) {
+ 	        this.muted = true;
+ 	    }
+@@ -291,12 +339,19 @@
+ 
+ 	    if (response.key === "slider") {
+ 	        var newSliderOpenState = (response.state === "up");
+-	        if (this.exposed &&
+-	        this.sliderOpen === false &&
+-	        newSliderOpenState === true) {
+-	            this.answerCall();
++
++				if((enyo.application.sliderOpen === false) && (newSliderOpenState === true)) {
++					if(enyo.application.tweaks.sliderOpened != "none") {
++						if(this.exposed) {
++							this.answerCall();
++
++							if(enyo.application.tweaks.sliderOpened == "speaker")
++								enyo.application.audioInterface.onAudioRouteChangeClick("phone_back_speaker");
++						}
++					}
+ 	        }
+-	        this.sliderOpen = newSliderOpenState;
++
++	        enyo.application.sliderOpen = newSliderOpenState;
+ 	    }
+ 	},
+ 
+@@ -328,10 +383,15 @@
+ 	        enyo.log("IncomingcallAssistant#onPuckEvent " + response.type + response.connected);
+ 	    }
+ 
++		var autoAnswer = "answer";
++
++		if((localStorage) && (localStorage["phonePrefs"]))
++			autoAnswer = enyo.json.parse(localStorage["phonePrefs"]).removedFromTS;
++
+ 	    // answer the call after a delay if we're exposed, set to do so,
+ 	    // and we were previously on the puck
+ 	    if (response && response.type == "inductive") {
+-	        if (this.exposed && this.puckConnected === true && response.connected === false) {	        
++	        if (this.exposed && this.puckConnected === true && response.connected === false && autoAnswer == "answer") {
+ 			enyo.job("answerCallIfStillOffPuck", enyo.bind(this, function() {
+ 			            this.answerIfStillOffPuck();
+ 			}),0.750);
+@@ -428,12 +488,21 @@
+ 	// second closes window and rejects call
+ 	handleHardKeyPress: function() {
+ 	    enyo.log("IncomingcallAssistant#handleHardKeyPress");
++
++	    var date = new Date();
++
+ 	    if (this.muted) {
+ 	        enyo.log("IncomingcallAssistant#handleHardKeyPress reject");
+-	        this.rejectCall();
++
++	        if((this.mutedTimeStamp > 0) && ((date.getTime() - this.mutedTimeStamp) >= 1000))
++		        this.cancelCall();
++				else
++		        this.rejectCall();
+ 	    } else {
+ 	        enyo.log("IncomingcallAssistant#handleHardKeyPress mute");
+ 	        this.mute();
++
++	        this.mutedTimeStamp = date.getTime();
+ 	    }
+ 	},
+ 
+--- .orig/usr/palm/applications/com.palm.app.phone/phonePopups/sources/MissedCall.js
++++ /usr/palm/applications/com.palm.app.phone/phonePopups/sources/MissedCall.js
+@@ -31,6 +31,8 @@
+ 
+ 		//Service calls
+ 		{name: "displayStatusSubscribe", kind: enyo.PalmService, service:"palm://com.palm.display/control/", method: "status", subscribe: true, onSuccess: "onDisplayEvent", onFailure: "onDisplayEvent"},
++		{name: "setWakeupTimeout", kind: enyo.PalmService, service: 'palm://com.palm.power/timeout/', method: "set"},
++		{name: "clearWakeupTimeout", kind: enyo.PalmService, service: 'palm://com.palm.power/timeout/', method: "clear"}
+ 	],
+ 
+ 	create: function() {
+@@ -86,12 +88,37 @@
+ 		this.timeStamp = Date.now();
+ 
+ 		// stay up for 1 minute
+-		this.missedTimeout = window.setTimeout(enyo.hitch(this, "closeWindow"), MissedCall.kTimeoutMs);
++//		this.missedTimeout = window.setTimeout(enyo.hitch(this, "closeWindow"), MissedCall.kTimeoutMs);
++
++		var currentTime = new Date();
++
++		var closePopupTime = new Date(currentTime.getTime() + MissedCall.kTimeoutMs);
++
++		var month = closePopupTime.getUTCMonth()+1;
++		if(month < 10) month = "0" + month;
++		var day = closePopupTime.getUTCDate();
++		if(day < 10) day = "0" + day;
++		var year = closePopupTime.getUTCFullYear();
++
++		var hours = closePopupTime.getUTCHours();
++		if(hours < 10) hours = "0" + hours;
++		var minutes = closePopupTime.getUTCMinutes();
++		if(minutes < 10) minutes = "0" + minutes;
++		var seconds = closePopupTime.getUTCSeconds();
++		if(seconds < 10) seconds = "0" + seconds;
++
++		var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++
++		this.$.setWakeupTimeout.call({
++			'key': 'phoneCloseMissedCallPopup',
++			'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open",
++			'params': {'id': 'com.palm.app.phone', 'params': {'closeMissedCallPopup': true}}
++		});
+ 
+ 		//register for display on/off events		
+ 		this.$.displayStatusSubscribe.call({});			
+ 		
+-		if (window.PalmSystem && this.throbber == undefined) {
++		if (window.PalmSystem && this.throbber == undefined && enyo.windowParams.blink) {
+ 			this.throbber = window.PalmSystem.addNewContentIndicator();
+ 		}
+ 	},
+@@ -116,8 +143,12 @@
+ 			enyo.application.CallSynergizer.showMissedDash(this.MissedLine);
+ 		}
+ 
+-		window.clearTimeout(this.missedTimeout);
+-		this.missedTimeout = undefined;
++//		window.clearTimeout(this.missedTimeout);
++//		this.missedTimeout = undefined;
++
++		this.$.clearWakeupTimeout.call({
++			'key': 'phoneCloseMissedCallPopup'
++		});
+ 
+ 		this.$.displayStatusSubscribe.cancel();
+ 
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/activecall/ActiveCall.js
++++ /usr/palm/applications/com.palm.app.phone/shared/activecall/ActiveCall.js
+@@ -17,8 +17,10 @@
+ 			{name:"regularCall", kind:"MinHeightScroller", vertical:false, autoVertical:false, className:"enyo-fit dtfmpad-call-min-height-scroller", components: [
+ 				{kind:"Pane", className:"enyo-fit", onSelectView: "regularCallPaneSelectView", components: [
+ 					{name: "dtmfpad", lazy:true, layoutKind: "VFlexLayout", className: "single-call-simple", style: "height: auto; bottom: 71px", components: [
+-						{name: "digits", w: "fill", style: "height: 40px; font-size: 28px;color: #ffffff; top: 10px; text-align: left; width: 90%; margin-left: 5%;"},
+-						{kind: "CustomButton", className: "dtmfpad-activecall-name truncating-text", name: "dtmf_name"},
++						{name: "digits", w: "fill", style: "height: 40px; font-size: 28px;color: #ffffff; top: 10px; text-align: center; width: 90%; margin-left: 5%;"},
++						{kind: "CustomButton", className: "dtmfpad-activecall-name truncating-text", components: [
++							{kind: "LineState", name: "call_duration"}
++						]},
+ 						{kind: "DtmfDialpad", name:"dtmfdialpad", flex: 1, dtmfMode: true, onNumberAdded: "dtmfNumberAdded", onHandleDelete: "dtmfNumberDeleted"},
+ 						{kind: "CustomButton", className: "single-call-hangup", name: "hangup", onclick: "disconnectActiveCall"}
+ 					]}
+@@ -32,7 +34,12 @@
+ 			]}
+ 		]},
+ 		{name:"changeMedia", kind:"PalmService", service: "palm://com.palm.skype/", method: "changeMedia", params: {outgoingVideo:true}},
+-		{name: "setMute", kind: enyo.PalmService, service: "palm://com.palm.audio/phone/", method: "setMuted", onSuccess: "", onFailure: ""}
++		{name: "setMute", kind: enyo.PalmService, service: "palm://com.palm.audio/phone/", method: "setMuted", onSuccess: "", onFailure: ""},
++
++		{name: "sliderSubscription", kind:"PalmService", service:"palm://com.palm.keys/switches/", method: "status", subscribe: true, onSuccess: "onSliderEvent", onFailure: "onSliderEvent"},
++		{name: "displaySubscription", kind:"PalmService", service:"palm://com.palm.display/control/", method: "status", subscribe: true, onSuccess: "onDisplayEvent", onFailure: "onDisplayEvent"},
++
++		{name: "powerButtonSubscribe", kind:"PalmService", service:"palm://com.palm.display/control/", subscribe: true}
+ 	],
+ 	// the dtmf pad requires a different MinHeightScroller min-height. This should be fixed later in CSS.
+ 	regularCallPaneSelectView: function(inSender, inView, inPreviousView) {
+@@ -139,6 +146,27 @@
+                                 this.$.digits.setContent("");
+ 				this.setDTMFName();
+                         }
++
++			this.audioPreviousProfile = null;
++
++			enyo.application.proximityEventAction = "none";
++			enyo.application.audioSourceChangedManually = false;
++
++			this.$.sliderSubscription.call({});
++
++			if((localStorage) && (localStorage["phonePrefs"])) {
++				var phonePrefs = enyo.json.parse(localStorage["phonePrefs"]);
++
++				enyo.application.proximityEventAction = phonePrefs.proximityAction;
++			}
++
++			if(enyo.application.tweaks.powerButton == "hangup") {
++				this.powerButtonListen();
++			}
++
++			if(enyo.application.proximityEventAction == "change") {
++				this.$.displaySubscription.call({});
++			}
+ 		}
+ 	},
+ 	//called when hanging up last call
+@@ -159,6 +187,16 @@
+ 			this.popup.destroy();
+ 			this.popup = undefined;
+ 		}
++
++		this.$.sliderSubscription.cancel();
++
++		if(enyo.application.tweaks.powerButton == "hangup") {
++			this.powerButtonStopListening();
++		}
++
++		if(enyo.application.proximityEventAction == "change") {
++			this.$.displaySubscription.cancel();
++		}
+ 	},
+ 	destroy: function() {
+ 		enyo.application.puckInterface.removePuckStateListener(this._onPuckEventFunc);
+@@ -393,7 +431,8 @@
+ 	AutoShowHideDTMFPad: function(activeLines) {
+                 if ( activeLines.length == 1 && activeLines[0].calls.length == 1 ) {//single line single call                                
+                         if ( activeLines[0].state == enyo.application.CallSynergizer.STATES.ACTIVE) { //active
+-                                 if( enyo.application.Utils.isOtaspNumber(activeLines[0].calls[0].address) != 0 ||
++                                 if ( activeLines[0].calls[0].origin == enyo.application.CallSynergizer.ORIGINS.OUTGOING ||
++	                                 enyo.application.Utils.isOtaspNumber(activeLines[0].calls[0].address) != 0 ||
+                                         enyo.application.Utils.isVoicemailNumber(activeLines[0].calls[0].address) != 0) { //OTASP number or voicemail number
+ 					 					this.showDTMFPad();
+                                         this.$.keypad_button.setDepressed(true);
+@@ -409,6 +448,13 @@
+                         return;
+                 }
+ 
++				if(enyo.application.proximityEventAction == "change") {
++					enyo.application.audioSourceChangedManually = true;
++
++					if(enyo.application.Cache.audioActiveProfile != "phone_front_speaker")
++						enyo.application.proxInterface.proxOff();
++				}
++
+ 				var activeLine = enyo.application.CallSynergizer.activeLine();
+ 				var activeTransport = activeLine.calls[0].transport;
+ 				
+@@ -487,6 +533,76 @@
+ 	onPuckEvent: function(response) {
+ 		enyo.application.puckInterface.changeAudio(response);
+ 	},
++	onSliderEvent: function(inSender, response) {
++		if((!response) || (!response.key) || (!response.state))
++			return;
++
++		if((enyo.application.tweaks.sliderClosed != "none") && (response.key == "slider") &&
++			(enyo.application.Cache.audioActiveProfile == "phone_front_speaker"))
++		{
++			var newSliderOpenState = (response.state === "up");
++
++			if((enyo.application.sliderOpen === true) && (newSliderOpenState === false))
++				this.disconnectActiveCall();
++
++			enyo.application.sliderOpen = newSliderOpenState;
++		}
++	},
++	onDisplayEvent: function(inSender, response) {
++		if(enyo.application.Cache.screenLocked)
++			return;
++
++		if(enyo.application.audioSourceChangedManually)
++			return;
++
++		if(enyo.application.proxInterface.proxSubscription) {
++			if(response && (response.event || response.state)) {
++				if(response.event == "displayOn" || response.state == "on") {
++					if(enyo.application.Cache.audioActiveProfile !== this.audioPreviousProfile) {
++						if(this.audioPreviousProfile !== null) {
++							enyo.application.audioInterface.onAudioRouteChangeClick(this.audioPreviousProfile);
++						}
++					}
++				} else if(response.event == "displayOff" || response.state == "off") {
++					if(enyo.application.Cache.audioActiveProfile !== "phone_front_speaker") {
++						this.audioPreviousProfile = enyo.application.Cache.audioActiveProfile;
++
++						enyo.application.audioInterface.onAudioRouteChangeClick("phone_front_speaker");
++					}
++					else if(this.audioPreviousProfile === null)
++						this.audioPreviousProfile = "phone_back_speaker";
++				}
++			}
++		}
++	},
++	powerButtonListen: function() {
++		this.$.powerButtonSubscribe.call({
++        "powerKeyBlock": true,
++        "client": "activeCall"
++    	},
++    	{
++        method: "setProperty",
++        onSuccess: "onPowerButtonEvent",
++        onFailure: "onPowerButtonEvent"
++    	});
++
++		enyo.job("powerButtonListen", enyo.hitch(this, "powerButtonStopListening"), 60 * 1000);
++	},	
++	powerButtonStopListening: function() {
++	    this.$.powerButtonSubscribe.cancel();
++	},
++	onPowerButtonEvent: function(inSender, response) {
++		if((!response) || (!response.powerKey))
++			return;
++
++		if((enyo.application.tweaks.powerButton == "hangup") && (response.powerKey == 'released') &&
++			((enyo.application.Cache.audioActiveProfile == "phone_front_speaker") ||
++			((enyo.application.audioSourceChangedManually == false) &&
++			(enyo.application.proximityEventAction == "change"))))
++		{
++			this.disconnectActiveCall();
++		}
++	},
+ 	updateActiveAudioRouteButtonImage: function(profile) {
+ 		enyo.log( "updateActiveAudioRouteButtonImage = "  + profile);
+ 
+@@ -619,18 +735,22 @@
+ 		this.setDTMFName();
+ 
+ 		// always clear dtmf digits
+-		this.$.digits.setContent("");
++//		this.$.digits.setContent("");
+ 		this.dtmfEntry = "";
+ 	},
+ 	setDTMFName: function() {
+ 		var contactName = $L("Unknown");
+                 var activeLine = enyo.application.CallSynergizer.activeLine();
+                 if(activeLine) {
++						this.$.call_duration.setLine(activeLine);
++                
+                         if (activeLine.conferenceId) {
+ 				contactName = $L("Conference call");
+ 			} else {
+ 				var call = activeLine.calls[0];
+ 				
++				this.$.call_duration.setLine(activeLine);
++
+ 				if (call.contact) {
+ 					contactName = call.contact.name || call.contact.displayName || call.contact.addressFormatted;
+ 				} else {
+@@ -643,7 +763,7 @@
+ 			}
+ 		}
+ 
+-		this.$.dtmf_name.setContent(contactName || "");
++		this.$.digits.setContent(contactName || "");
+ 	},
+ 	windowActivate: function() {
+ 		if(this.$.calltype.getViewName() === "videoCall" && this.$.videoCall.windowActivatedHandler) {
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/activecall/activecall.css
++++ /usr/palm/applications/com.palm.app.phone/shared/activecall/activecall.css
+@@ -154,6 +154,8 @@
+ }
+ 
+ .single-call-timer {
++	position: relative;
++	top: -5px;
+ 	margin: 0 -18px;
+ 	color: #ffffff;
+ 	font-size: 16px;
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/all-depends.js
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/all-depends.js
+@@ -12,6 +12,9 @@
+ 		"controls/ProvisioningPref.js",
+ 		"controls/PRLPref.js",
+ 		"controls/WorldPhonePref.js",
++		"controls/EditNotifyPrefs.js",
++		"controls/PhoneAppPrefs.js",
++		"controls/SIMAccountPrefs.js",
+ 		"source/styles.css",
+ 		"source/PhonePrefs.js",
+ 		"source/Dialingshortcut.js",
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/controls/CallsPref.js
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/controls/CallsPref.js
+@@ -10,12 +10,12 @@
+ 		
+ 			// Call Forwarding Toggle Button
+ 			{name: "forwardingControl", layoutKind: "HFlexLayout", /*align: "center", tapHighlight: false, onclick: "messagePop", */components: [
+-				{content: $L("Call Forwarding"), flex: 1},
++				{content: $L("Call Forwarding"), style: "padding-top: 5px;", flex: 1},
+ 				{name: "callForwardingToggle", onChange: "forwardToggled", kind: "ToggleButton"},
+ 			]},		
+ 			// Call Forwarding error/status messages.  This is usually hidden.
+ 			{name: "callForwardStatusContainer", layoutKind: "HFlexLayout", /*onclick: "showFDNError",*//* align: "center", tapHighlight: false,*/ components: [
+-				{name: "callForwardStatus", content: $L("Reading from network"), flex: 1},
++				{name: "callForwardStatus", content: $L("Reading from network"), style: "padding-top: 3px;", flex: 1},
+ 				{name: "callForwardSpinner", kind: "Spinner"},
+ 		 		{name: "lockButton1", kind:"CustomButton", className: "lock-button", showing: false}, 
+ 		 		{name: "warningButton1", kind:"CustomButton", className: "warning-button", showing: false},
+@@ -27,12 +27,12 @@
+ 			
+ 			// Caller ID Toggle Button
+ 			{name: "callerIdControl", layoutKind: "HFlexLayout",/* align: "center", tapHighlight: false, onclick: "messagePop", */components: [
+-				{content: $L("Show My Caller ID"), flex: 1},
++				{content: $L("Show My Caller ID"), style: "padding-top: 5px;", flex: 1},
+ 				{name: "showMyCallerIdToggle", onChange: "callerIDChanged", kind: "ToggleButton"},
+ 			]},
+ 			// Caller ID error/status messages.  This is usually hidden.
+ 			{name: "showMyCallerIdStatusContainer", layoutKind: "HFlexLayout", /*onclick: "showCallIDError",*/ components: [
+-				{name: "showMyCallerIdStatus", content: $L("Reading from network"), flex: 1},
++				{name: "showMyCallerIdStatus", content: $L("Reading from network"), style: "padding-top: 3px;", flex: 1},
+ 				{name: "showMyCallerIdSpinner", kind: "Spinner"},
+ 		 		{name: "lockButton2", kind: "CustomButton", className: "lock-button", showing: false},
+ 		 		{name: "warningButton2", kind:"CustomButton", className: "warning-button", showing: false},
+@@ -41,12 +41,12 @@
+ 			
+ 			// Call Waiting Toggle Button
+ 			{name: "callWaitingControl", layoutKind: "HFlexLayout",/* align: "center", tapHighlight: false, onclick: "messagePop", */components: [
+-				{content: $L("Call Waiting"), flex: 1},
++				{content: $L("Call Waiting"), style: "padding-top: 5px;", flex: 1},
+ 				{name: "callWaitingToggle", onChange: "callWaitingChanged", kind: "ToggleButton"},		
+ 			]},
+ 			// Call Waiting error/status messages.  This is usually hidden.
+ 			{name: "callWaitingStatusContainer", layoutKind: "HFlexLayout", /*onclick: "showCallWaitingError",*/ components: [
+-				{name: "callWaitingStatus", content: $L("Reading from network"), flex: 1},
++				{name: "callWaitingStatus", content: $L("Reading from network"), style: "padding-top: 1px;", flex: 1},
+ 				{name: "callWaitingSpinner", kind: "Spinner"},
+ 		 		{name: "lockButton3", kind:"CustomButton", className: "lock-button", showing: false},
+ 		 		{name: "warningButton3", kind:"CustomButton", className: "warning-button", showing: false},
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/dialer/Dialer.js
++++ /usr/palm/applications/com.palm.app.phone/shared/dialer/Dialer.js
+@@ -178,7 +178,7 @@
+ 		
+ 		var lastCallContactData = this.$.dialStringWidget.getLastCallContactData();
+ 		if (lastCallContactData && lastCallContactData.service === enyo.application.CallSynergizer.TRANSPORTS.SKYPE) {
+-			enyo.application.CallSynergizer.dial(lastCallContactData.addr, lastCallContactData.isVideo, undefined, 
++			enyo.application.CallSynergizer.doDial(lastCallContactData.addr, lastCallContactData.isVideo, undefined, 
+ 				enyo.application.Utils.isInternationalNumber(lastCallContactData.addr) ? undefined : lastCallContactData.service, 
+ 				lastCallContactData.personId, true);
+ 			this.clear();
+@@ -190,7 +190,7 @@
+ 				this.getLastOutgoingCall();
+ 			}
+ 			else {
+-				if (enyo.application.CallSynergizer.dial(number, undefined, undefined, undefined, undefined, true, true) === false) {
++				if (enyo.application.CallSynergizer.doDial(number, undefined, undefined, undefined, undefined, true, true) === false) {
+ 					this.$.preferredPhSvcDlg.setCallDataAndOpen({'dialNumber': number});
+ 				} else {
+ 					this.clear();
+@@ -394,13 +394,13 @@
+ 			if (!this.hasKeydownBeenReleased) {
+ 				if (enyo.application.Cache.keydownReleased != false) {
+ 					enyo.application.Cache.keydownReleased = false;
+-					enyo.application.CallSynergizer.dial(addr, undefined, undefined, undefined, undefined, true);
++					enyo.application.CallSynergizer.doDial(addr, undefined, undefined, undefined, undefined, true);
+ 				}				
+ 				this.hasKeydownBeenReleased = true; // This is needed since the HW keyup event doesn't fire when making a speedDial call			
+ 			}
+ 			else {
+ 				if (enyo.application.Cache.keydownReleased != false) {
+-					enyo.application.CallSynergizer.dial(addr, undefined, undefined, undefined, undefined, true);
++					enyo.application.CallSynergizer.doDial(addr, undefined, undefined, undefined, undefined, true);
+ 				}
+ 			}
+ 		}
+@@ -442,7 +442,7 @@
+ 			this.$.noVoicemailNumberPrompt.open();
+ 		}
+ 		else {
+-			enyo.application.CallSynergizer.dial(number, undefined, undefined, undefined, undefined, true);
++			enyo.application.CallSynergizer.doDial(number, undefined, undefined, undefined, undefined, true);
+ 		}
+ 	},
+ 	clear: function() {
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/FlightMode.js
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/FlightMode.js
+@@ -6,15 +6,23 @@
+ 	components: [
+ 			{ kind: "PageHeader", className: "header", components: [
+ 				{name: "photoImage", kind: "Image", className: "phone-icon", src: "../shared/phoneprefs/images/header-icon-phone.png"},
+-				{content: $L("Phone Preferences"), className: "phone-header-caption"}
++				{name: "networkPageHeader", content: $L("Network Services"), className: "phone-header-caption", flex: 1},
++				{kind: "ToggleButton", name: "servicesOnOffToggle", style: "margin: -5px -6px 0px 5px;", onChange: "onServicesOnOffChanged"}
+ 			]},
+ 			{layoutKind: "HFlexLayout", align: "center", className: "info-text", components: [
+-				{kind: enyo.Label, content: $L("You need a network connection to your wireless service provider to see Phone Preferences.")}
+-			]}
++				{kind: enyo.Label, content: $L("You need a network connection to your wireless service provider to see some settings.")}
++			]},
++			{name: "phoneRadioStatusSet",  kind: enyo.PalmService, service: enyo.palmServices.telephony, method: "powerSet"}
+ 	], 
+ 
+ 	create: function() {
+ 		this.inherited(arguments);
+-	}
++	},
+ 
++	onServicesOnOffChanged: function(inSender, inEvent) {
++		if(this.$.servicesOnOffToggle.getState() == true)
++			this.$.phoneRadioStatusSet.call({state: "on"});
++		else
++			this.$.phoneRadioStatusSet.call({state: "off"});
++	}
+ });
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/EditNetworkSettings.js
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/EditNetworkSettings.js
+@@ -70,6 +70,10 @@
+ 	}, 
+ 	components: [
+ 		{kind: "Scroller", flex: 1, components: [
++			{ kind: "PageHeader", className: "header", components: [
++				{name: "photoImage", kind: "Image", className: "phone-icon", src: "../shared/phoneprefs/images/header-icon-phone.png"},
++				{name: "networkPageHeader", content: $L("Network Settings"), className: "phone-header-caption"}
++			]},
+ 			{name: "APNRadio", kind: "RadioGroup", value: 0, onChange: "APNclick", components: [
+ 				{label: $L('INTERNET APN')},
+ 				{label: $L('MMS APN')}
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/controls/InternationalCallsPref.js
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/controls/InternationalCallsPref.js
+@@ -5,38 +5,47 @@
+ 	name: "InternationalCallsPref",
+ 	kind: enyo.VFlexBox,
+ 	className: "enyo-bg",
++	events: {
++		onNotificationClick: "",
++		onSIMAccountClick: ""
++	},
+ 	components: [
+ 		// Not really a int'l pref but logically in the UI it belongs here
+ 		//<!-- only enabled if PHONE template(s) exists -->
++		{name: "domesticPrefs", components: [
+ 		{kind: "RowGroup", caption: $L("DOMESTIC CALLS"), name: "domesticPrefCallServiceRow", components: [
+ 			{kind: "ListSelector", value: "none", label: $L("Use"), name: "domesticPrefCallService", onChange: "onDomesticSelectorChanged"}
+ 		]},
++		]},
+ 
+-		{kind: "RowGroup", caption: $L("INTERNATIONAL CALLS"), components: [
++		{kind: "RowGroup", caption: $L("INTERNATIONAL CALLS"), name: "internationalPrefs", components: [
+ 			{layoutKind: "HFlexLayout", align: "center", name: "internationalDialingRow", tapHighlight: false, components: [
+ 				{content: $L("International Dialing"), flex: 1},
+ 				{name: "internationalDialingToggle", kind: "ToggleButton", onChange: "internationalDialingTap", state: false}
+ 			]},
+ 			//<!-- only enabled if PHONE template(s) exists -->
+-			{kind: "Item", className: "int-call-service-list-selector", layoutKind: "HFlexLayout", pack: "justify", align: "center", name: "preferredIntlCallServiceRowRow", components: [
+-				{content: $L("Use"), flex: 1},
+-				{kind: "ListSelector", value: "none",  name: "preferredIntlCallServiceRow", onChange: "selectorChanged"}
++			{kind: "Item", flex: 1, layoutKind: "HFlexLayout", name: "preferredIntlCallServiceRowRow", components: [
++				{kind: "ListSelector", flex:1, value: "none",  label: $L("Use"), name: "preferredIntlCallServiceRow", onChange: "selectorChanged"}
+ 			]}
+ 		]},
+ 
+ 		//<!-- only enabled if PHONE template(s) exists -->
++		{name: "SkypeInfoGroup", style: "padding-top: 3px;", components: [
+ 		{kind: "RowGroup", caption: $L("ACCOUNTS"),  name: "SkypeInfo", components: [
+-			{kind: "VirtualRepeater", name: "accountsList", onSetupRow: "getListItem", components: [
++			{kind: "VirtualRepeater", name: "accountsList", style: "border: 0px;margin:-8px;", onSetupRow: "getListItem", components: [
+ 				{kind: "Item", layoutKind: "HFlexLayout", onclick: "handleAccountsListTap", components: [
+-					{name: "itemImg", kind: enyo.Image},
+-					{kind: "VFlexBox", style: "margin-left: 5px;", components: [
++					{name: "itemImg", kind: enyo.Image, style: "margin: 4px 4px -6px -2px;"},
++					{kind: "VFlexBox", flex: 1, style: "margin-left: 5px;", components: [
+ 						{name: "itemTitle"},
+ 						{name: "itemUsername", style: "font-size: 14px; color: #AAAAAA;"},
+ 					]},
++					{name: "bellImg", kind: enyo.Image, onmousedown: "doButtonDown", onmouseup: "doButtonUp",
++						style: "margin: -5px -5px -9px -5px;background: url(/usr/palm/applications/com.palm.app.phone/images/icon-notifications.png) top right no-repeat;width: 60px;height: 50px;"},
+ 				]}
+ 			]},
+-			{kind: "Button", content: $L("Add account"),  name: "addAccountButton", onclick: "addAccountHandler"},
+-			{kind: "Button", content: $L("Add Visual Voicemail"), name: "addVvmAccountButton", onclick: "addVvmAccountHandler", showing: false},
++		]},
++		{kind: "Button", content: $L("Add Phone Account"),  name: "addAccountButton", onclick: "addAccountHandler"},
++		{kind: "Button", content: $L("Add Visual Voicemail"), name: "addVvmAccountButton", onclick: "addVvmAccountHandler", showing: false},
+ 		]},
+ 
+ 		//Service calls
+@@ -69,6 +78,7 @@
+ 		this.$.preferredIntlCallServiceRow.setItems(this.preferredIntlCallServiceItems);
+ 		
+ 		this.$.SkypeInfo.hide();
++		this.$.SkypeInfoGroup.hide();
+ 		this.$.accountTemplates.call({}); // Results from this call will determine if domesticPrefCallServiceRow & preferredIntlCallServiceRowRow & SkypeInfo are shown
+ 		
+ 		this.accList = [];
+@@ -105,6 +115,12 @@
+ 		this.$.preferredIntlCallServiceRow.setItems(this.preferredIntlCallServiceItems);
+ 	},
+ 	
++	switchToPrefsView: function() {
++		this.$.domesticPrefs.hide();
++		this.$.internationalPrefs.hide();
++		this.$.SkypeInfoGroup.show();
++	},
++
+ 	mailboxQueryCallback: function(inSender, payload) {
+ 		this.$.vvmFirstLaunchPref.call();
+ 	},
+@@ -206,7 +222,9 @@
+ 			this.accList = [];
+ 			response.results.forEach(function(account) {
+ 				var capabilityProvider = this.$.accounts.getPhoneCapabilityProvider(account);
+-				if (capabilityProvider && capabilityProvider.serviceName !== "com.palm.telephony") {	
++				if (account.loc_name == "SIM" || (capabilityProvider &&
++					capabilityProvider.serviceName !== "com.palm.telephony"))
++				{
+ 					this.accList.push(account);
+ 				}
+ 			}, this);
+@@ -234,7 +252,28 @@
+ 	},
+ 	
+ 	handleAccountsListTap: function(inSender, inEvent, inIndex){
+-		this.$.accounts.launchAccountSettingsUI(this.accList[inIndex]);
++		if(inEvent.target.id == "phoneAppCard_phonePrefs_intlCallsPrefs_bellImg") {
++			var icon = this.accList[inIndex].icon ? this.accList[inIndex].icon.loc_32x32 : "";
++
++			if(this.accList[inIndex].loc_name == "SIM") 
++				this.doNotificationClick(null, icon);
++			else
++				this.doNotificationClick(this.accList[inIndex]._id, icon);
++		}
++		else if(inIndex == 0) {
++			this.doSIMAccountClick();
++		}
++		else if(inIndex > 0) {
++			this.$.accounts.launchAccountSettingsUI(this.accList[inIndex]);
++		}
++	},
++
++	doButtonDown: function() {
++		this.$.bellImg.setStyle("margin: -5px -5px -9px -5px;background: url(/usr/palm/applications/com.palm.app.phone/images/icon-notifications.png) bottom right no-repeat;width: 60px;height: 50px;");
++	},
++
++	doButtonUp: function() {
++		this.$.bellImg.setStyle("margin: -5px -5px -9px -5px;background: url(/usr/palm/applications/com.palm.app.phone/images/icon-notifications.png) top right no-repeat;width: 60px;height: 50px;");
+ 	}
+ });
+ 
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/PhonePrefs.js
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/PhonePrefs.js
+@@ -12,23 +12,28 @@
+ 				{ kind: "PageHeader", className: "header", components: [
+ 				
+ 					{name: "photoImage", kind: "Image", className: "phone-icon", src: "../shared/phoneprefs/images/header-icon-phone.png"},
+-					{content: $L("Phone Preferences"), className: "phone-header-caption"}
++					{name: "prefsPageHeader", flex: 1, content: $L("Preferences & Accounts"), className: "phone-header-caption"},
++					{name: "networkPageHeader", flex: 1, content: $L("Network Services"), className: "phone-header-caption"},
++					{kind: "ToggleButton", name: "servicesOnOffToggle", style: "margin: -5px -6px 0px 5px;", onChange: "onServicesOnOffChanged"}
+ 				]},
+ 				{style: "padding: 5px;", components:[
+-					{name: "phoneNumberScene", kind: "PhoneNumberPref"},
+-					{kind: "WhenTypingPref"},
+-					{name: "callprefs", kind: "CallsPref"},
+-					{name: "intlCallsPrefs", kind: "InternationalCallsPref"},
+-					{name: "voicemailNumberScene", kind: "VoicemailNumber"},
++//					{name: "phoneNumberScene", kind: "PhoneNumberPref"},
++//					{name: "WhenTypingPref", kind: "WhenTypingPref"},
++					{name: "phoneAppPrefs", kind: "PhoneAppPrefs"},
+ 					{name: "dialingScene", kind: "Dialing", onAddDialingShortcut: "dialingShortcutClick"},
+-					{name: "securityView", kind: "Security", onRefreshCard: "updateCardUI"},
++					{name: "callprefs", kind: "CallsPref"},
++					{name: "intlCallsPrefs", kind: "InternationalCallsPref", onSIMAccountClick: "showAccountPrefs", onNotificationClick: "showNotifyPrefs"},
++//					{name: "voicemailNumberScene", kind: "VoicemailNumber"},
++//					{name: "securityView", kind: "Security", onRefreshCard: "updateCardUI"},
+ 					{name: "network", kind: "Network", onEditNetworkClick: "editNetwork", onCarrierNameChange: "updateCarrierName"},
+-					{kind: "Accessibility"},
++					{name: "accessibility", kind: "Accessibility"},
+ 					{kind: "PRL"},
+ 					{name: "worldphone", kind: "WorldPhone"},
+ 					{name: "voicemailclear", kind: "Button", content: $L("Reset Voicemail Count"), showing: false, onclick: "handleTapOnVoicemailReset"},
+ 				]}
+ 			]},
++			{name:"editNotifyPrefs", kind:"EditNotifyPrefs", lazy:true},
++			{name:"simAccountPrefs", kind:"SIMAccountPrefs", onUpdateCardUI: "updateCardUI", lazy:true},
+ 			{name:"restrictedDialingList", kind:"RestrictedDialingList", onSaveFDNItem: "saveFDNItemData", lazy:true}, //1
+ 			{name:"pinCode", kind:"PinCode", onRefreshCard: "updateCardUI", lazy:true},//2
+ 			{name:"dialingShortcut", kind:"DialingShortcut", onDoneClick: "dialingShortcutDone", lazy:true},
+@@ -41,6 +46,8 @@
+ 		{name: "telService", kind: enyo.PalmService, service: enyo.palmServices.telephony, onSuccess: "", onFailure: ""},
+ 		{name: "fdnService", kind: enyo.PalmService, service: enyo.palmServices.telephony, method: "fdnStatusQuery", subscribe: true,  onSuccess: "fdnStatusResponse", onFailure: "fdnStatusResponse"},
+ 
++		{name: "phoneRadioStatusSet",  kind: enyo.PalmService, service: enyo.palmServices.telephony, method: "powerSet"},
++
+ 		{name: "appMenu", kind: "AppMenu", components: [
+ 			{caption: $L("Preferences & Account"), onclick: "preferencesClick"},
+ 			{caption: $L("Help"), onclick: "helpClick"}
+@@ -75,6 +82,12 @@
+ 
+ 	
+ 	handleLaunch: function(params) {
++		this.$.prefsPageHeader.hide();
++		this.$.dialingScene.hide();
++		this.$.phoneAppPrefs.hide();
++
++		this.$.servicesOnOffToggle.setState(true);
++
+ 		this.log(enyo.json.stringify(params));
+ 		if (!params || params.launchType == undefined) {	
+ 			this.handleFlightMode(); 
+@@ -82,6 +95,15 @@
+ 		}
+ 			
+ 		switch (params.launchType) {				
++			case "preferences":
++				this.switchToPrefsView("accounts");
++				break;
++
++			case "simAccountPrefs":
++				this.switchToPrefsView("accounts");
++				this.$.pane.selectViewByName("simAccountPrefs");
++				break;
++
+ 			case "flightMode":
+ 				this.handleFlightMode(); 
+ 				break; 
+@@ -155,6 +177,22 @@
+ 		}
+ 	},	
+ 	
++	switchToPrefsView: function() {
++		this.$.networkPageHeader.hide();
++		this.$.servicesOnOffToggle.hide();
++
++		this.$.callprefs.hide();
++		this.$.network.hide();
++		this.$.worldphone.hide();
++		this.$.accessibility.hide();
++
++		this.$.prefsPageHeader.show();
++		this.$.dialingScene.show();
++		this.$.phoneAppPrefs.show();
++			
++		this.$.intlCallsPrefs.switchToPrefsView();
++	},
++
+ 	//physical keyboard button keyup
+     keyup: function(e) {            
+     	if (this.$.pane.getViewName() == "pinCode") {
+@@ -220,12 +258,12 @@
+ 	},
+ 	
+ 	updateCardUI: function() {
+-		if (this.$.securityView == undefined) {
+-			this.$.pane.selectViewByName("securityView");
+-		}
+-		else {
+-			this.$.securityView.updateUI();
+-		}
++//		if (this.$.securityView == undefined) {
++//			this.$.pane.selectViewByName("securityView");
++//		}
++//		else {
++//			this.$.securityView.updateUI();
++//		}
+ 		
+ 		//Update callprefs status on FDN change
+ 		this.$.callprefs.updateOnFDNStatusChange();
+@@ -285,14 +323,14 @@
+ 
+ 		//Scenes handles platform change itself
+ 		this.$.network.reInit(); 
+-		this.$.securityView.checkfdnUI();
++//		this.$.securityView.checkfdnUI();
+ 		this.$.dialingScene.updateUI();
+-		this.$.phoneNumberScene.updateUI();
++//		this.$.phoneNumberScene.updateUI();
+ 		this.$.intlCallsPrefs.updateUI();
+ 
+ 		if (enyo.application.Cache.platformType == "cdma") {
+ 			this.$.callprefs.hide();
+-			this.$.voicemailNumberScene.hide();
++//			this.$.voicemailNumberScene.hide();
+ 			this.$.pRL.setup();
+ 			this.$.pRL.show();
+ 			//we only need to query this in cdma mode
+@@ -312,8 +350,8 @@
+ 				this.$.callprefs.updateUI();
+ 			}
+ 
+-			this.$.voicemailNumberScene.show();
+-			this.$.voicemailNumberScene.updateUI();
++//			this.$.voicemailNumberScene.show();
++//			this.$.voicemailNumberScene.updateUI();
+ 			
+ 			this.$.pRL.hide();
+ 		}
+@@ -362,11 +400,32 @@
+ 		this.$.callprefs.updateUI(); 	
+ 	},*/
+ 
++	onServicesOnOffChanged: function(inSender, inEvent) {
++		if(this.$.servicesOnOffToggle.getState() == true)
++			this.$.phoneRadioStatusSet.call({state: "on"});
++		else
++			this.$.phoneRadioStatusSet.call({state: "off"});
++	},
++
++	showNotifyPrefs: function(inSender, accountId, icon) {
++		this.$.pane.selectViewByName("editNotifyPrefs");
++
++		this.$.editNotifyPrefs.loadPreferences(accountId, icon);
++	},
++
++	showAccountPrefs: function(inSender, icon) {
++		this.$.pane.selectViewByName("simAccountPrefs");
++
++		this.$.simAccountPrefs.updateUI(enyo.application.Cache.platformType);
++	},
+ 	
+ 	back: function(e) {
+ 		if ( this.$.pane.getViewName() != "main" ) {
+-			if (this.$.pane.getViewName() == "restrictedDialingList") {
++			if (this.$.pane.getViewName() == "simAccountPrefs") {
++				this.switchToPrefsView("accounts");
+ 				this.$.pane.selectViewByName("main");
++			} else if (this.$.pane.getViewName() == "restrictedDialingList") {
++				this.$.pane.selectViewByName("simAccountPrefs");
+ 			} else if (this.$.pane.getViewName() == "editFixedNumber") {
+ 				this.$.pane.selectViewByName("restrictedDialingList");
+ 			} else if (this.$.pane.getViewName() == "flightMode") {
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/controls/SecurityScene.js
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/controls/SecurityScene.js
+@@ -155,7 +155,7 @@
+ 		var params = {
+ 			"launchType": "pinCode",
+ 			"pinAction": pinAction,
+-			"nextView": "main"
++			"nextView": "simAccountPrefs"
+ 		}
+ 		this.log(params);
+ 		enyo.application.UI.event("changeView", params);
+@@ -165,7 +165,7 @@
+ 		var params = {
+ 			"launchType": "pinCode",
+ 			"pinAction": PinAction.PinCode_Change,
+-			"nextView": "main"			
++			"nextView": "simAccountPrefs"
+ 		}
+ 		enyo.application.UI.event("changeView", params);
+ 	},
+@@ -174,7 +174,7 @@
+ 		var params = {
+ 			"launchType": "pinCode",
+ 			"pinAction": PinAction.Pin2_Change,
+-			"nextView": "main"			
++			"nextView": "simAccountPrefs"
+ 		}
+ 		enyo.application.UI.event("changeView", params);
+ 	},
+@@ -182,7 +182,7 @@
+ 	viewRestrictedListClick: function() {
+ 		var params = {
+ 			"launchType": "restrictedDialingList",
+-			"nextView": "main"			
++			"nextView": "simAccountPrefs"
+ 		}
+ 		enyo.application.UI.event("changeView", params);
+ 	},
+@@ -199,7 +199,7 @@
+ 		var params = {
+ 			"launchType": "pinCode",
+ 			"pinAction": pinAction,
+-			"nextView": "main"
++			"nextView": "simAccountPrefs"
+ 		}
+ 		enyo.application.UI.event("changeView", params);
+ 	},
+--- .orig/usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/styles.css
++++ /usr/palm/applications/com.palm.app.phone/shared/phoneprefs/source/styles.css
+@@ -31,10 +31,15 @@
+ 	height: 15px;
+ }
+ 
++.phone-header-caption {
++	margin-top: -2px;
++}
++
+ .phone-icon {
+ 	width: 32px;
+ 	height: 32px;
+ 	margin: -3px 2px 0px 0px;
++	padding-right: 6px;
+ }
+ 
+ .network-type-list {
+--- .orig/usr/palm/applications/com.palm.app.phone/source/uistates/Abstract.js
++++ /usr/palm/applications/com.palm.app.phone/source/uistates/Abstract.js
+@@ -22,11 +22,18 @@
+ 	event_missedcall: function(enabled) {
+ 		enyo.application.UI.enter('calllogmissed');
+ 	},
+-	event_launch: function() {
++	event_launch: function(view) {
+ 		if ( ! enyo.application.activateMainCard() ) {
+ 			// if stage doesn't exist, call setup to reopen stage with arguments
+ 			this.setup();
+ 		}
++
++		if(view == "calllog")
++			enyo.application.UI.enter('calllog');
++		else if(view == "favorites")
++			enyo.application.UI.enter('favorites');
++		else if(view == "dialpad")
++			enyo.application.UI.enter('dialpad_card');
+ 	},
+ 	// default preferences goes to main preferences scene
+ 	event_preferences: function(params) {
+--- .orig/usr/palm/applications/com.palm.app.phone/source/uistates/ActiveCallCard.js
++++ /usr/palm/applications/com.palm.app.phone/source/uistates/ActiveCallCard.js
+@@ -28,9 +28,14 @@
+ 		}
+ 		this.isHangingUp = true;
+ 		var wasHidden = false; 
++		var closeApp = false;
++
++		if((localStorage) && (localStorage["phonePrefs"]))
++			closeApp = enyo.json.parse(localStorage["phonePrefs"]).closeApp;
++
+ 		// if stage was hidden when active call started (and not firstuse), hide it
+ 		var mainCard = enyo.application.getMainCard();
+-		if ( this.dismissCardOnHangup && mainCard && ! mainCard.hidden && mainCard.PalmSystem && ! mainCard.PalmSystem.isMinimal ) {
++		if (( closeApp ) || ( this.dismissCardOnHangup && mainCard && ! mainCard.hidden && mainCard.PalmSystem && ! mainCard.PalmSystem.isMinimal )) {
+ 			mainCard.PalmSystem.hide();
+ 		}
+ 		
+--- .orig/usr/palm/applications/com.palm.app.phone/source/CallSynergizer.js
++++ /usr/palm/applications/com.palm.app.phone/source/CallSynergizer.js
+@@ -37,7 +37,8 @@
+ 	},
+ 	// internally used static attributes
+ 	statics: {
+-		PHONE_CAPABILITY: "PHONE"
++		PHONE_CAPABILITY: "PHONE",
++		kTimeoutMs: 60000
+ 	},
+ 	components: [
+ 		{name:"capabilitiesWatch", kind:"DbService", method: "find", dbKind: "com.palm.callcapabilities:1", onSuccess: "_capabilitiesWatch", onFailure: "genericFailure", subscribe: true, reCallWatches: true},
+@@ -65,6 +66,18 @@
+ 		{name:"muteRingtone", kind:"PalmService", service:"palm://com.palm.audio/ringtone/", method: "setMuted"},
+ 		
+ 		{name: "informBTPrefServiceError", kind: enyo.PalmService, service: "palm://com.palm.bluetooth/hfg/", method: "forceCallEvent", onSuccess: ""},
++
++		{name: "setWakeupTimeout", kind: enyo.PalmService, service: 'palm://com.palm.power/timeout/', method: "set"},
++		{name: "clearWakeupTimeout", kind: enyo.PalmService, service: 'palm://com.palm.power/timeout/', method: "clear"},
++
++		{name: "getAppTweaks", kind: enyo.PalmService, service: "palm://org.webosinternals.tweaks.prefs/", method: "get",
++			onSuccess: "_handleAppTweaks"},
++
++		{name: "getAppPreferences", kind: enyo.PalmService, service: enyo.palmServices.system, method: "getPreferences", 
++			subscribe: true, onSuccess: "_handleAppPreferences", onFailure: "_handleAppPreferences"},
++
++		{name: "getContactPreferences", kind: enyo.DbService, method: "find", dbKind: "com.palm.app.contacts.prefs:1", 
++			subscribe: true, reCallWatches: true, onSuccess: "_handleContactPreferences", onFailure: "handleContactPreferences"}
+ 	],
+ 	create: function() {
+ 		this.inherited(arguments);
+@@ -81,6 +94,73 @@
+ 		
+ 		// start watching for accounts
+ 		this.$.accountsWatch.call();
++
++		this.notificationsData = {};
++
++		// get notification prefs
++		this.notificationPrefs = {
++			notificationVisual: true,
++			notificationBlink: true,
++			notificationSound: "alert",
++			ringtoneName: "",
++			ringtonePath: "",
++			repeatInterval: 0,
++			repeatLimitation: 3,
++			phoneAccounts: {}
++		};
++
++		this.$.getAppTweaks.call({
++			owner: "org.webosinternals.patches.advanced-system-prefs-phone-prefs",
++			keys: ["phoneSliderOpened", "phoneSliderClosed", "phonePowerButton"]
++		});
++
++		this.$.getAppPreferences.call({
++			keys: ["callNotification"]
++		});
++
++		// get unknown Contacts prefs
++		this.unknownContactsPrefs = {
++			blockedNumbers: false,
++			unknownNumbers: false,
++			unknownContacts: {
++				callAction: "none",
++				callAlert: "default",
++				callRingtoneName: "",
++				callRingtonePath: ""
++			}
++		};
++
++		this.$.getContactPreferences.call();
++	},
++	_handleAppTweaks: function(inSender, payload) {
++		if((payload) && (payload.phoneSliderOpened))
++			enyo.application.tweaks.sliderOpened = payload.phoneSliderOpened;
++
++		if((payload) && (payload.phoneSliderClosed))
++			enyo.application.tweaks.sliderClosed = payload.phoneSliderClosed;
++
++		if((payload) && (payload.phonePowerButton))
++			enyo.application.tweaks.powerButton = payload.phonePowerButton;
++	},
++	_handleAppPreferences: function(inSender, payload) {
++		if((payload) && (payload.callNotification)) {
++			for(var key in payload.callNotification) {
++				if(payload.callNotification[key] != undefined)
++					this.notificationPrefs[key] = payload.callNotification[key];
++			}
++		}
++	},
++	_handleContactPreferences: function(inSender, payload) {
++		if((payload) && (payload.results) && (payload.results.length > 0)) {
++			if(payload.results[0].blockedNumbers != undefined)
++				this.unknownContactsPrefs.blockedNumbers = payload.results[0].blockedNumbers;
++
++			if(payload.results[0].unknownNumbers != undefined)
++				this.unknownContactsPrefs.unknownNumbers = payload.results[0].unknownNumbers;
++
++			if(payload.results[0].unknownContacts != undefined)
++				this.unknownContactsPrefs.unknownContacts = payload.results[0].unknownContacts;
++		}
+ 	},
+ 	_accountsWatch: function(inSender, payload) {
+ 		this.$.accountsListQuery.call();
+@@ -460,6 +540,38 @@
+ 			// why the first call? that's all we're displaying for now
+ 			line.calls[0].contact.decorated(enyo.bind(this, function(line) {
+ 				var height = line.calls[0].contact.picture.src ? 195 : 110;							
++
++				var unknownPrefs = line.calls[0].contact;
++
++				if(((this.unknownContactsPrefs.blockedNumbers) && (!unknownPrefs.canBeCalled())) ||
++					((this.unknownContactsPrefs.unknownNumbers) && (!unknownPrefs.personId)))
++				{
++					unknownPrefs = this.unknownContactsPrefs.unknownContacts;
++				}
++
++				if((unknownPrefs) && (unknownPrefs.callAction) && (unknownPrefs.callAction == "direct2vm")) {
++					line.calls[0].ignored = true;
++
++					return;
++				}
++				else if((unknownPrefs) && (unknownPrefs.callAction) && (unknownPrefs.callAction == "autohangup")) {
++					this.callIgnore(line.calls[0]);
++
++					return;
++				}
++				else {
++					if((unknownPrefs) && (unknownPrefs.callAlert) && (unknownPrefs.callAlert != "default")) {
++						line.calls[0].contact.callAlert = unknownPrefs.callAlert;
++
++						if((unknownPrefs.callAlert == "ringtone") && (unknownPrefs.callRingtonePath))
++							line.calls[0].contact.ringtoneLoc = unknownPrefs.callRingtonePath;
++					}
++					else {
++						line.calls[0].contact.callAlert = "ringtone";
++						line.calls[0].contact.ringtoneLoc = undefined;
++					}
++				}
++
+ 				enyo.application.openPhoneAppPopup("IncomingCall", incomingWindowName, {"line": line}, height);				
+ 			}, line));
+ 		}
+@@ -503,12 +615,27 @@
+ 		if (this.isMissedCall(line.calls[0])) {
+ 			line.timestamp = Date.now();
+ 
+-			//when on a call, refrain from opening the missed call popup & just show the banner & dashboard
+-			if(!enyo.application.CallSynergizer.activeLine()) {
+-				var height = line.calls[0].contact.canBeCalled() ? 188 : 125;
+-				enyo.application.openPhoneAppPopup("MissedCall", "missedCallPopup", {"line": line}, height);
+-			} else {		
+-				this.showMissedDash(line);				
++			if(line.calls[0].transport == this.TRANSPORTS.TIL) {
++				var accountId = "SIM";
++				var prefs = this.notificationPrefs;
++			}
++			else {
++				var accountId = this.transports[line.calls[0].transport]._accountId;
++				var prefs = this.notificationPrefs.phoneAccounts[accountId] || {};
++			}
++
++			if(prefs.notificationVisual != false) {
++				this.notificationsData[accountId] = {count: 0, prefs: prefs};
++
++				this.playNotificationSound(accountId);
++
++				//when on a call, refrain from opening the missed call popup & just show the banner & dashboard
++				if(!enyo.application.CallSynergizer.activeLine()) {
++					var height = line.calls[0].contact.canBeCalled() ? 188 : 125;
++					enyo.application.openPhoneAppPopup("MissedCall", "missedCallPopup", {"line": line, "blink": this.notificationPrefs.notificationBlink}, height, true, {soundClass: "none"});
++				} else {
++					this.showMissedDash(line);
++				}
+ 			}
+ 		} // CASE: abnormal disconnect
+ 		else if (line.calls[0] && ! line.calls[0].ignored && line.disconnectDetails && line.disconnectDetails.cause && line.disconnectDetails.cause !== enyo.application.CallSynergizer.DISCONNECTDETAILS.NORMAL) {
+@@ -644,8 +771,19 @@
+ 	unregisterTransportsQuery: function(cb) {
+ 		this.$.transportsCallbacks.remove(cb);
+ 	},
+-	// debounce: disallow a second dial call if received within 1.5 sec of first (and both calls pass 'debounce')
+ 	dial: function(address, video, audio, transport /*optional*/, personId /*optional*/, debounce /*optional*/, manualDial /*optional*/) {
++		var autoDialing = "call";
++
++		if((localStorage) && (localStorage["phonePrefs"]))
++			autoDialing = enyo.json.parse(localStorage["phonePrefs"]).autoDialing;
++
++		if((transport != enyo.application.CallSynergizer.TRANSPORTS.SKYPE) && (autoDialing != "call"))
++			enyo.application.UI.event('dial', {"fill": address});
++		else
++			this.doDial(address, video, audio, transport, personId, debounce, manualDial);
++	},
++	// debounce: disallow a second dial call if received within 1.5 sec of first (and both calls pass 'debounce')
++	doDial: function(address, video, audio, transport /*optional*/, personId /*optional*/, debounce /*optional*/, manualDial /*optional*/) {
+ 		var isTilNumber = this.isTilNumber(address);
+ 		if(isTilNumber) {
+ 			transport = this.TRANSPORTS.TIL;
+@@ -1249,8 +1387,23 @@
+ 				onDisplayUpdate: "missedLayerUpdate"
+ 			}, {"owner": this});
+ 		}
++		
++		var useBlink = false;
++
++		for(var accountId in this.notificationsData) {
++			if(this.notificationsData[accountId].prefs.notificationBlink != false) {
++				useBlink = true;
++				break;
++			}
++		}
++
+ 		//show dashboard
+-		this.misseddash.push({"icon": "phonePopups/images/notification-large-missed.png","title":dashTitle, "text": dashText, line: dashInfo});
++		this.misseddash.push({"disableBlink": !useBlink, "icon": "phonePopups/images/notification-large-missed.png","title":dashTitle, "text": dashText, line: dashInfo});
++
++		if(dashInfo.calls[0].transport == this.TRANSPORTS.TIL)
++			this.scheduleNotificationTasks("SIM");
++		else
++			this.scheduleNotificationTasks(this.transports[dashInfo.calls[0].transport]._accountId);
+ 	},
+ 	missedLayerUpdate: function(inSender, layer, event) {
+ 		layer.text = this.getMissedDashContent(layer.line);
+@@ -1268,8 +1421,87 @@
+ 	},
+ 	missedUserClose: function() {
+ 		enyo.log("missedUserClose");
++		this.removeNotificationTasks();
++
++		this.notificationsData = {};
+ 	},
+ 	missedLayerSwipe: function() {
+ 		this.misseddash.pop();
+-	}	
++	},
++	scheduleNotificationTasks: function(accountId) {
++		var currentTime = new Date();
++
++		if(this.notificationsData[accountId] != undefined) {
++			if((this.notificationsData[accountId].prefs.notificationSound == "mute") ||
++				(this.notificationsData[accountId].prefs.repeatInterval == 0))
++			{
++				delete this.notificationsData[accountId];
++			}
++			else {
++				var repeatLimitation = parseInt(this.notificationsData[accountId].prefs.repeatLimitation);
++
++				if(this.notificationsData[accountId].count++ >= repeatLimitation) {
++					delete this.notificationsData[accountId];
++				}
++				else {
++					var repeatInterval = parseInt(this.notificationsData[accountId].prefs.repeatInterval);
++
++					var playSoundTime = new Date(currentTime.getTime() + (repeatInterval * 1000));
++
++					if(this.notificationsData[accountId].count == 1)
++						playSoundTime.setTime(playSoundTime.getTime() - CallSynergizer.kTimeoutMs);
++
++					var month = playSoundTime.getUTCMonth()+1;
++					if(month < 10) month = "0" + month;
++					var day = playSoundTime.getUTCDate();
++					if(day < 10) day = "0" + day;
++					var year = playSoundTime.getUTCFullYear();
++
++					var hours = playSoundTime.getUTCHours();
++					if(hours < 10) hours = "0" + hours;
++					var minutes = playSoundTime.getUTCMinutes();
++					if(minutes < 10) minutes = "0" + minutes;
++					var seconds = playSoundTime.getUTCSeconds();
++					if(seconds < 10) seconds = "0" + seconds;
++
++					var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++
++					this.$.setWakeupTimeout.call({
++						'key': 'phonePlayNotificationSound-' + accountId,
++						'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open",
++						'params': {'id': 'com.palm.app.phone', 'params': {'accountId': accountId,
++							'playNotificationSound': this.notificationsData[accountId].count}}
++					});
++				}
++			}
++		}
++	},
++	removeNotificationTasks: function() {
++		for(var accountId in this.notificationsData) {
++			if(this.notificationsData[accountId].count > 0) {
++				this.$.clearWakeupTimeout.call({
++					'key': 'phonePlayNotificationSound-' + accountId
++				});
++			}
++		}
++	},
++	playNotificationSound: function(accountId) {
++		var notifyType = "alert";
++		var ringtonePath = "";
++
++		if((this.notificationsData[accountId]) &&
++			(this.notificationsData[accountId].prefs.notificationSound))
++		{
++			notifyType = this.notificationsData[accountId].prefs.notificationSound;
++
++			ringtonePath = this.notificationsData[accountId].prefs.ringtonePath;
++		}
++
++		if(notifyType == "ringtone")
++			window.PalmSystem.playSoundNotification("notifications", ringtonePath);
++		else if(notifyType == "alert")
++			window.PalmSystem.playSoundNotification("alerts");
++		else if(notifyType == "vibrate")
++			window.PalmSystem.playSoundNotification("vibrate");
++	}
+ });
+--- .orig/usr/palm/applications/com.palm.app.phone/source/CallSynergyContact.js
++++ /usr/palm/applications/com.palm.app.phone/source/CallSynergyContact.js
+@@ -52,6 +52,8 @@
+ 		this.personGivenName = undefined; // known person only, for call log
+ 		this.personFamilyName = undefined; // known person only, for call log
+ 		this.ringtoneLoc = undefined; // known person only
++		this.callAction = undefined; // known person only
++		this.callAlert = undefined; // known person only
+ 		this.picture = {}; // known person only
+ 		
+ 		this.isIntlNumber = (enyo.application.Utils.isValidNumber(this.address) && enyo.application.Utils.isInternationalNumber(this.address));
+@@ -207,6 +209,8 @@
+ 		this.personGivenName = person.name.givenName;
+ 		this.personFamilyName = person.name.familyName;
+ 		this.ringtoneLoc = person.ringtone && person.ringtone.location;
++		this.callAction = person.callAction && person.callAction.action;
++		this.callAlert = person.callAlert && person.callAlert.alert;
+ 		
+ 		this._populatePersonPic(person.photos); 
+ 	},
+@@ -221,7 +225,7 @@
+ 				break; 
+ 			}
+ 		}
+-		selectedPhotoPath = selectedPhotoPath || "images/contacts-unknown-icon-large.png";
++		selectedPhotoPath = selectedPhotoPath || "images/1.5/contacts-unknown-icon-large.png";
+ 		
+ 		if ( selectedPhotoPath ) {
+ 			imageObj = new Image();
+--- .orig/usr/palm/applications/com.palm.app.phone/source/uistates/PreferencesCard.js
++++ /usr/palm/applications/com.palm.app.phone/source/uistates/PreferencesCard.js
+@@ -50,5 +50,10 @@
+ 		} else {
+ 			enyo.application.UI.enter(params.nextState);
+ 		}
+-	}	
++	},
++	event_preferences: function(params) {
++		this.event_back();
++
++		enyo.application.UI.enter('preferences_card',params);
++	}
+ });
+--- .orig/usr/palm/applications/com.palm.app.phone/source/proxInterface.js
++++ /usr/palm/applications/com.palm.app.phone/source/proxInterface.js
+@@ -8,6 +8,7 @@
+ 	kind: enyo.Component,
+ 	components: [
+ 		{name: "proxSet", kind: enyo.PalmService, service: "palm://com.palm.display/control/", method: "setProperty", subscribe: true},
++		{name: "dnastSub", kind:"PalmService", service:"palm://com.palm.display/control/", method: "setProperty", subscribe: true},
+ 
+ 		{name:"proxStateListeners", kind:"Utils.Dispatcher"},
+ 	],
+@@ -46,6 +47,10 @@
+ 					&& Object.keys(profiles).length == 2 				
+ 					&& profiles["phone_front_speaker"] == true) {
+ 					scenario = "phone_front_speaker";
++				} else if (!enyo.application.puckInterface.isPuckConnected() &&
++					Object.keys(profiles).length == 2
++					&& profiles["phone_back_speaker"] == true) {
++					scenario = "phone_back_speaker";
+ 				} else {
+ 					return;
+ 				}
+@@ -53,7 +58,10 @@
+ 		}
+ 		
+ 		if (enyo.application.CallSynergizer.isPendingOrActive()) {
+-			if (scenario == "phone_front_speaker") {
++			if ((scenario == "phone_front_speaker") ||
++				((!enyo.application.audioSourceChangedManually) &&
++				(enyo.application.proximityEventAction == "change")))
++			{
+ 				this.proxOn();
+ 			} else {
+ 				enyo.log( "TEL#enableProxOnCallAndAudio not enabled: " + scenario);
+@@ -65,9 +73,13 @@
+ 	},
+ 
+ 	proxOn: function() {
++		if(enyo.application.Cache.screenLocked)
++			return;
++
+ 		if (!this.proxSubscription) {
+ 			enyo.log( "TEL#proxOn");
+ 			this.$.proxSet.call({'proximityEnabled': true, 'client': "phoneapp"});
++			this.$.dnastSub.call({"requestBlock": true, "client": "phoneapp"});
+ 			this.proxSubscription = true;
+ 		} else {
+ 			enyo.log( "TEL#proxOn - already on");
+@@ -78,6 +90,7 @@
+ 		if (this.proxSubscription) {
+ 			enyo.log( "TEL#proxOff");
+ 			this.$.proxSet.cancel();
++			this.$.dnastSub.cancel();
+ 			this.proxSubscription = false;
+ 		}
+ 	}
+--- .orig/usr/palm/applications/com.palm.app.phone/source/uistates/Start.js
++++ /usr/palm/applications/com.palm.app.phone/source/uistates/Start.js
+@@ -5,8 +5,14 @@
+ 		
+ 	},
+ 	// always launch to dialpad first
+-	event_launch: function(params) {
+-		enyo.application.UI.enter('dialpad_card', params);
++	event_launch: function(view, params) {
++//		enyo.application.UI.enter('dialpad_card', params);
++		if(view == "calllog")
++			enyo.application.UI.enter('calllog', params);
++		else if(view == "favorites")
++			enyo.application.UI.enter('favorites', params);
++		else
++			enyo.application.UI.enter('dialpad_card', params);
+ 	},
+ 	event_emergency: function(isEnabled) {
+ 		if ( isEnabled ) {
