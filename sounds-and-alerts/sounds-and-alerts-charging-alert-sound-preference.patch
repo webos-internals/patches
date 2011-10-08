@@ -1,0 +1,131 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 21f3714..cf8b7b0 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -5,6 +5,7 @@ var BarAssistant = Foundations.Class.create({
+ 	setup: function() {
+ 						
+ 		this.showMSMWarning = false;
++		this.playSoundWhenCharging = "notifications";
+ 		this.isUSBConnected = false;
+ 		this.inBrickMode = false;
+ 		this.isInitialQuery = false;
+@@ -212,6 +213,22 @@ getMSMWarningPrefDone: function(payload) {
+ 	this.isInitialQuery = true;		
+ },
+ 
++getChargingSoundPref: function() {
++	this.getChargingSoundRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
++		method: 'getPreferences',
++		parameters: {"keys":["playSoundWhenCharging"],"subscribe":true},
++		onSuccess: this.getChargingSoundPrefDone.bind(this)
++		});
++},
++
++getChargingSoundPrefDone: function(payload) {	
++	
++	if(payload && payload.playSoundWhenCharging != undefined) {
++		this.playSoundWhenCharging = payload.playSoundWhenCharging;
++	}	
++},
++
++
+ getCarrierName: function() {
+ 	this.carrierName = 'Carrier';
+ 		
+@@ -664,7 +681,10 @@ sysServiceInit: function() {
+ 						
+ 	//Show MSM Waring 
+ 	this.getMSMWarningPref();
+-	
++
++	//Get Charging Sound preference	
++	this.getChargingSoundPref();
++
+ 	this.registerForSystemTimeUpdate();
+ 	this.registerTimeFormat();
+ 	
+@@ -2343,7 +2363,7 @@ handlePowerNotifications: function(payload) {
+ 			
+ 			if(!this.chargingBannerShown && payload.name && (payload.name == "wall" || payload.name == "puck")) {
+ 				var batteryalert = $L("Charging Battery");
+-				var soundClassName = this.onActiveCall ? "none" : "notifications";			
++				var soundClassName = this.onActiveCall ? "none" : this.playSoundWhenCharging; //"notifications";			
+ 				this.controller.showBanner({
+ 						messageText: batteryalert,
+ 						icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-charging.png",
+diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+index 638958f..26d4af7 100644
+--- a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
++++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+@@ -28,10 +28,10 @@ var SoundsalertsconfigAssistant = Class.create({
+     },
+ 	
+ 	//Model for Timer Selection List
+-	soundOptionModel: {'value': 'Always'},
++	soundOptionModel: {'value': 'notifications'},
+ 	
+ 	//Available Timer Values.
+-	availableOptions: [{label: $L('Ringer switch controls sounds'), value:"RingerOn"},{label: $L('Always play sounds'), value:"Always"},{label: $L('Never play sounds'), value:"Never"}],
++	availableOptions: [{label: $L('Sound'), value:"notifications"},{label: $L('Vibrate'), value:"vibrate"},{label: $L('None'), value:"none"}],
+ 	
+ 	//Available Timer Values.
+ 	availableOffSettings: [{label: $L('Vibrate'), value:'vibrate'},{label: $L('Mute'), value:'mute'}],
+@@ -59,12 +59,13 @@ var SoundsalertsconfigAssistant = Class.create({
+      	 'value' : 50
+   		  };
+ 		  
+-		/*this.controller.setupWidget('soundWhenCharging', {
++		this.controller.setupWidget('soundWhenCharging', {
++			label: $L("Notification"),
+ 			choices: this.availableOptions,
+ 			modelProperty: 'value'
+ 		}, this.soundOptionModel);
+ 		
+-		$('soundWhenCharging').observe('mojo-property-change', this.handleSelection.bindAsEventListener(this));*/
++		$('soundWhenCharging').observe('mojo-property-change', this.handleSelection.bindAsEventListener(this));/**/
+ 	
+         this.controller.setupWidget('ringvolume', this.attributes,this.ringtoneVolumeModel);
+ 		this.controller.setupWidget('systemvolume', this.attributes1,this.systemVolumeModel);
+@@ -293,7 +294,7 @@ var SoundsalertsconfigAssistant = Class.create({
+ 	getOtherSettings: function() {
+ 		this.getSystemUISoundsReq = SystemService.getSystemUISounds(this.getSystemUISoundsQuery.bind(this));
+ 		//this.getVibrateChargingQueryReq = SystemService.getVibrateCharging(this.getVibrateChargingQuery.bind(this));
+-		//this.getSoundWhenOnCradleReq = SystemService.getSoundWhenOnCradle(this.getSoundWhenOnCradleQuery.bind(this));
++		this.getSoundWhenOnCradleReq = SystemService.getSoundWhenOnCradle(this.getSoundWhenOnCradleQuery.bind(this));
+ 	},
+ 	
+ 	getSystemUISoundsQuery: function(payload) {	
+@@ -333,7 +334,7 @@ var SoundsalertsconfigAssistant = Class.create({
+ 	},
+ 	
+ 	handleSelection: function(event) {
+-     	if(!event)
++     		if(!event)
+ 			return;
+ 		SystemService.setSoundWhenOnCradle(event.value);
+   	},
+diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html b/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+index f59d208..2d89659 100644
+--- a/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
++++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+@@ -8,6 +8,19 @@
+ 	
+ 	<div class="palm-group">
+ 		<div class="palm-group-title with-icon">
++			<span x-mojo-loc=''>Charger</span>				
++		</div>
++		<div class="title-icon charging"></div>
++		<div class="palm-list">	
++			 <div class="palm-row single">
++				<div class="palm-row-wrapper">
++					<div id='soundWhenCharging' x-mojo-element="ListSelector" class="right"></div>
++				</div>
++			</div>
++	      	</div>
++	</div>
++	<div class="palm-group">
++		<div class="palm-group-title with-icon">
+ 			<span x-mojo-loc=''>ringer switch off</span>				
+ 		</div>
+ 		<div class="title-icon mute"></div>
