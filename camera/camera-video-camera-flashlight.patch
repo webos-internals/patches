@@ -1,0 +1,163 @@
+diff --git a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+index 5d8756b..595e700 100644
+--- a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
++++ b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+@@ -24,6 +24,7 @@ var CaptureAssistant = function (params){
+ 			AF_CONT: 2
+ 		});		
+ 	
++		this.torchState = CaptureAssistant.FLASH_OFF;
+ 		this._focused = true;
+ 		this.photorollInfo = null;
+ 		
+@@ -119,6 +120,8 @@ CaptureAssistant.prototype = {
+ 			Mojo.Event.tap, this.onCapture.bind(this, false));
+ 		this.controller.get('flash-toggle').observe(
+ 			Mojo.Event.tap, this._handleFlashButton.bind(this));
++		this.controller.get('torch-toggle').observe(
++			Mojo.Event.tap, this._handleTorchButton.bind(this));
+ 		
+ 		if (this.sublaunch){
+ 			// Hide the toggle button, we only allow sublaunch to still capture.
+@@ -258,6 +261,7 @@ CaptureAssistant.prototype = {
+ 
+ 		if (this.isFocused()) {
+ 			this.controller.sceneElement.removeClassName('preview-off');
++			this.loadVideoFlash();
+ 		}
+ 		llog("Controls are up");
+ 	},
+@@ -336,6 +340,24 @@ CaptureAssistant.prototype = {
+ 		this.onCapture();
+ 	},
+ 	
++	loadVideoFlash: function() {
++		if(this.isVideoCapture) {
++			if(this.torchState == CaptureAssistant.FLASH_OFF) {
++				this.controller.get('torch-toggle').className = "torch-button torch-off";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"off"}
++				});
++			} else {
++				this.controller.get('torch-toggle').className = "torch-button torch-on";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"on"}
++				});
++			}
++		}
++	},
++	
+ 	/**
+ 	 * Called from the scene controller when the scene is torn down.
+ 	 */
+@@ -1150,6 +1172,27 @@ CaptureAssistant.prototype = {
+ 
+ 		this._powerService.allowScreenDim();
+ 	},
++	
++	_handleTorchButton: function(event) {
++		if(this.isVideoCapture) {
++			if(this.torchState == CaptureAssistant.FLASH_OFF) {
++				this.torchState = CaptureAssistant.FLASH_ON;
++				this.controller.get('torch-toggle').className = "torch-button torch-on";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"on"}
++				});
++			} else {
++				this.torchState = CaptureAssistant.FLASH_OFF;
++				this.controller.get('torch-toggle').className = "torch-button torch-off";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"off"}
++				});
++			}
++			return;
++		}
++	},
+ 			
+ 
+ 	/**
+@@ -1281,6 +1324,7 @@ CaptureAssistant.prototype = {
+ 			// Going to video mode
+ 			this.controller.sceneElement.removeClassName('camera');
+ 			this.controller.sceneElement.addClassName('camcorder');
++			this.loadVideoFlash();
+ 			
+ 			if (this.vstabAvailable) {
+ 				// Update UI state
+@@ -1299,6 +1343,12 @@ CaptureAssistant.prototype = {
+ 			}
+ 		} else {
+ 			// Going to still mode
++			this.torchState = CaptureAssistant.FLASH_OFF;
++			this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++				method: 'setFlash',
++				parameters: {state:"off"}
++			});
++			this.controller.get('torch-toggle').className = "torch-button torch-off";
+ 			this.controller.sceneElement.removeClassName('camcorder');
+ 			this.controller.sceneElement.addClassName('camera');
+ 			this.setFlashState(this.flashState);
+@@ -1414,6 +1464,10 @@ CaptureAssistant.prototype = {
+ 	 */
+ 	_onBlur: function(event){
+ 		llog("Got a blur event: " + this);
++		this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++			method: 'setFlash',
++			parameters: {state:"off"}
++		});
+ 
+ 		this._focused = false;
+ 		this._clearFocusAndBlurTimeouts();
+@@ -1477,6 +1531,7 @@ CaptureAssistant.prototype = {
+ 			if (this.isFocused()) {
+ 				//handle showing controls in CameraControl
+ 				this.cameraControl.resumePreview(this.vstabAvailable);
++				this.loadVideoFlash();
+ 			}
+ 		}.bind(this), 350);
+ 	},
+diff --git a/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html b/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html
+index 37ed07d..2632335 100644
+--- a/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html
++++ b/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html
+@@ -17,6 +17,8 @@
+         </div>
+     </div>
+     
++    <div id="torch-toggle" class="torch-button" x-mojo-touch-feedback="immediate"></div>
++
+     <div id="view-finder" class="view-finder"></div>
+     <div id="af-helper" class="af-helper">
+     	<div id="af-view-finder" class="af-view-finder"></div>
+diff --git a/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css b/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css
+index 571de30..6f1f5d4 100644
+--- a/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css
++++ b/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css
+@@ -255,6 +255,23 @@ img {
+ 
+ .recording .vstab-button { visibility: hidden; }
+ 
++.torch-button {
++    width: 50px;
++    height: 50px;
++    right: 11px;
++    top: 5px;
++    position: absolute;
++    margin-top: 0px;
++    -webkit-transform: rotate(90deg);
++    position: absolute;
++    pointer-events: auto;
++    background: url(../images/flash-buttons.png) left top no-repeat;
++}
++.camera .torch-button { visibility: hidden; }
++.torch-button.selected { background-position-y: -50px; }
++.torch-button.torch-on { background-position-y: -100px; }
++.torch-button.torch-on.selected { background-position-y: -150px; }
++
+ .preview {
+     position: fixed;
+     top: 0px;
