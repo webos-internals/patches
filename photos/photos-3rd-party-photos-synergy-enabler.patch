@@ -1,0 +1,93 @@
+diff --git a/usr/palm/services/com.palm.service.photos/photos-src/base/Utils.js b/usr/palm/services/com.palm.service.photos/photos-src/base/Utils.js
+index a877a7a..c1d8005 100644
+--- a/usr/palm/services/com.palm.service.photos/photos-src/base/Utils.js
++++ b/usr/palm/services/com.palm.service.photos/photos-src/base/Utils.js
+@@ -12,6 +12,8 @@
+ /*global AccountsManager: true */
+ /*global deleteDirOrFile: true */
+ /*global ERROR: true */
++/*global Foundation: true */
++/*global Future: true */
+ //for jasmine
+ var Params =exports.Params;
+ var ImageFormats =exports.ImageFormats;
+@@ -361,6 +363,7 @@ function generateCapabilityForAccounts(promise){
+ 						]},
+ 			'watch' :true
+ 		};
++	var need3rdPartyAccountCapability = [];
+ 	var accountsReply = function(response){
+ 		if(response.returnValue)
+ 		{
+@@ -417,6 +420,7 @@ function generateCapabilityForAccounts(promise){
+ 							
+ 							default:
+ 								accountsCapability[account.templateId]=new Capability();
++								need3rdPartyAccountCapability.push(account._id);
+ 							break;
+ 						}	
+ 						var accountEntry ={"accountId":account._id,"username":account.username,"templateId":account.templateId};
+@@ -431,13 +435,57 @@ function generateCapabilityForAccounts(promise){
+ 				if(accountsList.length>0){
+ 					AccountsManager.addAccount(accountsList);
+ 				}
+-				AccountsCapability =accountsCapability;
+-				if(promise)
+-				{
+-					promise.fulfill(AccountsCapability);
++				var get3rdPartyCapabilitiesFuture = new Future();
++				get3rdPartyCapabilitiesFuture.now(function() {
++					var set3rdPartyCapabilitiesFuture = new Future();
++					set3rdPartyCapabilitiesFuture.now(function() {
++						set3rdPartyCapabilitiesFuture.result = {returnValue: true};
++					});
++					for(var i = 0; i < need3rdPartyAccountCapability.length; i++) {
++						set3rdPartyCapabilitiesFuture.then(function() {
++							if(set3rdPartyCapabilitiesFuture.exception) {
++								
++							}
++							return Foundations.Comms.PalmCall.call("palm://com.palm.service.accounts/", "getAccountInfo", {'accountId': need3rdPartyAccountCapability[i]});
++						});
++						set3rdPartyCapabilitiesFuture.then(function() {
++							if(set3rdPartyCapabilitiesFuture.exception || set3rdPartyCapabilitiesFuture.result.returnValue !== true){
++								
++							} else {
++								var provs = set3rdPartyCapabilitiesFuture.result.result.capabilityProviders;
++								for(var j = 0; j < provs.length; j++) {
++									if (provs[j].capability == "PHOTO.UPLOAD") {
++										if(provs[j].serviceName) {
++											accountsCapability[set3rdPartyCapabilitiesFuture.result.result.templateId].serviceName = provs[j].serviceName;
++										}
++										if(provs[j].serviceCapability) {
++											for(var k in provs[j].serviceCapability) {
++												if(provs[j].serviceCapability.hasOwnProperty(k) && accountsCapability[set3rdPartyCapabilitiesFuture.result.result.templateId].hasOwnProperty(k)) {
++													accountsCapability[set3rdPartyCapabilitiesFuture.result.result.templateId][k] = serviceCapability[k];
++												}
++											}
++										}
++									}
++								}
++							}
++							set3rdPartyCapabilitiesFuture.result = {returnValue: true};
++						});
++					}
++					return set3rdPartyCapabilitiesFuture;
++				});
++				get3rdPartyCapabilitiesFuture.then(function() {
++					if(get3rdPartyCapabilitiesFuture.exception) {
++						
++					}
++					AccountsCapability =accountsCapability;
++					if(promise)
++					{
++						promise.fulfill(AccountsCapability);
+ 
+-				}
+-				console.info("Generated Capability:"+JSON.stringify(AccountsCapability));
++					}
++					console.info("Generated Capability:"+JSON.stringify(AccountsCapability));
++					get3rdPartyCapabilitiesFuture.result = {returnValue: true};
++				});
+ 			}
+ 			
+ 			
