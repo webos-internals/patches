@@ -15,7 +15,7 @@
  },
  
  isDeviceLocked: function() {
-@@ -2689,9 +2689,9 @@
+@@ -2683,9 +2683,9 @@
      if (payload["mode-avail"]) {
  		this.isUSBConnected = true;
  	 	if (!this.onActiveCall) {
@@ -28,7 +28,7 @@
  				this.createUSBDashboard();
  		}
  	}
-@@ -2807,10 +2807,10 @@
+@@ -2801,10 +2801,10 @@
  				Mojo.Log.info("SystemUI - USB Is connected(During Init)" + Object.toJSON(payload));
  				this.isUSBConnected = true;
  				if (!this.onActiveCall) {
@@ -42,7 +42,7 @@
  				}							
  			}
  		}.bind(this),
-@@ -2884,6 +2884,16 @@
+@@ -2878,6 +2878,16 @@
   * Register to receive power off notifications
   */
  powerOffInit: function() {
@@ -59,7 +59,7 @@
      this.powerOffNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
  		method: 'addmatch',
  		parameters: {
-@@ -2917,11 +2927,48 @@
+@@ -2911,11 +2921,48 @@
  /*
   * Show Power Off Alert
   */
@@ -110,7 +110,7 @@
          if (!stageController) {
           	// Create a popuo alert
  		    var f = function(stageController){
-@@ -2936,7 +2983,7 @@
+@@ -2930,7 +2977,7 @@
  		storageAlertStageController.delegateToSceneAssistant("closeAndCreateDashboard");
  		this.createUSBDashboard.bind(this).delay(0.5,false);
  	}
@@ -121,7 +121,7 @@
  startClock: function() {
 --- .orig/usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
 +++ /usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
-@@ -1,24 +1,57 @@
+@@ -1,24 +1,60 @@
  /* Copyright 2009 Palm, Inc.  All rights reserved. */
  
  var PoweroffalertAssistant = Foundations.Class.create({
@@ -135,6 +135,9 @@
      },
      
      setup: function() {		
++    	if(!this.menuCfg.displayTimeout)
++    		this.menuCfg.displayTimeout = 0;
++    	
 +    	if(this.editMenu) {
 +  			this.controller.get('powermenu').hide();
 +  			this.controller.get('editmenu').show();
@@ -184,7 +187,7 @@
  		if(this.controller.get('airplaneInfo'))
  			this.controller.get('airplaneInfo').addEventListener(Mojo.Event.tap, launchAirplaneModeHelp);
  		
-@@ -26,6 +59,35 @@
+@@ -26,6 +62,53 @@
  			this.powerOffAlertCancel = this.cancel.bind(this);
  			this.powerOffAlertTimer = this.controller.window.setTimeout(this.powerOffAlertCancel, 30000);
  		}
@@ -194,6 +197,24 @@
 +		this.controller.get('shutdownDeviceEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "shutdownDevice"));
 +		this.controller.get('restartDeviceEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "restartDevice"));
 +		this.controller.get('restartLunaEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "restartLuna"));
++
++		var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++			method: "getProperty", parameters: {properties: ["timeout"]},
++			onSuccess: this.sleepState.bind(this)});
++	},
++
++	sleepState: function(response) {
++		if((response) && (response.timeout == 10800)) {
++			this.controller.get('sleep').innerHTML = $L('Enable Device Sleep');
++
++			this.menuCfg.allowSleep = false;
++		} else {
++			this.controller.get('sleep').innerHTML = $L('Disable Device Sleep');
++
++			this.menuCfg.allowSleep = true;
++
++			this.menuCfg.displayTimeout = response.timeout;
++		}
 +	},
 +
 +	editToggle: function(item) {
@@ -220,7 +241,7 @@
  	},
  	
  	cleanup: function() {
-@@ -33,6 +95,52 @@
+@@ -33,6 +116,55 @@
              this.controller.window.clearTimeout(this.powerOffAlertTimer);
          } catch(e) {}
  	},
@@ -237,24 +258,27 @@
 +
 +	sleep: function() {
 +		if(this.menuCfg.allowSleep) {
-+			if(this.barAssistant.getBatteryState() == "Charging")
-+				return;
-+
 +			this.menuCfg.allowSleep = false;
 +
-+			this.request = this.controller.serviceRequest("palm://com.palm.display/control", {
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++				method: "setProperty", parameters: {timeout: 10800}});
++
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
 +				method: "setProperty", parameters: {requestBlock: true, client: "powerMenu"}});
 +
-+			this.request = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
++			var request = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
 +				method: "activityStart", parameters: {id: "com.palm.systemui", duration_ms: '86400000'}});
 +		}
 +		else {
 +			this.menuCfg.allowSleep = true;
 +
-+			this.request = this.controller.serviceRequest("palm://com.palm.display/control", {
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++				method: "setProperty", parameters: {timeout: parseInt(this.menuCfg.displayTimeout)}});
++
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
 +				method: "setProperty", parameters: {requestBlock: false, client: "powerMenu"}});
 +
-+			this.request = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
++			var request = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
 +				method: "activityEnd", parameters: {id: "com.palm.systemui"}});
 +		}
 +
@@ -273,7 +297,7 @@
  	
  	powerOff:function() {	
  		var appController = Mojo.Controller.getAppController();
-@@ -69,6 +177,12 @@
+@@ -69,6 +201,12 @@
  	cancel: function() {
  		this.controller.window.close();
  	},
