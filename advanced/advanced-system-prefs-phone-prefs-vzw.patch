@@ -27,20 +27,18 @@
  		this.$.layer2.setLayer(layers[2]);
 --- .orig/usr/palm/applications/com.palm.app.phone/index.html
 +++ /usr/palm/applications/com.palm.app.phone/index.html
-@@ -16,6 +16,12 @@
+@@ -16,6 +16,10 @@
  			enyo.PopupLayer.prototype.wantsEvents = false; 
  			// main app object that's responsible for window management and keeping references to app globals
  			enyo.application = {
 +				tweaks: {},
-+
-+				sliderOpen: false,
 +
 +				proximityEventAction: "none",
 +				audioSourceChangedManually: false,
  				
  				// true for tablet with 1024. This works regardless of device orientation
  				isTablet: ((deviceDetails && deviceDetails.screenWidth == 1024) || (!window.PalmSystem && (window.innerWidth == 1024 || window.innerWidth == 768)) ),
-@@ -178,10 +184,15 @@
+@@ -178,10 +182,15 @@
  					
  					} else if (params.preferences) {
  						enyo.application.UI.event('preferences', params);
@@ -59,7 +57,7 @@
  					}
  					
  					// tell sysmgr we're handling the launch
-@@ -230,14 +241,14 @@
+@@ -230,14 +239,14 @@
  					// keep track of open popup so we close it when opening a new one
  					var activePhoneAppPopupName;
  					
@@ -77,7 +75,7 @@
  					};
  				})()
  			};
-@@ -317,7 +328,13 @@
+@@ -317,7 +326,13 @@
  				enyo.application.openMainCard();
  				
  				// need to synthesize this event in browser
@@ -271,7 +269,14 @@
  });
 --- .orig/usr/palm/applications/com.palm.app.phone/phonePopups/sources/IncomingCallImpl.js
 +++ /usr/palm/applications/com.palm.app.phone/phonePopups/sources/IncomingCallImpl.js
-@@ -28,7 +28,10 @@
+@@ -22,13 +22,17 @@
+ 		{name: "dockModeSubscription", kind:"PalmService", service:"palm://com.palm.systemmanager/", method: "getDockModeStatus", subscribe: true, onSuccess: "dockModeStatusEvent", onFailure: "dockModeStatusEvent"},
+ 		{name: "lockButtonSubscription", kind:"PalmService", service:"palm://com.palm.systemmanager/", method: "lockButtonTriggered", subscribe: true, onSuccess: "onLockButtonEvent", onFailure: "onLockButtonEvent"},
+ 
++		{name: "sliderInitialization", kind:"PalmService", service:"palm://com.palm.keys/switches/", method: "status", onSuccess: "onSliderSetup", onFailure: "onSliderSetup"},
+ 		{name: "sliderSubscription", kind:"PalmService", service:"palm://com.palm.keys/switches/", method: "status", subscribe: true, onSuccess: "onSliderEvent", onFailure: "onSliderEvent"},
+ 
+ 		{name: "powerButtonSubscribe", kind:"PalmService", service:"palm://com.palm.display/control/", subscribe: true},
  		{name: "dnastSub", kind:"PalmService", service:"palm://com.palm.display/control/", subscribe: true, },
  		{name: "displayOn", kind:"PalmService", service:"palm://com.palm.display/control/"},
  
@@ -283,7 +288,7 @@
  	],
  	resizeHandler: function() {
  		this.inherited(arguments);
-@@ -92,10 +95,11 @@
+@@ -92,11 +96,14 @@
  	    this.blockIgnore = true;
  	    this.exitStatus = "";
  	    this.muted = false;
@@ -291,12 +296,14 @@
  
  	    // NOTE: this is a potentially dangerous assumption
  	    // as long as the subscription doesn't provide initial status, this will be fine.
--	    this.sliderOpen = false;
-+	    enyo.application.sliderOpen = false;
+ 	    this.sliderOpen = false;
  
++	    this.$.sliderInitialization.call({get: "slider"});
++
  	    this.defaultCallOnCallSound = enyo.application.SystemStatus.getDefaultCallOnCallSound();
  
-@@ -109,6 +113,9 @@
+ 	    if (enyo.application.CallSynergizer.activeLine()) {
+@@ -109,6 +116,9 @@
  	        soundClass = "ringtones";
  	    }
  
@@ -306,7 +313,15 @@
  	    if (!enyo.application.CallSynergizer.activeLine() && call.contact.ringtoneLoc) {
  	        soundFile = call.contact.ringtoneLoc;
  
-@@ -243,6 +250,21 @@
+@@ -133,7 +143,6 @@
+ 	    enyo.application.puckInterface.addPuckStateListener(this._onPuckEventFunc);
+ 	    this.puckConnected = true;
+ 	    
+-	    this.$.sliderSubscription.call({});
+ 	    this.powerButtonListen();
+ 	    this.displayLock();
+ 
+@@ -243,6 +252,21 @@
  		close();
  	},
  
@@ -328,7 +343,7 @@
  	// hide alert and instruct blur handler to disconnect call & show ignored UI
  	rejectCall: function() {
  	    /*if (this.blockIgnore) {
-@@ -255,10 +277,36 @@
+@@ -255,10 +279,36 @@
  	    enyo.application.CallSynergizer.callIgnore(this.incomingLine.calls[0]);
  	    this.exitStatus = "rejected";
  	    this.announceIgnored();
@@ -367,7 +382,21 @@
  	    if (!this.muted) {
  	        this.muted = true;
  	    }
-@@ -291,12 +339,19 @@
+@@ -279,6 +329,13 @@
+ 	    close();
+ 	},
+ 
++    onSliderSetup: function(inSender, response) {
++	    if((response) && (response.key === "slider"))
++	        this.sliderOpen = (response.state === "up");
++
++	    this.$.sliderSubscription.call({});
++	},
++
+ 	// handles slides
+ 	// NOTE: assumes that service does not initially provide status.
+ 	// if it starts doing that, it could inadvertently answer the first call.
+@@ -291,11 +348,18 @@
  
  	    if (response.key === "slider") {
  	        var newSliderOpenState = (response.state === "up");
@@ -376,7 +405,7 @@
 -	        newSliderOpenState === true) {
 -	            this.answerCall();
 +
-+				if((enyo.application.sliderOpen === false) && (newSliderOpenState === true)) {
++				if((this.sliderOpen === false) && (newSliderOpenState === true)) {
 +					if(enyo.application.tweaks.sliderOpened != "none") {
 +						if(this.exposed) {
 +							this.answerCall();
@@ -386,13 +415,11 @@
 +						}
 +					}
  	        }
--	        this.sliderOpen = newSliderOpenState;
 +
-+	        enyo.application.sliderOpen = newSliderOpenState;
+ 	        this.sliderOpen = newSliderOpenState;
  	    }
  	},
- 
-@@ -328,10 +383,15 @@
+@@ -328,10 +392,15 @@
  	        enyo.log("IncomingcallAssistant#onPuckEvent " + response.type + response.connected);
  	    }
  
@@ -409,7 +436,7 @@
  			enyo.job("answerCallIfStillOffPuck", enyo.bind(this, function() {
  			            this.answerIfStillOffPuck();
  			}),0.750);
-@@ -428,12 +488,21 @@
+@@ -428,12 +497,21 @@
  	// second closes window and rejects call
  	handleHardKeyPress: function() {
  	    enyo.log("IncomingcallAssistant#handleHardKeyPress");
@@ -513,13 +540,14 @@
  						{kind: "DtmfDialpad", name:"dtmfdialpad", flex: 1, dtmfMode: true, onNumberAdded: "dtmfNumberAdded", onHandleDelete: "dtmfNumberDeleted"},
  						{kind: "CustomButton", className: "single-call-hangup", name: "hangup", onclick: "disconnectActiveCall"}
  					]}
-@@ -32,7 +34,12 @@
+@@ -32,7 +34,13 @@
  			]}
  		]},
  		{name:"changeMedia", kind:"PalmService", service: "palm://com.palm.skype/", method: "changeMedia", params: {outgoingVideo:true}},
 -		{name: "setMute", kind: enyo.PalmService, service: "palm://com.palm.audio/phone/", method: "setMuted", onSuccess: "", onFailure: ""}
 +		{name: "setMute", kind: enyo.PalmService, service: "palm://com.palm.audio/phone/", method: "setMuted", onSuccess: "", onFailure: ""},
 +
++		{name: "sliderInitialization", kind:"PalmService", service:"palm://com.palm.keys/switches/", method: "status", onSuccess: "onSliderSetup", onFailure: "onSliderSetup"},
 +		{name: "sliderSubscription", kind:"PalmService", service:"palm://com.palm.keys/switches/", method: "status", subscribe: true, onSuccess: "onSliderEvent", onFailure: "onSliderEvent"},
 +		{name: "displaySubscription", kind:"PalmService", service:"palm://com.palm.display/control/", method: "status", subscribe: true, onSuccess: "onDisplayEvent", onFailure: "onDisplayEvent"},
 +
@@ -527,7 +555,7 @@
  	],
  	// the dtmf pad requires a different MinHeightScroller min-height. This should be fixed later in CSS.
  	regularCallPaneSelectView: function(inSender, inView, inPreviousView) {
-@@ -139,6 +146,27 @@
+@@ -139,6 +147,29 @@
                                  this.$.digits.setContent("");
  				this.setDTMFName();
                          }
@@ -537,7 +565,9 @@
 +			enyo.application.proximityEventAction = "none";
 +			enyo.application.audioSourceChangedManually = false;
 +
-+			this.$.sliderSubscription.call({});
++			this.sliderOpen = false;
++
++			this.$.sliderInitialization.call({get: "slider"});
 +
 +			if((localStorage) && (localStorage["phonePrefs"])) {
 +				var phonePrefs = enyo.json.parse(localStorage["phonePrefs"]);
@@ -555,7 +585,7 @@
  		}
  	},
  	//called when hanging up last call
-@@ -159,6 +187,16 @@
+@@ -159,6 +190,16 @@
  			this.popup.destroy();
  			this.popup = undefined;
  		}
@@ -572,7 +602,7 @@
  	},
  	destroy: function() {
  		enyo.application.puckInterface.removePuckStateListener(this._onPuckEventFunc);
-@@ -393,7 +431,8 @@
+@@ -393,7 +434,8 @@
  	AutoShowHideDTMFPad: function(activeLines) {
                  if ( activeLines.length == 1 && activeLines[0].calls.length == 1 ) {//single line single call                                
                          if ( activeLines[0].state == enyo.application.CallSynergizer.STATES.ACTIVE) { //active
@@ -582,7 +612,7 @@
                                          enyo.application.Utils.isVoicemailNumber(activeLines[0].calls[0].address) != 0) { //OTASP number or voicemail number
  					 					this.showDTMFPad();
                                          this.$.keypad_button.setDepressed(true);
-@@ -409,6 +448,13 @@
+@@ -409,6 +451,13 @@
                          return;
                  }
  
@@ -596,10 +626,16 @@
  				var activeLine = enyo.application.CallSynergizer.activeLine();
  				var activeTransport = activeLine.calls[0].transport;
  				
-@@ -487,6 +533,76 @@
+@@ -487,6 +536,82 @@
  	onPuckEvent: function(response) {
  		enyo.application.puckInterface.changeAudio(response);
  	},
++	onSliderSetup: function(inSender, response) {
++		if((response) && (response.key === "slider"))
++			this.sliderOpen = (response.state === "up");
++
++		this.$.sliderSubscription.call({});
++	},
 +	onSliderEvent: function(inSender, response) {
 +		if((!response) || (!response.key) || (!response.state))
 +			return;
@@ -609,10 +645,10 @@
 +		{
 +			var newSliderOpenState = (response.state === "up");
 +
-+			if((enyo.application.sliderOpen === true) && (newSliderOpenState === false))
++			if((this.sliderOpen === true) && (newSliderOpenState === false))
 +				this.disconnectActiveCall();
 +
-+			enyo.application.sliderOpen = newSliderOpenState;
++			this.sliderOpen = newSliderOpenState;
 +		}
 +	},
 +	onDisplayEvent: function(inSender, response) {
@@ -673,7 +709,7 @@
  	updateActiveAudioRouteButtonImage: function(profile) {
  		enyo.log( "updateActiveAudioRouteButtonImage = "  + profile);
  
-@@ -619,18 +735,22 @@
+@@ -619,18 +744,22 @@
  		this.setDTMFName();
  
  		// always clear dtmf digits
@@ -697,7 +733,7 @@
  				if (call.contact) {
  					contactName = call.contact.name || call.contact.displayName || call.contact.addressFormatted;
  				} else {
-@@ -643,7 +763,7 @@
+@@ -643,7 +772,7 @@
  			}
  		}
  
