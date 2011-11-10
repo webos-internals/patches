@@ -137,21 +137,20 @@
  	<script src="calculator.js" type="text/javascript"></script>
 --- .orig/usr/palm/applications/com.palm.app.location/app/controllers/app-assistant.js
 +++ /usr/palm/applications/com.palm.app.location/app/controllers/app-assistant.js
-@@ -51,11 +51,13 @@
+@@ -51,8 +51,11 @@
  }
  
  AppAssistant.prototype.readLocationServicePrefs = function(stageController, response) {
 -		if (response && !response.useGoogle && !response.useGps) {
-+/*		if (response && !response.useGoogle && !response.useGps) {
- 			stageController.swapScene("gpsoff", response);
+-			stageController.swapScene("gpsoff", response);
++//		if (response && !response.useGoogle && !response.useGps) {
++//			stageController.swapScene("gpsoff", response);
++
++		if (response && response.useGoogle && !response.isTermsOfUseAccepted) {
++			stageController.swapScene("terms", "com.palm.app.location");	
  		} else {
  			stageController.swapScene("main", response);
  		}
-+*/
-+		stageController.swapScene("main", response);
- 	},
- 	
- AppAssistant.prototype.errorLocationServicePrefs = function(response) {
 --- .orig/usr/palm/applications/com.palm.app.location/app/controllers/main-assistant.js
 +++ /usr/palm/applications/com.palm.app.location/app/controllers/main-assistant.js
 @@ -77,6 +77,11 @@
@@ -176,51 +175,32 @@
  		//for app locate preferences
  		var autoLocateSelections = {
  			modelProperty: 'value',
-@@ -187,6 +195,43 @@
+@@ -187,6 +195,24 @@
  		this.readLocationServicePrefs(this.prefData);
  	},
  	
 +	locSrvOnOffHandler: function(event){
 +		if(event.value) {
-+			this.controller.get("turnedofftext").hide();
-+			this.controller.get("siteLocatePrefs").show();
-+			this.controller.get("sitelocationOffMessage").show();
-+			this.controller.get("locationOffMessage").show();
-+			this.controller.get("autoLocatePrefs").show();
-+			this.controller.get("geotagPhotosPrefs").show();
-+			this.controller.get("dataPrefs").show();
-+
-+			this.prefData.useGps = true;
-+			this.prefData.useGoogle = true;
-+
-+			LocationService.setUseGps(true, null, null, this.controller);
-+			LocationService.setUseGoogle(true, null, null, this.controller);
-+		}
-+		else {
-+			this.controller.get("turnedofftext").show();
-+			this.controller.get("siteLocatePrefs").hide();
-+			this.controller.get("sitelocationOffMessage").hide();
-+			this.controller.get("sitelocationOnMessage").hide();
-+			this.controller.get("locationOffMessage").hide();
-+			this.controller.get("locationOnMessage").hide();
-+			this.controller.get("autoLocatePrefs").hide();
-+			this.controller.get("geotagPhotosPrefs").hide();
-+			this.controller.get("dataPrefs").hide();
-+
-+			this.prefData.useGps = false;
-+			this.prefData.useGoogle = false;
-+
-+			LocationService.setUseGps(false, null, null, this.controller);
-+			LocationService.setUseGoogle(false, null, null, this.controller);
++			this.gpsPreference = true;
++			this.useGoogle = true;
++		} else {
++			this.gpsPreference = false;
++			this.useGoogle = false;
 +		}
 +
-+		this.toggleLocationMenu();
++		LocationService.setUseGps(this.gpsPreference,
++			this.successSetGpsPreference.bind(this), 
++			this.errorSetGpsPreference.bind(this), this.controller);
++
++		LocationService.setUseGoogle(this.useGoogle,
++			this.successSetGooglePreference.bind(this), 
++			this.errorSetGooglePreference.bind(this), this.controller);
 +	},
 +
  	toggleLocationMenu: function(){
  		if (!this.prefData.useGps && !this.prefData.useGoogle) {
  			Mojo.Log.info("**** sssssssssss both GPS and Google are OFF");
-@@ -214,11 +259,13 @@
+@@ -214,11 +240,14 @@
  	
  	handleSetGpsLocateSuccess: function(result) {
  		Mojo.Log.info("------------------- Set gps -----------------%j", $H(result));
@@ -229,28 +209,43 @@
  			this.controller.stageController.swapScene("gpsoff", result);
  		} else {
  			this.controller.stageController.swapScene("main", result);
- 		} 	
-+*/
-+		this.controller.stageController.swapScene("main", result);
+-		} 	
++		} 	*/
++
++		this.prefData = result;
++		this.readLocationServicePrefs(this.prefData);
  	},
  	
  	errorSetGpsPreference: function (response) {
-@@ -235,7 +282,7 @@
+@@ -234,7 +263,12 @@
+ 		Mojo.Log.info("------------------- Set handleSetGoogleSuccess -----------------%j", $H(result));
  		if (result && result.useGoogle && !result.isTermsOfUseAccepted) {
  			this.controller.stageController.swapScene("terms", "com.palm.app.location");	
- 		} else if (result && !result.useGps && !result.useGoogle) {
--			this.controller.stageController.swapScene("gpsoff", result);
-+			this.controller.stageController.swapScene("main", result);
+-		} else if (result && !result.useGps && !result.useGoogle) {
++		} else {
++			this.prefData = result;
++			this.readLocationServicePrefs(this.prefData);		
++		}
++
++/*		} else if (result && !result.useGps && !result.useGoogle) {
+ 			this.controller.stageController.swapScene("gpsoff", result);
  		} else {
  			if (result.useGoogle) {
- 							this.readUseBackgroundDataCollection(result);
-@@ -349,6 +396,20 @@
- 			this.readUseGeotagPhotos(response);
- 		}
- 		this.toggleLocationMenu();
-+
-+		if (response && !response.useGoogle && !response.useGps) {
-+			this.controller.get("turnedofftext").show();
+@@ -246,7 +280,7 @@
+ 						}
+ 		  this.prefData = result;
+ 		  this.toggleLocationMenu();								
+-		}	
++		}	*/
+ 	},
+ 	
+ 	errorSetGooglePreference: function (response) {
+@@ -311,8 +345,27 @@
+ 	readLocationServicePrefs: function(response) {
+ 		Mojo.Log.info("Preference to use location services: %j", $H(response));
+ 		
+-		if(response != undefined && response.autoLocate != undefined) {
++		if((response) && (!response.useGps) && (!response.useGoogle)) {
 +			this.controller.get("siteLocatePrefs").hide();
 +			this.controller.get("sitelocationOffMessage").hide();
 +			this.controller.get("sitelocationOnMessage").hide();
@@ -259,30 +254,41 @@
 +			this.controller.get("autoLocatePrefs").hide();
 +			this.controller.get("geotagPhotosPrefs").hide();
 +			this.controller.get("dataPrefs").hide();
++			this.controller.get("turnedofftext").show();
++
 +			this.locSrvOnOffModel.value = false;
 +			this.controller.modelChanged(this.locSrvOnOffModel);
-+		}
- 	},
- 	
- 
-@@ -439,13 +500,15 @@
++		} else if(response != undefined && response.autoLocate != undefined) {
+ 			Mojo.Log.info("Preference to autoLocate: ", response.autoLocate);
++
++			this.controller.get("turnedofftext").hide();
++			this.controller.get("siteLocatePrefs").show();
++			this.controller.get("autoLocatePrefs").show();
++			this.controller.get("geotagPhotosPrefs").show();
++
+ 			//for app auto locate preferences
+ 			
+ 			if(!response.autoLocate) {
+@@ -343,6 +396,7 @@
+ 				if (!response.isTermsOfUseAccepted || !response.useGoogle) {
+ 				 	this.disableBackGroundDataCollection();
+ 				} else {				
++					this.enableBackGroundDataCollection();
+ 					this.readUseBackgroundDataCollection(response);	
+ 				}	
+ 			}
+@@ -438,9 +492,9 @@
+ 	enableAutoLocate: function(isInit) {
  		this.controller.get('locationOnMessage').show();
  		this.controller.get('locationOffMessage').hide();
- 		if (isInit) {
--			this.controller.get('geotagPhotosPrefs').show();
-+			if((this.prefData.useGoogle) || (this.prefData.useGps))
-+				this.controller.get('geotagPhotosPrefs').show();
- 		}
+-		if (isInit) {
++//		if (isInit) {
+ 			this.controller.get('geotagPhotosPrefs').show();
+-		}
++//		}
  	},
  	
  	handleGetGeotagPhotosPref: function(response) {
- 		this.readUseGeotagPhotos(response);
--		this.controller.get('geotagPhotosPrefs').show();
-+		if((this.prefData.useGoogle) || (this.prefData.useGps))
-+			this.controller.get('geotagPhotosPrefs').show();
- 	},
- 	
- 	successSetUseLocationServices: function (isEnabled,response) {
 --- .orig/usr/palm/applications/com.palm.app.location/app/views/main/main-scene.html
 +++ /usr/palm/applications/com.palm.app.location/app/views/main/main-scene.html
 @@ -4,6 +4,13 @@
