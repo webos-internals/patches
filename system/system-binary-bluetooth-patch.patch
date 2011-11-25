@@ -1,22 +1,59 @@
 diff --git a/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppAssistant.js b/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppAssistant.js
-index a019a57..200ffcb 100644
+index a019a57..6d30904 100644
 --- a/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppAssistant.js
 +++ b/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppAssistant.js
-@@ -78,10 +78,10 @@ BluetoothSppAssistant.prototype = {
-     openFiles: function(instanceId,activityId,future) {
-    	    var txHandle = 0 ,rxHandle = 0;		  
+@@ -76,20 +76,15 @@ BluetoothSppAssistant.prototype = {
+     },
  
+     openFiles: function(instanceId,activityId,future) {
+-   	    var txHandle = 0 ,rxHandle = 0;		  
+-
 -        if(isNaN(instanceId)){
-+        /*if(isNaN(instanceId)){
-             throw ({'errorCode':"OPEN_ERROR","errorText":"Invalid Parameter"});
+-            throw ({'errorCode':"OPEN_ERROR","errorText":"Invalid Parameter"});
 -        }
 - 
-+        }*/
-+
++	    var txHandle = 0 ,rxHandle = 0;		   
          var txFileName = SPP_TX_FILE_PREFIX + instanceId;
          var rxFileName = SPP_RX_FILE_PREFIX + instanceId;
          
-@@ -164,13 +164,13 @@ BluetoothSppAssistant.prototype = {
+         logger.log("Input file: " + rxFileName);
+-	    logger.log("Output file: " + txFileName);
++		logger.log("Output file: " + txFileName);
+ 	
+     	logger.log("txHandle = ",+txHandle);
+-	    logger.log("rxHandle = ",+rxHandle);
++		logger.log("rxHandle = ",+rxHandle);
+ 
+         txHandle = fs.openSync(txFileName,"w+");
+ 	    if(rxHandle === -1){
+@@ -106,7 +101,7 @@ BluetoothSppAssistant.prototype = {
+ 		
+         //Store Tx/Rx handles in table 
+ 	    if(mapTable[instanceId] === undefined){
+-            mapTable[instanceId] = { "rxHandle":rxHandle , "txHandle":txHandle,"subscription":false };	 
++            mapTable[instanceId] = { "rxHandle":rxHandle , "txHandle":txHandle,"subscription":false }; 
+             
+             //Monitor the activity so we can disconnect if app goes away.
+             if(activityId !== undefined){
+@@ -145,7 +140,7 @@ BluetoothSppAssistant.prototype = {
+         future.result = { returnValue : true };
+     },
+ 
+-    writeData:function(instanceId,data,dataLength,future) {
++    writeData:function(instanceId,data,dataLength,future,_encoding) {
+ 
+         if(mapTable[instanceId] === undefined){
+             throw ({"errorCode":"NO_DATA_CHANNEL", "errorText": "Data channel for instanceId doesn't exist" });
+@@ -154,7 +149,7 @@ BluetoothSppAssistant.prototype = {
+             throw ({"errorCode":"INVALID_PARAMETER", "errorText": "Invalid parameter"});
+         }
+ 	    var txHandle = mapTable[instanceId].txHandle;
+-	    var buffer = new Buffer(data,encoding='utf8');
++	    var buffer = new Buffer(data,encoding=_encoding);
+ 
+ 	    fs.write( txHandle , buffer , 0 , dataLength , null , function( err , written ){
+ 	        if(err){
+@@ -164,13 +159,13 @@ BluetoothSppAssistant.prototype = {
  	    });
      },
  
@@ -32,19 +69,52 @@ index a019a57..200ffcb 100644
  	        if(err){
                  throw ({"errorCode":"READ_ERROR", "errorText": "Error in read"});
  	        }
+@@ -323,7 +318,7 @@ BluetoothSppAssistant.prototype = {
+         } 
+     },
+    
+-    readStream: function(instanceId,subscription,future) {            
++    readStream: function(instanceId,subscription,future,encoding) {            
+ 
+             if(mapTable[instanceId] === undefined){             
+                 throw ({"errorCode":"NO_DATA_CHANNEL", "errorText": "Data channel for instanceId doesn't exist" });
+@@ -341,7 +336,7 @@ BluetoothSppAssistant.prototype = {
+                                                                                   
+             readStream.addListener('data', function readData(buffer) {          
+             if(mapTable[instanceId].subscription){                                              
+-                var data = buffer.toString('utf8',0,buffer.length);   
++                var data = buffer.toString(encoding,0,buffer.length);   
+                 subscription.get().result = {"data":data,"dataLength":buffer.length};
+             }else{ 
+                 cleanup(true);                                                                  
 diff --git a/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppCommands.js b/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppCommands.js
-index 1867880..8d1d451 100644
+index 1867880..f0cdc4e 100644
 --- a/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppCommands.js
 +++ b/usr/palm/services/com.palm.service.bluetooth.spp/BluetoothSppCommands.js
-@@ -28,9 +28,10 @@ function ReadCommandAssistant()
- ReadCommandAssistant.prototype.run = function(future)
- {
+@@ -30,7 +30,7 @@ ReadCommandAssistant.prototype.run = function(future)
      var args = this.controller.args;
-+	var encoding = this.controller.args.encoding || "utf8";
  	var assistant = this.controller.service.assistant;
  	if(!args.path){
 -        var result = assistant.readData(args.instanceId,args.dataLength,future);
-+        var result = assistant.readData(args.instanceId,args.dataLength,future,encoding);
++        var result = assistant.readData(args.instanceId,args.dataLength,future,args.encoding||"utf8");
  	}else{
          var result = assistant.readFile(args.instanceId,args.path,args.dataLength,future);
+ 	}
+@@ -46,7 +46,7 @@ ReadStreamCommandAssistant.prototype = {
+         if(subscription !== undefined){
+             logger.log("ReadStreamCommandAssistant:subscription defined");
+             assistant.subscriptionMgr(args.instanceId,true);
+-            var result = assistant.readStream(args.instanceId,subscription,future);
++            var result = assistant.readStream(args.instanceId,subscription,future,args.encoding||"utf8");
+         }
+     },
+  
+@@ -66,7 +66,7 @@ WriteCommandAssistant.prototype.run = function(future)
+     var args = this.controller.args;
+ 	var assistant = this.controller.service.assistant;
+ 	if(!args.path){
+-        var result = assistant.writeData(args.instanceId,args.data,args.dataLength,future);
++        var result = assistant.writeData(args.instanceId,args.data,args.dataLength,future,args.encoding||"utf8");
+ 	}else{
+         var result = assistant.writeFile(args.instanceId,args.path,future);
  	}
