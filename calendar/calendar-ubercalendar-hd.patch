@@ -1247,10 +1247,10 @@ index 0000000..de8c10e
 +});
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js b/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
 new file mode 100644
-index 0000000..99d4de9
+index 0000000..15f6d9a
 --- /dev/null
 +++ b/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
-@@ -0,0 +1,554 @@
+@@ -0,0 +1,561 @@
 +enyo.kind({
 +	name: "calendar.uc.UberAgenda",
 +	kind: enyo.VFlexBox,
@@ -1623,6 +1623,12 @@ index 0000000..99d4de9
 +				this.$.itemAttendeeIcon.setSrc('/media/internal/.scrims/ubercalendar/icon-meeting.png');
 +			}
 +			
++			var calendar = this.calendars && this.calendars[evt.calendarId];
++			
++			if(calendar){
++				var showing = this.allCals ? true : !!calendar.on;
++				this.$.evtRow.setShowing(showing);
++			}
 +			//console.log("scroll top:" + this.$.uberDaysList.$.scroller.top +", scroll y:" + this.$.uberDaysList.$.scroller.$.scroll.y + ", bottom: " +this.$.uberDaysList.$.scroller.bottom + ", day evt index: " + inIndex);
 +			return true;
 +		}
@@ -1769,7 +1775,8 @@ index 0000000..99d4de9
 +	
 +	calendarsChanged: function calendarsChanged() {
 +		//this.buildDataSets();
-+		//this.$.uberDaysList.punt();
++		this.$.uberDaysList.punt();
++		this.uberScroll();
 +	},
 +	
 +	allCalsChanged: function allCalsChanged() {
@@ -2104,7 +2111,7 @@ index c81b2af..3534c75 100644
  .calendar .day .eventGroup {
  	background					: -webkit-gradient( linear, 0 0, 0 100%, color-stop( .02, transparent ), color-stop( .0, #b9b9b9 ), to( rgba( 0, 0, 0, 0.0 ) ) );
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
-index a00921f..c1e8317 100644
+index a00921f..4a90aa6 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
 @@ -26,6 +26,7 @@ enyo.kind({
@@ -2329,7 +2336,42 @@ index a00921f..c1e8317 100644
  		,	calendars			= this.calendars
  		,	foundAllDay			= false
  		,	groups				= {}
-@@ -473,7 +540,7 @@ enyo.kind({
+@@ -467,13 +534,41 @@ enyo.kind({
+ 			}
+ 			DEBUG && this.log ("\tGrouping all-day event:\n\n\t", event, "\n\n\t");
+ 			!foundAllDay && (foundAllDay = true) && allDayHeader.destroyComponents();	// TODO: Update rather than remove and re-add all-day events.
+-			allDayHeader.createComponent ({event:event});			
++			if(this.inWeekView){
++				var eventView = {className:"event", watchCalendars:true, calendars:calendars};
++				eventView.event = event;
++				if(event.note){
++					var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++					var bgimage, start = event.note.match(patt);
++					if (start && start[3]) {
++						var icon = start[3];
++						bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
++						//event && event.note && icon && bgimage && eventView && eventView.style= "background-color: " + bgimage; // + bgrepeat + bgposition;
++						//eventViews.createComponent (eventView);
++						var uberCont = bgimage && allDayHeader.createComponent({kind: enyo.HFlexBox, style:"font-size:11px;font:prelude;overflow:hidden;whitespace:nowrap;position:relative; height: 13px;", defaultKind: "calendar.EventView"});//, className:"events"});
++						eventView.owner = allDayHeader;
++						bgimage && uberCont.createComponent({kind: enyo.Image, className:"ubermonthicon", style:"position:relative;height:10;width:10;top:-1px;left:-3px;z-index:3;padding: 0px;margin:0px;", owner: allDayHeader, src:bgimage});
++						uberCont && uberCont.createComponent(eventView);
++					} else{
++						var uberCont = allDayHeader.createComponent({kind: enyo.HFlexBox, style:"font-size:11px;font:prelude;font-weight:bold;overflow:hidden;whitespace:nowrap;position:relative; height: 13px;", defaultKind: "calendar.EventView"});//, className:"events"});
++						eventView.owner = allDayHeader;
++						uberCont && uberCont.createComponent(eventView);
++					}
++				} else {
++					var uberCont = allDayHeader.createComponent({kind: enyo.HFlexBox, style:"font-size:10px;font:prelude;font-weight:bold;overflow:hidden;whitespace:nowrap;position:relative; height: 13px;", defaultKind: "calendar.EventView"});//, className:"events"});
++					eventView.owner = allDayHeader;
++					uberCont && uberCont.createComponent(eventView);
++				}
++				//hasRenderContent ? allDayHeader.renderContent() : allDayHeader.render()
++			} else {
++				allDayHeader.createComponent ({event:event});
++			}		
+ 		}
+ 		foundAllDay
  		?	(hasRenderContent ? allDayHeader.renderContent() : allDayHeader.render())	// renderContent does less work but the enyo team is deprecating it...
  		:	allDayHeader.destroyComponents()
  		;
@@ -2338,6 +2380,15 @@ index a00921f..c1e8317 100644
  		
  		var timedEvents = events.events;
  		var numTimed = timedEvents.length;		
+@@ -486,5 +581,8 @@ enyo.kind({
+ 		}
+ 		timedEvents.sort(this.groupSort);
+ 		this.eventGroup.setEvents (timedEvents);
++		if(!this.inWeekView) {
++			this.updateCurrentHour ({scroll: true});
++		}
+ 	}
+ });//End:calendar.day.DayView Kind
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/depends.js b/usr/palm/applications/com.palm.app.calendar/app/depends.js
 index 0d36ae5..24f49d4 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/depends.js
@@ -2440,7 +2491,7 @@ index 0846a28..21f3a8f 100644
  		ui.btnEdit.setShowing(!isReadOnly);
  	},
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js b/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
-index ebd0238..e4c9730 100644
+index ebd0238..23437c3 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 @@ -33,6 +33,17 @@ enyo.kind({
@@ -2716,7 +2767,18 @@ index ebd0238..e4c9730 100644
  	name		: "calendar.edit.EditView",
  	kind		: enyo.VFlexBox,
  	className	: "edit enyo-bg",
-@@ -115,36 +374,44 @@ enyo.kind({
+@@ -109,42 +368,54 @@ enyo.kind({
+ 			{name: "contentContainer", className: "content-container", components:[
+ 				{kind:enyo.RowGroup, className: "group", components:[
+ 					{name:"subject"		, kind: enyo.Input, hint: $L("Event Name"), className: "event-name", onblur:"editSubject"},
+-					{name:"location"	, kind: enyo.Input, hint: $L("Event Location"), className: "event-location", onblur:"editLocation"},
++					{layoutKind: "HFlexLayout", components: [ 
++						{name:"location"	, flex:2, kind: enyo.Input, hint: $L("Event Location"), style:"margin-right:10px;", className: "event-location", onblur:"editLocation"},
++						{name:"pickButton", kind: enyo.IconButton, icon:"./edit/images/participants-icon.png", onclick:"popPicker"},
++						{name:"addressPicker", kind: "com.palm.library.contactsui.peoplePicker", onContactClick:"pickedPerson"}
++					]},
+ 					{name:"calendarPicker", kind: "calendar.edit.CalendarSelector", onChange: "editCalendar", className: "list1", hideArrow: false}
+ 				]},
  				{kind: enyo.Group, className: "group", components: [
  					{kind: enyo.HFlexBox, align: "center", height: "48px", components: [
  						{name: "allDay", kind: enyo.CheckBox, style: "margin-left: 10px", onChange: "changeAllDay"},
@@ -2772,7 +2834,7 @@ index ebd0238..e4c9730 100644
  										,	onSelect: "editRepeat"
  										,	className: "alert-list"
  										,	items	:
-@@ -159,14 +426,24 @@ enyo.kind({
+@@ -159,14 +430,24 @@ enyo.kind({
  								]}
  							]}
  						]},
@@ -2804,7 +2866,16 @@ index ebd0238..e4c9730 100644
  									]}
  								]}
  							]}
-@@ -189,8 +466,11 @@ enyo.kind({
+@@ -182,23 +463,39 @@ enyo.kind({
+ 
+ 				{kind: enyo.RowGroup, onclick:"focusNote", components: [
+ 					{name: "note", kind: enyo.RichText, hint: $L("Event Notes"), autoLinking: true, className: "note", onblur:"editNote", alwaysLooksFocused:true}	//HACK because onblur sux with back gesture!
+-				]},
+-				{name:"btnDelete", className:"enyo-button-negative btn-del-edit", kind: enyo.Button, onclick: "closeView", showing:false, caption: $L("Delete"), align: "center"}
++				]}
++				//{name:"btnDelete", className:"enyo-button-negative btn-del-edit", kind: enyo.Button, onclick: "closeView", showing:false, caption: $L("Delete"), align: "center"}
+ 			]}
+ 		]},
  		{name:"repeatViewPopup", kind: enyo.ModalDialog, caption: $L("Set Custom Repeat"), className: "enyo-modaldialog-customWidth", modal:true, scrim:true, showing:false, components: [
  			{name:"repeatView", kind:"calendar.edit.RepeatView", onExit:"closeView", onRepeatChange:"setupRepeatValue"}
  		]},
@@ -2817,7 +2888,29 @@ index ebd0238..e4c9730 100644
  		]},
  		{kind: enyo.Toolbar, className: "toolbar1 enyo-toolbar-light", components: [
  			{kind: enyo.Button, name: "btnCancel", caption: $L("Cancel"), 	onclick: "closeView", 	className: "enyo-button-light btn-cancel"},
-@@ -223,6 +503,11 @@ enyo.kind({
++			{name:"btnDelete2", className:"enyo-button-negative", style:"min-width: 230px;", kind: enyo.Button, onclick: "closeView", showing:false, caption: $L("Delete")},
+ 			{kind: enyo.Button, name: "btnDone", 	caption: $L("Done"), 	onclick: "closeView", 	className: "enyo-button-dark btn-done"}
+ 		]},
+ 		{kind:"ApplicationEvents"
+ 		,	onWindowHidden: "windowHiddenHandler"
+-		}
++		},
++		{name: "uberAddChoices", kind: enyo.ModalDialog, caption: $L("Choose an address"), scrim:true, showing:false, components: [
++			{kind: enyo.VFlexBox, components:[
++				{name: "uberChoices", content:"Hello", kind:enyo.VFlexBox },
++				{kind: enyo.Button, caption: $L("Cancel"),  className: "enyo-button-dark", onclick: "pickCnx"},
++			]}
++		]},
++		{name:"locPopup", kind:enyo.PopupList, onSelect:"uberLocActionChosen",
++				items: [{caption: $L("Clear location"), value: "clear"}
++						,{caption: $L("Insert address"), value:"add"}
++						,{caption: $L("Replace location"), value:"edit"}
++						,{caption: $L("Map location"), value:"edit"}
++		]}
+ 	],//end EditView components
+ 
+ 	create: function create () {
+@@ -223,6 +520,13 @@ enyo.kind({
  		,	customMonthly	: $L("Custom Monthly")
  		,	customYearly	: $L("Custom Yearly")
  		};
@@ -2825,11 +2918,30 @@ index ebd0238..e4c9730 100644
 +		var prefs = enyo.application.prefsManager.getPrefs();
 +		if(prefs && prefs.uberMinuteInt){
 +			this.$.uberMinuteInt.setValue(prefs.uberMinuteInt);
++			this.$.startTime.setMinuteInterval(prefs.uberMinuteInt);
++			this.$.endTime.setMinuteInterval(prefs.uberMinuteInt);
 +		}
  	},
  
  	destroy: function destroy () {
-@@ -282,7 +567,7 @@ enyo.kind({
+@@ -256,6 +560,7 @@ enyo.kind({
+ 
+ 	eventChanged: function eventChanged (oldEvent) {
+ 		var event = this.event;
++		
+ 		if (!event) { return; }
+ 
+ 		event.event													// This event is likely an event's GUI because it contains an event object:
+@@ -275,14 +580,15 @@ enyo.kind({
+ 		ui.subject	.setValue	(event.subject	||	"");
+ 		ui.location	.setValue	(event.location	||	"");
+ 		ui.note		.setValue	(indexedNote);
+-		ui.btnDelete.setShowing ("_id" in event);
++		//ui.btnDelete.setShowing ("_id" in event);
++		ui.btnDelete2.setShowing ("_id" in event);
+ 
+ 		isNaN (event.currentLocalStart)	&& (event.currentLocalStart	= event.dtstart);
+ 		isNaN (event.currentLocalEnd)	&& (event.currentLocalEnd	= event.dtend);
  
  		ui.editHeader.setContent (("_id" in event) ? this.G11N.header.Edit : this.G11N.header.New);
  		this.setupCalendarPicker (event.calendarId);		
@@ -2838,7 +2950,7 @@ index ebd0238..e4c9730 100644
  		//pickerStart and pickerEnd are the values displayed by the 
  		//time and date pickers.  If they change, they'll be merged back on to
  		//the event before we save.
-@@ -290,6 +575,8 @@ enyo.kind({
+@@ -290,6 +596,8 @@ enyo.kind({
  		this.pickerEnd   = event.currentLocalEnd;
  		var start = new Date (this.pickerStart);
  		var end   = new Date (this.pickerEnd);		
@@ -2847,7 +2959,7 @@ index ebd0238..e4c9730 100644
  		ui.startDate.setValue	(start);
  		ui.startTime.setValue	(start);
  
-@@ -298,8 +585,9 @@ enyo.kind({
+@@ -298,8 +606,9 @@ enyo.kind({
  
  		ui.allDay			.setChecked	(!!event.allDay);					
  		ui.startTimeDrawer	.setOpen	(!event.allDay);
@@ -2858,7 +2970,16 @@ index ebd0238..e4c9730 100644
  		Utilities.findEventOrganizer(event);
  
  		this.setupRepeatValue();
-@@ -338,6 +626,7 @@ enyo.kind({
+@@ -308,7 +617,7 @@ enyo.kind({
+ 		this.toggleDoneButtonText();
+ 
+ 		this.waitForKeyboard = false;
+-
++		
+ 		DEBUG && this.log ("event: "+JSON.stringify (event));
+ 	},
+ 
+@@ -338,6 +647,7 @@ enyo.kind({
  			this.startDateOld	=	this.endDateOld	= null;
  			this.pickerStart	=	this.pickerEnd	= null;
  			enyo.call(document.activeElement, "blur");
@@ -2866,7 +2987,17 @@ index ebd0238..e4c9730 100644
  			
  			if (this.hasCustomReminderItem && this.hasCustomReminderItem.selector) {
  				var	selector	= this.hasCustomReminderItem.selector
-@@ -425,6 +714,134 @@ enyo.kind({
+@@ -380,7 +690,8 @@ enyo.kind({
+ 				}
+ 				break;	
+ 
+-			case ui.btnDelete:
++			//case ui.btnDelete:
++			case ui.btnDelete2:
+ 				this.doDelete (this.eventGUI || this.event);
+ 				break;
+ 
+@@ -425,6 +736,271 @@ enyo.kind({
  		this.$.contentScroller.setScrollTop (0);	// Reset the scroll position.
  	},
  
@@ -2889,6 +3020,143 @@ index ebd0238..e4c9730 100644
 +			this.changeEndDate();
 +		}
 +		DEBUG && this.log("edit view mini month date tapped", inValue);
++	},
++	
++	popPicker: function popPicker(inSender, inValue){
++		//console.error("popPicker pushed!!!!!!!!!!!!!!!!!!");
++		var prevLoc;
++		prevLoc = this.$.location.getValue();
++		if(prevLoc !== undefined && prevLoc !== "" && prevLoc !== null){
++			this.$.locPopup.lazy && this.$.locPopup.validateComponents();
++			this.$.locPopup.openAtControl(inSender);
++		} else {
++			this.$.addressPicker.pickPerson();
++		}
++	},
++	
++	uberLocActionChosen: function uberLocActionChosen(inSender, inSelected){
++		var ui = this.$;
++		var op = inSelected;
++		this.$.locPopup.close();
++		if(op !== undefined){
++			if(op=="2"){
++				this.uberEditLoc = false
++				ui.addressPicker.pickPerson();
++			}else if(op=="1"){
++				this.uberEditLoc = true;
++				ui.addressPicker.pickPerson();
++			}else if(op=="0"){
++				this.event.location = "";
++				ui.location.setValue("");
++			}else if(op=="3"){
++				var location = this.$.location.getValue();
++				enyo.application.share (
++					{	launch:
++						{	data:
++							{	appId			: "com.palm.app.maps"
++							,	address			: location
++							,	getDirections	: false
++							}
++						}
++					});
++			}
++		}
++		
++	},
++	
++	pickedPerson: function pickedPerson(inSender, inValue){
++		//console.error("picked person ::: " + JSON.stringify(inValue.addresses));
++		this.$.addressPicker.destroyAndClose();
++		var pers = inValue;
++		if(!pers){ return;}
++		var ui = this.$;
++		if(pers && pers.name && pers.addresses){
++			var adds = pers.addresses;
++			var lname = pers.name.familyName || "";
++			var fname = pers.name.givenName || "";
++			this.uberAdds = [];
++			var prevLoc = ui.location.getValue();
++			if(adds && adds.length && adds.length > 0) {
++				if(adds.length === 1) {
++					if(adds[0].streetAddress || adds[0].locality || adds[0].country || adds[0].region || adds[0].postalCode) {
++						var txt = adds[0].streetAddress !== "" ? adds[0].streetAddress: "";
++						txt += adds[0].locality ? (txt !== "" ? ", " : "") + adds[0].locality : "";
++						txt += adds[0].region ? (txt !== "" ? ", " : "") + adds[0].region : "";
++						txt += adds[0].postalCode ? (txt !== "" ? ", " : "")+adds[0].postalCode : "";
++						txt += adds[0].country ? (txt !== "" ? ", " : "") + adds[0].country  : "";
++						
++						ui.location.setValue(this.uberEditLoc === true ? prevLoc + " " + txt : txt);
++						this.event.location = this.uberEditLoc === true ? prevLoc + " " + txt : txt;
++						return;
++					}
++				} else {// have more than one address, setup choices
++					for(var i=0; i < adds.length; i++) {
++						if(adds[i].type != undefined ) { 
++							if(adds[i].streetAddress || adds[i].locality || adds[i].country || adds[i].region || adds[i].postalCode) {
++								var txt = adds[i].streetAddress ? adds[i].streetAddress : "";
++								txt += adds[i].locality ? (txt !== "" ? ", " : "") + adds[i].locality : "";
++								txt += adds[i].region ? (txt !== "" ? ", " : "") + adds[i].region : "";
++								txt += adds[i].postalCode ? (txt !== "" ? ", " : "") + adds[i].postalCode : "";
++								txt += adds[i].country ? (txt !== "" ? ", " : "") + adds[i].country  : "";
++							}
++							
++							this.uberAdds.push({
++								label: adds[i].type,
++								address: txt
++							});
++						}
++					}
++				}
++				// double check more than one address, choose
++				var len = this.uberAdds.length;
++				if(len === 1) {
++					var txt = this.uberEditLoc === true ? prevLoc + this.uberAdds[0].address : this.uberAdds[0].address;
++					ui.location.setValue(this.uberEditLoc === true ? prevLoc + " " + txt : txt);
++					this.event.location = this.uberEditLoc === true ? prevLoc + " " + txt : txt;
++					return;
++				} else if(len > 1) {
++					var option = {};
++					ui.uberAddChoices.lazy && ui.uberAddChoices.validateComponents();
++					for(var i=0; i < len; i++) {
++						var loc;
++						switch(this.uberAdds[i].label){
++							case "type_home":
++							loc = $L("HOME");
++							break;
++							
++							case "type_work":
++							loc = $L("WORK");
++							break;
++							
++							case "type_other":
++							default:
++							loc = $L("OTHER");
++							break;
++						}
++						option ={value: i+"", kind: enyo.Button, caption:(loc + ": " + this.uberAdds[i].address), onclick: "pickedAdd", className: "enyo-button-light"};
++						option.owner = this;
++						ui.uberChoices.createComponent(option);
++						ui.uberAddChoices.validateComponents();
++					}
++					ui.uberAddChoices.openAtCenter();
++					return;
++				}
++			}
++		}
++	},
++	
++	pickedAdd: function pickedAdd(inSender){
++		console.error("picked add :::: " + inSender.value);
++		var idx = parseInt(inSender.value);
++		var prevLoc = this.$.location.getValue();
++		var txt = this.uberEditLoc === true ? prevLoc + " " + this.uberAdds[idx].address : this.uberAdds[idx].address;
++		this.$.location.setValue(txt);
++		this.event.location = txt;
++		this.$.uberAddChoices.close();
++	},
++	
++	pickCnx: function pickCnx(inSender, inValue){
++		this.$.uberAddChoices.close();
 +	},
 +	
 +	popCanvas: function popCanvas(inSender){
@@ -3001,7 +3269,7 @@ index ebd0238..e4c9730 100644
  	setupRepeatValue: function setupRepeatValue(sender, repeatType){
  		var	customType
  		,	event = this.event
-@@ -511,6 +928,94 @@ enyo.kind({
+@@ -511,6 +1087,94 @@ enyo.kind({
  		selector.setValue(reminderValue);
  	},
  
@@ -3096,7 +3364,7 @@ index ebd0238..e4c9730 100644
  	setupCalendarPicker: function setupCalendarPicker(calendarId){
  		var mgr = enyo.application.calendarsManager;
  		this.calendars = mgr.getCalendarsList({sorted: true, excludeReadOnly: true});
-@@ -532,6 +1037,35 @@ enyo.kind({
+@@ -532,6 +1196,35 @@ enyo.kind({
  		ui.calendarPicker.setValue (calendarId);	// calendarId will be undefined on accountsAndCalendarsChanged().
  	},
  
@@ -3132,7 +3400,7 @@ index ebd0238..e4c9730 100644
  	editSubject: function editSubject (subject) {
  		this.event.subject = subject && subject.value;
  	},
-@@ -565,6 +1099,10 @@ enyo.kind({
+@@ -565,6 +1258,10 @@ enyo.kind({
  		,	end = new Date(timestamp);
  		ui.endTime.setValue (end);
  		ui.endDate.setValue (end);	
@@ -3143,7 +3411,7 @@ index ebd0238..e4c9730 100644
  	},
  	 
  	//Rules for date and time changes:
-@@ -606,10 +1144,18 @@ enyo.kind({
+@@ -606,10 +1303,18 @@ enyo.kind({
  		var event	= this.event;
  		
  		this.changeStartTime();
@@ -3163,7 +3431,7 @@ index ebd0238..e4c9730 100644
  		}
  		this.oldStartValue = this.$.startDate.getValue().getTime();
  	},
-@@ -647,6 +1193,9 @@ enyo.kind({
+@@ -647,6 +1352,9 @@ enyo.kind({
  		,	changedDate = false
  		;
  
@@ -3173,7 +3441,7 @@ index ebd0238..e4c9730 100644
  		time.setFullYear	(date.getFullYear());
  		time.setMonth		(date.getMonth());
  		time.setDate		(date.getDate());
-@@ -714,7 +1263,9 @@ enyo.kind({
+@@ -714,7 +1422,9 @@ enyo.kind({
  		ui.startTime.setValue	(start);	
  		event.allDay = state;
  		ui.startTimeDrawer	.setOpen (!state);
@@ -3183,7 +3451,7 @@ index ebd0238..e4c9730 100644
  		
  		this.setupReminder(event);
  	},
-@@ -1036,6 +1587,7 @@ enyo.kind({
+@@ -1036,6 +1746,7 @@ enyo.kind({
  	
  	editNote: function editNote (note) {
  		this.event.note = note && note.getText();
@@ -3191,7 +3459,7 @@ index ebd0238..e4c9730 100644
  	},
  	
  	confirmSave: function confirmSave(){
-@@ -1083,6 +1635,67 @@ enyo.kind({
+@@ -1083,6 +1794,67 @@ enyo.kind({
  		this.doExit(this.event);
  	},
  
@@ -3259,7 +3527,7 @@ index ebd0238..e4c9730 100644
  	resetEventModels: function resetEventModels () {
  		this.event = this.undoEvent = this.eventGUI = null;		// Reset the event, "undo" event, and event GUI models.
  	},
-@@ -1159,7 +1772,7 @@ enyo.kind({
+@@ -1159,7 +1931,7 @@ enyo.kind({
  		,	sendInvites = enyo.application.calendarsManager.isInvitationEnabledCalendar (event.calendarId)
  		;
  		if (sendInvites && isEditable) { // TODO: Should we check for existence of attendees here too?
@@ -3268,7 +3536,7 @@ index ebd0238..e4c9730 100644
  			event.attendees	= this.diffAttendees (this.undoEvent.attendees, event.attendees);
  			event.notify	= true;
  			event.status	= "CONFIRMED";
-@@ -1200,7 +1813,7 @@ enyo.kind({
+@@ -1200,7 +1972,7 @@ enyo.kind({
  	
  	/* Used for testing only */
  	testWhenDesc: function() {
@@ -3618,6 +3886,17 @@ index fc46829..4f6ac87 100644
  					}
  				}
  				break;
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/edit/depends.js b/usr/palm/applications/com.palm.app.calendar/app/edit/depends.js
+index ff99de0..0c44c28 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/edit/depends.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/edit/depends.js
+@@ -1,5 +1,6 @@
+ enyo.depends
+ (	"DetailView.js"
++,	"$enyo-lib/contactsui/"
+ ,	"DetailView.css"
+ ,	"DeleteConfirm.js"
+ ,	"EditView.css"
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
 index 03bb018..7c9997e 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthCarousel.js
@@ -3660,9 +3939,18 @@ index 03bb018..7c9997e 100644
  	},
  	
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js b/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
-index 68a3b95..58ed2d5 100644
+index 68a3b95..fd2b13f 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
+@@ -68,7 +68,7 @@ enyo.kind({
+ // BEGIN :-------: Published Property Handlers :--------------------------------------------------------------------------------------------------------------//
+ 
+ 	calendarsChanged: function calendarsChanged (oldCalendars) {
+-		if (!this.isActive || !this.monthEvents || !this.monthEvents [this.date]) {	// This MonthDay is inactive or has no events so:
++		if (!this.isActive || !this.monthEvents || !this.monthEvents [+this.date]) {	// This MonthDay is inactive or has no events so:
+ 			return;																	//	Do nothing.
+ 		}
+ 		this.monthEventsChanged();			// TODO: If the calendars on/off states changed refresh the day's displayed events.
 @@ -108,7 +108,7 @@ enyo.kind({
  		}
  		eventViews.getComponents().length && eventViews.destroyComponents();	// Remove all of this day's existing events. TODO: Reuse them instead.
@@ -3686,7 +3974,7 @@ index 68a3b95..58ed2d5 100644
 +							bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
 +							//event && event.note && icon && bgimage && eventView && eventView.style= "background-color: " + bgimage; // + bgrepeat + bgposition;
 +							//eventViews.createComponent (eventView);
-+							var uberCont = bgimage && eventViews.createComponent({kind: enyo.HFlexBox, style:"position:relative; height: 13px;", defaultKind: "calendar.EventView"});//, className:"events"});
++							var uberCont = bgimage && eventViews.createComponent({kind: enyo.HFlexBox, style:"position:relative; height: 13px;", defaultKind: "calendar.EventView", owner:eventViews});//, className:"events"});
 +							eventView.owner = eventViews;
 +							bgimage && uberCont.createComponent({kind: enyo.Image, className:"ubermonthicon", style:"position:relative;height:10;width:10;top:-6px;left:-3px;z-index:3;padding: 0px;margin:0px;", owner: eventViews, src:bgimage});
 +							uberCont && uberCont.createComponent(eventView);
@@ -3719,7 +4007,7 @@ index d9f5558..78095cd 100644
  			}
  		}
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
-index d06f5ca..9829515 100644
+index d06f5ca..509090e 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 @@ -12,6 +12,39 @@ enyo.kind(
@@ -3924,7 +4212,7 @@ index d06f5ca..9829515 100644
  /*
   * Custom item kind for the ColorPicker popup menu.  Required so we could show the color swatch not using an image.
   * The regular MenuItem only allows a caption and an image-based icon.  Normally we could just add components
-@@ -141,6 +300,205 @@ enyo.kind(
+@@ -141,6 +300,204 @@ enyo.kind(
  });
  
  enyo.kind({
@@ -3985,7 +4273,6 @@ index d06f5ca..9829515 100644
 +		this.loadUserUberIcons();
 +		this.inherited(arguments);
 +		this.doingInput = false;
-+		this.remindersManager = enyo.application.reminderManager;
 +		this.$.uberIconList.$.scroller["stabilize"] = function(){return true;}; //hack
 +		this.$.uberIconList.resizeHandler = enyo.bind(this, this.vListResize);
 +	},
@@ -4130,7 +4417,7 @@ index d06f5ca..9829515 100644
  	name		: "calendar.prefs.PreferencesView",
  	kind		: enyo.VFlexBox,
  	className	: "prefs enyo-bg",
-@@ -183,30 +541,125 @@ enyo.kind({
+@@ -183,30 +540,129 @@ enyo.kind({
  					{kind: enyo.RowGroup, caption: $L("First Day of Week"), components:[
  						{kind: "calendar.day.DayPicker", name: "startOfWeek", onChange: "chooseStartOfWeek"}
  					]},
@@ -4227,6 +4514,10 @@ index d06f5ca..9829515 100644
 +								{flex: 1, content: $L("Scroll to current time")},
 +								{name:"scrollToCurrentTime", kind: enyo.ToggleButton, state: true, onChange:"chooseScrollToCurrentTime"}
 +							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Use subject in parenthesis")},
++								{name:"useParens", kind: enyo.ToggleButton, state: true, onChange:"chooseUseParens"}
++							 ]},
 +							{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
 +								{name:"weekModulusNum", kind: enyo.IntegerPicker, label: $L("Week-Number Modulo"), value:1, min: 1, max: 52, onChange: "chooseWeekModulusNum"}
 +							]},
@@ -4268,7 +4559,15 @@ index d06f5ca..9829515 100644
  					{kind: enyo.Group, caption: $L("Calendar Colors"), components: [
  						{name: "calendarList", kind: enyo.VirtualRepeater, onSetupRow: "getCalendar", components: [
  							{kind: enyo.Item, name: "calendarItem", onclick: "calendarClick", layoutKind: enyo.HFlexLayout, className:"accounts-list-item", components: [
-@@ -298,18 +751,41 @@ enyo.kind({
+@@ -242,6 +698,7 @@ enyo.kind({
+ 	},
+ 
+ 	ready: function ready (){
++		this.remindersManager = enyo.application.reminderManager;
+ 		this.$.accountsList.getAccountsList("CALENDAR", []);
+ 	},
+ 
+@@ -298,18 +755,42 @@ enyo.kind({
  		var ui = this.$;
  		ui.startOfWeek		.setValue (this.prefs.startOfWeek);
  		ui.reminder			.setValue (this.prefs.defaultEventReminder);
@@ -4286,6 +4585,7 @@ index d06f5ca..9829515 100644
 +		ui.showMini			.setState (this.prefs.showMini);
 +		ui.useISOWeekNumber	.setState (this.prefs.useISOWeekNumber);
 +		ui.scrollToCurrentTime	.setState (this.prefs.scrollToCurrentTime);
++		ui.useParens		.setState (this.prefs.useParens);
 +		ui.openInView		.setValue (this.prefs.openInView);
 +		ui.linkOffAfterLoad	.setState (this.prefs.linkOffAfterLoad);
 +		ui.autoConfirmAgendaSwipe	.setState (this.prefs.autoConfirmAgendaSwipe);
@@ -4317,7 +4617,7 @@ index d06f5ca..9829515 100644
  		this.setupDefaultCalendar();
  	},
  
-@@ -359,25 +835,25 @@ enyo.kind({
+@@ -359,25 +840,25 @@ enyo.kind({
  	},
  
  //	Commenting out the following but keeping it in case it is needed again.
@@ -4362,7 +4662,7 @@ index d06f5ca..9829515 100644
  	chooseReminder: function chooseReminder () {
  		this.prefs.defaultEventReminder = this.$.reminder.getValue();
  	},
-@@ -389,6 +865,10 @@ enyo.kind({
+@@ -389,6 +870,10 @@ enyo.kind({
  	chooseDuration: function chooseDuration () {
  		this.prefs.defaultEventDuration = this.$.durationSelector.getValue();
  	},
@@ -4373,7 +4673,7 @@ index d06f5ca..9829515 100644
  
  	syncNow: function syncNow () {
  		enyo.application.calendarsManager.syncAllCalendars();
-@@ -408,6 +888,91 @@ enyo.kind({
+@@ -408,6 +893,95 @@ enyo.kind({
  		}
  	},
  
@@ -4418,6 +4718,10 @@ index d06f5ca..9829515 100644
 +	
 +	chooseScrollToCurrentTime: function chooseScrollToCurrentTime(inSender, inState) {
 +		this.prefs.scrollToCurrentTime = inState;
++	},
++	
++	chooseUseParens: function chooseUseParens(inSender, inState) {
++		this.prefs.useParens = inState;
 +	},
 +	
 +	chooseWeekModulusNum: function chooseWeekModulusNum() {
@@ -5177,6 +5481,30 @@ index e3f546a..35fa410 100644
  	},
  
  	getCal: function getCal(calId) {
+diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/EventView.js b/usr/palm/applications/com.palm.app.calendar/app/shared/EventView.js
+index ee68003..30d1cac 100644
+--- a/usr/palm/applications/com.palm.app.calendar/app/shared/EventView.js
++++ b/usr/palm/applications/com.palm.app.calendar/app/shared/EventView.js
+@@ -60,6 +60,18 @@ enyo.kind({
+ 		if (!event) { return; }
+ //		this.addClass ("fade-in");
+ 		this.calendarsChanged();
+-		this.setContent (event.subject || $L("No Subject"));	// OK because, enyo.Control.render() overrides with children's content if present.
++		var prefs = enyo.application.prefsManager.prefs;
++		var txt, useParens  = !!prefs.useParens;
++		if(event.subject && useParens){
++			var str = event.subject;
++			var idx = str.indexOf("("), idx2;
++			if(idx !== -1){
++				idx2 = str.indexOf(")");
++				if(idx2 !== -1 && (idx2 -idx > 5)){
++					txt = str.substr(idx, idx2-idx+1);
++				}
++			}
++		}
++		this.setContent ((txt ? txt : event.subject) || $L("No Subject"));	// OK because, enyo.Control.render() overrides with children's content if present.
+ 	}
+ });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/JumpToView.js b/usr/palm/applications/com.palm.app.calendar/app/shared/JumpToView.js
 index 10d7efa..3e27509 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/shared/JumpToView.js
@@ -5221,7 +5549,7 @@ index 10d7efa..3e27509 100644
  	exitView: function exitView () {
  		DEBUG && this.log ("########## Exit JumpTo view.");
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js b/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
-index 7d54e34..2079008 100644
+index 7d54e34..88b1eb9 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
 @@ -11,6 +11,7 @@ function PrefsManager () {
@@ -5293,7 +5621,7 @@ index 7d54e34..2079008 100644
  PrefsManager.prototype.alarmSoundOptions =
  {	mute		: 0
  ,	systemSound	: 1
-@@ -280,10 +335,31 @@ PrefsManager.prototype.defaultPrefs =
+@@ -280,10 +335,32 @@ PrefsManager.prototype.defaultPrefs =
  ,	defaultCalendarID			: 0
  ,	defaultEventDuration		: 60
  ,	defaultEventReminder		: "-PT15M"
@@ -5323,6 +5651,7 @@ index 7d54e34..2079008 100644
 +,	weekModulusNum				: 1				//setting for week modulus
 +,	weekNumberOffset			: 0				//setting for week offset
 +,	scrollToCurrentTime			: true			//setting for whether to scroll to current time in day & week
++,	useParens					: true			//setting for whether to use subject in parentheses
 +,	tapInView					: "view"		//setting for whether to edit or view
 +,	tapInUberAgenda				: "view"		//setting for whether to edit or view
  };
@@ -6333,7 +6662,7 @@ index c8349e4..1781f8a 100644
 +}
 \ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
-index 80ed7f4..453fff2 100644
+index 80ed7f4..59e1255 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
 @@ -31,6 +31,7 @@ enyo.kind({
@@ -6351,26 +6680,26 @@ index 80ed7f4..453fff2 100644
 -		{name:"weekHours", className:"week-hours", kind: enyo.Scroller, flex:1, autoHorizontal:false, horizontal:false, vertical:true, components: [
 +		{name:"allDayContainer", className:"allday-header", kind: enyo.HFlexBox, components: [
 +			{name:"allDayLabel", style:"padding-left:3px;width:62px;border-right:3px double #eaeaea;padding-right:0px;background:#fff;", className:"label"},
-+			{kind:enyo.Scroller, autoVertical: false, vertical:false, autoHorizontal:false, horizontal:true, style:"padding:0px;margin-left:-2px;border-right:1px solid #dbdbdb;overflow:hidden;", flex:1, components: [
-+				{name:"allDayHeader0", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			{kind:enyo.Scroller, autoVertical: true, vertical:true, autoHorizontal:false, horizontal:false, style:"height:35px;padding:0px;margin-left:-2px;border-right:1px solid #dbdbdb;overflow:hidden;", flex:1, components: [
++				{name:"allDayHeader0", kind: enyo.VFlexBox, defaultKind:"calendar.eventView", onclick:""}
 +			]},
-+			{kind:enyo.Scroller, autoVertical: false, vertical:false, autoHorizontal:false, horizontal:true, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
-+				{name:"allDayHeader1", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			{kind:enyo.Scroller, autoVertical: true, vertical:true, autoHorizontal:false, horizontal:false, flex:1, style:"height:35px;border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader1", kind: enyo.VFlexBox, defaultKind:"calendar.eventView", onclick:""}
 +			]},
-+			{kind:enyo.Scroller, autoVertical: false, vertical:false, autoHorizontal:false, horizontal:true, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
-+				{name:"allDayHeader2", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			{kind:enyo.Scroller, autoVertical: true, vertical:true, autoHorizontal:false, horizontal:false, flex:1, style:"height:35px;border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader2", kind: enyo.VFlexBox, defaultKind:"calendar.eventView", onclick:""}
 +			]},
-+			{kind:enyo.Scroller, autoVertical: false, vertical:false, autoHorizontal:false, horizontal:true, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
-+				{name:"allDayHeader3", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			{kind:enyo.Scroller, autoVertical: true, vertical:true, autoHorizontal:false, horizontal:false, flex:1, style:"height:35px;border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader3", kind: enyo.VFlexBox, defaultKind:"calendar.eventView", onclick:""}
 +			]},
-+			{kind:enyo.Scroller, autoVertical: false, vertical:false, autoHorizontal:false, horizontal:true, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
-+				{name:"allDayHeader4", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			{kind:enyo.Scroller, autoVertical: true, vertical:true, autoHorizontal:false, horizontal:false, flex:1, style:"height:35px;border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader4", kind: enyo.VFlexBox, defaultKind:"calendar.eventView", onclick:""}
 +			]},
-+			{kind:enyo.Scroller, autoVertical: false, vertical:false, autoHorizontal:false, horizontal:true, flex:1, style:"border-right:1px solid #dbdbdb;overflow:hidden;", components: [
-+				{name:"allDayHeader5", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			{kind:enyo.Scroller, autoVertical: true, vertical:true, autoHorizontal:false, horizontal:false, flex:1, style:"height:35px;border-right:1px solid #dbdbdb;overflow:hidden;", components: [
++				{name:"allDayHeader5", kind: enyo.VFlexBox, defaultKind:"calendar.eventView", onclick:""}
 +			]},
-+			{kind:enyo.Scroller, autoVertical: false, vertical:false, autoHorizontal:false, horizontal:true, flex:1, style:"margin-right:-4px;padding-right:4px;overflow:hidden;", components: [
-+				{name:"allDayHeader6", layoutKind: enyo.HLayout, defaultKind:"calendar.day.AllDayEvent", onclick:""}
++			{kind:enyo.Scroller, autoVertical: true, vertical:true, autoHorizontal:false, horizontal:false, flex:1, style:"height:35px;margin-right:-4px;padding-right:4px;overflow:hidden;", components: [
++				{name:"allDayHeader6", kind: enyo.VFlexBox, defaultKind:"calendar.eventView", onclick:""}
 +			]}
 +		]},
 +		{name:"weekHours", className:"week-hours", kind: enyo.Scroller, flex:1, autoHorizontal:false, horizontal:false, vertical:true, onScrollStop:"hoursScrollStop", components: [
@@ -6440,15 +6769,17 @@ index 80ed7f4..453fff2 100644
  	prefsChanged: function prefsChanged (oldPrefs) {
  		var header	= this.$.header
  		,	prefs	= this.prefs || enyo.application.prefsManager.prefs
-@@ -183,6 +220,7 @@ enyo.kind({
+@@ -183,7 +220,9 @@ enyo.kind({
  
  	showingChanged: function showingChanged (wasShowing) {
  		this.inherited (arguments);
 +		//console.error("I am here showing changed !!!!!!!! is showing : " + this.showing);
  		this.showing && this.weekEvents && enyo.application.share ({weekEvents: {data: this.weekEvents, keep: true}});		// TODO: Update weekday events when week view is shown.
++		this.updateCurrentHour();
  	},
  
-@@ -199,6 +237,7 @@ enyo.kind({
+ // BEGIN: Custom Methods -------------------------------------------------------------------------------------------------------------------------------------//
+@@ -199,6 +238,7 @@ enyo.kind({
  		/* Changes the contents for the DayHour component specified in hourInfo.
  			hourInfo: {hour:Number, dayHour?:DayHour, dayHours?:[DayHour], dayHoursIndex?:Number}
  		*/
@@ -6456,7 +6787,15 @@ index 80ed7f4..453fff2 100644
  		var	hour	= hourInfo && hourInfo.hour					// Hour to set the component to.
  		,	hours	= hourInfo && hourInfo.dayHours				// Array of DayHour components to change.
  		,	index	= hourInfo && hourInfo.dayHoursIndex		// DayHour index in the DayHour components list.
-@@ -238,18 +277,29 @@ enyo.kind({
+@@ -231,25 +271,36 @@ enyo.kind({
+ 		,	today		=	this.clock || new Date()
+ 		;
+ 		if (!dayHour) {
+-			this.error ("---:---: Unable to update the now indicator using invalid DayView.dayHours: ", dayHours);
++			//this.error ("---:---: Unable to update the now indicator using invalid DayView.dayHours: ", dayHours);
+ 			return;
+ 		}
+ 		var	oldHour	=	currentHour != date.getHours(); 						// Store whether the current hour is up-to-date.
  		oldHour		&&	dayHour.setIsCurrentHour (false);						// If not, clear its now indicator.
  
  		var clock		= date.getTime()
