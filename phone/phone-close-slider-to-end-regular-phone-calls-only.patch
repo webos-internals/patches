@@ -1,0 +1,54 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/shared/activecall/ActiveCall.js b/usr/palm/applications/com.palm.app.phone/shared/activecall/ActiveCall.js
+index a12f20c..3b176c9 100644
+--- a/usr/palm/applications/com.palm.app.phone/shared/activecall/ActiveCall.js
++++ b/usr/palm/applications/com.palm.app.phone/shared/activecall/ActiveCall.js
+@@ -32,6 +32,8 @@ enyo.kind({
+ 			]}
+ 		]},
+ 		{name:"changeMedia", kind:"PalmService", service: "palm://com.palm.skype/", method: "changeMedia", params: {outgoingVideo:true}},
++		{name: "initialSliderCheck", kind: enyo.PalmService, service: "palm://com.palm.keys/switches/", method: "status", onSuccess:"initSlider"},
++		{name: "sliderSubscribe", kind: enyo.PalmService, service: "palm://com.palm.keys/switches/", method: "status", onSuccess:"sliderEvent", subscribe:true, resubscribe:true},
+ 		{name: "setMute", kind: enyo.PalmService, service: "palm://com.palm.audio/phone/", method: "setMuted", onSuccess: "", onFailure: ""}
+ 	],
+ 	// the dtmf pad requires a different MinHeightScroller min-height. This should be fixed later in CSS.
+@@ -124,6 +126,7 @@ enyo.kind({
+ 	init: function() {
+ 		if(this.initialized !== true) {
+ 			enyo.log("initializing .....");
++			this.$.initialSliderCheck.call({get:"slider"});
+ 			//set muted false
+ 			this.setMuteStatus(false);
+ 			this.$.mute_button.setDepressed(false);
+@@ -144,6 +147,7 @@ enyo.kind({
+ 	//called when hanging up last call
+ 	deInit: function() {
+ 		enyo.log("deinitializing . ....");
++		this.$.sliderSubscribe.cancel();
+ 
+ 		//user might have set mute true inbetween calls, reset muted false
+ 		this.setMuteStatus(false);
+@@ -171,6 +175,24 @@ enyo.kind({
+ 	disconnectActiveCall: function() {
+ 		enyo.application.CallSynergizer.geniusDisconnect();
+ 	},
++	initSlider: function(inSender, inResponse) {
++		if(inResponse.key == "slider") {
++			this.sliderPos = inResponse.state;
++		}
++		this.$.sliderSubscribe.call({get:"slider", subscribe:true});
++	},
++	sliderEvent: function(inSender, inResponse) {
++		if(inResponse && inResponse.key && inResponse.state && (inResponse.key=="slider")) {
++			if(enyo.application.Cache.audioActiveProfile=="phone_front_speaker") {
++				if((this.sliderPos!="down") && (inResponse.state=="down")) {
++					enyo.application.CallSynergizer.geniusDisconnect();
++					//enyo.application.CallSynergizer.disconnectAllCalls();
++				}
++				
++			}
++			this.sliderPos = inResponse.state;
++		}
++	},	
+ 	updateWithCallState: function(lines) {
+ 		var activeLines = [];
+ 		var disconnectClear = false;
