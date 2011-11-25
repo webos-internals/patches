@@ -389,7 +389,7 @@ index a667ac9..81ac2a6 100644
  		else
  		{
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
-index 1bc0374..083da27 100644
+index 1bc0374..0ec0b3a 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/datetime-assistant.js
 @@ -19,6 +19,7 @@ var DatetimeAssistant = Class.create({
@@ -400,7 +400,7 @@ index 1bc0374..083da27 100644
      },
      
      update: function(){
-@@ -140,16 +141,679 @@ var DatetimeAssistant = Class.create({
+@@ -140,21 +141,696 @@ var DatetimeAssistant = Class.create({
                  break;
          }
      },
@@ -1041,6 +1041,7 @@ index 1bc0374..083da27 100644
 +		this.weekNumOffset = 0;
 +		this.useISOweekNum = false;
 +		this.uberMinuteInterval = 5;
++		this.duraBtnOnTop = false;
 +		this.prefStartDoW = 0;
 +		this.weekCookie = new Mojo.Model.Cookie('WeekViewEnhanced');
 +		if (this.weekCookie) {
@@ -1071,6 +1072,11 @@ index 1bc0374..083da27 100644
 +				} else {
 +					this.uberMinuteInterval = 5;
 +				}
++				if (weekcookie.durabtnontop !== undefined) {
++					this.duraBtnOnTop = weekcookie.durabtnontop;
++				} else {
++					this.duraBtnOnTop = false;
++				}
 +			}
 +		}
  		this.appMenuModel= { visible:true, 
@@ -1083,10 +1089,22 @@ index 1bc0374..083da27 100644
          
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
          
-@@ -168,26 +832,72 @@ var DatetimeAssistant = Class.create({
+         
+         this.dateTimeView = this.controller.get('datetime_view');
++		this.duraBtn = 'edit_duration';
++		if(this.duraBtnOnTop === true){
++			this.duraBtn = "uber_dura_picker";
++			var headerParent = this.controller.get('edit_header').parentNode;
++			headerParent.innerHTML = '<div class="icon timedate"></div><div class="title" id="edit_header"></div><div style="float:right; margin-right:5px; margin-top: 13px;" id="uber_dura_picker">@</div>';
++        }
+         this.header = this.controller.get('edit_header');
+         
+         this.blurStage = this.blurStageBound.bind(this);
+@@ -168,26 +844,73 @@ var DatetimeAssistant = Class.create({
          this.startDateModel = {
              date: new Date(this.targetModifiedTime.start)
          };
++		this.uberEventDuration = (this.targetModifiedTime.end - this.targetModifiedTime.start)/(60*1000);
 +         var startDiv = this.controller.get("edit_startDate").parentNode.parentNode;
 +        startDiv.style.paddingTop = "0px";
 +        //startDiv.style.marginTop = "-20px";
@@ -1160,7 +1178,7 @@ index 1bc0374..083da27 100644
          this.controller.listen('edit_endTime', Mojo.Event.propertyChange, this.endTimeCallback.bindAsEventListener(this));
          
          
-@@ -195,19 +905,260 @@ var DatetimeAssistant = Class.create({
+@@ -195,19 +918,274 @@ var DatetimeAssistant = Class.create({
          
          this.allDayCheckboxAttribute = {
              modelProperty: "value"
@@ -1178,7 +1196,21 @@ index 1bc0374..083da27 100644
 -        
 -        
 -    },
-+		// button setup
++       if(!this.duraBtnOnTop) {
++			this.controller.get('edit_duration').setStyle({textDecoration:"underline", height: "30px", fontSize: "14"});
++		}
++        // button setup
++		/*this.controller.setupWidget("uber_dura_picker",
++			{},
++			{
++				label : '@',
++				disabled: false,
++				buttonClass: "secondary"
++			}
++		);*/
++		this.durationClickHandler = this.handleDurationClick.bindAsEventListener(this);
++		this.controller.get(this.duraBtn).observe('mojo-tap', this.durationClickHandler);
++		this.controller.get(this.duraBtn).observe('mojo-hold', this.durationClickHandler);
 +		this.controller.setupWidget("popCanvasBtn",
 +			{},
 +			{
@@ -1426,7 +1458,7 @@ index 1bc0374..083da27 100644
      checktargetEventDirty: function(){
          //construct rrule
  		if(this.targetEvent.rruleModel)
-@@ -388,7 +1339,7 @@ var DatetimeAssistant = Class.create({
+@@ -388,7 +1366,7 @@ var DatetimeAssistant = Class.create({
  			oldTimeStart.setMinutes(newTimeStart.getMinutes());
  			oldTimeStart.setSeconds(newTimeStart.getSeconds());
  			var oldTimeEnd = oldTimeStart.clone();
@@ -1435,7 +1467,7 @@ index 1bc0374..083da27 100644
  			this.targetEvent.startTimestamp = oldTimeStart.getTime();
  			this.targetEvent.endTimestamp = oldTimeEnd.getTime();
  		}
-@@ -413,10 +1364,70 @@ var DatetimeAssistant = Class.create({
+@@ -413,10 +1391,70 @@ var DatetimeAssistant = Class.create({
                  this.callBackAfterUpdate(this.targetId);
              this.controller.stageController.popScene("datetime");
          }
@@ -1509,7 +1541,7 @@ index 1bc0374..083da27 100644
      renderSetEvent: function(response){
          //this callback is called only in the case
          //when we are in the scene and went into cardmode
-@@ -431,12 +1442,50 @@ var DatetimeAssistant = Class.create({
+@@ -431,12 +1469,51 @@ var DatetimeAssistant = Class.create({
      },
      
      activate: function(){
@@ -1545,7 +1577,8 @@ index 1bc0374..083da27 100644
 +		Mojo.Event.stopListening(this.popCanvasBtn2, Mojo.Event.tap, this.canvasBtnHandler);
 +		Mojo.Event.stopListening(this.popTimezoneBtn, Mojo.Event.tap, this.timezoneBtnHandler);
 +		Mojo.Event.stopListening(this.popTimezoneBtn2, Mojo.Event.tap, this.timezoneBtnHandler);
-+
++        this.controller.get(this.duraBtn).stopObserving('mojo-tap', this.durationClickHandler);
++		this.controller.get(this.duraBtn).stopObserving('mojo-hold', this.durationClickHandler);
 +		//Mojo.Log.info("datetime-assistant:deactivate");	
 +		this.controller.stopListening(this.controller.document, Mojo.Event.deactivate, this.blurStage);
 +		Mojo.Event.stopListening(this.left0, Mojo.Event.tap, this.calTapHandler);
@@ -1564,7 +1597,7 @@ index 1bc0374..083da27 100644
      	
  	//When the start date of the event is changed, WEEKLY:single day, WEEKLY:custom, MONTHLY repeating events 
  	//must update their rruleModel. DAILY, YEARLY, and WEEKLY:weekdays repeating events do not need to be changed.
-@@ -493,15 +1542,32 @@ var DatetimeAssistant = Class.create({
+@@ -493,15 +1570,32 @@ var DatetimeAssistant = Class.create({
                  
              case 'MONTHLY': // Do NOT Localize
                  //Monthly by date
@@ -1605,7 +1638,7 @@ index 1bc0374..083da27 100644
                  }
  				changed = true;
                  break;
-@@ -553,6 +1619,7 @@ var DatetimeAssistant = Class.create({
+@@ -553,6 +1647,7 @@ var DatetimeAssistant = Class.create({
              this.targetEvent.alldayReservedStartTimestamp = this.targetModifiedTime.start;
              this.targetEvent.alldayReservedEndTimestamp = this.targetModifiedTime.end;
          }
@@ -1613,7 +1646,7 @@ index 1bc0374..083da27 100644
      },
      
      endDateSet: function(isOnBack){
-@@ -561,7 +1628,7 @@ var DatetimeAssistant = Class.create({
+@@ -561,7 +1656,7 @@ var DatetimeAssistant = Class.create({
          if (this.datetimeoutID) {
              var date = this.tentativeEndDate;
              var newTimeStamp = new Date(this.targetModifiedTime.end);
@@ -1622,7 +1655,7 @@ index 1bc0374..083da27 100644
              newTimeStamp.setFullYear(date.getFullYear());
              newTimeStamp.setDate(date.getDate());
              newTimeStamp.setMonth(date.getMonth());
-@@ -642,8 +1709,10 @@ var DatetimeAssistant = Class.create({
+@@ -642,8 +1737,10 @@ var DatetimeAssistant = Class.create({
  				}
              }
              
@@ -1634,7 +1667,7 @@ index 1bc0374..083da27 100644
              this.targetModifiedTime.changed = true;
              if (this.datetimeoutID) {
                  this.controller.window.clearTimeout(this.datetimeoutID);
-@@ -751,6 +1820,7 @@ var DatetimeAssistant = Class.create({
+@@ -751,6 +1848,7 @@ var DatetimeAssistant = Class.create({
          this.controller.modelChanged(this.startTimeModel);
          this.controller.modelChanged(this.endTimeModel);
          this.targetModifiedTime.changed = false;
@@ -1642,11 +1675,141 @@ index 1bc0374..083da27 100644
          //Mojo.Log.info("Old event all day %o, new Event all day %o",this.oldEvent.allDay,this.allDayCheckboxModel);
          if (this.oldEvent.allDay != this.allDayCheckboxModel.value) {
          
-@@ -761,6 +1831,85 @@ var DatetimeAssistant = Class.create({
+@@ -761,6 +1859,215 @@ var DatetimeAssistant = Class.create({
          this.targetCallBack(this.targetEvent, null);
          
      },
 -
++	
++	eventDurationChoose: function(value){
++		if (value !== undefined && value != this.uberEventDuration) {
++			if(this.duraOnEnd){
++				var startTS = this.targetModifiedTime.start;
++				var eDate = new Date(startTS + value*60*1000);
++				//first time
++				this.targetModifiedTime.end = eDate.getTime();
++				this.endTimeModel.time = new Date(eDate);
++				this.controller.modelChanged(this.endTimeModel);
++				this.dateTimeoutID = 0;
++				//now date
++				this.targetModifiedTime.end = eDate.getTime();
++				this.endDateModel.date = new Date(this.targetModifiedTime.end);
++				this.controller.modelChanged(this.endDateModel);
++				Mojo.Event.send(this.controller.get('edit_endDate'), 'mojo-property-change', {value: this.endDateModel.date} );
++				this.targetModifiedTime.changed = true;
++				this.uberEventDuration = value;
++			} else {
++				var oldDura = this.targetModifiedTime.end - this.targetModifiedTime.start;
++				var oldDate = new Date(this.startDateModel.date);
++				var endTS = this.targetModifiedTime.end;
++				var startTS = endTS - value*60*1000;
++				var sDate = new Date(endTS - value*60*1000);
++				if(sDate.getFullYear() === oldDate.getFullYear() && sDate.getMonth() === oldDate.getMonth() && sDate.getDate() === oldDate.getDate() ) {
++					if((startTS < oldDate.getTime()) || ((startTS > oldDate.getTime()) && startTS - oldDate.getTime() < oldDura)){this.targetModifiedTime.start = startTS;}
++					this.startTimeModel.time = new Date(sDate);
++					this.targetModifiedTime.start = startTS;
++					this.controller.modelChanged(this.startTimeModel);
++					Mojo.Event.send(this.controller.get('edit_startTime'), 'mojo-property-change', {value: this.startTimeModel.time} );
++				}else { //leave targetModifiedTime "date" alone until after time switch
++					var newDate = new Date(this.targetModifiedTime.start); 
++					newDate.setHours(sDate.getHours());
++					newDate.setMinutes(sDate.getMinutes());
++					if((startTS < oldDate.getTime()) || ((startTS > oldDate.getTime()) && startTS - oldDate.getTime() < oldDura)){this.targetModifiedTime.start = newDate.getTime();}
++					this.startTimeModel.time = new Date(newDate);
++					this.controller.modelChanged(this.startTimeModel);
++					Mojo.Event.send(this.controller.get('edit_startTime'), 'mojo-property-change', {value: this.startTimeModel.time} );
++					if((startTS < oldDate.getTime()) || ((startTS > oldDate.getTime()) && startTS - oldDate.getTime() < oldDura)){
++						this.targetModifiedTime.start = startTS;
++						this.changingStartDate = true;
++					}
++					this.startDateModel.date = new Date(sDate);
++					this.controller.modelChanged(this.startDateModel);
++					Mojo.Event.send(this.controller.get('edit_startDate'), 'mojo-property-change', {value: this.startDateModel.date} );
++					if(this.changingStartDate){this.changingStartDate = false;}
++				}
++				this.uberEventDuration = value;
++				this.calcDuration();
++			}
++		}
++	},
++	
++	handleDurationClick: function(event){
++		//console.error("event down altKey" + JSON.stringify((event && event.type)));
++		var items = [];
++		if(event && event.type && event.type === 'mojo-tap'){
++			this.duraOnEnd = true;
++		} else {
++			this.duraOnEnd = false;
++		}
++		Event.stop(event);
++		var hrs, mins;
++		//var prefs = this.prefsManager.getPrefs();
++		var startTime = new Date(getPrefs().startTimeOfDay);
++		startTime.addMinutes(startTime.getTimezoneOffset());
++		var utcStartTime = startTime.getTime();
++		var startDate = new Date(utcStartTime);
++		hrs = startDate.getHours();
++		mins = startDate.getMinutes();
++		startDate.setTime(this.targetModifiedTime.start);
++		startDate.clearTime();
++		startDate.setHours(hrs);
++		startDate.setMinutes(mins);
++		var startTS =startDate.getTime(); 
++		var endTime = new Date(getPrefs().endTimeOfDay);
++		endTime.addMinutes(endTime.getTimezoneOffset());
++		var utcEndTime = endTime.getTime();
++		var endDate = new Date(utcEndTime);
++		hrs = endDate.getHours();
++		mins = endDate.getMinutes();
++		endDate.setTime(this.targetModifiedTime.end);
++		endDate.clearTime();
++		endDate.setHours(hrs);
++		endDate.setMinutes(mins);
++		var endTS = endDate.getTime();
++		items = [{
++					label: $L("15 minutes"),
++					command: 15
++				},{
++					label: $L("30 minutes"),
++					command: 30
++				},{
++					label: $L("45 minutes"),
++					command: 45
++				}, {
++					label: $L("1 hour"),
++					command: 60
++				}, {
++				label: $L("90 minutes"),
++					command: 90
++				}, {
++					label: $L("2 hours"),
++					command: 120
++				}, {
++					label: $L("3 hours"),
++					command: 180
++				}, {
++					label: $L("4 hours"),
++					command: 240
++				}, {
++					label: $L("8 hours"),
++					command: 480
++				}];
++		if(this.duraOnEnd){
++			var cmd = (endTS - this.targetModifiedTime.start)/(60*1000);
++			//console.error("cmd end : " + cmd);
++			items.push({label: $L("Until end of day"), command: cmd});
++		} else {
++			var cmd = (this.targetModifiedTime.end - startTS)/(60*1000);
++			//console.error("cmd start : " + cmd);
++			items.push({label: $L("From start of day"), command: cmd});
++		}
++		
++		this.controller.popupSubmenu({
++				onChoose: this.eventDurationChoose.bind(this),
++				toggleCmd: this.uberEventDuration,
++				items: items
++			});
++	},
 +	
 +	//Calendar Tap Handlers
 +	handleCalHold: function(event) {
@@ -4577,7 +4740,7 @@ index 747fcb3..5c4796b 100644
  		this.gotoDayView(new Date());
  	},
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
-index cebe803..a5abd16 100644
+index cebe803..f1314ac 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 @@ -3,7 +3,7 @@
@@ -4662,7 +4825,7 @@ index cebe803..a5abd16 100644
  		/*this.request = new Mojo.Service.Request(CalendarMojoService.identifier + '/formatter', {
  			method: 'formatAlarmStrings',
  			parameters: params,
-@@ -377,6 +395,1038 @@ var PrefsAssistant = Class.create({
+@@ -377,6 +395,1062 @@ var PrefsAssistant = Class.create({
  	setup: function() {
  		// Retrieve the prefs from the service
  		this.prefs = getPrefs();
@@ -4776,6 +4939,7 @@ index cebe803..a5abd16 100644
 +		this.weekViewShrink = "none";
 +		this.uberMinuteInterval = 5;
 +		this.workWeekOnly = false;
++		this.duraBtnOnTop = false;
 +		this.weekTimeDay = 0;
 +		this.gotoEditFromTemplate = true;
 +		this.weekCookie = new Mojo.Model.Cookie("WeekViewEnhanced");
@@ -4841,6 +5005,11 @@ index cebe803..a5abd16 100644
 +					this.workWeekOnly = weekcookie.workweekonly;
 +				} else {
 +					this.workWeekOnly = false;
++				}
++				if (weekcookie.durabtnontop !== undefined) {
++					this.duraBtnOnTop = weekcookie.durabtnontop;
++				} else {
++					this.duraBtnOnTop = false;
 +				}
 +			}
 +		}
@@ -5411,6 +5580,22 @@ index cebe803..a5abd16 100644
 +		newDiv11.setAttribute('class', "palm-row");
 +		newDiv12.setAttribute('class', "palm-row-wrapper");
 +		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-durabtnontop-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Duration Btn on Top');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		dList.appendChild(newDiv11); // add duration btn on top drawer list
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
 +		newDiv13.setAttribute('id', "prefs-ucgroupsfirst-toggle");
 +		newDiv14.setAttribute('class', "title");
 +		newDiv14.setAttribute('x-mojo-loc', '""');
@@ -5464,7 +5649,8 @@ index cebe803..a5abd16 100644
 +			weekviewicons: {id: "WeekViewIcons", value: this.weekViewIcons},
 +			snoozethrob: {id: "SnoozeThrob", value: this.snoozeThrob},
 +			gotoeditfromtemplate: {id: "GotoEditFromTemplate", value: this.gotoEditFromTemplate},
-+			workweekonly: {id: "WorkWeekOnly", value: this.workWeekOnly}
++			workweekonly: {id: "WorkWeekOnly", value: this.workWeekOnly},
++			durabtnontop: {id: "DuraBtnOnTop", value: this.duraBtnOnTop}
 +		};
 +
 +		var uberCalendarAttributes = {
@@ -5493,6 +5679,7 @@ index cebe803..a5abd16 100644
 +		this.controller.setupWidget('prefs-weekviewicons-toggle', uberCalendarAttributes, this.uberCalendarPrefs.weekviewicons);
 +		this.controller.setupWidget('prefs-gotoeditfromtemplate-toggle', uberCalendarAttributes, this.uberCalendarPrefs.gotoeditfromtemplate);
 +		this.controller.setupWidget('prefs-workweekonly-toggle', uberCalendarAttributes, this.uberCalendarPrefs.workweekonly);
++		this.controller.setupWidget('prefs-durabtnontop-toggle', uberCalendarAttributes, this.uberCalendarPrefs.durabtnontop);
 +		this.controller.setupWidget('pv_default_snooze_duration',
 +									this.snoozeAttrs = {
 +										modelProperty: 'command',
@@ -5701,7 +5888,7 @@ index cebe803..a5abd16 100644
  		this.requests = [];
  		this.syncSources = [];
  		this.dirty = false;
-@@ -399,7 +1449,7 @@ var PrefsAssistant = Class.create({
+@@ -399,7 +1473,7 @@ var PrefsAssistant = Class.create({
  		};
  	    this.controller.setupWidget('pv_startofday_timepicker', {label: $L("Start")}, this.startTimeModel);
  	    this.controller.listen('pv_startofday_timepicker',Mojo.Event.propertyChange, this.startOfDayCallback.bindAsEventListener(this));
@@ -5710,7 +5897,7 @@ index cebe803..a5abd16 100644
  		var endTime = new Date(this.prefs.endTimeOfDay);
  		endTime.addMinutes(endTime.getTimezoneOffset());
  		var utcEndTime = endTime.getTime();
-@@ -408,7 +1458,7 @@ var PrefsAssistant = Class.create({
+@@ -408,7 +1482,7 @@ var PrefsAssistant = Class.create({
  		};
  	    this.controller.setupWidget('pv_endofday_timepicker', {label: $L("End")}, this.endTimeModel);
  	    this.controller.listen('pv_endofday_timepicker',Mojo.Event.propertyChange, this.endOfDayCallback.bindAsEventListener(this));
@@ -5719,7 +5906,7 @@ index cebe803..a5abd16 100644
  		var soundSelections = {
        	modelProperty: 'value',
        	label: $L("Alert"),
-@@ -419,7 +1469,6 @@ var PrefsAssistant = Class.create({
+@@ -419,7 +1493,6 @@ var PrefsAssistant = Class.create({
  			{label: $L('Mute'),value:"4"}
        		]
        	};
@@ -5727,7 +5914,7 @@ index cebe803..a5abd16 100644
  		
  		this.notificationSoundModel = {
          	value:this.convertSoundDBToPopupVal(this.prefs.alarmSoundOn)
-@@ -452,8 +1501,6 @@ var PrefsAssistant = Class.create({
+@@ -452,8 +1525,6 @@ var PrefsAssistant = Class.create({
  					{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
  		}
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
@@ -5736,7 +5923,7 @@ index cebe803..a5abd16 100644
  	},
  
  	setCalendarPrefsCallback: function(response) {
-@@ -473,6 +1520,8 @@ var PrefsAssistant = Class.create({
+@@ -473,6 +1544,8 @@ var PrefsAssistant = Class.create({
  		
  		if (this.dirty)
  			this.savePrefs();
@@ -5745,7 +5932,7 @@ index cebe803..a5abd16 100644
  	},
  	
  	syncAllCallback: function(response) {
-@@ -494,9 +1543,9 @@ var PrefsAssistant = Class.create({
+@@ -494,9 +1567,9 @@ var PrefsAssistant = Class.create({
  	},
  	
  	activate: function() {
@@ -5756,7 +5943,7 @@ index cebe803..a5abd16 100644
  		this.startOfWeekClickHandler = this.handleStartOfWeekClick.bindAsEventListener(this);
  		this.controller.get('pv_start_of_week').observe('mojo-tap', this.startOfWeekClickHandler);
  		
-@@ -504,7 +1553,7 @@ var PrefsAssistant = Class.create({
+@@ -504,7 +1577,7 @@ var PrefsAssistant = Class.create({
  		this.controller.get('pv_default_evt_alarm').observe('mojo-tap', this.defaultEventAlarmClickHandler);
  		this.defaultAllDayEventAlarmClickHandler = this.handleDefaultAllDayEventAlarmClick.bindAsEventListener(this);
  		this.controller.get('pv_default_allday_evt_alarm').observe('mojo-tap', this.defaultAllDayEventAlarmClickHandler);
@@ -5765,7 +5952,7 @@ index cebe803..a5abd16 100644
  		this.newEventDurationClickHandler = this.handleNewEventDurationClick.bindAsEventListener(this);
  		this.controller.get('pv_new_event_duration').observe('mojo-tap', this.newEventDurationClickHandler);	
  	
-@@ -529,15 +1578,197 @@ var PrefsAssistant = Class.create({
+@@ -529,15 +1602,199 @@ var PrefsAssistant = Class.create({
  		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
  		this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
@@ -5813,6 +6000,7 @@ index cebe803..a5abd16 100644
 +		this.controller.listen('prefs-weekviewicons-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-gotoeditfromtemplate-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-workweekonly-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-durabtnontop-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		
 +		this.ucDrawerBtnHandler = this.toggleUCdrawer.bindAsEventListener(this);
 +		this.controller.get('uberCprefsbutton').observe('mojo-tap', this.ucDrawerBtnHandler);
@@ -5951,6 +6139,7 @@ index cebe803..a5abd16 100644
 +									uberbackgesture: this.uberBackGesture,
 +									uberminuteinterval: this.uberMinuteInterval,
 +									gotoeditfromtemplate: this.gotoEditFromTemplate,
++									durabtnontop: this.duraBtnOnTop,
 +									workweekonly: this.workWeekOnly
 +									});
 +		}
@@ -5964,7 +6153,7 @@ index cebe803..a5abd16 100644
  		//Mojo.Log.info('prefs-assistant: deactivate');
  		this.controller.get('pv_start_of_week').stopObserving('mojo-tap', this.startOfWeekClickHandler);
  		
-@@ -562,6 +1793,50 @@ var PrefsAssistant = Class.create({
+@@ -562,6 +1819,51 @@ var PrefsAssistant = Class.create({
  		
  		this.controller.stopListening('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
@@ -6000,6 +6189,7 @@ index cebe803..a5abd16 100644
 +		this.controller.stopListening('prefs-weekshowsubject-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-gotoeditfromtemplate-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-workweekonly-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-durabtnontop-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.get('uberCprefsbutton').stopObserving('mojo-tap', this.ucDrawerBtnHandler);
 +		this.controller.get('dayuberCprefsbutton').stopObserving('mojo-tap', this.ucDrawerBtnHandler);
 +		this.controller.get('monthuberCprefsbutton').stopObserving('mojo-tap', this.ucDrawerBtnHandler);
@@ -6015,7 +6205,7 @@ index cebe803..a5abd16 100644
  	},
  	
  	// *** EVENT HANDLERS ***
-@@ -595,6 +1870,207 @@ var PrefsAssistant = Class.create({
+@@ -595,6 +1897,209 @@ var PrefsAssistant = Class.create({
  			//this.renderDefaultCalendar();
  		}
  	},
@@ -6119,6 +6309,8 @@ index cebe803..a5abd16 100644
 +			this.gotoEditFromTemplate = event.model.value;
 +		} else if(event.model.id == "WorkWeekOnly") {
 +			this.workWeekOnly = event.model.value;
++		} else if(event.model.id == "DuraBtnOnTop") {
++			this.duraBtnOnTop = event.model.value;
 +		} else if(event.model.id == "MonthViewEnhanced") {
 +			this.monthViewEnhanced = event.model.value;
 +			if(event.model.value) {
@@ -6223,7 +6415,7 @@ index cebe803..a5abd16 100644
  	
  	handleAcctsListSelection: function(event) {
  		var id = event.item.accountId;
-@@ -698,8 +2174,20 @@ var PrefsAssistant = Class.create({
+@@ -698,8 +2203,20 @@ var PrefsAssistant = Class.create({
  					label: ONE_HOUR,
  					command: 60
  				}, {
@@ -6244,7 +6436,7 @@ index cebe803..a5abd16 100644
  				}]
  			});
  	},
-@@ -744,34 +2232,336 @@ var PrefsAssistant = Class.create({
+@@ -744,34 +2261,336 @@ var PrefsAssistant = Class.create({
  			});
  	},
  	
