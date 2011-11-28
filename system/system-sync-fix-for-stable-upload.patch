@@ -1,0 +1,58 @@
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js
+index 999a702..5991d68 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js
+@@ -249,7 +249,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		}).then(this, function(future) {
+ 			if (future.result) {
+ 				// TODO: Set up one of these for each synced kind...
+-				if (this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
++				if (this._future.result && this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
+ 					var rev = this.client.transport.modnum;
+ 					var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
+ 					var requiresInternet;
+@@ -627,8 +627,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 						rev = result.local._rev;
+ 					}
+ 				});
+-				this.client.transport.modnum = rev;
+-				this.handler.updateAccountTransportObject(this.client.transport, {modnum: rev});
++				this._latestRev = rev;
+ 				this._localChanges = changes;
+ 				return "getFirstRemoteMatches";
+ 			}
+@@ -874,7 +873,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				}
+ 				else
+ 				{
+-					return "nextType";
++					return "getPostPutRemoteModnum";
+ 				}
+ 			}
+ 			catch (_)
+@@ -914,15 +913,9 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
+-			this.handler.getLatestRev(this._kindName).then(this._gotReply);
+-		},
+-
+-		gotReply: function(join)
+-		{
+ 			try
+ 			{
+-				// Find highest revision
+-				var latestRev = join.result;
++				var latestRev = this._latestRev;
+ 				console.log(">>> getPostPutRemoteModnum: cur: " + this.client.transport.modnum + ", latest: " + JSON.stringify(latestRev));
+ 				if (latestRev > this.client.transport.modnum)
+ 				{
+@@ -1021,7 +1014,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				//		until the user corrects the error
+ 
+ 				//whether or not we notify the user of the error, we need to propagate it upwards
+-				this._future.exception = this._error;
++				this._future.exception = this._error || new Error("Unspecified error");
+ 			});
+ 		}
+ 	}
