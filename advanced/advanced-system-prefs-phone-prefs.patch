@@ -278,10 +278,12 @@
  		height: 160px;
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
-@@ -29,7 +29,23 @@
+@@ -29,7 +29,25 @@
  		this.announcer = this.appAssistant.announcer;
  		this.contacts = this.appAssistant.contacts; 
          Mojo.Log.info( "activecall initialize");
++
++		this.sliderOpen = true;
 +
 +		this.appAssistant.audioSourceChangedManually = false;
 +		this.audioPreviousProfile = null;
@@ -302,7 +304,7 @@
  		this.lastLines = [];
  		this.pauseWaitDigits = [];
  		this.showWaitButtonOnActive = [];
-@@ -151,7 +167,7 @@
+@@ -151,7 +169,7 @@
  		this.appAssistant.telephonyEventListener.addCallStateListener(this);
  		this.appAssistant.telephonyEventListener.addAudioStateListener(this);
  		
@@ -311,7 +313,7 @@
  			visible: true,
              items: [{
                  label: $L('Sounds & Ringtones'),
-@@ -159,6 +175,8 @@
+@@ -159,6 +177,8 @@
              }]
  		}; 
  		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, appMenuModel);
@@ -320,7 +322,7 @@
  		
  		if (!this.abridged && this.appAssistant.focusOnActiveCallSceneCreation === true) {
  			UIStateMachine.event('focus');
-@@ -560,6 +578,10 @@
+@@ -560,6 +580,10 @@
  			&& (this.lastLines[0].state == TelephonyCallState.DIALING || this.lastLines[0].state == TelephonyCallState.DIALPENDING))) {
  				this.setDTMFPadVisibility(false);
  		} 
@@ -331,7 +333,7 @@
  	},
  	
  	// if the first call is an incoming call, don't block dtmf keys
-@@ -1303,6 +1325,22 @@
+@@ -1303,6 +1327,22 @@
          this.controller.document.removeEventListener('keydown', this.boundStartDTMFHardKey);
          this.controller.document.removeEventListener('keyup', this.boundEndDTMFHardKey);
  		
@@ -354,7 +356,7 @@
  		// drop puck subscription
  		this.puckSubscription.cancel();
  		delete this.puckSubscription;
-@@ -1519,7 +1557,8 @@
+@@ -1519,7 +1559,8 @@
      },
      
      enableSpeakerphoneOnPuck: function(){
@@ -364,7 +366,7 @@
              this.onAudioRouteChangeClick("phone_back_speaker");
          }
  	},
-@@ -1591,7 +1630,7 @@
+@@ -1591,7 +1632,7 @@
  			
  			var line = this.lastFormattedCalls[this.getActiveCallLineNumber(this.lastLines)];
  			if (line) {
@@ -373,7 +375,7 @@
  			}
  			this.showDTMF = true;
              this.showConferenceDetails = false;
-@@ -1628,6 +1667,13 @@
+@@ -1628,6 +1669,13 @@
          if (!scenarios) 
              return;
         
@@ -387,7 +389,7 @@
  	    // Create the list of available routes
          var that = this;
  		Object.keys(scenarios).each(function(route){
-@@ -1814,6 +1860,8 @@
+@@ -1814,6 +1862,8 @@
  			var callTimer = "";
  	        var currentTime = new Date().getTime();
  
@@ -396,7 +398,7 @@
  			for (var i = 0; i < lines.length; i++) {
  				if (lines[i].state == TelephonyCallState.ACTIVE) {
  					var startTime = lines[i].startTime;
-@@ -1828,6 +1876,9 @@
+@@ -1828,6 +1878,9 @@
  					callTimer = this.formatTimer(timer);
  				}
  												
@@ -406,7 +408,7 @@
  				if (this.controller.get('call_timer_' + i))
  					this.controller.get('call_timer_' + i).update(callTimer);
  			}
-@@ -2059,4 +2110,87 @@
+@@ -2059,4 +2112,87 @@
  		}
  	},
      
@@ -420,7 +422,7 @@
 +		if((response.key == "slider") && (this.audioActiveProfile == "phone_front_speaker")) {
 +			var newSliderOpenState = (response.state === "up");
 +
-+			if((this.appAssistant.sliderOpen === true) && (newSliderOpenState === false)) {
++			if((this.sliderOpen === true) && (newSliderOpenState === false)) {
 +				// First, "tap" each Disconnect Button.
 +
 +				for(i = 0; i < 3; i++) {
@@ -432,9 +434,9 @@
 +				// The reason we don't just do this one function is that the screen redraw is not pretty.
 +
 +				this.eventListener.disconnectAllCalls();
-+
-+				this.appAssistant.sliderOpen = newSliderOpenState;
 +			}
++
++			this.sliderOpen = newSliderOpenState;
 +		}
 +	},
 +
@@ -793,14 +795,7 @@
  		}
 --- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
 +++ /usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
-@@ -18,12 +18,13 @@
- 		this.soundfile = soundfile;
- 		// NOTE: this is a potentially dangerous assumption
- 		// as long as the subscription doesn't provide initial status, this will be fine.
--		this.sliderOpen = false;
-+		this.appAssistant.sliderOpen = false;
- 		
- 		this.updateFields(contact);
+@@ -24,6 +24,7 @@
  		this.now = new Date();
  		this.windowName = "incoming";
  		this.muted = false;
@@ -820,8 +815,12 @@
  			
  	        this.exposed = true;
  			// turn display on and lock it there
-@@ -333,12 +335,18 @@
- 		
+@@ -330,14 +332,20 @@
+ 		} else {
+ 			return;
+ 		}
+-		
++
  		if (response.key === "slider") {
  			var newSliderOpenState = (response.state === "up");
 -			if (this.exposed
@@ -829,7 +828,7 @@
 -				&& newSliderOpenState === true) {
 -					this.answerCall();
 +
-+			if((this.appAssistant.sliderOpen === false) && (newSliderOpenState === true)) {
++			if((this.sliderOpen === false) && (newSliderOpenState === true)) {
 +				if(this.appAssistant.phonePrefs.sliderOpened != "none") {
 +					if(this.exposed)
 +                  this.answerCall(); 
@@ -837,13 +836,11 @@
 +					if(this.appAssistant.phonePrefs.sliderOpened == "speaker")
 +						TelephonyCommands.setAudioScenario("phone", "phone_back_speaker");
 +				}
-+
-+				this.appAssistant.sliderOpen = newSliderOpenState;
  			}
--			this.sliderOpen = newSliderOpenState;
++
+ 			this.sliderOpen = newSliderOpenState;
  		} 
  	},
- 	
 @@ -372,8 +380,10 @@
  		// answer the call after a delay if we're exposed, set to do so, 
  		// and we were previously on the puck
