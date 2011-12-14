@@ -1,0 +1,70 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 0e239cc..7b3b6ed 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -89,7 +89,7 @@ var BarAssistant = Foundations.Class.create({
+ 			this.initOnServerStart("com.palm.wifi", this.wifiInit.bind(this), this.wifiDeInit.bind(this));
+ 		
+ 		// Initialize and Subscribe for audio Status Notification
+-		//this.initOnServerStart("com.palm.audio", this.audioInit.bind(this));
++		this.initOnServerStart("com.palm.audio", this.muteControl.bind(this));
+ 				
+ 		// Initialize and Subscribe for Update Notification
+ 		this.initOnServerStart("com.palm.update", this.updateInit.bind(this));
+@@ -3348,6 +3348,56 @@ audioInit: function() {
+ 		onSuccess: this.handleVoiceDialingAudioNotifications.bind(this)});
+ },
+ 
++muteControl: function() {
++	this.controller.serviceRequest('palm://com.palm.audio/media', {
++		method:'status',
++		parameters: {"subscribe":true},
++		onSuccess: function(response) {
++			this.setMutedSystem(!response['ringer switch']);
++			this.setMutedRingtone(!response['ringer switch']);
++			this.setMutedMedia(!response['ringer switch']
++					&& (response.scenario=="media_back_speaker"), response.volume);
++		}.bind(this)
++	});
++},
++
++setMutedSystem: function(mute) {
++	this.controller.serviceRequest('palm://com.palm.audio/system', {
++		method:'setMuted',
++		parameters:{muted:mute}
++	});
++},
++
++setMutedRingtone: function(mute) {
++	this.controller.serviceRequest('palm://com.palm.audio/ringtone', {
++		method:'setMuted',
++		parameters:{muted:mute}
++	});
++},
++
++setMutedMedia: function(mute, volume) {
++	if(this.unmutedVal==undefined && !mute) {
++		var cookie = new Mojo.Model.Cookie("unmuted").get() || {volume:volume, muted:false};
++		this.unmutedVal = cookie.volume;
++		this.mutedStatus = cookie.muted;
++	}
++	if(mute!=this.mutedStatus) {
++		var newVolume = this.unmutedVal;
++		if(mute) {
++			this.unmutedVal = volume;
++			newVolume = 0;
++		}
++		this.mutedStatus = mute;
++		var newVolume =
++		this.controller.serviceRequest('palm://com.palm.audio/media', {
++			method:'setVolume',
++			parameters:{volume:newVolume}
++		});
++		var cookie2 = new Mojo.Model.Cookie("unmuted");
++		cookie2.put({volume:this.unmutedVal, muted:this.mutedStatus});
++	}
++},
++
+ handlePhoneAudioNotifications: function(payload) {
+ 	
+ 	if(!payload)

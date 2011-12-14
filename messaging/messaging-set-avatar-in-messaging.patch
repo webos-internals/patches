@@ -1,0 +1,196 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 29204c4..fb37ea8 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -302,6 +302,8 @@ var ChatviewAssistant = Class.create({
+ 	},
+ 	
+ 	setup: function() {
++		var cookie = new Mojo.Model.Cookie("myAvatarPath");
++		this.myAvatar = cookie.get() || "images/list-view-default-avatar.png";
+ 		Mojo.Log.info("++++++ChatviewAssistant::setup");
+ 		this.controller.get('footer').hide();
+ 		this.checkThreadLocked();
+@@ -464,7 +466,9 @@ var ChatviewAssistant = Class.create({
+ 		if (!this.avatarHash.initialized) {
+ 			this.avatarHash.setCallback(function(items, doneCallback) {
+ 				for (i=0; i < items.length; ++i) {
++					if (!(ChatFlags.isOutgoing(items[i]))) {
+ 					items[i].avatar = this.avatarHash.get(items[i]);
++					}
+ 				}
+ 				doneCallback(items);
+ 				// Callback was called, so clear it to prevent inadvertent reuse.
+@@ -2149,7 +2153,7 @@ var ChatviewAssistant = Class.create({
+ 			if (isOutgoingMsg) {
+ 				tmpClass.push("my-chat");
+ 				// Disabling MY avatar because we are not doing this for 1.0  2008-11-05
+-				//msg.avatar = this.myAvatar || 'images/my-avatar.png';
++				msg.avatar = this.myAvatar;
+ 			} else if (isTransientMsg || ChatFlags.isSystem(msg)) {
+ 				// isTransient is set on messages that we added to the chat when the account
+ 				// on the current transport goes online/offline
+@@ -2158,7 +2162,7 @@ var ChatviewAssistant = Class.create({
+ 				tmpClass.push("their-chat");
+ 				msg.avatar = this.avatarHash.get(msg);
+ 			}
+-//			msg.imAvatarOverlay = "images/list-view-avatar-frame.png";
++			msg.imAvatarOverlay = "images/list-view-avatar-frame.png";
+ 
+ 			if(needsDeliveryReport && !hasDeliveryReport) {
+ 				// Waiting for a delivery report
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+index 01cbfcb..ed2387b 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/listview-assistant.js
+@@ -255,6 +255,24 @@ var ListviewAssistant = Class.create({
+ 	},
+ 	
+ 	setup: function() {
++		var cookie = new Mojo.Model.Cookie("myAvatarPath");
++		this.myAvatar = cookie.get();
++		if(this.myAvatar) {
++			this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++				method: "exists",
++				parameters: {file: this.myAvatar},
++				onSuccess: function(response) {
++					if(!response.exists) {
++						cookie.remove();
++					}
++				}.bind(this)
++			});
++		}
++		this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++			method: "createDir",
++			parameters: {path: "/var/luna/files/"}
++		});
++		
+ 		this.appMenuAttrs = {
+ 			omitDefaultItems: true
+ 		};
+@@ -745,9 +763,54 @@ var ListviewAssistant = Class.create({
+ 		}
+ 	},
+ 	
++	deleteAvatar: function() {
++		if(this.myAvatar) {
++			this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++				method: "delete",
++				parameters: {
++					file: this.myAvatar,
++				}
++			});
++		}
++	},
++	
++	copyAvatar: function(filePath) {
++		this.timestamp = new Date().getTime();
++		this.avatarExt = filePath.substring(filePath.lastIndexOf("."));
++		this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++			method: "copy",
++			parameters: {
++				from: filePath,
++				to: "/var/luna/files/_my-avatar-" + this.timestamp + this.avatarExt,
++			},
++			onSuccess: function() {
++				this.myAvatar = "/var/luna/files/_my-avatar-" + this.timestamp
++						+ this.avatarExt;
++				var cookie = new Mojo.Model.Cookie("myAvatarPath");
++				cookie.put(this.myAvatar);
++			}.bind(this)
++		});
++	},
++	
+ 	handleCommand: function(event) {
+ 		// handle menu button command events
+ 		if (event.type === Mojo.Event.command) {
++			if (event.command === 'set-avatar') {
++				var self = this;
++				var params = {
++					extensions: ["bmp", "jpg", "jpeg", "png", "gif"],
++					kinds: ["image", "file"],
++					defaultKind: "image",
++					actionName: "Set Avatar",
++					onSelect: function(file){
++						self.deleteAvatar();
++						self.copyAvatar(file.fullPath);
++					}
++				};
++				Mojo.FilePicker.pickFile(params, this.controller.stageController);
++				event.stop();
++				return;
++			}
+ 			// determine if we have a target function for this command
+ 			for (var k in this.COMMAND_MENU) {
+ 				var menuCommand = this.COMMAND_MENU[k];
+@@ -781,6 +844,7 @@ var ListviewAssistant = Class.create({
+ 			enabled: true
+ 		};
+ 		var items = [Mojo.Menu.editItem];
++		items.push({label: "Set Avatar", command: "set-avatar"});
+ 		if (this.toEnableAddBuddyMenuItem === true) {
+ 			var appMenuAddBuddyItem = {
+ 				label: $L('Add Buddy'),
+diff --git a/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css b/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
+index 59607ca..4edbcd3 100644
+--- a/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
++++ b/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
+@@ -85,7 +85,7 @@
+ 	position: absolute;
+ 	top: 50%;
+ 	right: 0;
+-	margin-top: -30px;
++	margin-top: -32px;
+ }
+ 
+ .login-animation-available,
+@@ -403,7 +403,7 @@
+ 		height: 48px;
+ 		width: 48px;
+ 		border: 0;
+-}
++}*/
+ 
+ #myAvatar {
+ 		height: 34px;
+@@ -414,7 +414,7 @@
+ 		background-color: #999;
+ 		border: 1px solid #000;
+ }
+-*/
++
+ #listviewToggle {
+ 		position: fixed;
+ 		padding-left: 6px;
+@@ -622,6 +622,7 @@
+ 
+ .chat-entry.my-chat .chat-balloon {
+ 		-webkit-border-image: url(../images/chatview/chat-balloon-right.png) 10 10 10 10 stretch stretch;
++		min-height:33px;
+ }
+ 
+ .chat-entry.my-chat.error .chat-balloon, 
+@@ -702,6 +703,10 @@
+ 		word-wrap: break-word !important;
+ }
+ 
++.my-chat .chat-balloon-wrapper {
++		padding-right: 30px;
++}
++
+ .chat-entry .message-body {
+ 		display: -webkit-box;
+ 		-webkit-box-orient: vertical;
+@@ -717,12 +722,6 @@
+ 	margin: -5px 0 0;
+ }
+ 
+-/* Hide user avatar */
+-
+-.my-chat .avatar-set,
+-.my-chat .avatar-container {
+-		display: none;
+-}
+ .mms-forward-placeholder .avatar-wrapper {
+ 		display: none;
+ }

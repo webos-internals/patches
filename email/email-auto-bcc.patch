@@ -1,0 +1,309 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js
+index 15f6bac..5061f45 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js
+@@ -68,6 +68,12 @@ AccountpreferencesAssistant.prototype.setup = function() {
+ 	this.controller.setupWidget('sync-server-deleted-toggle', this.syncServerDeletedOptions, this.accountPrefs);
+ 	
+ 	this.controller.setupWidget('signature', {}, this.accountPrefs);
++	
++	// autobcc
++	var autobcc_cookie = new Mojo.Model.Cookie("bcc_cookie:" + this.account._id);
++	var autobccValue = autobcc_cookie.get();
++	this.controller.setupWidget('autobcc',  this.autobccAttributes, this.autobccModel = { value: autobccValue });
++	
+ 	this.controller.setupWidget('reply-to', this.replyToAttributes, this.accountPrefs);
+ 	this.controller.setupWidget('full-name', this.displayNameAttributes, this.accountPrefs);
+ 	
+@@ -256,6 +262,10 @@ AccountpreferencesAssistant.prototype.handleSaveAccount = function() {
+ 	if (this.accountPrefs.notifications.enabled === false) {
+ 		Mojo.Controller.getAppController().assistant.notificationAssistant.clear(this.account._id);
+ 	}
++
++	// autobcc
++	var bcc_cookie = new Mojo.Model.Cookie("bcc_cookie:" + this.account._id);
++	bcc_cookie.put(this.autobccModel.value);
+ 	
+ 	// Handle case where user set alerts to play a ringtone, but then didn't choose a ringtone.
+ 	// Default back to "play system sound".
+@@ -497,6 +507,11 @@ AccountpreferencesAssistant.prototype.replyToAttributes = {
+ 	acceptBack: true
+ };
+ 
++AccountpreferencesAssistant.prototype.autobccAttributes = {
++	textReplacement: false,
++	acceptBack: true // ?
++};
++
+ //this.mailFormats =  {
+ //	modelProperty: 'useHTML',
+ //	label: $L("Mail format"),
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
+index 55f61d0..5a00398 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
+@@ -102,10 +102,11 @@ ComposeAssistant.prototype.activate = function() {
+ 		// The CC and BCC must begin life shown, so here we determine if they should be hidden.
+ 		// Show if they have contacts in them, otherwise hide. 
+ 		if (this.parsedRecips[EmailRecipient.typeBcc] && this.parsedRecips[EmailRecipient.typeBcc].length > 0) {
++			this.setupCCWidgets();
+ 			this.showingRecipients = true;
+-			this.ccElement.style.display='';
++			//this.ccElement.style.display='';
+ 			this.bccElement.style.display='';
+-			this.controller.showWidgetContainer(this.ccElement);
++			//this.controller.showWidgetContainer(this.ccElement);
+ 			this.controller.showWidgetContainer(this.bccElement);
+ 		}
+ 
+@@ -168,6 +169,16 @@ ComposeAssistant.prototype.setup = function() {
+ 	this.controller.get('email-composeview-from').addEventListener(Mojo.Event.propertyChange, this.boundSenderAccountChanged);
+ 	// need to determine type of account  
+ 	this.renderListOfUserAccount(EmailApp.accounts.list);
++	// autobcc 
++	var autobcc_cookie = new Mojo.Model.Cookie("bcc_cookie:" + this.composition.accountId);
++	var autobccValue = autobcc_cookie.get();
++	if (autobccValue && autobccValue.length > 0) {
++		var newRecip = {};
++		newRecip.type = EmailRecipient.typeBcc;
++		newRecip.addr = autobccValue;
++		newRecip.name = autobccValue;
++		this.composition.email.to.push(newRecip);
++	}
+ 
+ 	// Add address picker
+ 	this.parsedRecips = EmailRecipient.separateRecipients(this.composition.email.to);
+diff --git a/usr/palm/applications/com.palm.app.email/app/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/app/views/accountpreferences/accountpreferences-scene.html
+index 655326c..2f02d41 100644
+--- a/usr/palm/applications/com.palm.app.email/app/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/app/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title" x-mojo-loc=''>Reply-To Address</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html
+index 14a8e92..ac24333 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Antwortadresse</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountpreferences/accountpreferences-scene.html
+index 6bdefda..7e8b6ad 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Reply-To Address</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountpreferences/accountpreferences-scene.html
+index 6bdefda..7e8b6ad 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Reply-To Address</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/es/es/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/es/es/views/accountpreferences/accountpreferences-scene.html
+index f0858ef..a241537 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/es/es/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/es/es/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Dirección de respuesta</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html
+index da84d6e..e46c465 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Dirección de respuesta</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountpreferences/accountpreferences-scene.html
+index 7023f87..bce86eb 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Adresse pour réponse</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html
+index 6dde270..f797c16 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Adresse pour réponse</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">
+diff --git a/usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html b/usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html
+index c3b27d3..e623987 100644
+--- a/usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html
++++ b/usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html
+@@ -84,6 +84,21 @@
+ 	</div> 
+ </div>
+ 
++<div id="edit-account-autobcc" class="palm-group">
++	<div class="palm-group-title" x-mojo-loc=''>Auto Bcc</div>
++	<div class="palm-list">
++		<div class="palm-row single">
++			<!-- <div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true" style="margin: -16px -15px -15px -16px;">		    -->
++			<!-- <div id="autobcc" style="min-height: 72px;" x-mojo-element="RichTextEdit"></div> -->
++			<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true">		   
++				<div class="title">
++				        <div id="autobcc" x-mojo-element="TextField"></div>
++				</div>
++			</div>		          
++		</div>  
++	</div> 
++</div>
++
+ <div id="edit-account-reply-to" class="palm-group">
+ 	<div class="palm-group-title">Indirizzo di risposta</div>
+ 	<div id="edit-account-reply-to-list" class="palm-list">

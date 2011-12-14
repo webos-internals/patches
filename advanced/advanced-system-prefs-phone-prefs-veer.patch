@@ -1,0 +1,1550 @@
+--- .orig/etc/palm/db/permissions/com.palm.person.speeddialbackup
++++ /etc/palm/db/permissions/com.palm.person.speeddialbackup
+@@ -31,5 +31,16 @@
+ 			"delete": "allow",
+ 			"update": "allow"
+ 		}
++	},
++	{
++		"type": "db.kind",
++		"object": "com.palm.person.speeddialbackup:1",
++		"caller": "com.palm.app.phone",
++		"operations": {
++			"read": "allow",
++			"create": "allow",
++			"delete": "allow",
++			"update": "allow"
++		}
+ 	}
+ ]
+--- .orig/usr/palm/applications/com.palm.app.phone/sources.json
++++ /usr/palm/applications/com.palm.app.phone/sources.json
+@@ -141,6 +141,15 @@
+     "source": "app/controllers/pin-assistant.js"
+   },
+   {
++    "source": "app/controllers/dialingshortcut-assistant.js"
++  },
++  {
++    "source": "app/controllers/notify-assistant.js"
++  },
++  {
++    "source": "app/controllers/prefs-assistant.js"
++  },
++  {
+     "source": "app/models/DBModels.js"
+   },
+   {
+@@ -172,6 +181,9 @@
+     "source": "app/models/states/Abstract.js"
+   },
+   {
++    "source": "app/models/states/Prefs.js"
++  },
++  {
+     "source": "app/models/states/Start.js"
+   },
+   {
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/app-assistant.js
+@@ -2,6 +2,12 @@
+ 
+ function AppAssistant(appController) {
+ 	var libraries;
++
++	this.phonePrefs = {};
++	this.rejectedPrefs = {};
++	this.notificationPrefs = {};
++
++	this.sliderOpen = false;
+ 	
+    // Mojo.Log.info( "AppAssistant");
+ 
+@@ -77,6 +83,8 @@
+ 		Mojo.Log.error("PHONE APP FAILED TO LOAD BECAUSE AN EXCEPTION WAS THROWN BY A DEPENDENCY. EXCEPTION DETAILS TO FOLLOW.");
+ 		throw e;
+ 	}
++
++	this.loadPreferences();
+ };
+ 
+ AppAssistant.prototype.setup = function() {
+@@ -108,6 +116,10 @@
+ 	} else if (event.type == Mojo.Event.command) {
+ 		// handle app menu items common to all scenes
+ 		switch (event.command) {
++			case MenuController.kPrefsMenuItem.command:
++				UIStateMachine.enter('prefs', this.phonePrefs, this.rejectedPrefs, this.notificationPrefs);
++				break;
++
+ 			case Mojo.Menu.prefsCmd:
+ 				MenuController.showPrefs();
+ 				break;
+@@ -134,6 +146,69 @@
+ 	}
+ };
+ 
++AppAssistant.prototype.loadPreferences = function() {
++	var cookieContainer = new Mojo.Model.Cookie("phone");
++
++	this.phonePrefs = cookieContainer.get();
++
++	if(!this.phonePrefs) {
++		this.phonePrefs = {
++			version: 1,
++			closeApp: false,
++			startView: "default",
++			powerButton: "none",
++			sliderOpened: "answer",
++			sliderClosed: "hangup",
++			autoDialing: "call",
++			removedFromTS: "answer",
++			proximityAction: "none"
++		};
++	}
++
++	this.rejectedPrefs = {
++		rejectAction: "none",
++		rejectTemplate: $L("Sorry, I am currently busy and will call you back later...")
++	};
++
++	this.notificationPrefs = {
++		notificationVisual: true,
++		notificationBlink: true,
++		notificationSound: "alert",
++		ringtoneName: "",
++		ringtonePath: "",
++		repeatInterval: 0,
++		repeatLimitation: 3
++	};
++
++	this.getPreferencesSubscription = new Mojo.Service.Request('palm://com.palm.systemservice/', {
++		method: 'getPreferences', parameters: {subscribe: true, keys: ["callRejection", "callNotification"]},
++		onSuccess: function(response) {
++			if(response.callRejection)
++				this.rejectedPrefs = response.callRejection;
++
++			if(response.callNotification) {
++				for(var key in response.callNotification) {
++					if(response.callNotification[key] != undefined)
++						this.notificationPrefs[key] = response.callNotification[key];
++				}
++			}
++		}.bind(this)});
++
++	this.getPhoneAppTweaksRequest = new Mojo.Service.Request('palm://org.webosinternals.tweaks.prefs/', {
++		method: 'get', parameters: {owner: "org.webosinternals.patches.advanced-system-prefs-phone-prefs",
++			keys: ["phoneSliderOpened", "phoneSliderClosed", "phonePowerButton"]},
++		onSuccess: function(response) {
++			if(response.phoneSliderOpened)
++				this.phonePrefs.sliderOpened = response.phoneSliderOpened
++
++			if(response.phoneSliderClosed)
++				this.phonePrefs.sliderClosed = response.phoneSliderClosed
++
++			if(response.phonePowerButton)
++				this.phonePrefs.powerButton = response.phonePowerButton
++		}.bind(this)});
++}
++
+ AppAssistant.prototype.loadProperties = function() {
+ 	var sourcesText = palmGetResource(Mojo.appPath + "properties.json", true);
+ 	if (sourcesText) {
+@@ -151,6 +226,10 @@
+ 	// reset aborted active call
+ 	this.telephonyEventListener.continueCall = true;
+ 	
++	this.clearCloseMissedCallTimeout();
++	
++	this.removePlayNotificationSoundTask();
++
+ 	if (args) {
+ 		Mojo.Log.info( "handleLaunch args %j",args);
+ 		
+@@ -271,11 +350,23 @@
+ 			this.createLockStage();
+ 			this.loadSettings();
+ 			return;
++		} else if (args.closeMissedCallPopup) {
++			Mojo.Controller.getAppController().closeStage("missed");
++
++			return;
++		} else if (args.playNotificationSound) {
++			// Delay playing to go around WebOS bug (sound not playing).
++
++			setTimeout(this.playNotificationSound.bind(this, args.playNotificationSound), 1000);
++			return;
+ 		} else {
+ 			// when in first use, always default to doing nothing for invalid args; 
+ 			// otherwise default to showing dialpad
+ 			if ( ! PalmSystem.isMinimal ) {
+-				UIStateMachine.event("launch");
++				if(UIStateMachine.get().currentState.getName() == "start")
++					UIStateMachine.event("launch", this.phonePrefs.startView);
++				else
++					UIStateMachine.event("launch");
+ 			}
+ 		}
+     } else {
+@@ -284,7 +375,7 @@
+ 			if (this.initialLaunch === false) {
+ 				Mojo.Log.info( "handleLaunch", "no args, no calls: focusing stage");
+ 				
+-				UIStateMachine.event("launch");
++				UIStateMachine.event("launch", this.phonePrefs.startView);
+ 			} else {
+ 				Mojo.Log.info( "handleLaunch", "initial launch, so doing nothing");
+ 				this.initialLaunch = false;
+@@ -297,6 +388,28 @@
+     }
+ };
+ 
++AppAssistant.prototype.clearCloseMissedCallTimeout = function(count) {
++	new Mojo.Service.Request('palm://com.palm.power/timeout/', {'method': "clear",
++		'parameters': {'key': 'phoneMissedTimeout'} });
++};
++
++AppAssistant.prototype.playNotificationSound = function(count) {
++	var stageController = Mojo.Controller.getAppController().getStageController("misseddash");
++
++	if (stageController) {
++		stageController.delegateToSceneAssistant("playNotificationSound");
++
++		stageController.delegateToSceneAssistant("schedulePlayNotificationSoundTask", count);
++	}
++};
++
++AppAssistant.prototype.removePlayNotificationSoundTask = function() {
++	var stageController = Mojo.Controller.getAppController().getStageController("misseddash");
++
++	if (stageController)
++		stageController.delegateToSceneAssistant("removePlayNotificationSoundTask");
++};
++
+ // Public API way of launching the phone app to a number (or opening skypevm)
+ AppAssistant.prototype.launchURI = function(uri) {
+ 	var uriNoPrefix = uri.replace(/^((tel:)|(wtai:)|(skypevm:\/\/))/,''),
+@@ -394,7 +507,10 @@
+ 				|| contact.addr.charAt(0) === '#'
+ 				|| ! this.telephonyEventListener.serviced)) {
+ 			
+-			UIStateMachine.event("dial", {"action": "dial", "number": contact.addr});
++			if(this.phonePrefs.autoDialing != "none")
++				UIStateMachine.event("dial", {"action": "dial", "number": contact.addr});
++			else
++				UIStateMachine.event("dial", {"action": "fill", "number": contact.addr});
+ 		
+ 		// CASE: just dial
+ 		} else {
+@@ -407,11 +523,16 @@
+ 				} else {
+ 					this.focusOnActiveCallSceneCreation = true;
+ 				}
+-				contact.placeCall(this.dialFailure.bind(this), parseResult);
+-			
++				if(this.phonePrefs.autoDialing != "none")
++					contact.placeCall(this.dialFailure.bind(this), parseResult);
++				else
++					UIStateMachine.event("dial", {"action": "fill", "number": contact.addr});
+ 			// CASE: not immediately dialable. Let dialpad try it
+ 			} else {
+-				UIStateMachine.event("dial", {"action": "dial", "number": contact.addr});
++				if(this.phonePrefs.autoDialing != "none")
++					UIStateMachine.event("dial", {"action": "dial", "number": contact.addr});
++				else
++					UIStateMachine.event("dial", {"action": "fill", "number": contact.addr});
+ 			}
+ 		}
+ 		
+--- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/active-call.css
++++ /usr/palm/applications/com.palm.app.phone/stylesheets/active-call.css
+@@ -173,7 +173,7 @@
+ 		padding: 0;
+ 		width: 320px;
+ 		position: relative;
+-		min-height: 170px;
++		min-height: 202px;
+ 		margin-top: 50px;
+ }
+ 
+@@ -575,7 +575,7 @@
+ 
+ .contact-picture {
+ 		position: absolute;
+-		left: 5px;
++		left: auto;
+ 		top: 17px;
+ 		width: 310px;
+ 		height: 160px;
+@@ -699,7 +699,7 @@
+ }
+ 
+ .contact-text .truncating-text {
+-		padding: 0 45px;
++		padding: 5px 45px 0 45px;
+ }
+ 
+ .no-add-contact-icon .contact-text .truncating-text {
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/activecall-assistant.js
+@@ -29,7 +29,23 @@
+ 		this.announcer = this.appAssistant.announcer;
+ 		this.contacts = this.appAssistant.contacts; 
+         Mojo.Log.info( "activecall initialize");
++
++		this.appAssistant.audioSourceChangedManually = false;
++		this.audioPreviousProfile = null;
++
++		this.sliderSubscription = TelephonyCommands.sliderSubscribe(
++			this.onSliderEventDuringCall.bind(this));
+        	
++		if(this.appAssistant.phonePrefs.powerButton == "hangup") {
++			this.powerButtonSubscription = TelephonyCommands.powerButtonSubscribe(
++			true, 'activecall', this.onPowerButtonEventDuringCall.bind(this));
++		}
++
++		if(this.appAssistant.phonePrefs.proximityAction == "change") {
++			this.displayStatusSubscription = TelephonyCommands.displayStatusSubscribe(
++				this.onDisplayEventDuringCall.bind(this));
++		}
++
+ 		this.lastLines = [];
+ 		this.pauseWaitDigits = [];
+ 		this.showWaitButtonOnActive = [];
+@@ -151,7 +167,7 @@
+ 		this.appAssistant.telephonyEventListener.addCallStateListener(this);
+ 		this.appAssistant.telephonyEventListener.addAudioStateListener(this);
+ 		
+-		var appMenuModel = {
++/*		var appMenuModel = {
+ 			visible: true,
+             items: [{
+                 label: $L('Sounds & Ringtones'),
+@@ -159,6 +175,8 @@
+             }]
+ 		}; 
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, appMenuModel);
++*/
++		MenuController.setupAppMenu(this.controller);
+ 		
+ 		if (!this.abridged && this.appAssistant.focusOnActiveCallSceneCreation === true) {
+ 			UIStateMachine.event('focus');
+@@ -560,6 +578,10 @@
+ 			&& (this.lastLines[0].state == TelephonyCallState.DIALING || this.lastLines[0].state == TelephonyCallState.DIALPENDING))) {
+ 				this.setDTMFPadVisibility(false);
+ 		} 
++		else if (this.showDTMF === false && lineState.length > 0 && lineState.length == 1 && this.lastLines.length == 1 &&
++			lineState[0].state == TelephonyCallState.ACTIVE && lineState[0].origin === TelephonyCallState.DIALING) {
++			this.setDTMFPadVisibility(true);
++		}
+ 	},
+ 	
+ 	// if the first call is an incoming call, don't block dtmf keys
+@@ -1305,6 +1327,22 @@
+         this.controller.document.removeEventListener('keydown', this.boundStartDTMFHardKey);
+         this.controller.document.removeEventListener('keyup', this.boundEndDTMFHardKey);
+ 		
++		// remove slider listener
++		this.sliderSubscription.cancel();
++		delete this.sliderSubscription;
++
++		// remove power button listener
++		if(this.appAssistant.phonePrefs.powerButton == "hangup") {
++			this.powerButtonSubscription.cancel();
++			delete this.powerButtonSubscription;
++		}
++
++		// remove display status listener
++		if(this.appAssistant.phonePrefs.proximityAction == "change") {
++			this.displayStatusSubscription.cancel();
++			delete this.displayStatusSubscription;
++		}
++	
+ 		// drop puck subscription
+ 		this.puckSubscription.cancel();
+ 		delete this.puckSubscription;
+@@ -1521,7 +1559,8 @@
+     },
+     
+     enableSpeakerphoneOnPuck: function(){
+-        if (this.puckConnected === true && this.audioActiveProfile !== "phone_back_speaker") {
++        if (this.puckConnected === true && this.audioActiveProfile === "phone_front_speaker")
++        {
+             this.onAudioRouteChangeClick("phone_back_speaker");
+         }
+ 	},
+@@ -1593,7 +1632,7 @@
+ 			
+ 			var line = this.lastFormattedCalls[this.getActiveCallLineNumber(this.lastLines)];
+ 			if (line) {
+-				this.controller.get('dtmf_name').innerHTML = line.contact;
++				this.controller.get('dtmf_numbers').innerHTML = line.contact;
+ 			}
+ 			this.showDTMF = true;
+             this.showConferenceDetails = false;
+@@ -1630,6 +1669,13 @@
+         if (!scenarios) 
+             return;
+        
++		if(this.appAssistant.phonePrefs.proximityAction == "change") {
++			this.appAssistant.audioSourceChangedManually = true;
++
++			if(this.audioActiveProfile != "phone_front_speaker")
++				this.appAssistant.telephonyEventListener.proxOff();
++		}
++
+ 	    // Create the list of available routes
+         var that = this;
+ 		Object.keys(scenarios).each(function(route){
+@@ -1816,6 +1862,8 @@
+ 			var callTimer = "";
+ 	        var currentTime = new Date().getTime();
+ 
++			var activeCall = this.getActiveCallLineNumber(lines);
++
+ 			for (var i = 0; i < lines.length; i++) {
+ 				if (lines[i].state == TelephonyCallState.ACTIVE) {
+ 					var startTime = lines[i].startTime;
+@@ -1830,6 +1878,9 @@
+ 					callTimer = this.formatTimer(timer);
+ 				}
+ 												
++				if(activeCall == i)
++					this.controller.get('call_duration').update(callTimer);
++
+ 				if (this.controller.get('call_timer_' + i))
+ 					this.controller.get('call_timer_' + i).update(callTimer);
+ 			}
+@@ -2061,4 +2112,87 @@
+ 		}
+ 	},
+     
++	onSliderEventDuringCall: function(response) {
++		if((!response) || (!response.key) || (!response.state))
++			return;
++
++		if(this.appAssistant.phonePrefs.sliderClosed == "none")
++			return;
++
++		if((response.key == "slider") && (this.audioActiveProfile == "phone_front_speaker")) {
++			var newSliderOpenState = (response.state === "up");
++
++			if((this.appAssistant.sliderOpen === true) && (newSliderOpenState === false)) {
++				// First, "tap" each Disconnect Button.
++
++				for(i = 0; i < 3; i++) {
++					if(this.controller.get("disc_button_" + i))
++						Mojo.Event.send(this.controller.get("disc_button_" + i), Mojo.Event.tap);
++				}
++
++				// In case there are calls not disconnected, just call the function to disconnect all calls.
++				// The reason we don't just do this one function is that the screen redraw is not pretty.
++
++				this.eventListener.disconnectAllCalls();
++
++				this.appAssistant.sliderOpen = newSliderOpenState;
++			}
++		}
++	},
++
++	onPowerButtonEventDuringCall: function(response) {
++		if((!response) || (!response.powerKey))
++			return;
++
++		if(this.appAssistant.phonePrefs.powerButton == "none")
++			return;
++
++		if((response.powerKey == 'released') && 
++			((this.audioActiveProfile == "phone_front_speaker") ||
++			((!this.appAssistant.audioSourceChangedManually) &&
++			(this.appAssistant.phonePrefs.proximityAction == "change"))))
++		{
++			// First, "tap" each Disconnect Button.
++
++			for(i = 0; i < 3; i++) {
++				if(this.controller.get("disc_button_" + i))
++					Mojo.Event.send(this.controller.get("disc_button_" + i), Mojo.Event.tap);
++			}
++
++			// In case there are calls not disconnected, just call the function to disconnect all calls.
++			// The reason we don't just do this one function is that the screen redraw is not pretty.
++
++			this.eventListener.disconnectAllCalls();
++		}
++	},
++
++	onDisplayEventDuringCall: function(response) {
++		if(this.appAssistant.screenLocked)
++			return;
++
++		if(this.appAssistant.audioSourceChangedManually)
++			return;
++
++		if(this.appAssistant.phonePrefs.proximityAction != "change")
++			return;
++
++		if(this.eventListener.proxEnabled) {
++			if(response && (response.event || response.state)) {
++				if(response.event == "displayOn" || response.state == "on") {
++					if(this.audioActiveProfile !== this.audioPreviousProfile) {
++						if(this.audioPreviousProfile !== null)
++							this.onAudioRouteChangeClick(this.audioPreviousProfile);
++					}
++				} else if(response.event == "displayOff" || response.state == "off") {
++					if(this.audioActiveProfile !== "phone_front_speaker") {
++						this.audioPreviousProfile = this.audioActiveProfile;
++						
++						this.onAudioRouteChangeClick("phone_front_speaker");
++					}
++					else if(this.audioPreviousProfile === null)
++						this.audioPreviousProfile = "phone_back_speaker";
++				}
++			}
++		}
++	}
+ });
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/announcer-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/announcer-assistant.js
+@@ -47,7 +47,7 @@
+ 	onAnnounceCreated: function(windowName, single, icon, itemcount, title, message, iconCallback, messageCallback, timestamp, badgeTemplate, stagecontrol) {
+ 		Mojo.Log.info( "onAnnounceCreated");
+ 		
+-		stagecontrol.pushScene({"name": "dashannounce"}, windowName, single, icon, itemcount, title, message, iconCallback, messageCallback, timestamp, badgeTemplate);
++		stagecontrol.pushScene({"name": "dashannounce"}, windowName, single, icon, itemcount, title, message, iconCallback, messageCallback, timestamp, badgeTemplate, this.appAssistant.notificationPrefs);
+ 	},
+ 
+ 	announceClear: function(windowName) {
+@@ -281,10 +281,23 @@
+ 			this.announceMissedDashboard(contact, timeStamp);
+ 			
+ 		} else {
++			if(this.appAssistant.notificationPrefs.notificationVisual == false)
++				return;
+ 			
+ 			// turn display on
+ 			TelephonyCommands.displayOn();
+ 			
++			var notifyType = this.appAssistant.notificationPrefs.notificationSound;
++
++			var ringtonePath = this.appAssistant.notificationPrefs.ringtonePath;
++
++			if(notifyType == "ringtone")
++				this.appControl.playSoundNotification("notifications", ringtonePath);
++			else if(notifyType == "alert")
++				this.appControl.playSoundNotification("alerts");
++			else if(notifyType == "vibrate")
++				this.appControl.playSoundNotification("vibrate");
++
+ 			// if the window already exists, abandon ship
+ 			if (this.appControl.getStageController("missed") !== undefined) {
+ 				Mojo.Log.info( "announceMissed, window exists");
+@@ -295,6 +308,7 @@
+ 						lightweight: true,
+ 						name: "missed", 
+ 						height: MissedcallAssistant.getPopupHeight(contact), 
++						soundclass: "none"
+ 					},
+ 					function(stageController) {
+ 						stageController.pushScene({"name": "missedcall"}, contact, timeStamp);
+@@ -471,6 +485,9 @@
+ 			soundClass = "ringtones";
+ 		}
+ 		
++		if(contact.callAlert)
++			soundClass = contact.callAlert;
++
+ 		/* TODO if you want to override the ringer switch when a charger connected, 
+ 			(puck or USB) comment out the code above and replace it with this.
+ 		
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/calllog-assistant.js
+@@ -304,10 +304,12 @@
+ 		while ( target && (name = target.getAttribute('name')) != "rowdrawer" ) {
+ 			switch (name) {
+ 				case "sms":
++					this.closeDrawer();
+ 					isSMS = true;
+ 					break; // continue loop
+ 					
+ 				case "number":
++					this.closeDrawer();
+ 					if ( isSMS ) {
+ 						TelephonyCommands.messagingLaunch(target.getAttribute('addr'), target.getAttribute('service'), itemModel.recentcall_address.personId);
+ 					} else {
+@@ -316,6 +318,7 @@
+ 					return;
+ 					
+ 				case "contact":
++					this.closeDrawer();
+ 					if ( itemModel.recentcall_address.personId ) {
+ 						TelephonyCommands.contactsLaunchWithId(itemModel.recentcall_address.personId);
+ 					} else {
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/dashannounce-assistant.js
+@@ -1,7 +1,7 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+ var DashannounceAssistant = Class.create({
+-	initialize: function(windowName, single, icon, itemcount, title, message, iconCallback, messageCallback, timestamp, badgeTemplate) {
++	initialize: function(windowName, single, icon, itemcount, title, message, iconCallback, messageCallback, timestamp, badgeTemplate, notificationPrefs) {
+ 	    Mojo.Log.info( "DashannounceAssistant::initialize");
+ 	   	this.windowName = windowName;
+ 		this.single = single;
+@@ -11,6 +11,7 @@
+ 		this.message = message;
+ 		this.iconCallback = iconCallback;
+ 		this.badgeTemplate = badgeTemplate;
++		this.notificationPrefs = notificationPrefs;
+ 		if (messageCallback) {
+ 			this.messageCallback = messageCallback;
+ 		} else {
+@@ -40,7 +41,11 @@
+ 	   this.controller.get('title').innerHTML = this.title;
+ 	   this.controller.get('message').innerHTML = this.message;
+ 	   this.controller.listen(this.controller.document, Mojo.Event.windowActivate, this.onFocus.bindAsEventListener(this));
+-	   this.controller.stageController.indicateNewContent(true);
++
++		if(this.notificationPrefs.notificationBlink)
++		   this.controller.stageController.indicateNewContent(true);
++
++		this.schedulePlayNotificationSoundTask(0);
+   },
+   onFocus:function() {
+   	if (this.missedTimeStamp && this.windowName == 'misseddash') {
+@@ -57,11 +62,15 @@
+   deactivate:function(){
+ 	this.controller.stopListening(this.controller.document, Mojo.Event.windowActivate, this.onFocus);
+   	
++	this.removePlayNotificationSoundTask();
+   },
+ 
+   // run callback and close this
+   onIconTap: function () {
+ 	Mojo.Log.info( "DashannounceAssistant::onTap", "windowName:" , this.windowName);
++
++	this.removePlayNotificationSoundTask();
++	
+ 	if (this.iconCallback) {
+ 		this.iconCallback();
+ 	} else {
+@@ -71,6 +80,9 @@
+   
+   onMessageTap: function () {
+ 	Mojo.Log.info( "DashannounceAssistant::onTap", "windowName:" , this.windowName);
++
++	this.removePlayNotificationSoundTask(); 
++	
+ 	if (this.messageCallback) {
+ 		this.messageCallback();
+ 	} else {
+@@ -91,7 +103,11 @@
+ 	this.itemcount = itemcount;
+ 	this.badgeTemplate = badgeTemplate;
+ 	this.updateBadge();
+-	this.controller.stageController.indicateNewContent(true);
++
++	if(this.notificationPrefs.notificationBlink)
++		this.controller.stageController.indicateNewContent(true);
++
++	this.schedulePlayNotificationSoundTask(0);
+   },
+   
+   updateBadge: function() {
+@@ -115,7 +131,60 @@
+ 		this.controller.get('badge').innerHTML = "";
+ 		this.controller.get('notification').addClassName("single");
+ 	}
+-  }
++  },
+   
++	schedulePlayNotificationSoundTask: function(count) {
++		if(this.notificationPrefs.notificationSound == "mute")
++			return;
++
++		if((this.notificationPrefs.repeatInterval > 0) && (count++ < this.notificationPrefs.repeatLimitation)) {
++			var currentTime = new Date();
++
++			var repeatInterval = this.notificationPrefs.repeatInterval;
++
++			if(count == 1)
++				var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000) - 60000);
++			else
++				var playSoundTime = new Date(currentTime.getTime() + (parseInt(repeatInterval) * 1000));
++
++			var month = playSoundTime.getUTCMonth()+1;
++			if(month < 10) month = "0" + month;
++			var day = playSoundTime.getUTCDate();
++			if(day < 10) day = "0" + day;
++			var year = playSoundTime.getUTCFullYear();
++
++			var hours = playSoundTime.getUTCHours();
++			if(hours < 10) hours = "0" + hours;
++			var minutes = playSoundTime.getUTCMinutes();
++			if(minutes < 10) minutes = "0" + minutes;
++			var seconds = playSoundTime.getUTCSeconds();
++			if(seconds < 10) seconds = "0" + seconds;
++
++			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++
++			this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++				'method': "set", 'parameters': {'key': 'phonePlayNotificationSound',
++				'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open",
++				'params': {'id': 'com.palm.app.phone', 'params': {'playNotificationSound': count}}} });
++		}
++	},
++
++	removePlayNotificationSoundTask: function() {
++		this.removeTimeoutRequest = new Mojo.Service.Request("palm://com.palm.power/timeout/", {
++			'method': "clear", 'parameters': {"key": 'phonePlayNotificationSound'} });
++	},
++
++	playNotificationSound: function() {
++		var notifyType = this.notificationPrefs.notificationSound;
++
++		var ringtonePath = this.notificationPrefs.ringtonePath;
++
++		if(notifyType == "ringtone")
++			Mojo.Controller.getAppController().playSoundNotification("notifications", ringtonePath);
++		else if(notifyType == "alert")
++			Mojo.Controller.getAppController().playSoundNotification("alerts");
++		else if(notifyType == "vibrate")
++			Mojo.Controller.getAppController().playSoundNotification("vibrate");
++	}
+ });
+ 
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/dialpad-assistant.js
+@@ -259,6 +259,9 @@
+ 			Mojo.Log.info( "DialpadAssistant#handleSceneArgs", "fill: " , params.number);
+ 			// TODO: can't immediately set it if setup hasn't been finished since
+ 			// formatAndUpdateDialString will change visibility only to have it undone by the rest of setup
++
++			DialStringParser.clearDebounceTimeout();
++
+ 			if (this.setupComplete) {
+ 				this.clear();
+ 				this.hidePicker();
+--- .orig/usr/palm/applications/com.palm.app.phone/app/views/activecall/dtmf.html
++++ /usr/palm/applications/com.palm.app.phone/app/views/activecall/dtmf.html
+@@ -2,7 +2,7 @@
+ 	<div class="input-field">
+ 			<div class="truncating-text text-input" id="dtmf_numbers"></div> 
+ 	</div>
+-	<div id="dtmf_name" class="activecall-name truncating-text" style="display: none"></div>
++	<div id="call_duration" class="activecall-name truncating-text" style="display: none"></div>
+ 	<div id="numbers" class="keypad-dtmf keypad-flex">
+         <div id="keypad_buttons" class="keypad-buttons">
+             <div class="key glassbutton one" id="dtmf_1" x-mojo-touch-feedback="spontaneous">
+--- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/dtmfpad.css
++++ /usr/palm/applications/com.palm.app.phone/stylesheets/dtmfpad.css
+@@ -3,6 +3,7 @@
+ .dtmfpad .input-field {
+ 		height: 24px;
+ 		top: 0px;
++		text-align: center;		
+ }
+ 
+ .dtmfpad .input-field .text-input {
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/favorites-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/favorites-assistant.js
+@@ -363,10 +363,12 @@
+ 	while ( target && (name = target.getAttribute('name')) != "rowdrawer" ) {
+ 		switch (name) {
+ 			case "sms":
++				this.closeDrawer();
+ 				isSMS = true;
+ 				break; // continue loop
+ 				
+ 			case "number":
++				this.closeDrawer();
+ 				if ( isSMS ) {
+ 					TelephonyCommands.messagingLaunch(target.getAttribute('addr'), target.getAttribute('service'), itemModel.person.getId());
+ 				} else {
+@@ -375,10 +377,12 @@
+ 				return;
+ 				
+ 			case "contact":
++				this.closeDrawer();
+ 				TelephonyCommands.contactsLaunchWithId(itemModel.person.getId());
+ 				return;
+ 				
+ 			case "changeDefault":				
++				this.closeDrawer();
+ 				UIStateMachine.enter('favoritesadd', "changeDefaultContactPoint", itemModel.person, itemModel.listIndex );
+ 				return;
+ 		}
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/incomingcall-assistant.js
+@@ -18,12 +18,13 @@
+ 		this.soundfile = soundfile;
+ 		// NOTE: this is a potentially dangerous assumption
+ 		// as long as the subscription doesn't provide initial status, this will be fine.
+-		this.sliderOpen = false;
++		this.appAssistant.sliderOpen = false;
+ 		
+ 		this.updateFields(contact);
+ 		this.now = new Date();
+ 		this.windowName = "incoming";
+ 		this.muted = false;
++		this.mutedTimeStamp = 0;
+ 		this.exitStatus = "";
+ 		this.dialogSceneController = dialogSceneController;
+ 		this.dialog = !!this.dialogSceneController;
+@@ -69,8 +70,9 @@
+ 		}
+ 		
+ 		try {
+-			this.sceneCtrl.get('answer_button').addEventListener(Mojo.Event.tap, this.answerCall.bind(this));
+-			this.sceneCtrl.get('reject_button').addEventListener(Mojo.Event.tap, this.rejectCall.bind(this));
++			this.sceneCtrl.get('answer_button').addEventListener(Mojo.Event.tap, this.answerCall.bindAsEventListener(this));
++			this.sceneCtrl.get('reject_button').addEventListener(Mojo.Event.tap, this.rejectCall.bindAsEventListener(this, false));
++			this.sceneCtrl.get('reject_button').addEventListener(Mojo.Event.hold, this.rejectCall.bindAsEventListener(this, true));
+ 			
+ 	        this.exposed = true;
+ 			// turn display on and lock it there
+@@ -333,12 +335,18 @@
+ 		
+ 		if (response.key === "slider") {
+ 			var newSliderOpenState = (response.state === "up");
+-			if (this.exposed
+-				&& this.sliderOpen === false 
+-				&& newSliderOpenState === true) {
+-					this.answerCall();
++
++			if((this.appAssistant.sliderOpen === false) && (newSliderOpenState === true)) {
++				if(this.appAssistant.phonePrefs.sliderOpened != "none") {
++					if(this.exposed)
++                  this.answerCall(); 
++
++					if(this.appAssistant.phonePrefs.sliderOpened == "speaker")
++						TelephonyCommands.setAudioScenario("phone", "phone_back_speaker");
++				}
+ 			}
+-			this.sliderOpen = newSliderOpenState;
++
++			this.appAssistant.sliderOpen = newSliderOpenState;
+ 		} 
+ 	},
+ 	
+@@ -372,8 +380,10 @@
+ 		// answer the call after a delay if we're exposed, set to do so, 
+ 		// and we were previously on the puck
+ 		if (response && response.type == "inductive") {
+-			if (this.appAssistant.puckMode && this.exposed && this.puckConnected === true && response.connected === false) {
+-				this.answerIfStillOffPuck.bind(this).delay(0.750);
++			if(this.appAssistant.phonePrefs.removedFromTS == "answer") {
++				if (this.appAssistant.puckMode && this.exposed && this.puckConnected === true && response.connected === false) {
++					this.answerIfStillOffPuck.bind(this).delay(1.000);
++				}
+ 			}
+ 			this.puckConnected = response.connected;
+ 		}
+@@ -416,7 +426,10 @@
+     },
+     
+ 	// hide alert and instruct blur handler to disconnect call & show ignored UI
+-	rejectCall: function(event){
++	rejectCall: function(event, hold){
++		if(event)
++			event.stop();
++
+         if (this.blockIgnore) {
+ 			Mojo.Log.error( "IncomingcallAssistant#rejectCall tapped too soon");
+ 			this.unblockIgnore();
+@@ -426,6 +439,17 @@
+         this.mute();
+ 		this.exitStatus = "rejected";
+ 		
++		if((this.contact.canBeCalled()) && (this.contact.service != CallSynergy.SERVICES.SKYPE)) {
++			if((!hold) && (this.appAssistant.rejectedPrefs.rejectAction == "autoreply")) {
++				this.controller.serviceRequest('palm://com.palm.applicationManager/', {
++					method: 'launch', parameters: { id: 'com.palm.app.messaging',
++						params: {composeRecipients: [{address: this.contact.addressFormatted}],
++						messageText: this.appAssistant.rejectedPrefs.rejectTemplate
++						}
++					}});
++			}
++		}
++
+       	this.closeWindow();
+     },
+ 	
+@@ -439,6 +463,8 @@
+ 	},
+ 	
+ 	mute: function() {
++		this.mutedTimeStamp = 0;
++
+ 		if (!this.muted) {
+ 			this.muted = true;
+ 		}
+@@ -465,12 +491,21 @@
+ 	// second closes window and rejects call
+ 	handleHardKeyPress: function() {
+ 		Mojo.Log.info( "IncomingcallAssistant#handleHardKeyPress");
++
++		var date = new Date();
++
+ 		if (this.muted) {
+ 			Mojo.Log.info( "IncomingcallAssistant#handleHardKeyPress", "reject");
+-			this.rejectCall();
++
++			if((this.mutedTimeStamp > 0) && ((date.getTime() - this.mutedTimeStamp) >= 1000))
++				this.rejectCall(null, true);
++			else
++				this.rejectCall();
+ 		} else {
+ 			Mojo.Log.info( "IncomingcallAssistant#handleHardKeyPress", "mute");
+ 			this.mute();
++			
++        this.mutedTimeStamp = date.getTime();
+ 		}
+ 	},
+     
+@@ -620,4 +655,4 @@
+ };
+ 
+ 
+-IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
+\ No newline at end of file
++IncomingcallAssistant.kBlockIgnoreDelay = 0.5;
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/menu-controller.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/menu-controller.js
+@@ -8,7 +8,7 @@
+ 	that = this;
+ 	originalHandleCommand = controller.handleCommand;
+ 	
+-	controller.setupWidget(Mojo.Menu.appMenu, undefined, {
++	controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems: true}, {
+ 		visible: true,
+         items: appMenuItems
+ 	});
+@@ -34,7 +34,12 @@
+ };
+ 
+ MenuController._getAppMenuItems = function(prefixItems) {
+-	var items = prefixItems ? prefixItems.slice(0) : []; // always clone array
++	var items = [];
++
++	items.push(Mojo.Menu.editItem);
++
++	if(prefixItems)
++		items = items.concat(prefixItems);
+ 	
+ 	// add 'Check Skype Balance' if we have a skype account
+ 	if ( CallSynergy.isSkypeCapable() && CallSynergy.hasSkypeAccount() ) {
+@@ -42,6 +47,9 @@
+ 	}
+ 	
+ 	items.push(MenuController.kRingtonesMenuItem);
++	items.push(MenuController.kServicesMenuItem);
++	items.push(MenuController.kPrefsMenuItem);
++	items.push(Mojo.Menu.helpItem);
+ 	
+ 	return items;
+ };
+@@ -86,4 +94,6 @@
+ };
+ 
+ MenuController.kSkypeBalanceMenuItem = {label: $L('Check Skype Credit'), command: 'skypebalance'};
+-MenuController.kRingtonesMenuItem = {label: $L('Sounds & Ringtones'), command: 'ringtones'};
+\ No newline at end of file
++MenuController.kRingtonesMenuItem = {label: $L('Sound Settings'), command: 'ringtones'};
++MenuController.kServicesMenuItem = {label: $L('Network Services'), command: Mojo.Menu.prefsCmd};
++MenuController.kPrefsMenuItem = {label: $L('Preferences & Accounts'), command: 'phoneprefs'};
+--- .orig/usr/palm/applications/com.palm.app.phone/app/controllers/missedcall-assistant.js
++++ /usr/palm/applications/com.palm.app.phone/app/controllers/missedcall-assistant.js
+@@ -30,11 +30,41 @@
+ 		this.setupScene();
+ 		
+ 		// stay up for 1 minute
+-		this.missedTimeout = window.setTimeout(this.closeWindow.bind(this), MissedcallAssistant.kTimeoutMs);
++//		this.missedTimeout = window.setTimeout(this.closeWindow.bind(this), MissedcallAssistant.kTimeoutMs);
+ 		
+ 		this.controller.listen(this.controller.stageController.document, Mojo.Event.windowDeactivate, this.onBlur);
+ 		this.telListener.displayStateRegisterCallback(this.onDisplayEvent);
+-		this.controller.stageController.indicateNewContent(true);
++
++		if(this.appAssistant.notificationPrefs.notificationBlink)
++			this.controller.stageController.indicateNewContent(true);
++
++		var missedTimeout = new Date();
++
++		missedTimeout = new Date(missedTimeout.getTime() + MissedcallAssistant.kTimeoutMs);
++
++		var month = missedTimeout.getUTCMonth()+1;
++		if(month < 10) month = "0" + month;
++		var day = missedTimeout.getUTCDate();
++		if(day < 10) day = "0" + day;
++		var year = missedTimeout.getUTCFullYear();
++
++		var hours = missedTimeout.getUTCHours();
++		if(hours < 10) hours = "0" + hours;
++		var minutes = missedTimeout.getUTCMinutes();
++		if(minutes < 10) minutes = "0" + minutes;
++		var seconds = missedTimeout.getUTCSeconds();
++		if(seconds < 10) seconds = "0" + seconds;
++
++		var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++
++		this.controller.serviceRequest('palm://com.palm.power/timeout/', {'method': "set",
++			'parameters': {'key': 'phoneMissedTimeout', 'wakeup': true, 'at': scheduledTimeStr,
++			'uri': "palm://com.palm.applicationManager/open", 'params': {
++				'id': 'com.palm.app.phone', 'params': {'closeMissedCallPopup': true}}} });
++
++		// Close phoneApp since otherwise re-launch would display a card
++
++		Mojo.Controller.getAppController().closeStage("PhoneApp");
+     },
+ 	
+ 	cleanup: function() {
+@@ -46,8 +76,8 @@
+ 		
+ 		this.controller.stopListening(this.controller.stageController.document, Mojo.Event.windowDeactivate, this.onBlur);
+ 		
+-		window.clearTimeout(this.missedTimeout);
+-		this.missedTimeout = undefined;
++//		window.clearTimeout(this.missedTimeout);
++//		this.missedTimeout = undefined;
+ 
+ 		this.telListener.displayStateUnregisterCallback(this.onDisplayEvent);
+ 	},
+@@ -124,6 +154,9 @@
+     },
+     
+ 	closeWindow: function() {
++		this.controller.serviceRequest('palm://com.palm.power/timeout/', {'method': "clear",
++			'parameters': {'key': 'phoneMissedTimeout'} });
++
+ 		Mojo.Controller.getAppController().closeStage(this.windowName);
+ 	},
+ 	
+--- .orig/usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
++++ /usr/palm/applications/com.palm.app.phone/stylesheets/phone.css
+@@ -365,4 +365,63 @@
+ 
+ .palm-dark .favorites-list .palm-drag-spacer {
+   -webkit-border-image: url(../images/empty.png) 15 15 15 15 repeat repeat;
+-}
+\ No newline at end of file
++}
++
++body.prefs {
++	background-image: none;
++	background-color: rgba(228,228,228,1.0);
++}
++
++.palm-page-header .icon.phone {
++	background-image: url(../images/header-icon-phone.png);
++}
++
++.info-text {
++	text-align: center;
++	font-size: 14px;
++	color: #665;
++	padding-left: 10px;
++	padding-right: 10px;
++}
++
++.palm-account-icon {
++	float: left;
++	margin: 1px -5px 0px 0px;
++	width: 60px;
++	height: 50px;
++	background: url(../images/sim-32x32.png) center center no-repeat;
++}
++
++.two-line {
++	padding:5px 0px 0px 9px;
++	color: black;
++}
++
++.palm-row .account-icon {
++	float: left;
++	margin: -3px -5px 0px -13px;
++	width: 60px;
++	height: 50px;
++	background: url(../images/sim-32x32.png) center center no-repeat;
++}
++
++.palm-row .account-text {
++	font-size: 18px;
++}
++
++.palm-row .number-text {
++	font-size: 14px;
++	color: #999;
++	display: block;
++}
++
++.palm-row .notifications-icon {
++	float: right;
++	margin: 1px 3px -1px 0px;
++	width: 60px;
++	height: 50px;
++	background: url(../images/icon-notifications.png) top right no-repeat;
++}
++
++.notifications-icon.selected { background-position: bottom right; }
++
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/Abstract.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/states/Abstract.js
+@@ -146,7 +146,7 @@
+ 	},
+ 	
+ 	// default launch event just focuses phone stage
+-	event_launch: function() {
++	event_launch: function(view) {
+ 		var stageController = this.appController.getStageController(this.machine.STAGE_MAIN);
+ 		
+ 		// CASE: stage exists, show
+@@ -158,6 +158,13 @@
+ 		} else {
+ 			this.machine.currentState.setup();
+ 		}
++
++		if(view == "calllog")
++			this.machine.enter('calllog');
++		else if(view == "favorites")
++			this.machine.enter('favorites');
++		else if(view == "dialpad")
++			this.machine.enter('dialpad_card');
+ 	},
+ 	// default lock event puts the phone into the pin state 
+ 	event_lock: function(enabled) {
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/ActiveCallCard.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/states/ActiveCallCard.js
+@@ -72,7 +72,7 @@
+ 		}
+ 		
+ 		// if stage was hidden when active call started (and not firstuse), hide it
+-		if ( this.wasHidden && stageController && stageController.fullInit && ! PalmSystem.isMinimal ) {
++		if ( ((this.appAssistant.phonePrefs.closeApp) || (this.wasHidden && stageController && stageController.fullInit)) && ! PalmSystem.isMinimal ) {
+ 			stageController.window.PalmSystem.hide();
+ 		}
+ 		
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/CallLog.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/states/CallLog.js
+@@ -15,7 +15,10 @@
+ 		
+ 	},
+ 	event_back: function(commandEvent) {
+-		this.machine.enter('dialpad_card');
++		if ( this.appAssistant.telephonyEventListener.callExists() )
++			this.machine.enter("activecall_card");
++		commandEvent.stopPropagation();
++//		this.machine.enter('dialpad_card');
+ 	},
+ 	event_focus: function() {
+ 		this.focusStage(this.machine.STAGE_MAIN);
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/CallSynergyContact.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/CallSynergyContact.js
+@@ -40,7 +40,9 @@
+ 		this.locationFormatted = undefined; // for unknown phone numbers only, eg "N. California"
+ 		this.personGivenName = undefined; // known person only, for call log
+ 		this.personFamilyName = undefined; // known person only, for call log
+-		this.ringtoneLoc = undefined; // known person only
++		this.callAction = undefined; // known person only
++		this.callAlert = undefined; // known person only
++		this.callRingtonePath = undefined; // known person only
+ 		this.pictureLoc = undefined; // known person only
+ 		this.pictureObj = undefined; // known person only
+ 		this.pictureFormat = undefined; // known person only
+@@ -394,8 +396,12 @@
+ 			this.label = "service_skype";
+ 			this.labelFormatted = $L("Skype");
+ 		}
++
++		this.callAction = person.getCallAction().getAction();
++
++		this.callAlert = person.getCallAlert().getAlert();
+ 		
+-		this.ringtoneLoc = person.getRingtone().getLocation();
++		this.callRingtonePath = person.getRingtone().getLocation();
+ 		
+ 		// these attributes are NOT displayed but are passed through to
+ 		// the call log for the bluetooth service. This shouldn't be needed but
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/Favorites.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/states/Favorites.js
+@@ -9,7 +9,10 @@
+ 		
+ 	},
+ 	event_back: function(commandEvent) {
+-		this.machine.enter('dialpad_card');
++		if ( this.appAssistant.telephonyEventListener.callExists() )
++			this.machine.enter("activecall_card");
++		commandEvent.stopPropagation();
++//		this.machine.enter('dialpad_card');
+ 	},
+ 	event_emergency: function(isEnabled) {
+ 		if ( isEnabled ) {
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/states/Start.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/states/Start.js
+@@ -7,8 +7,13 @@
+ 		
+ 	},
+ 	// always launch to dialpad first
+-	event_launch: function() {
+-		this.machine.enter('dialpad_card');
++	event_launch: function(view) {
++		if(view == "calllog")
++			this.machine.enter('calllog');
++		else if(view == "favorites")
++			this.machine.enter('favorites');
++		else
++			this.machine.enter('dialpad_card');
+ 	},
+ 	event_emergency: function(isEnabled) {
+ 		if ( isEnabled ) {
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/TelephonyEventListener.js
+@@ -506,6 +506,10 @@
+ 					&& Object.keys(profiles).length == 2 				
+ 					&& profiles["phone_front_speaker"] == true) {
+ 					scenario = "phone_front_speaker";
++				} else if (!this.puckConnected && 
++					Object.keys(profiles).length == 2
++					&& profiles["phone_back_speaker"] == true) {
++					scenario = "phone_back_speaker";
+ 				} else {
+ 					return;
+ 				}
+@@ -513,7 +517,10 @@
+ 		}
+ 		
+ 		if (this.isPendingOrActive()) {
+-			if (scenario == "phone_front_speaker") {
++			if ((scenario == "phone_front_speaker") || 
++				((!this.appAssistant.audioSourceChangedManually) && 
++				(this.appAssistant.phonePrefs.proximityAction == "change")))
++			{
+ 				this.proxOn();
+ 			} else {
+ 				Mojo.Log.info( "TEL#enableProxOnCallAndAudio", "not enabled: " , scenario);
+@@ -525,8 +532,12 @@
+ 	},
+ 	
+ 	proxOn: function() {
++		if(this.appAssistant.screenLocked)
++			return;
++
+ 		if (!(this.proxSubscription)) {
+ 			this.proxSubscription = TelephonyCommands.proxSet(true, this.onProxOn);
++			this.diplayBlockReq = TelephonyCommands.displayDNAST(true, undefined);
+ 		} else {
+ 			Mojo.Log.info( "TEL#proxOn", "already on");
+ 		}
+@@ -537,6 +548,8 @@
+ 		if (this.proxSubscription) {
+ 			this.proxSubscription.cancel();
+ 			delete this.proxSubscription;
++			this.diplayBlockReq.cancel();
++			delete this.diplayBlockReq;
+ 		}
+ 	},
+ 	
+@@ -724,7 +737,36 @@
+ 		// wait to show incoming popup until the contact has been decorated
+ 		future = this.incomingPending.contact.decorated();
+ 		future.then(this, function() {
+-			this.announcer.announceIncoming(callState.affectedCallId, future.result, this.isConnected());
++			this.contactPrefs = new window.Contacts.AppPrefs(function(contact) {
++				var blockedNumbers = this.contactPrefs.get(Contacts.AppPrefs.Pref.blockedNumbers);
++
++				var unknownNumbers = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownNumbers);
++
++				var unknownPrefs = contact;
++
++				if(((blockedNumbers) && (!contact.canBeCalled())) || ((unknownNumbers) && (!contact.personId)))
++					unknownPrefs = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownContacts);
++				
++				if((unknownPrefs) && (unknownPrefs.callAction) && (unknownPrefs.callAction == "direct2vm"))
++					this.flagCallRejected(callState.affectedCallId);
++				else if((unknownPrefs) && (unknownPrefs.callAction) && (unknownPrefs.callAction == "autohangup"))
++					TelephonyCommands.disconnect(callState.affectedCallId);
++				else {
++					if((unknownPrefs) && (unknownPrefs.callAlert) && (unknownPrefs.callAlert != "default")) {
++						contact.callAlert = unknownPrefs.callAlert;
++
++						if((unknownPrefs.callAlert == "ringtone") && (unknownPrefs.callRingtonePath))
++							contact.ringtoneLoc = unknownPrefs.callRingtonePath;
++					}
++					else {
++						contact.callAlert = "ringtone";
++						contact.ringtoneLoc = undefined;
++					}
++
++					this.announcer.announceIncoming(callState.affectedCallId, contact, this.isConnected());
++				}
++			}.bind(this, future.result));
++
+ 			return true; // continue
+ 		});
+ 		
+@@ -1210,6 +1252,13 @@
+ 		if (response && response.locked !== undefined) {
+ 			this.appAssistant.screenLocked = response.locked;
+ 			
++			if((this.isPendingOrActive()) && (this.appAssistant.phonePrefs.proximityAction == "change")) {
++				if(response.locked)
++					this.proxOff();
++				else
++					this.proxOn();
++			}
++
+ 			// issue unlock event if 
+ 			if ( ! response.locked && this.appAssistant.screenLockSecured ) {
+ 				UIStateMachine.event('lock', false); // let the current state know we're locked/unlocked
+@@ -1264,7 +1313,7 @@
+ 		if (response.extended) {
+ 			var state = response.extended.state;
+ 			switch (state) {
+-				case simready:
++				case "simready":
+ 					this.simready = true;
+ 					break;
+ 				default:
+--- .orig/usr/palm/applications/com.palm.app.phone/app/models/UIStateMachine.js
++++ /usr/palm/applications/com.palm.app.phone/app/models/UIStateMachine.js
+@@ -28,6 +28,8 @@
+ 	/**
+ 	  * Phone UI states.
+ 	 **/
++	STATE_PREFS: 'prefs',
++
+ 	STATE_START: 'start',
+ 	STATE_PIN: 'pin', // pin scene
+ 	STATE_PIN_UNLOCKED: 'pin_unlocked',
+@@ -68,6 +70,8 @@
+     initialize: function() {
+ 		this._states = {};
+ 		
++		this._states[this.STATE_PREFS] = UIStateMachine.STATES.PrefsState;
++
+ 		this._states[this.STATE_START] = UIStateMachine.STATES.StartState;
+ 		this._states[this.STATE_PIN] = UIStateMachine.STATES.PinState;
+ 		this._states[this.STATE_PIN_UNLOCKED] = UIStateMachine.STATES.PinUnlockedState;
+--- .orig/usr/palm/applications/com.palm.app.phone/resources/de/strings.json
++++ /usr/palm/applications/com.palm.app.phone/resources/de/strings.json
+@@ -403,5 +403,52 @@
+ 	"synchronous circuit data switch": "Switch für Synchronschaltungsdaten",
+ 	"via Email": "per E-Mail",
+ 	"via Messaging": "per Messaging",
+-	"voice": "Sprache"
++	"voice": "Sprache",
++	"3 digits": "3-stellig",
++	"4 digits": "4-stellig",
++	"5 digits": "5-stellig",
++	"6 digits": "6-stellig",
++	"7 digits": "7-stellig",
++	"Enter number": "Nummer eingeben",
++	"Network Services": "Netzwerk Dienste",
++	"Sound Settings": "Töne und Klingeltöne",
++	"On Dial Select": "bei Anruf auswahl",
++	"On TS Removal": "bei TS Entfernung",
++	"On Proximity": "bei Näherung",
++	"On Call Reject": "bei Anrufverwurf",
++	"Dialing Shortcuts": "Kurzwahlnummern",
++	"Add New Number": "Neue Nummer hinzufügen",
++	"No Default View": "Keine",
++	"Dialpad": "Bildschirmtastatur",
++	"Call Log": "Anrufsverlauf",
++	"Favorites": "Favoriten",
++	"Do Nothing": "Nichts tun",
++	"Start Call": "Anruf starten",
++	"Answer Call": "Antworten",
++	"Change Audio": "Freisprechen",
++	"Send SMS Reply": "SMS-Antwort senden",
++	"Template text for auto reply...": "Text für autom. Antwort...",
++	"Sorry, I am currently busy and will call you back later...": "Tut mir leid, ich bin gerade beschäftigt. Ich rufe später zurück.",
++	"Alert": "Alarm",
++	"Repeat": "Wiederholung",
++	"Limitation": "Begrenzung",
++	"Unknown Contacts Notification": "Benachricht. für Unbekannte",
++	"System Sound": "Systemton",
++	"Ringtone": "Klingelton",
++	"Vibrate": "Vibrieren",
++	"Mute": "Stumm",
++	"Disabled": "Keine",
++	"Every 2 minutes": "Alle 2 Minuten",
++	"Every 5 minutes": "Alle 5 Minuten",
++	"Every 15 minutes": "Alle 15 Minuten",
++	"Every 30 minutes": "Alle 30 Minuten",
++	"Every 60 minutes": "Alle 60 Minuten",
++	"Repeat infinitely": "Unendlich",
++	"Repeat 3 times": "3 Mal",
++	"Repeat 5 times": "5 Mal",
++	"Repeat 10 times": "10 Mal",
++	"Repeat 15 times": "15 Mal",
++	"Repeat 30 times": "30 Mal",
++	"Off": "Aus",
++	"On": "Ein"
+ }
+--- .orig/usr/palm/applications/com.palm.app.phone/resources/es/strings.json
++++ /usr/palm/applications/com.palm.app.phone/resources/es/strings.json
+@@ -407,5 +407,52 @@
+ 	"synchronous circuit data switch": "conmutador de datos de circuito sincrónicos",
+ 	"via Email": "por correo electrónico",
+ 	"via Messaging": "por mensajería",
+-	"voice": "voz"
++	"voice": "voz",
++	"3 digits": "3 dígitos",
++	"4 digits": "4 dígitos",
++	"5 digits": "5 dígitos",
++	"6 digits": "6 dígitos",
++	"7 digits": "7 dígitos",
++	"Enter number": "Introducir número",
++	"Network Services": "Servicios de red",
++	"Sound Settings": "Ajustes de sonido",
++	"On Dial Select": "Al seleccionar",
++	"On TS Removal": "Al quitar del TS",
++	"On Proximity": "En proximidad",
++	"On Call Reject": "Al rechazar",
++	"Dialing Shortcuts": "Métodos abreviados de marcado",
++	"Add New Number": "Añadir nuevo número",
++	"No Default View": "Sin vista",
++	"Dialpad": "Teclado",
++	"Call Log": "Registro",
++	"Favorites": "Favoritos",
++	"Do Nothing": "Nada",
++	"Start Call": "Iniciar",
++	"Answer Call": "Responder",
++	"Change Audio": "Cambiar audio",
++	"Send SMS Reply": "Enviar SMS",
++	"Template text for auto reply...": "Plantilla para auto respuesta...",
++	"Sorry, I am currently busy and will call you back later...": "Lo siento pero estoy ocupado. Ya te llamaré más tarde...",
++	"Alert": "Alerta",
++	"Repeat": "Repetir",
++	"Limitation": "Límite",
++	"Unknown Contacts Notification": "Aviso contactos desconocidos",
++	"System Sound": "Sonido sistema",
++	"Ringtone": "Tono",
++	"Vibrate": "Vibrar",
++	"Mute": "Silenciar",
++	"Disabled": "Desactivado",
++	"Every 2 minutes": "Cada 2 minutos",
++	"Every 5 minutes": "Cada 5 minutos",
++	"Every 15 minutes": "Cada 15 minutos",
++	"Every 30 minutes": "Cada 30 minutos",
++	"Every 60 minutes": "Cada 60 minutos",
++	"Repeat infinitely": "Indefinidamente",
++	"Repeat 3 times": "Repetir 3 veces",
++	"Repeat 5 times": "Repetir 5 veces",
++	"Repeat 10 times": "Repetir 10 veces",
++	"Repeat 15 times": "Repetir 15 veces",
++	"Repeat 30 times": "Repetir 30 veces",
++	"Off": "No",
++	"On": "Sí"
+ }
+--- .orig/usr/palm/applications/com.palm.app.phone/resources/fr/strings.json
++++ /usr/palm/applications/com.palm.app.phone/resources/fr/strings.json
+@@ -398,5 +398,52 @@
+ 	"synchronous circuit data switch": "interrupteur des données de circuit synchrones",
+ 	"via Email": "par email",
+ 	"via Messaging": "par messagerie",
+-	"voice": "voix"
++	"voice": "voix",
++	"3 digits": "3 chiffres",
++	"4 digits": "4 chiffres",
++	"5 digits": "5 chiffres",
++	"6 digits": "6 chiffres",
++	"7 digits": "7 chiffres",
++	"Enter number": "Entrer le numéro",
++	"Network Services": "Services réseau",
++	"Sound Settings": "Sons et notifications",
++	"On Dial Select": "Sélection appel",
++	"On TS Removal": "Enlèvement TS",
++	"On Proximity": "Capteur proximité",
++	"On Call Reject": "Sur rejet appel",
++	"Dialing Shortcuts": "Raccourcis de composition",
++	"Add New Number": "Ajouter un nouveau numéro",
++	"No Default View": "Aucune",
++	"Dialpad": "Clavier tél.",
++	"Call Log": "Historique",
++	"Favorites": "Favoris",
++	"Do Nothing": "Pas d’action",
++	"Start Call": "Lancer Appel",
++	"Answer Call": "Répondre",
++	"Change Audio": "Mains libres",
++	"Send SMS Reply": "Envoyer SMS",
++	"Template text for auto reply...": "Texte de réponse automatique...",
++	"Sorry, I am currently busy and will call you back later...": "Désolé, je ne peux pas répondre. Je rappellerai plus tard.",
++	"Alert": "Alerte",
++	"Repeat": "Répétition",
++	"Limitation": "Limite",
++	"Unknown Contacts Notification": "Gestion des contacts inconnus",
++	"System Sound": "Son système",
++	"Ringtone": "Sonnerie",
++	"Vibrate": "Vibration",
++	"Mute": "Muet",
++	"Disabled": "Aucune",
++	"Every 2 minutes": "Toutes les 2 min.",
++	"Every 5 minutes": "Toutes les 5 min.",
++	"Every 15 minutes": "Toutes les 15 min.",
++	"Every 30 minutes": "Toutes les 30 min.",
++	"Every 60 minutes": "Toutes les 60 min.",
++	"Repeat infinitely": "Indéfiniment",
++	"Repeat 3 times": "3 fois",
++	"Repeat 5 times": "5 fois",
++	"Repeat 10 times": "10 fois",
++	"Repeat 15 times": "15 fois",
++	"Repeat 30 times": "30 fois",
++	"Off": "Non",
++	"On": "Oui"
+ }
+--- .orig/usr/palm/applications/com.palm.app.phone/resources/it/strings.json
++++ /usr/palm/applications/com.palm.app.phone/resources/it/strings.json
+@@ -401,5 +401,52 @@
+ 	"synchronous circuit data switch": "switch dati circuiti sincroni",
+ 	"via Email": "tramite e-mail",
+ 	"via Messaging": "tramite messaggistica",
+-	"voice": "voce"
++	"voice": "voce",
++	"3 digits": "3 cifre",
++	"4 digits": "4 cifre",
++	"5 digits": "5 cifre",
++	"6 digits": "6 cifre",
++	"7 digits": "7 cifre",
++	"Enter number": "Inserisci numero",
++	"Network Services": "",
++	"Sound Settings": "",
++	"On Dial Select": "",
++	"On TS Removal": "",
++	"On Proximity": "",
++	"On Call Reject": "",
++	"Dialing Shortcuts": "",
++  "Add new number": "",
++	"No Default View": "",
++	"Dialpad": "",
++	"Call Log": "",
++	"Favorites": "",
++	"Do Nothing": "",
++	"Start Call": "",
++	"Answer Call": "",
++	"Change Audio": "",
++	"Send SMS Reply": "",
++	"Template text for auto reply...": "",
++	"Sorry, I am currently busy and will call you back later...": "",
++	"Alert": "",
++	"Repeat": "",
++	"Limitation": "",
++	"Unknown Contacts Notification": "",
++	"System Sound": "",
++	"Ringtone": "",
++	"Vibrate": "",
++	"Mute": "",
++	"Disabled": "",
++	"Every 2 minutes": "",
++	"Every 5 minutes": "",
++	"Every 15 minutes": "",
++	"Every 30 minutes": "",
++	"Every 60 minutes": "",
++	"Repeat infinitely": "",
++	"Repeat 3 times": "",
++	"Repeat 5 times": "",
++	"Repeat 10 times": "",
++	"Repeat 15 times": "",
++	"Repeat 30 times": "",
++	"Off": "",
++	"On": ""
+ }

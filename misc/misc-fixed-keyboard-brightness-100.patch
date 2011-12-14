@@ -1,0 +1,91 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 0e239cc..3295c8a 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -105,6 +105,7 @@ var BarAssistant = Foundations.Class.create({
+ 		
+ 		//Subscribe to Powerd Notification.
+ 		this.powerInit();
++		this.keypadOnSliderChange();
+ 		
+ 		//Subscribe to Application Manager 
+ 		this.initOnServerStart("com.palm.applicationManager", this.appMgrInit.bind(this));
+@@ -2230,6 +2231,78 @@ queryBatteryStatus: function() {
+ 		method: 'batteryStatusQuery',});
+ },
+ 
++keypadOnSliderChange: function() {
++	this.sliderStateSubscribe = new Mojo.Service.Request('palm://com.palm.keys/switches', {
++		method: 'status',
++		parameters: {'subscribe': true},
++		onSuccess: function(data) {
++			if (data.key === "slider") {
++				if (this.displayStateSubscribe) {
++					this.displayStateSubscribe.cancel();
++					delete this.displayStateSubscribe;
++				}
++				if (data.state === 'up') {
++					this.keypadBrightness(true);
++					this.recheckSliderState.bind(this).delay(.08); //do this to catch quick up & down movements
++				} else if (data.state === 'down') {
++					this.keypadBrightness(false);
++				}
++			}
++		}.bind(this)
++	});
++},
++
++keypadBrightness: function(state) {
++	if (state == true) {
++		this.controller.serviceRequest('palm://com.palm.power/backlight', {
++			method: 'set',
++			parameters:{keypad:{brightness:100}}
++		});
++		if (!this.displayStateSubscribe) {
++			this.keypadOnDisplayChange.bind(this).delay(0.08);
++		}
++	} else if (state == false) {
++		if (this.displayStateSubscribe) {
++			this.displayStateSubscribe.cancel();
++			delete this.displayStateSubscribe;
++		}
++		this.controller.serviceRequest('palm://com.palm.power/backlight', {
++			method: 'set',
++			parameters:{keypad:{brightness:0}}
++		});
++	}
++},
++
++keypadOnDisplayChange: function() {
++	this.displayStateSubscribe = new Mojo.Service.Request('palm://com.palm.display/control', {
++		method:'status',
++		parameters:{subscribe:true},
++		onSuccess: function(response) {
++ 			if(response && response.event) {
++				if (response.event === "displayOn") {
++					this.recheckSliderState();
++				}
++			}
++		}.bind(this),
++	});
++},
++
++recheckSliderState: function() {
++	var serviceRequest = new Mojo.Service.Request('palm://com.palm.keys/switches', {
++		method: 'status',
++		parameters: {'get':'slider'},
++		onSuccess: function(data) {
++			if (data.key === "slider") {
++				if (data.state === 'down') {
++					this.keypadBrightness(false);
++				} else if (data.state === 'up') {
++					this.keypadBrightness(true);
++				}
++			}
++		}.bind(this),
++	});
++},
++
+ /*
+  * Initialize power
+  */

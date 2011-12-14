@@ -1,0 +1,631 @@
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -468,12 +468,12 @@
+ 		}
+ 	}	
+ 	
+-	if(!this.deviceLocked) {
++/*	if(!this.deviceLocked) {
+ 		var appController = Mojo.Controller.getAppController();
+ 		var stageController = appController.getStageController("PowerOffAlert");
+ 		if(stageController)
+ 			stageController.delegateToSceneAssistant("cancelTimer");
+-	}
++	} */
+ },
+ 
+ isDeviceLocked: function() {
+@@ -2683,9 +2683,9 @@
+     if (payload["mode-avail"]) {
+ 		this.isUSBConnected = true;
+ 	 	if (!this.onActiveCall) {
+-			if (this.canUSBAlertDisplayed()) 
+-				this.showStorageModeAlert();
+-			else 
++//			if (this.canUSBAlertDisplayed()) 
++//				this.showStorageModeAlert();
++//			else 
+ 				this.createUSBDashboard();
+ 		}
+ 	}
+@@ -2801,10 +2801,10 @@
+ 				Mojo.Log.info("SystemUI - USB Is connected(During Init)" + Object.toJSON(payload));
+ 				this.isUSBConnected = true;
+ 				if (!this.onActiveCall) {
+-					if (this.updateAvailable) 
++//					if (this.updateAvailable)
+ 						this.createUSBDashboard();
+-					else 
+-						this.showStorageModeAlert();
++//					else
++//						this.showStorageModeAlert();
+ 				}							
+ 			}
+ 		}.bind(this),
+@@ -2878,6 +2878,16 @@
+  * Register to receive power off notifications
+  */
+ powerOffInit: function() {
++	this.powerMenuCfg = {items: ["shutdownDevice", "restartDevice"], allowSleep: true};
++
++	var cookieContainer = new Mojo.Model.Cookie("powerMenu");
++
++	var cookie = cookieContainer.get();
++
++	if(cookie) {
++		this.powerMenuCfg.items = cookie.menuItems;
++	}
++
+     this.powerOffNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
+ 		method: 'addmatch',
+ 		parameters: {
+@@ -2911,11 +2921,48 @@
+ /*
+  * Show Power Off Alert
+  */
+-showPowerOffAlert: function() {
++showPowerOffAlert: function(showAll) {
+ 	
+ 	var appController = Mojo.Controller.getAppController();
+ 	var stageController = appController.getStageController("PowerOffAlert");
+-        // if the window already exists, don't do anything
++
++	if (stageController) {
++		appController.closeStage("PowerOffAlert");
++
++		if(showAll) {
++			var f = function(stageController) {
++				stageController.pushScene('poweroffalert', this, this.powerMenuCfg, false, true);
++			}.bind(this);
++
++			var params = {name: 'PowerOffAlert', height: 340,lightweight:true};
++
++			appController.createStageWithCallback(params,f,'popupalert');
++		}
++		else {
++			var f = function(stageController) {
++			   stageController.pushScene('poweroffalert', this, this.powerMenuCfg, true, false);
++				 }.bind(this);
++				 var params = {name: 'PowerOffAlertEdit', height: 240,lightweight:true};
++
++				 appController.createStageWithCallback(params,f,'popupalert');
++			}
++		}
++		else {
++			appController.closeStage("PowerOffAlertEdit");
++
++			var f = function(stageController) {
++				stageController.pushScene('poweroffalert', this, this.powerMenuCfg, false);
++			}.bind(this);
++
++			var popupHeight = (this.powerMenuCfg.items.length + 1) * 55 + 10;
++
++		  var params = {name: 'PowerOffAlert', height: popupHeight,lightweight:true};
++
++			appController.createStageWithCallback(params,f,'popupalert');
++		}
++
++/*
++         // if the window already exists, don't do anything
+         if (!stageController) {
+          	// Create a popuo alert
+ 		    var f = function(stageController){
+@@ -2930,7 +2977,7 @@
+ 		storageAlertStageController.delegateToSceneAssistant("closeAndCreateDashboard");
+ 		this.createUSBDashboard.bind(this).delay(0.5,false);
+ 	}
+-			
++*/			
+ },
+     
+ startClock: function() {
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/poweroffalert-assistant.js
+@@ -1,24 +1,60 @@
+ /* Copyright 2009 Palm, Inc.  All rights reserved. */
+ 
+ var PoweroffalertAssistant = Foundations.Class.create({
+-    initialize: function(barAssistant) {	
++    initialize: function(barAssistant, menuCfg, editMenu, fullMenu) {
+ 		this.barAssistant = barAssistant;	
++		this.menuCfg = menuCfg;
++
++		this.editMenu = editMenu;
++		this.fullMenu = fullMenu;
+     },
+     
+-    setup: function() {		
++    setup: function() {	
++    	if(!this.menuCfg.displayTimeout)
++    		this.menuCfg.displayTimeout = 0;
++    	
++    	if(this.editMenu) {
++  			this.controller.get('powermenu').hide();
++  			this.controller.get('editmenu').show();
++
++			for(var i = 0; i < this.menuCfg.items.length; i++)
++				this.controller.get(this.menuCfg.items[i] + "State").update($L("SHOW"));
++		}
++		else if(this.fullMenu) {
++			this.controller.get("airplaneModeButton").show();
++			this.controller.get("deviceSleepButton").show();
++			this.controller.get("shutdownDeviceButton").show();
++			this.controller.get("restartDeviceButton").show();
++			this.controller.get("restartLunaButton").show();
++		}
++		else {
++			for(var i = 0; i < this.menuCfg.items.length; i++)
++				this.controller.get(this.menuCfg.items[i] + "Button").show();
++		}
++
++		var luna = this.luna.bindAsEventListener(this);
++		var sleep = this.sleep.bindAsEventListener(this);
++		var restart = this.restart.bindAsEventListener(this);
+ 		var flightMode = this.flightMode.bindAsEventListener(this);
+-		var powerOff = this.powerOff.bindAsEventListener(this);
++		var powerOff = this.shutdown.bindAsEventListener(this);
+ 		var cancel = this.cancel.bindAsEventListener(this);
++		var toggle = this.toggle.bindAsEventListener(this);
+ 		var launchAirplaneModeHelp = this.launchAirplaneModeHelp.bindAsEventListener(this);
+ 		this.flightMode = this.barAssistant.getAirplaneMode();
+ 		if(this.flightMode)
+ 			this.controller.get('flightmode').innerHTML = $L('Turn off Airplane Mode');
+-		else
+-			this.controller.get('flightmode').innerHTML = "<div class='info-icon' id='airplaneInfo' x-mojo-touch-feedback='immediate'></div>" + $L('Airplane Mode');
+-			
++//		else
++//			this.controller.get('flightmode').innerHTML = "<div class='info-icon' id='airplaneInfo' x-mojo-touch-feedback='immediate'></div>" + $L('Airplane Mode');
++		if(!this.menuCfg.allowSleep)
++			this.controller.get('sleep').innerHTML = $L('Enable Device Sleep');
++
++		this.controller.get('luna').addEventListener(Mojo.Event.tap, luna);
++		this.controller.get('sleep').addEventListener(Mojo.Event.tap, sleep);
++		this.controller.get('restart').addEventListener(Mojo.Event.tap, restart);
+ 		this.controller.get('poweroff').addEventListener(Mojo.Event.tap, powerOff);
+ 		this.controller.get('flightmode').addEventListener(Mojo.Event.tap, flightMode);
+ 		this.controller.get('cancel').addEventListener(Mojo.Event.tap, cancel);
++		this.controller.get('cancel').addEventListener(Mojo.Event.hold, toggle);
+ 		if(this.controller.get('airplaneInfo'))
+ 			this.controller.get('airplaneInfo').addEventListener(Mojo.Event.tap, launchAirplaneModeHelp);
+ 		
+@@ -26,6 +62,53 @@
+ 			this.powerOffAlertCancel = this.cancel.bind(this);
+ 			this.powerOffAlertTimer = this.controller.window.setTimeout(this.powerOffAlertCancel, 30000);
+ 		}
++
++		this.controller.get('airplaneModeEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "airplaneMode"));
++		this.controller.get('deviceSleepEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "deviceSleep"));
++		this.controller.get('shutdownDeviceEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "shutdownDevice"));
++		this.controller.get('restartDeviceEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "restartDevice"));
++		this.controller.get('restartLunaEdit').addEventListener(Mojo.Event.tap, this.editToggle.bind(this, "restartLuna"));
++
++		var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++			method: "getProperty", parameters: {properties: ["timeout"]},
++			onSuccess: this.sleepState.bind(this)});
++	},
++
++	sleepState: function(response) {
++		if((response) && (response.timeout == 10800)) {
++			this.controller.get('sleep').innerHTML = $L('Enable Device Sleep');
++
++			this.menuCfg.allowSleep = false;
++		} else {
++			this.controller.get('sleep').innerHTML = $L('Disable Device Sleep');
++
++			this.menuCfg.allowSleep = true;
++
++			this.menuCfg.displayTimeout = response.timeout;
++		}
++	},
++
++	editToggle: function(item) {
++		var index = this.menuCfg.items.indexOf(item);
++
++		if(index == -1) {
++			this.controller.get(item + "State").update($L("SHOW"));
++
++			this.menuCfg.items.push(item);
++		}
++		else {
++			this.controller.get(item + "State").update($L("HIDE"));
++
++			this.menuCfg.items.splice(index, 1);
++		}
++
++		var cookieContainer = new Mojo.Model.Cookie("powerMenu");
++
++		var cookie = {
++			menuItems: this.menuCfg.items
++		}
++
++		cookieContainer.put(cookie);
+ 	},
+ 	
+ 	cleanup: function() {
+@@ -33,6 +116,55 @@
+             this.controller.window.clearTimeout(this.powerOffAlertTimer);
+         } catch(e) {}
+ 	},
++
++	luna: function() {
++		if(!this.lunaRestartTimer)
++			this.lunaRestartTimer = this.controller.window.setTimeout(this.lunaRestart, 250);
++	},
++
++	lunaRestart: function() {
++		var request = new Mojo.Service.Request('palm://ca.canucksoftware.systoolsmgr', {
++			method: "lunaRestart", parameters: {}});
++	},
++
++	sleep: function() {
++		if(this.menuCfg.allowSleep) {
++			this.menuCfg.allowSleep = false;
++
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++				method: "setProperty", parameters: {timeout: 10800}});
++
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++				method: "setProperty", parameters: {requestBlock: true, client: "powerMenu"}});
++
++			var request = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
++				method: "activityStart", parameters: {id: "com.palm.systemui", duration_ms: '10800000'}});
++		}
++		else {
++			this.menuCfg.allowSleep = true;
++
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++				method: "setProperty", parameters: {timeout: parseInt(this.menuCfg.displayTimeout)}});
++
++			var request = this.controller.serviceRequest("palm://com.palm.display/control", {
++				method: "setProperty", parameters: {requestBlock: false, client: "powerMenu"}});
++
++			var request = this.controller.serviceRequest("palm://com.palm.power/com/palm/power", {
++				method: "activityEnd", parameters: {id: "com.palm.systemui"}});
++		}
++
++		this.controller.window.close();
++	},
++
++	restart: function() {
++		this.barAssistant.machineReboot("Restart request by User");
++		this.controller.window.close();
++	},
++
++	shutdown:function() {
++		this.barAssistant.machineOffNow("Shutdown request by User");
++		this.controller.window.close();
++	},
+ 	
+ 	powerOff:function() {	
+ 		var appController = Mojo.Controller.getAppController();
+@@ -69,6 +201,12 @@
+ 	cancel: function() {
+ 		this.controller.window.close();
+ 	},
++
++	toggle: function(event) {
++		event.stopPropagation();
++
++		this.barAssistant.showPowerOffAlert(true);
++	},
+ 	
+ 	launchAirplaneModeHelp: function() {
+ 		this.controller.serviceRequest("palm://com.palm.applicationManager", {
+--- .orig/usr/lib/luna/system/luna-systemui/app/views/poweroffalert/poweroffalert-scene.html
++++ /usr/lib/luna/system/luna-systemui/app/views/poweroffalert/poweroffalert-scene.html
+@@ -1,5 +1,47 @@
+ <div class="system-notification power-off">
+-		<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode' x-mojo-loc=''></div>
+-		<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff' x-mojo-loc=''>Power</div>
+-		<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel' x-mojo-loc=''>Cancel</div>
++	<div id="powermenu">
++		<div id="airplaneModeButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode' x-mojo-loc=''>Turn on Airplane Mode</div>
++		</div>
++		<div id="deviceSleepButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='sleep' x-mojo-loc=''>Disable Device Sleep</div>
++		</div>
++		<div id="shutdownDeviceButton" style="display:none;">
++			<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff' x-mojo-loc=''>Shut Down Device</div>
++		</div>
++		<div id="restartDeviceButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='restart' x-mojo-loc=''>Restart Device</div>
++		</div>
++		<div id="restartLunaButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='luna' x-mojo-loc=''>Restart Luna</div>
++		</div>
++		<div id="cancelButton" style="display:block;">
++			<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel' x-mojo-loc=''>Cancel</div>
++		</div>
++	</div>
++	<div id="editmenu" style="display: none;">
++		<div style="font-size: 20px;text-align:center;padding:6px;">Menu Content Settings</div>
++		<div style="padding:5px;padding-left:15px;padding-right:15px;"><div style="background:gray;min-height:1px;"></div></div>
++		
++		<div id="airplaneModeEdit">
++			<div id="airplaneModeState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Airplane Mode Toggle</div>
++		</div>
++		<div id="deviceSleepEdit">
++			<div id="deviceSleepState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Device Sleep Toggle</div>
++		</div>
++		<div id="shutdownDeviceEdit">
++			<div id="shutdownDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Shut Down Device Action</div>
++		</div>
++		<div id="restartDeviceEdit">
++			<div id="restartDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Restart Device Action</div>
++		</div>
++		<div id="restartLunaEdit">
++			<div id="restartLunaState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Restart Luna Action</div>
++		</div>
++	</div>
+ </div>
+\ No newline at end of file
+--- .orig/usr/lib/luna/system/luna-systemui/resources/de/views/poweroffalert/poweroffalert-scene.html
++++ /usr/lib/luna/system/luna-systemui/resources/de/views/poweroffalert/poweroffalert-scene.html
+@@ -1,5 +1,47 @@
+ <div class="system-notification power-off">
+-		<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode'></div>
+-		<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff'>Ausschalten</div>
+-		<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel'>Abbrechen</div>
++	<div id="powermenu">
++		<div id="airplaneModeButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode' x-mojo-loc=''>Flugzeugmodus einschalten</div>
++		</div>
++		<div id="deviceSleepButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='sleep' x-mojo-loc=''>Gerät Ruhestand deaktivieren</div>
++		</div>
++		<div id="shutdownDeviceButton" style="display:none;">
++			<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff' x-mojo-loc=''>Gerät ausschalten</div>
++		</div>
++		<div id="restartDeviceButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='restart' x-mojo-loc=''>Gerät neu starten</div>
++		</div>
++		<div id="restartLunaButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='luna' x-mojo-loc=''>Luna Neustart</div>
++		</div>
++		<div id="cancelButton" style="display:block;">
++			<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel' x-mojo-loc=''>Abbrechen</div>
++		</div>
++	</div>
++	<div id="editmenu" style="display: none;">
++		<div style="font-size: 20px;text-align:center;padding:6px;">Menu Inhalt</div>
++		<div style="padding:5px;padding-left:15px;padding-right:15px;"><div style="background:gray;min-height:1px;"></div></div>
++		
++		<div id="airplaneModeEdit">
++			<div id="airplaneModeState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Flugzeugmodus umschalten</div>
++		</div>
++		<div id="deviceSleepEdit">
++			<div id="deviceSleepState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Ruhezustand umschalten</div>
++		</div>
++		<div id="shutdownDeviceEdit">
++			<div id="shutdownDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Gerät ausschalten</div>
++		</div>
++		<div id="restartDeviceEdit">
++			<div id="restartDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Gerät neu starten</div>
++		</div>
++		<div id="restartLunaEdit">
++			<div id="restartLunaState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">VERSTECKEN</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Luna Neustart</div>
++		</div>
++	</div>
+ </div>
+--- .orig/usr/lib/luna/system/luna-systemui/resources/de/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/de/strings.json
+@@ -30,6 +30,10 @@
+ 	"1#The update will start automatically in 1 second, and when your battery is sufficiently charged.|#The update will start automatically in #{counter} seconds, and when your battery is sufficiently charged.": "1#Das Update wird in 1 Sekunde automatisch gestartet bzw. sobald der Akku ausreichend geladen ist.|#Das Update wird in #{counter} Sekunden automatisch gestartet bzw. sobald der Akku ausreichend geladen ist.",
+ 	"1#The update will start in 1 minute.|#The update will start in #{counter} minutes.": "1#Aktualisierung beginnt in 1 Min.|#Aktualisierung beginnt in #{counter} Min.",
+ 	"1#The update will start in 1 second.|#The update will start in #{counter} seconds.": "1#Die Aktualisierung beginnt in 1 Sekunde.|#Die Aktualisierung beginnt in #{counter} Sekunden.",
++	"Enable Device Sleep": "Gerät Ruhestand aktivieren",
++	"Disable Device Sleep": "Gerät Ruhestand deaktivieren",
++	"SHOW": "ZEIGEN",
++	"HIDE": "VERSTECKEN",
+ 	"Added \"#{word}\" to dictionary": "„#{word}“ zum Wörterbuch hinzugefügt",
+ 	"Adding ringtone failed. File may already exist.": "Klingelton konnte nicht hinzugefügt werden. Die Datei ist möglicherweise bereits vorhanden.",
+ 	"Airplane Mode": "Flugzeugmodus",
+--- .orig/usr/lib/luna/system/luna-systemui/resources/es/views/poweroffalert/poweroffalert-scene.html
++++ /usr/lib/luna/system/luna-systemui/resources/es/views/poweroffalert/poweroffalert-scene.html
+@@ -1,5 +1,47 @@
+ <div class="system-notification power-off">
+-		<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode'></div>
+-		<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff'>Apagar/Reiniciar</div>
+-		<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel'>Cancelar</div>
++	<div id="powermenu">
++		<div id="airplaneModeButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode' x-mojo-loc=''>Activar modo Vuelo</div>
++		</div>
++		<div id="deviceSleepButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='sleep' x-mojo-loc=''>Desactivar suspensión</div>
++		</div>
++		<div id="shutdownDeviceButton" style="display:none;">
++			<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff' x-mojo-loc=''>Apagar dispositivo</div>
++		</div>
++		<div id="restartDeviceButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='restart' x-mojo-loc=''>Reiniciar dispositivo</div>
++		</div>
++		<div id="restartLunaButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='luna' x-mojo-loc=''>Reiniciar Luna</div>
++		</div>
++		<div id="cancelButton" style="display:block;">
++			<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel' x-mojo-loc=''>Cancelar</div>
++		</div>
++	</div>
++	<div id="editmenu" style="display: none;">
++		<div style="font-size: 20px;text-align:center;padding:6px;">Configuración menú</div>
++		<div style="padding:5px;padding-left:15px;padding-right:15px;"><div style="background:gray;min-height:1px;"></div></div>
++		
++		<div id="airplaneModeEdit">
++			<div id="airplaneModeState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">OCULTAR</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Conmutar modo Vuelo</div>
++		</div>
++		<div id="deviceSleepEdit">
++			<div id="deviceSleepState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">OCULTAR</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Conmutar suspensión</div>
++		</div>
++		<div id="shutdownDeviceEdit">
++			<div id="shutdownDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">OCULTAR</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Acción apagar dispositivo</div>
++		</div>
++		<div id="restartDeviceEdit">
++			<div id="restartDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">OCULTAR</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Acción reiniciar dispositivo</div>
++		</div>
++		<div id="restartLunaEdit">
++			<div id="restartLunaState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">OCULTAR</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Acción reiniciar Luna</div>
++		</div>
++	</div>
+ </div>
+--- .orig/usr/lib/luna/system/luna-systemui/resources/es/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/es/strings.json
+@@ -31,6 +31,10 @@
+ 	"1#The update will start automatically in 1 second, and when your battery is sufficiently charged.|#The update will start automatically in #{counter} seconds, and when your battery is sufficiently charged.": "1#La actualización se iniciará automáticamente en 1 segundo, y cuando la batería esté cargada lo suficiente.|#La actualización se iniciará automáticamente en #{counter}segundos, y cuando la batería esté cargada lo suficiente.",
+ 	"1#The update will start in 1 minute.|#The update will start in #{counter} minutes.": "1#La actualización se iniciará en 1 minuto.|#La actualización se iniciará en #{counter} minutos.",
+ 	"1#The update will start in 1 second.|#The update will start in #{counter} seconds.": "1#La actualización se iniciará en 1 segundo.|#La actualización se iniciará en #{counter} segundos.",
++	"Enable Device Sleep": "Activar suspensión",
++	"Disable Device Sleep": "Desactivar suspensión",
++	"SHOW": "MOSTRAR",
++	"HIDE": "OCULTAR",
+ 	"Added \"#{word}\" to dictionary": "Se añadió \"#{word}\" al diccionario",
+ 	"Adding ringtone failed. File may already exist.": "No se pudo añadir un tono. Puede que ya exista el archivo.",
+ 	"Airplane Mode": "Modo avión",
+--- .orig/usr/lib/luna/system/luna-systemui/resources/fr/views/poweroffalert/poweroffalert-scene.html
++++ /usr/lib/luna/system/luna-systemui/resources/fr/views/poweroffalert/poweroffalert-scene.html
+@@ -1,5 +1,47 @@
+ <div class="system-notification power-off">
+-		<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode'></div>
+-		<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff'>Alimentation</div>
+-		<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel'>Annuler</div>
++	<div id="powermenu">
++		<div id="airplaneModeButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode' x-mojo-loc=''>Activer mode avion</div>
++		</div>
++		<div id="deviceSleepButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='sleep' x-mojo-loc=''>Désactiver mise en veille</div>
++		</div>
++		<div id="shutdownDeviceButton" style="display:none;">
++			<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff' x-mojo-loc=''>Eteindre</div>
++		</div>
++		<div id="restartDeviceButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='restart' x-mojo-loc=''>Redémarrer l’appareil</div>
++		</div>
++		<div id="restartLunaButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='luna' x-mojo-loc=''>Redémarrer Luna</div>
++		</div>
++		<div id="cancelButton" style="display:block;">
++			<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel' x-mojo-loc=''>Annuler</div>
++		</div>
++	</div>
++	<div id="editmenu" style="display: none;">
++		<div style="font-size: 20px;text-align:center;padding:6px;">Contenu du menu</div>
++		<div style="padding:5px;padding-left:15px;padding-right:15px;"><div style="background:gray;min-height:1px;"></div></div>
++		
++		<div id="airplaneModeEdit">
++			<div id="airplaneModeState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">MASQUER</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Bascule mode avion</div>
++		</div>
++		<div id="deviceSleepEdit">
++			<div id="deviceSleepState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">MASQUER</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Bascule mise en veille</div>
++		</div>
++		<div id="shutdownDeviceEdit">
++			<div id="shutdownDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">MASQUER</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Action éteindre appareil</div>
++		</div>
++		<div id="restartDeviceEdit">
++			<div id="restartDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">MASQUER</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Action redémarrer tél.</div>
++		</div>
++		<div id="restartLunaEdit">
++			<div id="restartLunaState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">MASQUER</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Action redémarrer Luna</div>
++		</div>
++	</div>
+ </div>
+--- .orig/usr/lib/luna/system/luna-systemui/resources/fr/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/fr/strings.json
+@@ -29,6 +29,10 @@
+ 	"1#The update will start automatically in 1 second, and when your battery is sufficiently charged.|#The update will start automatically in #{counter} seconds, and when your battery is sufficiently charged.": "1#La mise à jour va démarrer automatiquement dans 1 seconde et lorsque votre batterie sera suffisamment chargée.|#La mise à jour va démarrer automatiquement dans #{counter} secondes et lorsque votre batterie sera suffisamment chargée.",
+ 	"1#The update will start in 1 minute.|#The update will start in #{counter} minutes.": "1#La mise à jour va démarrer dans une minute.|#La mise à jour va démarrer dans #{counter} minutes.",
+ 	"1#The update will start in 1 second.|#The update will start in #{counter} seconds.": "1#La mise à jour va démarrer dans une seconde.|#La mise à jour va démarrer dans #{counter} secondes.",
++	"Enable Device Sleep": "Activer mise en veille",
++	"Disable Device Sleep": "Désactiver mise en veille",
++	"SHOW": "AFFICHER",
++	"HIDE": "MASQUER",
+ 	"Added \"#{word}\" to dictionary": "« #{word} » ajouté dans le dictionnaire",
+ 	"Adding ringtone failed. File may already exist.": "Impossible d’ajouter la sonnerie. Le fichier existe peut-être déjà.",
+ 	"Airplane Mode": "Mode avion",
+--- .orig/usr/lib/luna/system/luna-systemui/resources/it/views/poweroffalert/poweroffalert-scene.html
++++ /usr/lib/luna/system/luna-systemui/resources/it/views/poweroffalert/poweroffalert-scene.html
+@@ -1,5 +1,47 @@
+ <div class="system-notification power-off">
+-		<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode'></div>
+-		<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff'>Alimentazione</div>
+-		<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel'>Annulla</div>
++	<div id="powermenu">
++		<div id="airplaneModeButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='flightmode' x-mojo-loc=''>Turn on Airplane Mode</div>
++		</div>
++		<div id="deviceSleepButton" style="display:none;">
++			<div class="palm-notification-button affirmative" x-mojo-tap-highlight="immediate" id='sleep' x-mojo-loc=''>Disable Device Sleep</div>
++		</div>
++		<div id="shutdownDeviceButton" style="display:none;">
++			<div class="palm-notification-button negative" x-mojo-tap-highlight="immediate" id='poweroff' x-mojo-loc=''>Shut Down Device</div>
++		</div>
++		<div id="restartDeviceButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='restart' x-mojo-loc=''>Restart Device</div>
++		</div>
++		<div id="restartLunaButton" style="display:none;">
++			<div class="palm-notification-button alternate" x-mojo-tap-highlight="immediate" id='luna' x-mojo-loc=''>Restart Luna</div>
++		</div>
++		<div id="cancelButton" style="display:block;">
++			<div class="palm-notification-button" x-mojo-tap-highlight="immediate" id='cancel' x-mojo-loc=''>Cancel</div>
++		</div>
++	</div>
++	<div id="editmenu" style="display: none;">
++		<div style="font-size: 20px;text-align:center;padding:6px;">Menu Content Settings</div>
++		<div style="padding:5px;padding-left:15px;padding-right:15px;"><div style="background:gray;min-height:1px;"></div></div>
++		
++		<div id="airplaneModeEdit">
++			<div id="airplaneModeState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Airplane Mode Toggle</div>
++		</div>
++		<div id="deviceSleepEdit">
++			<div id="deviceSleepState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Device Sleep Toggle</div>
++		</div>
++		<div id="shutdownDeviceEdit">
++			<div id="shutdownDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Shut Down Device Action</div>
++		</div>
++		<div id="restartDeviceEdit">
++			<div id="restartDeviceState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Restart Device Action</div>
++		</div>
++		<div id="restartLunaEdit">
++			<div id="restartLunaState" style="font-size:12px;float:right;color:gray;padding:8px;padding-top:11px;padding-right:25px;">HIDE</div>
++			<div style="font-size:16px;padding:8px;padding-left:25px;">Restart Luna Action</div>
++		</div>
++	</div>
+ </div>
+--- .orig/usr/lib/luna/system/luna-systemui/resources/it/strings.json
++++ /usr/lib/luna/system/luna-systemui/resources/it/strings.json
+@@ -30,6 +30,10 @@
+ 	"1#The update will start automatically in 1 second, and when your battery is sufficiently charged.|#The update will start automatically in #{counter} seconds, and when your battery is sufficiently charged.": "1#L’aggiornamento inizierà automaticamente tra 1 secondo, quando la batteria sarà abbastanza carica.|#L’aggiornamento inizierà automaticamente tra #{counter} secondi, quando la batteria sarà abbastanza carica.",
+ 	"1#The update will start in 1 minute.|#The update will start in #{counter} minutes.": "1#L’aggiornamento comincerà tra 1 minuto.|#L’aggiornamento comincerà tra #{counter} minuti.",
+ 	"1#The update will start in 1 second.|#The update will start in #{counter} seconds.": "1#L’aggiornamento comincerà tra 1 secondo.|#L’aggiornamento comincerà tra #{counter} secondi.",
++	"Enable Device Sleep": "",
++	"Disable Device Sleep": "",
++	"SHOW": "",
++	"HIDE": "",
+ 	"Added \"#{word}\" to dictionary": "Aggiunto \"#{word}\" al dizionario",
+ 	"Adding ringtone failed. File may already exist.": "Aggiunta della suoneria non riuscita. Il file potrebbe esistere già.",
+ 	"Airplane Mode": "Modalità aereo",

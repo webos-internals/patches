@@ -1,0 +1,168 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+index 0e239cc..c7ea74c 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -2033,10 +2033,48 @@ closePbapAlert: function() {
+ 	}	
+ },
+ 
++/* Format battery level percent
++* We use this function instead of just a variable because
++* sometimes this.batteryLevel is used, and sometimes
++* payload.percent_ui is
++*/
++getBatteryLevelPercent: function(percent, color, image, charging) { 	
++	if (color) {
++		if (charging == 1)
++			bColor = '#33CCFF';
++		else if (percent >= 70) 
++			bColor = '#33FF33';
++		else if(percent <= 69 && percent >= 45) 
++			bColor = '#FFFF33';
++		else if(percent <= 44 && percent >= 20)
++			bColor = '#FFCC00';
++		else if(percent <= 19)
++			bColor = '#FF0000';
++		else 
++			bColor = 'white';
++		
++		// Use span to set color
++		if (image != undefined)
++			var fPercent = '<span style="color: ' + bColor + ';">' + percent + unescape('%') + '</span>';
++		else 
++			var fPercent = '<span style="position: relative; bottom: 2px; color: ' + bColor + ';">' + percent + unescape('%') + '</span>';
++	}
++	else {
++		var fPercent = percent + unescape('%');
++	}
++	return fPercent;
++},
++
+ /*
+  * Handle power and charging notifications
+  */
+ handlePowerNotifications: function(payload) {
++	// Replace this with a user definable setting
++	var batteryLevelImage = 2; 	// 0 displays image (factory default)
++					// 1 displays numerical percentage
++					// 2 displays the image on left and numerical percentage on right (default)
++		
++	var batteryLevelColor = 1; // Set to 0 for white, 1 for color
+ 	
+ 	Mojo.Log.info("SystemUI Power Payload "+ Object.toJSON(payload));
+ 	if(!this.powerdServiceUp) {
+@@ -2064,7 +2102,15 @@ handlePowerNotifications: function(payload) {
+ 			// Show the battery level if not charging
+ 			if (!this.isCharging) {
+ 				Mojo.Log.info("SystemUI- Is Charging "+ this.isCharging + " Battery level "+ i);
++				if (batteryLevelImage == 0) {
+ 				Mojo.Dom.get('power').className = 'battery-' + i;
++				} else if(batteryLevelImage == 1) {
++					Mojo.Dom.get('power').className = 'battery-percent';
++					Mojo.Dom.get('power').innerHTML = this.getBatteryLevelPercent(payload.percent_ui, batteryLevelColor, true, 0);
++				} else if(batteryLevelImage == 2) {
++					Mojo.Dom.get('power').className = 'battery-percentimage';
++					Mojo.Dom.get('power').innerHTML = '<img src="images/battery-' + i + '.png" />' + this.getBatteryLevelPercent(payload.percent_ui, batteryLevelColor);
++				}
+ 				
+ 				//Show Banner Message if the Battery level is below 20%
+ 				var batteryalert = $L("#{percent_ui}% battery remaining").interpolate(payload);	
+@@ -2098,10 +2144,23 @@ handlePowerNotifications: function(payload) {
+ 			}
+ 			else {
+ 				Mojo.Log.info("SystemUI- Is Charging "+ this.isCharging );
+-				if(payload.percent_ui == 100)
++				if (batteryLevelImage == 0) {
++					if (payload.percent_ui == 100)
+ 					Mojo.Dom.get('power').className = 'battery-charged';
+ 				else
+ 					Mojo.Dom.get('power').className = 'battery-charging-' + i;
++				} else if (batteryLevelImage == 1) {
++					Mojo.Dom.get('power').className = 'battery-percent';
++					Mojo.Dom.get('power').innerHTML = this.getBatteryLevelPercent(payload.percent_ui, batteryLevelColor, true, 1);
++				} else if(batteryLevelImage == 2) {
++					if (payload.percent_ui == 100) {
++						Mojo.Dom.get('power').className = 'battery-percentimage-charged';
++						Mojo.Dom.get('power').innerHTML = '<img src="images/battery-charged.png" />' + this.getBatteryLevelPercent(payload.percent_ui, batteryLevelColor, true, 1);
++					} else {
++						Mojo.Dom.get('power').className = 'battery-percentimage';
++						Mojo.Dom.get('power').innerHTML = '<img src="images/battery-charging-' + i + '.png" />' + this.getBatteryLevelPercent(payload.percent_ui, batteryLevelColor, true, 1);
++					}
++				}
+ 					
+ 			}
+ 			
+@@ -2146,10 +2205,23 @@ handlePowerNotifications: function(payload) {
+ 						
+ 		if (this.isCharging) {
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
+-			if(this.batteryLevel == 100)
++			if (batteryLevelImage == 0) {
++				if (this.batteryLevel == 100)
+ 				Mojo.Dom.get('power').className = 'battery-charged';
+ 			else
+ 				Mojo.Dom.get('power').className = 'battery-charging-' + this.lastBatteryLevel;
++			} else if(batteryLevelImage == 1) {
++				Mojo.Dom.get('power').className = 'battery-percent';
++				Mojo.Dom.get('power').innerHTML = this.getBatteryLevelPercent(this.batteryLevel, batteryLevelColor, true, 1);
++			} else if(batteryLevelImage == 2) {
++				if (this.batteryLevel == 100) {
++					Mojo.Dom.get('power').className = 'battery-percentimage-charged';
++					Mojo.Dom.get('power').innerHTML = '<img src="images/battery-charged.png" />' + this.getBatteryLevelPercent(this.batteryLevel, batteryLevelColor, true, 1);
++				} else {
++					Mojo.Dom.get('power').className = 'battery-percentimage';
++					Mojo.Dom.get('power').innerHTML = '<img src="images/battery-charging-' + this.lastBatteryLevel + '.png" />' + this.getBatteryLevelPercent(this.batteryLevel, batteryLevelColor, true, 1);
++				}
++			}
+ 						
+ 			var stageController = Mojo.Controller.getAppController().getStageController("LowBatteryAlert");
+ 			if (stageController) {
+@@ -2173,7 +2245,17 @@ handlePowerNotifications: function(payload) {
+ 		else {
+ 			this.chargingBannerShown = false;			
+ 			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
++			if (batteryLevelImage == 0) {
+ 			Mojo.Dom.get('power').className = 'battery-' + this.lastBatteryLevel;	
++			}
++			else if (batteryLevelImage == 1) {
++				Mojo.Dom.get('power').className = 'battery-percent';
++				Mojo.Dom.get('power').innerHTML = this.getBatteryLevelPercent(this.batteryLevel, batteryLevelColor, true);
++			}
++			else if(batteryLevelImage == 2) {
++				Mojo.Dom.get('power').className = 'battery-percentimage';
++				Mojo.Dom.get('power').innerHTML = '<img src="images/battery-' + this.lastBatteryLevel + '.png" />' + this.getBatteryLevelPercent(this.batteryLevel, batteryLevelColor);
++			}	
+ 			Mojo.Controller.getAppController().removeBanner('chargingAlert');	
+ 			if (this.batteryLevel < this.minBatThresholdForUpdate) {
+ 				Mojo.Log.info("SystemUI - OTA - Closing All Update Alerts due to battery level dropped below threshold level and charger disconnected.");
+diff --git a/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css b/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
+index 349c68c..b758760 100644
+--- a/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
++++ b/usr/lib/luna/system/luna-systemui/stylesheets/systemui.css
+@@ -146,6 +146,21 @@ body.palm-default {
+ 	width: 17px;		
+ }
+ 
++/* Begin: Battery Percent / Image w/ Percent */
++#power.battery-percent {
++	width: 38px;
++	background-color: black;
++}
++#power.battery-percentimage {
++	width: 49px;
++	background-color: black;
++}
++#power.battery-percentimage-charged {
++	width: 49px;
++	background-color: black;
++}
++/* End: Battery Percent / Image w/ Percent */
++
+ #power.error { background-image: url(../images/battery-error.png); }
+ #power.battery-0 { background-image: url(../images/battery-0.png); }
+ #power.battery-1 { background-image: url(../images/battery-1.png); }
+@@ -309,3 +324,4 @@ body.palm-default {
+ .in-drawer-list .palm-row.last {
+ 	background: url(../images/list-separator-dark-taper.png) bottom left no-repeat !important;
+ }
++

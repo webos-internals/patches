@@ -1,0 +1,120 @@
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+index 08f7f75..05e8a83 100644
+--- a/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/devicemenu-assistant.js
+@@ -32,12 +32,14 @@ var DevicemenuAssistant = Foundations.Class.create({
+ 		this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '}) +  Mojo.Format.formatDate(date,{date:'long'});
+ 		var msg = $L("Battery: #{batlevel}");
+ 		this.controller.get('dm_battery').innerHTML = new Template(msg).evaluate({"batlevel": Mojo.Format.formatPercent(this.barAssistant.getBatteryLevel())});
++		this.controller.setupWidget('brightSlider', {minValue: 1, maxValue: 100}, this.brightModel = { value: 50});
+ 						
+ 		this.modesModel = {scrollbars: false, mode: "vertical"},
+ 		this.controller.setupWidget('devicescroller', {}, this.modesModel);
+ 		this.menuscroller = this.controller.get('devicescroller');
+ 		
+ 		this.drawerModel = {myOpenProperty:false};
++		this.controller.setupWidget('brightdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('imedetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('wifidetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+ 		this.controller.setupWidget('btdetails', {modelProperty:'myOpenProperty'}, this.drawerModel);
+@@ -150,6 +152,8 @@ var DevicemenuAssistant = Foundations.Class.create({
+ 	},
+ 	
+ 	activate: function() {
++		this.controller.get('brightSlider').addEventListener(Mojo.Event.propertyChange, this.handleBrightSlider.bindAsEventListener(this));
++		this.controller.get('brightRow').addEventListener(Mojo.Event.tap, this.handleBrightTap.bindAsEventListener(this));
+ 		this.controller.get('dm_airplanemode').addEventListener(Mojo.Event.tap, this.toggleAirplaneMode.bind(this));
+ 		this.controller.get('wifilist').addEventListener(Mojo.Event.listTap,this.handleWiFiTap.bind(this));
+ 		this.controller.get('btlist').addEventListener(Mojo.Event.listTap,this.handleBTTap.bind(this));
+@@ -171,6 +175,17 @@ var DevicemenuAssistant = Foundations.Class.create({
+ 		this._stageRef = 1;
+ 		this.toggleDeviceMenu();						
+ 	},	
++	handleBrightTap: function(event) {
++		this.controller.get('brightdetails').mojo.setOpenState(!this.controller.get('brightdetails').mojo.getOpenState());
++	},
++
++	handleBrightSlider: function(event) {
++		this.controller.serviceRequest('palm://com.palm.display/control', {
++			method: 'setProperty',
++			parameters:{maximumBrightness:Math.round(event.value)}
++		});
++		this.controller.get('dm_brightness').innerText = "Helligkeit: " + Math.round(event.value) + "%";
++	},
+ 		
+ 	cleanup: function() {
+ 		Mojo.Log.error("Device Menu - Clean up called");
+@@ -1262,6 +1277,7 @@ var DevicemenuAssistant = Foundations.Class.create({
+ 			this.controller.hideWidgetContainer(this.controller.get('wifidetails'));
+ 			this.wifidrawer.mojo.setOpenState(false);
+ 		}
++		this.controller.get('brightdetails').mojo.setOpenState(false);
+ 		if(this.vpndrawer.mojo.getOpenState()) {
+ 			this.controller.hideWidgetContainer(this.controller.get('vpndetails'));
+ 			this.vpndrawer.mojo.setOpenState(false);
+@@ -1464,6 +1480,20 @@ var DevicemenuAssistant = Foundations.Class.create({
+ 			var date = new Date();		
+ 			this.controller.get('dm_date').innerHTML = Mojo.Format.formatDate(date,{date:'EEE '})  +  Mojo.Format.formatDate(date,{date:'long'});
+ 			
++			this.controller.serviceRequest('palm://com.palm.display/control', {
++				method: 'getProperty',
++				parameters:{properties:['maximumBrightness']},
++				onSuccess: function(response) {
++					if(response.maximumBrightness != undefined) {
++						this.brightModel.value = parseInt(response.maximumBrightness);
++						this.controller.modelChanged(this.brightModel);
++						this.controller.get('dm_brightness').innerText = "Helligkeit: " + response.maximumBrightness + "%";
++					} else {
++						this.controller.get('dm_brightness').innerText = "Helligkeit: ??%";
++					}
++				}.bind(this)
++			});
++			
+ 			if(this.turningOnBtRadio) {
+ 				this.btspinnerModel.spinning = true;
+ 				this.controller.modelChanged(this.btspinnerModel);
+diff --git a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+index 0e43a60..c1b7c7b 100644
+--- a/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
++++ b/usr/lib/luna/system/luna-systemui/app/views/devicemenu/devicemenu-scene.html
+@@ -25,6 +25,14 @@
+ 					<div id="dm_battery" class="title dim"></div>
+ 				</div></div> 
+ 
++				<div class="palm-row" id="brightRow" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div id="dm_brightness" class="title"></div>
++				</div></div>
++				<div id="brightdetails" x-mojo-element="Drawer">
++					<div class="palm-row first"><div class="palm-row-wrapper">
++						<div x-mojo-element="Slider" id="brightSlider" style="padding-top: 30px; height: 50px;"></div>
++					</div></div>
++				</div>
+ 				<div class="palm-section-divider"></div>
+ 				
+ 				<div class="palm-row" id="dm_ime" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
+diff --git a/usr/lib/luna/system/luna-systemui/resources/de/views/devicemenu/devicemenu-scene.html b/usr/lib/luna/system/luna-systemui/resources/de/views/devicemenu/devicemenu-scene.html
+index 05333e5..a1333a3 100644
+--- a/usr/lib/luna/system/luna-systemui/resources/de/views/devicemenu/devicemenu-scene.html
++++ b/usr/lib/luna/system/luna-systemui/resources/de/views/devicemenu/devicemenu-scene.html
+@@ -60,7 +60,20 @@
+ 				</div> 
+ 				
+ 				<div class="palm-section-divider">
+-				</div>               
++				</div> 
++ 				
++				<div class="palm-row" id="brightRow" x-mojo-tap-highlight='momentary'><div class="palm-row-wrapper">
++					<div id="dm_brightness" class="title"></div>
++				</div></div>
++
++				<div id="brightdetails" x-mojo-element="Drawer">
++					<div class="palm-row first"><div class="palm-row-wrapper">
++						<div x-mojo-element="Slider" id="brightSlider" style="padding-top: 30px; height: 50px;"></div>
++					</div></div>
++				</div>
++
++				<div class="palm-section-divider">
++				</div>                             
+ 				
+ 				<div class="palm-row" id="dm_wifi" x-mojo-tap-highlight='momentary'>
+ 					<div class="palm-row-wrapper">

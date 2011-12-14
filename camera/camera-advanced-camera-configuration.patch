@@ -1,0 +1,614 @@
+diff --git a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+index d38dff5..0ff5f6d 100644
+--- a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
++++ b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+@@ -16,6 +16,8 @@ var CaptureAssistant = function (params){
+ 			FLASH_AUTO: 1,
+ 			FLASH_ON:   2
+ 		});		
++		
++		this.videaFlashState = CaptureAssistant.FLASH_OFF;
+ 	
+ 		this._focused = true;
+ 		this.photorollInfo = null;
+@@ -29,8 +31,35 @@ var CaptureAssistant = function (params){
+ 		this._displayOn = true;
+ 		
+ 		this.launchParams = params || {};
+-
+-
++		
++		//Variables for self-timer and burst shot
++		this.nTimerSeconds = 0;
++		this.nTimerSecondsRemaining = 0;
++		this.nBurstFrames = 1;
++		this.nCurrentShotTimer = 0;
++		this.bTimerCaptureStarted = false;
++		this.hTimer = null;
++		this.hShotTimers = [];
++		
++		//Tweakable variables for self-timer and burst shot
++		this.bSelfTimerEnabled = false;
++		this.bBurstFramesEnabled = false;
++		this.nBurstDelay = 2000;
++		this.nSelfTimer1 = 3;
++		this.nSelfTimer2 = 5;
++		this.nSelfTimer3 = 10;
++		this.nBurstCount1 = 2;
++		this.nBurstCount2 = 3;
++		
++		//Tweakable for video camera flashlight
++		this.bVideoCameraFlashEnabled = false;
++		
++		//Tweakable for shutter sound
++		this.bShutterSoundEnabled = true;
++		
++		//Tweakable for capturing with volume keys
++		this.bCaptureWithVolumeKeys = false;
++		
+ 		this.sublaunch = !!this.launchParams.sublaunch;
+ 		if (!this.launchParams.mode) { 
+ 			this.launchParams.mode = 'still';
+@@ -66,8 +95,7 @@ var CaptureAssistant = function (params){
+ 	};
+ 		
+ CaptureAssistant.prototype = {
+-
+-	
++		
+ 	setup: function() { try {
+ 		llog("CaptureAssistant::setup ", Object.toJSON(arguments));
+ 		
+@@ -112,6 +140,10 @@ CaptureAssistant.prototype = {
+ 			Mojo.Event.tap, this.onCapture.bind(this, false));
+ 		this.controller.get('flash-toggle').observe(
+ 			Mojo.Event.tap, this._handleFlashButton.bind(this));
++		this.controller.get('timer-button').observe(
++			Mojo.Event.tap, this._handleTimerButton.bind(this));
++		this.controller.get('burst-button').observe(
++			Mojo.Event.tap, this._handleBurstButton.bind(this));
+ 		
+ 		if (this.sublaunch){
+ 			// Hide the toggle button, we only allow sublaunch to still capture.
+@@ -125,6 +157,8 @@ CaptureAssistant.prototype = {
+ 			}.bind(this));
+ 		}
+ 		
++		//Capture with volume keys
++		this.volumeKeySubscription = null;
+ 		
+ 		this.onKeyPressHandler = this.onKeyPress.bindAsEventListener(this);
+ 		Mojo.listen(this.controller.sceneElement, Mojo.Event.keydown, this.onKeyPressHandler);
+@@ -141,11 +175,104 @@ CaptureAssistant.prototype = {
+ 			AppAssistant.photoRollVideoLoader = AppAssistant.libraries["metascene.videos"];
+ 		}
+ 		
++		// listen to volume key events
++		// Error454: For the tweaks version of this patch, I'm unsure whether
++		//			it might be better to avoid subscribing to the event
++		//			altogether if the option is disabled.  It adds a little
++		//			more complexity to do so, whereas simply checking the 
++		//			bit in the handleVolumeKeys is easy.
++		this.volumeKeySubscription = new Mojo.Service.Request(
++			'palm://com.palm.keys/audio', 
++			{
++				method: 'status',
++				parameters: {'subscribe': true},
++				onFailure: function() { Mojo.Log.error("Could not subscribe to volume key events"); },
++				onSuccess: this.handleVolumeKeys.bind(this), 
++			}
++		);
++		
++		//Get the tweaks values
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", 
++		{	method: "get", 
++			parameters: {
++				owner: "error454", 
++				keys: 
++				[	"tweaksBurstDelay", 
++					"tweaksSelfTimer1", 
++					"tweaksSelfTimer2", 
++					"tweaksSelfTimer3", 
++					"tweaksBurstCount1", 
++					"tweaksBurstCount2",
++					"tweaksVideoCameraFlashlight",
++					"tweaksShutterSound",
++					"tweaksCaptureWithVolumeKeys",
++					"tweaksSelfTimerEnabled",
++					"tweaksBurstFramesEnabled"
++				]
++			}, 
++			onSuccess: this.tweaksSuccessCallback.bind(this)
++		});	
++		
+ 		llog("CaptureAssistant::setup() finished");
+ 	}catch(e){llog("setup threw: "+JSON.stringify(e));}},
+ 	
+-
+-
++	//We got the tweaks, validate that the data is there and set the desired values
++	tweaksSuccessCallback: function(response){
++		if(response){
++			if(response.tweaksBurstDelay){
++				this.nBurstDelay = parseInt(response.tweaksBurstDelay);
++			}
++			if(response.tweaksSelfTimer1){
++				this.nSelfTimer1 = parseInt(response.tweaksSelfTimer1);
++			}
++			if(response.tweaksSelfTimer2){
++				this.nSelfTimer2 = parseInt(response.tweaksSelfTimer2);
++			}
++			if(response.tweaksSelfTimer3){
++				this.nSelfTimer3 = parseInt(response.tweaksSelfTimer3);
++			}
++			if(response.tweaksBurstCount1){
++				this.nBurstCount1 = parseInt(response.tweaksBurstCount1);
++			}
++			if(response.tweaksBurstCount2){
++				this.nBurstCount2 = parseInt(response.tweaksBurstCount2);
++			}
++			this.bVideoCameraFlashEnabled = response.tweaksVideoCameraFlashlight; 
++			this.bShutterSoundEnabled = response.tweaksShutterSound;
++			this.bCaptureWithVolumeKeys = response.tweaksCaptureWithVolumeKeys;
++			this.bSelfTimerEnabled = response.tweaksSelfTimerEnabled;
++			this.bBurstFramesEnabled = response.tweaksBurstFramesEnabled;
++			
++			//hide UI things
++			if(!this.bSelfTimerEnabled){
++				this.controller.get('timer-button').className = "hidden";
++			}
++			
++			if(!this.bBurstFramesEnabled){
++				this.controller.get('burst-button').className = "hidden";
++			}
++		}
++	},
++	
++	cleanUpTimers: function(){
++		//Clean up the countdown timer
++		if(this.hTimer != null){
++			clearInterval(this.hTimer);
++			this.hTimer = null;
++		}
++		
++		//Clean up any pending burst shots
++		for(var i = 0; i < this.hShotTimers.length; i++){
++			if(this.hShotTimers[i] != null){
++				clearTimeout(this.hShotTimers[i]);
++				this.hShotTimers[i] = null;
++			}
++		}
++		
++		this.bTimerCaptureStarted = false;
++		this.controller.get('timer-countdown').innerHTML = "";
++	},
++	
+ 	/**
+ 	 * Set-up stuff that we don't want to do until we've brought up preview 
+ 	 */
+@@ -300,6 +427,8 @@ CaptureAssistant.prototype = {
+ 	cleanup: function(){
+ 		llog("CaptureAssistant::cleanup");		
+ 
++		this.cleanUpTimers();
++		
+ 		this.photorollManager.cleanup();
+ 		Mojo.stopListening(this.controller.sceneElement, Mojo.Event.keypress, this.onKeyPressHandler);
+ 		
+@@ -326,6 +455,11 @@ CaptureAssistant.prototype = {
+ 		this._powerService.cleanup();
+ 
+ 		this.cameraControl.closeCamera();
++
++		// clean up listener for volume keys
++		if(this.volumeKeySubscription) {
++			this.volumeKeySubscription.cancel();
++		}				
+ 	},
+ 	
+ 	handleCommand: function(event){
+@@ -369,14 +503,95 @@ CaptureAssistant.prototype = {
+ 	},
+ 	
+ 	onCapture: function(isHardkey){
++		
++		var captureSingleFrame = function(){
++			this.cameraControl.stillCapture();
++			
++			//Once a timer has been fired, set the handler id to null
++			this.hShotTimers[this.nCurrentShotTimer] = null;
++			this.nCurrentShotTimer++;
++			
++			//see if any bursts are remaining, the array can potentially change
++			//size, so this is unfortunately necessary
++			var fail = false;
++			for(var i = this.hShotTimers.length - 1; i > -1; i--){
++				if(this.hShotTimers[i] != null){
++					fail = true;
++					break;
++				}
++			}
++			
++			//If there aren't any bursts remaining, we are done
++			if(!fail){
++				this.bTimerCaptureStarted = false;
++			}
++		}.bind(this);
++		
++		var timerTick = function(){
++			this.nTimerSecondsRemaining--;
++			
++			//Update countdown
++			this.controller.get('timer-countdown').innerHTML = this.nTimerSecondsRemaining;
++			
++			//If the countdown is over, take the shot
++			if(this.nTimerSecondsRemaining == 0){
++				//kill the countdown timer
++				clearInterval(this.hTimer);
++				this.hTimer = null;
++				
++				//Reset the current shot timer
++				this.nCurrentShotTimer = 0;
++				
++				//capture nBurstFrames
++				for(var i = 0; i < this.nBurstFrames; i++){
++					this.hShotTimers[i] = setTimeout(captureSingleFrame, i*this.nBurstDelay);					
++				}
++				
++				//hide the countdown
++				this.controller.get('timer-countdown').innerHTML = "";
++			}
++		}.bind(this);
++		
+ 		if (this.isVideoCapture){			
+ 			this.cameraControl.videoCapture(isHardkey/*haptic*/);
+ 		}		
+ 		else {
+-			this.cameraControl.stillCapture();
++			//If the timer is set to 0 then it is not enabled
++			if(this.nTimerSeconds != 0 && this.bSelfTimerEnabled){
++				//The user has tried to take a photo while the countdown is going
++				//stop the countdown and don't take any photos
++				if(this.bTimerCaptureStarted == true){
++					//Stop the timer and hide the countdown label
++					this.cleanUpTimers();
++				}
++				else{
++					//Otherwise, there wasn't a countdown in progress, start the countdown
++					this.bTimerCaptureStarted = true;
++					this.nTimerSecondsRemaining = this.nTimerSeconds;
++					this.hTimer = setInterval(timerTick, 1000);
++				}
++			}
++			else{	//The timer is not enabled, just take nBurstFrames number of frames
++				//Reset the current shot timer so that we can track which timer is firing
++				this.nCurrentShotTimer = 0;
++				
++				for(var i = 0; i < this.nBurstFrames; i++){
++					this.hShotTimers[i] = setTimeout(captureSingleFrame, i*this.nBurstDelay);					
++				}
++			}
+ 		}
+ 	},
+-  
++	
++	// capture on release of volume keys
++	handleVolumeKeys: function(payload) {
++		// capture when either volume up or down buttons are released
++		if(this.bCaptureWithVolumeKeys){
++			if(payload.state === 'up' && (payload.key === 'volume_up' || payload.key === 'volume_down')) {
++				this.onCapture();
++			}
++		}
++	},
++	
+ 	/**
+ 	 * Called by the camera control when a picture has been written out to disk by the media server.
+ 	 * 
+@@ -984,6 +1199,7 @@ CaptureAssistant.prototype = {
+ 
+ 		this._idleCheckTimer = setTimeout(this._triggerIdleHandler,  this.cameraControl.prefs[CameraControl.PREFS.IDLEMAX]);
+ 		this._powerService.stopScreenDim();
++		this.sysVolMute(!this.bShutterSoundEnabled);
+ 	},
+ 	/**
+ 	 * Stop checking for capture activity and re-enable the screen dim.
+@@ -999,6 +1215,7 @@ CaptureAssistant.prototype = {
+ 			clearTimeout(this._idleCheckTimer);
+ 			delete this._idleCheckTimer;
+ 		}
++		this.sysVolMute(!this.bShutterSoundEnabled);
+ 	},
+ 	/**
+ 	 * Indicate that an event has occured and reset the screen-off check time.
+@@ -1008,7 +1225,7 @@ CaptureAssistant.prototype = {
+ 		if (this._idleCheckTimer){
+ 			clearTimeout(this._idleCheckTimer);
+ 			this._idleCheckTimer = setTimeout(this._triggerIdleHandler,  this.cameraControl.prefs[CameraControl.PREFS.IDLEMAX]);
+-
++			this.sysVolMute(!this.bShutterSoundEnabled);
+ 		}
+ 		else{
+ 			this.startIdleCheck();
+@@ -1026,7 +1243,13 @@ CaptureAssistant.prototype = {
+ 
+ 		this._powerService.allowScreenDim();
+ 	},
+-			
++	
++	sysVolMute: function(mute){
++		this.controller.serviceRequest('palm://com.palm.audio/system', {
++			method:'setMuted',
++			parameters:{muted:mute}
++		});
++	},
+ 
+ 	/**
+ 	 * Click handler for flashmode button.
+@@ -1034,6 +1257,24 @@ CaptureAssistant.prototype = {
+ 	 * @param {Event} event  The click event
+ 	 */
+ 	_handleFlashButton: function(event){
++		if(this.isVideoCapture) {
++			if(this.videaFlashState == CaptureAssistant.FLASH_OFF) {
++				this.videaFlashState = CaptureAssistant.FLASH_ON;
++				this.controller.get('flash-toggle').className = "flash-button flash-on";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"on"}
++				});
++			} else {
++				this.videaFlashState = CaptureAssistant.FLASH_OFF;
++				this.controller.get('flash-toggle').className = "flash-button flash-off";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"off"}
++				});
++			}
++			return;
++		}
+ 		if ( (this.flashState < CaptureAssistant.FLASH_OFF) || (this.flashState >= CaptureAssistant.FLASH_ON) ){
+ 			// Cycle order is off, auto, on.
+ 			this.flashState = CaptureAssistant.FLASH_OFF;
+@@ -1056,7 +1297,40 @@ CaptureAssistant.prototype = {
+ 
+ 		this.setFlashState(this.flashState);
+ 	},
++	
++	_handleTimerButton: function(event){
++		switch(this.nTimerSeconds){
++			case 0:
++				this.nTimerSeconds = this.nSelfTimer1;
++				break;
++			case this.nSelfTimer1:
++				this.nTimerSeconds = this.nSelfTimer2;
++				break;
++			case this.nSelfTimer2:
++				this.nTimerSeconds = this.nSelfTimer3;
++				break;
++			default:
++				this.nTimerSeconds = 0;
++		}
++		
++		this.controller.get('timer-button').innerHTML = this.nTimerSeconds + " secs";
++	},
++	
++	_handleBurstButton: function(event){
++		switch(this.nBurstFrames){
++			case 1:
++				this.nBurstFrames = this.nBurstCount1;
++				break;
++			case this.nBurstCount1:
++				this.nBurstFrames = this.nBurstCount2;
++				break;
++			default:
++				this.nBurstFrames = 1;
++		}
+ 		
++		this.controller.get('burst-button').innerHTML = this.nBurstFrames + "x";
++	},
++	
+ 	setFlashState: function(state){
+ 
+ 		if ( (state < CaptureAssistant.FLASH_OFF) || (state > CaptureAssistant.FLASH_ON) ) {
+@@ -1081,6 +1355,24 @@ CaptureAssistant.prototype = {
+ 		llog("Set Flash Mode to ", this.flashState);
+ 	},
+ 	
++	loadVideoFlash: function() {
++		if(this.isVideoCapture) {
++			if(this.videaFlashState == CaptureAssistant.FLASH_OFF) {
++				this.controller.get('flash-toggle').className = "flash-button flash-off";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"off"}
++				});
++			} else {
++				this.controller.get('flash-toggle').className = "flash-button flash-on";
++				this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++					method: 'setFlash',
++					parameters: {state:"on"}
++				});
++			}
++		}
++	},
++	
+ 	/**
+ 	 * Handle the toggle event from the UI.
+ 	 * 
+@@ -1119,8 +1411,29 @@ CaptureAssistant.prototype = {
+ 			this.controller.sceneElement.removeClassName('camera');
+ 			this.controller.sceneElement.addClassName('camcorder');
+ 			
++			if(this.bVideoCameraFlashEnabled){
++				
++				//TODO hide/show the flash buttons
++				this.loadVideoFlash();
++			}
++			else{
++				//hide the flash button
++				this.controller.get('flash-toggle').className = "hidden";
++			}
+ 		}
+ 		else {
++			this.videaFlashState = CaptureAssistant.FLASH_OFF;
++			this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++				method: 'setFlash',
++				parameters: {state:"off"}
++			});
++			if (this.flashState == CaptureAssistant.FLASH_OFF) {
++				this.controller.get('flash-toggle').className = "flash-button flash-off";
++			} else if (this.flashState == CaptureAssistant.FLASH_ON) {
++				this.controller.get('flash-toggle').className = "flash-button flash-on";
++			} else if (this.flashState == CaptureAssistant.FLASH_AUTO) {
++				this.controller.get('flash-toggle').className = "flash-button flash-auto";
++			} 
+ 			this.controller.sceneElement.removeClassName('camcorder');
+ 			this.controller.sceneElement.addClassName('camera');
+ 		}
+@@ -1220,6 +1533,10 @@ CaptureAssistant.prototype = {
+ 	 */
+ 	_onBlur: function(event){
+ 		llog("Got a blur event: " + this);
++		this.controller.serviceRequest('palm://ca.canucksoftware.systoolsmgr', {
++			method: 'setFlash',
++			parameters: {state:"off"}
++		});
+ 
+ 		this._focused = false;
+ 
+@@ -1251,6 +1568,8 @@ CaptureAssistant.prototype = {
+ 
+ 		}.bind(this), 350);
+ 		
++		//stop countdown and burst timers
++		this.cleanUpTimers();
+ 	},
+ 
+ 	/**
+diff --git a/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html b/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html
+index 5f4c8bd..4f7f840 100644
+--- a/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html
++++ b/usr/palm/applications/com.palm.app.camera/app/views/capture/capture-scene.html
+@@ -16,7 +16,12 @@
+     		<div id="flash-toggle" class="flash-button" x-mojo-touch-feedback="immediate"></div>
+         </div>
+     </div>
+-    <div id="view-finder" class="view-finder"></div>
++	
++	<div id="timer-button" class="timer-button" x-mojo-touch-feedback="immediate">0 secs</div>
++	<div id="burst-button" class="burst-button" x-mojo-touch-feedback="immediate">1x</div>
++	<div id="timer-countdown" class="timer-countdown"></div>
++	
++	<div id="view-finder" class="view-finder"></div>
+     <div id="rotate-container" class="rotate-container">
+         <p id="rotate-message" class="rotate-message" x-mojo-loc="">Rotate before recording</p>
+     </div>
+diff --git a/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css b/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css
+index f53e916..a3bcb5e 100644
+--- a/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css
++++ b/usr/palm/applications/com.palm.app.camera/stylesheets/camera.css
+@@ -182,7 +182,62 @@ img {
+     background: url(../images/flash-buttons.png) left top no-repeat;
+ }
+ 
+-.camcorder .flash-button { visibility: hidden; }
++.timer-button {
++    position: absolute;
++    top: 0px;
++    right: 0px;
++	width: 60px;
++    height: 27px;
++    margin-top: 20px;
++    margin-right: 10px;
++    pointer-events: auto;
++    
++	text-align: center;
++    font-size: 17px;
++    font-weight: bold;
++    color: #FFF;
++	
++	border-radius: 40px;
++	background-color:rgba(33,33,33,0.7);
++    
++}
++
++.burst-button {
++	position: absolute;
++    top: 0px;
++    right: 0px;
++	width: 60px;
++    height: 27px;
++    margin-top: 20px;
++    margin-right: 75px;
++    pointer-events: auto;
++    
++	text-align: center;
++    font-size: 17px;
++    font-weight: bold;
++    color: #FFF;
++	
++	border-radius: 40px;
++	background-color:rgba(33,33,33,0.7);
++}
++ 
++ .timer-countdown {
++	position: absolute;
++    top: 20%;
++	bottom: 20%;
++    left: 10%;
++	right: 10%;
++	
++	text-align: center;
++    font-size: 175px;
++    font-weight: bold;
++    color: #0F0;
++ }
++
++.hidden { visibility: hidden; }
++ 
++.camcorder .timer-button { visibility: hidden; }
++.camcorder .burst-button { visibility: hidden; }
+ 
+ .flash-button.selected { background-position-y: -50px; }
+ .flash-button.flash-on { background-position-y: -100px; }
+@@ -220,6 +275,9 @@ img {
+ .capture-time,
+ .capture-button,
+ .flash-button,
++.timer-button,
++.burst-button,
++.timer-countdown,
+ .view-finder,
+ .camera-icon {
+     -webkit-transition-property: -webkit-transform;
+@@ -232,6 +290,9 @@ img {
+ .down .capture-time,
+ .down .capture-button,
+ .down .flash-button,
++.down .timer-button,
++.down .burst-button,
++.down .timer-countdown,
+ .down .view-finder,
+ .down .camera-icon {
+     -webkit-transform: rotate(180deg);
+@@ -243,6 +304,9 @@ img {
+ .right .capture-time,
+ .right .capture-button,
+ .right .flash-button,
++.right .timer-button,
++.right .burst-button,
++.right .timer-countdown,
+ .right .view-finder,
+ .right .camera-icon {
+     -webkit-transform: rotate(-90deg);
+@@ -261,6 +325,9 @@ img {
+ .left .capture-time,
+ .left .capture-button,
+ .left .flash-button,
++.left .timer-button,
++.left .burst-button,
++.left .timer-countdown,
+ .left .view-finder,
+ .left .camera-icon {
+     -webkit-transform: rotate(90deg);
