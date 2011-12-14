@@ -1,0 +1,125 @@
+--- .orig/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++++ /usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+@@ -3,6 +3,11 @@
+ var BarAssistant = Foundations.Class.create({
+ 	
+ 	setup: function() {
++		this.modeSwitcherStatus = {
++			activated: false,
++			modeLocked: false,
++			activeModes: [],
++			customModes: []};
+ 						
+ 		this.showMSMWarning = false;
+ 		this.isUSBConnected = false;
+@@ -617,6 +622,9 @@
+ 	
+ 	this.getRoamingPreference();
+ 		
++	//Subscribe to Mode Switcher configuration
++	this.initModeSwitcher();
++	
+ 	//Get the Airplane Mode initial values
+ 	this.isAirplaneModeEnabled();
+ 						
+@@ -725,7 +733,7 @@
+ 				this.carrierText = $L(payload.extended.networkName.escapeHTML());
+ 				this.currentCarrierText = payload.extended.networkName.escapeHTML();
+ 			}
+-			Mojo.Dom.get('carrier').innerHTML = this.carrierText;	   	
++			this.updateModeSwitcherStatus();
+ 			if(payload.extended.registration == 'home') {			
+ 				Mojo.Dom.get('roaming').hide();
+ 			}								
+@@ -1165,7 +1173,7 @@
+ 					this.carrierText = $L(networkMsg.networkName.escapeHTML());
+ 					this.currentCarrierText = networkMsg.networkName.escapeHTML();
+ 				}
+-				Mojo.Dom.get('carrier').innerHTML = this.carrierText;
++				this.updateModeSwitcherStatus();
+ 				this.simlocked = false;
+ 				
+ 				if(networkMsg.registration == 'home') {					
+@@ -4709,6 +4717,70 @@
+ 	Mojo.Controller.getAppController().showBanner(bannerParams, {}, 'apprestoredbanner');
+ },
+ 
++// Mode Switcher Support
++
++initModeSwitcher: function() {
++	this.defaultCarrierColor = Mojo.Dom.get('carrier').style.color;
++	
++	this.modesConfigRequest = new Mojo.Service.Request("palm://org.webosinternals.modeswitcher.srv", {
++		method: 'status', parameters: {"subscribe": true},
++		onSuccess: this.handleModeSwitcherUpdate.bind(this) });	
++},
++
++handleModeSwitcherUpdate: function(payload) {
++	if(payload.activated != undefined)
++		this.modeSwitcherStatus.activated = payload.activated;
++
++	if(payload.modeLocked != undefined)
++		this.modeSwitcherStatus.modeLocked = payload.modeLocked;
++		
++	if(payload.activeModes != undefined)
++		this.modeSwitcherStatus.activeModes = payload.activeModes;
++
++	if(payload.customModes != undefined)
++		this.modeSwitcherStatus.customModes = payload.customModes;
++
++	this.updateModeSwitcherStatus();
++
++	var stageController = Mojo.Controller.getAppController().getStageController("StatusMenu");	
++
++	if(stageController) {
++		stageController.delegateToSceneAssistant("updateMenuItems");
++	}
++},
++
++//Updated the status text if needed.
++updateModeSwitcherStatus: function() {
++	this.gpsGetRadioStatus();
++	
++	if(this.modeSwitcherStatus.activeModes.length == 0) {
++		$('carrier').innerHTML = this.carrierText;
++		$('carrier').style.color = this.defaultCarrierColor;
++
++		return;
++	}	
++	
++	if(this.modeSwitcherStatus.modeLocked)
++		$('carrier').style.color = "yellow";
++	else
++		$('carrier').style.color = this.defaultCarrierColor;
++
++	if((this.modeSwitcherStatus.activeModes[0].name == "Default Mode") && (this.carrierText != ""))
++		var statusText = this.carrierText;
++	else
++		var statusText = this.modeSwitcherStatus.activeModes[0].name;
++
++	if(this.modeSwitcherStatus.activeModes.length > 1)
++		statusText = statusText + " +";
++
++	$('carrier').innerHTML = statusText;
++},
++
++//Returns the MS config. Called by the Mode Menu.
++getModeSwitcherStatus: function() {	
++	return this.modeSwitcherStatus;
++},
++
+ //  Main Variables
+ 	timeAMPM: true,
+ 	serviceInitMethod:[],
+--- .orig/usr/lib/luna/system/luna-systemui/sources.json
++++ /usr/lib/luna/system/luna-systemui/sources.json
+@@ -6,6 +6,9 @@
+     "source": "app\/controllers\/bar-assistant.js"
+   },  
+   {
++    "source": "app\/controllers\/statusmenu-assistant.js"
++  },  
++  {
+     "source": "app\/controllers\/devicemenu-assistant.js"
+   },  
+   {

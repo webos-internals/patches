@@ -1,0 +1,140 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+index 95bb302..6116755 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -1655,8 +1655,37 @@ MessageAssistant.prototype._getAttachmentById = function(id) {
+ 
+ 		if (listDiv) {
+ 			var attachmentUri = listDiv.getAttribute('x-uri');
++			var filename = listDiv.getAttribute("x-fileName");
+ 			if (attachmentUri) {
+-				this.openAttachment(listDiv);
++				this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++					method: "exists",
++					parameters: {file:"/media/internal/downloads/" + filename},
++					onSuccess: function(response) {
++						if(response.exists) {
++							listDiv.setAttribute("x-uri", "/media/internal/downloads/" + filename);
++							this.openAttachment(listDiv);
++						} else {
++							this.controller.serviceRequest("palm://ca.canucksoftware.filemgr", {
++								method: "exists",
++								parameters: {file:attachmentUri},
++								onSuccess: function(response2) {
++									if(response2.exists) {
++										this.openAttachment(listDiv);
++									} else {
++										listDiv.removeAttribute("x-uri");
++										this.handleAttachmentTapped(event);
++									}
++								}.bind(this),
++								onFailure: function(err2) {
++									this.openAttachment(listDiv);
++								}.bind(this)
++							});
++						}
++					}.bind(this),
++					onFailure: function(err) {
++						this.openAttachment(listDiv);
++					}.bind(this)
++				});
+ 			} else if (event.target.className === "download-cancel") {
+ 				this.stopAttachmentDownload(listDiv.id);
+ 				
+@@ -1669,7 +1698,7 @@ MessageAssistant.prototype._getAttachmentById = function(id) {
+ 					window.clearTimeout(this.hideTimeout);
+ 					this.hideTimeout = null;
+ 				}
+-				this.startAttachmentDownload(listDiv.id);
++				this.startAttachmentDownload(listDiv.id, filename);
+ 				
+ 				if (this.attachmentDownloadCount === undefined) {
+ 					this.attachmentDownloadCount = 1;
+@@ -1680,11 +1709,11 @@ MessageAssistant.prototype._getAttachmentById = function(id) {
+ 		}
+ 	};
+ 	
+-	MessageAssistant.prototype.startAttachmentDownload = function(attachmentId) {
++	MessageAssistant.prototype.startAttachmentDownload = function(attachmentId, filename) {
+ 		var accountId = this.targetAccountId;
+ 		var messageId = this.targetEmail._id;
+ 		var folderId = this.targetEmail.folderId;
+-		EmailApp.attachmentsUtil.startAttachmentDownload(this, accountId, folderId, messageId, attachmentId);
++		EmailApp.attachmentsUtil.startAttachmentDownload(this, accountId, folderId, messageId, attachmentId, filename);
+ 	};
+ 	
+ 	MessageAssistant.prototype.stopAttachmentDownload = function(attachmentId) {
+diff --git a/usr/palm/applications/com.palm.app.email/app/models/Attachments.js b/usr/palm/applications/com.palm.app.email/app/models/Attachments.js
+index 8b3e591..5ec004e 100644
+--- a/usr/palm/applications/com.palm.app.email/app/models/Attachments.js
++++ b/usr/palm/applications/com.palm.app.email/app/models/Attachments.js
+@@ -39,13 +39,13 @@ Attachments.prototype.isDownloadInProgress = function(partId) {
+ 	return this.attachmentDLProgress.details[partId] !== undefined;
+ };
+ 
+-Attachments.prototype.startAttachmentDownload = function(scene, accountId, folderId, messageId, partId) {
++Attachments.prototype.startAttachmentDownload = function(scene, accountId, folderId, messageId, partId, attachmentName) {
+ 	Mojo.Log.info("start attachment '%s' download", partId);
+ 	
+ 	if (this.isDownloadInProgress(partId)) {
+ 		Mojo.Log.info("ignoring tap because attachment is already downloading");
+ 	} else {
+-		var successFunc = this.attachmentDownloadProgress.bind(this);
++		var successFunc = this.attachmentDownloadProgress.bind(this, attachmentName);
+ 		var errorFunc = function(error){
+ 			this.broadcast(Attachments.kDownloadProgressError, partId, error);
+ 		}.bind(this, partId);
+@@ -115,7 +115,7 @@ Attachments.prototype.attachmentError = function(scene, id, err) {
+ 	});
+ };
+ 
+-Attachments.prototype.attachmentDownloadProgress = function(info) {
++Attachments.prototype.attachmentDownloadProgress = function(attachmentName, info) {
+ 	if (!info.partId) {
+ 		// If the object doesn't contain a 'id' property, it isn't valid download progress
+ 		return;
+@@ -125,12 +125,38 @@ Attachments.prototype.attachmentDownloadProgress = function(info) {
+ 	if (info.path) {
+ 		// Transport will return a path when attachment is downloaded
+ 		Mojo.Log.info("attachmentDownloadProgress complete for attachment: %s", info.partId);
+-		// Notifiy listeners about the downloaded progress
+-		this.broadcast(Attachments.kDownloadProgressUpdate, info.partId, 100);
+-		this.broadcast(Attachments.kDownloadProgressComplete, info);
+-		
+-		// remove download subscription
+-		this.attachmentDLProgress.clearSubscription(info.partId);
++		this.filemgrRequest1 = new Mojo.Service.Request("palm://ca.canucksoftware.filemgr", {
++			method: "createDir",
++			parameters: {path:"/media/internal/downloads/"},
++			onSuccess: function(response1) {
++				var newPath = undefined;
++				if(attachmentName) {
++					newPath = "/media/internal/downloads/" + attachmentName;
++				} else {
++					newPath = "/media/internal/downloads/" + info.path.substring(info.path.lastIndexOf("/")+1);
++				}
++				this.filemgrRequest2 = new Mojo.Service.Request("palm://ca.canucksoftware.filemgr", {
++					method: "move",
++					parameters: {from:info.path, to:newPath},
++					onSuccess: function(response2) {
++						info.path = newPath;
++						this.broadcast(Attachments.kDownloadProgressUpdate, info.partId, 100);
++						this.broadcast(Attachments.kDownloadProgressComplete, info);
++						this.attachmentDLProgress.clearSubscription(info.partId);
++					}.bind(this),
++					onFailure: function(err2) {
++						this.broadcast(Attachments.kDownloadProgressUpdate, info.partId, 100);
++						this.broadcast(Attachments.kDownloadProgressComplete, info);
++						this.attachmentDLProgress.clearSubscription(info.partId);
++					}.bind(this)
++				});
++			}.bind(this),
++			onFailure: function(err1) {
++				this.broadcast(Attachments.kDownloadProgressUpdate, info.partId, 100);
++				this.broadcast(Attachments.kDownloadProgressComplete, info);
++				this.attachmentDLProgress.clearSubscription(info.partId);
++			}.bind(this)
++		});
+ 	} else {
+ 		var progress = (info.bytesDownloaded / info.totalBytes) * 100;
+ 		var detailsObj = this.attachmentDLProgress.details;

@@ -1,0 +1,541 @@
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
+index 57cc297..8fe04e4 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
+@@ -19,6 +19,37 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+ 		},
+ 
+ 		setup: function setup(service, accountId, launchConfig, launchArgs) {
++			try{
++				Config.syncWindowMonthsAfter = 48; 
++				Config.syncWindowMonthsBefore = 12;
++				Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++				var configFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
++						"get",
++								{owner: "google-first-sync",
++								keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"]}
++						);
++				configFuture.then(Config, function(future)
++						{ var result = future.result;
++							if(result.returnValue === true) {
++								if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
++									Utils.log("TWEAKS preferences before sync: " + result.syncWindowMonthsBefore);
++									Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
++								}
++								if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
++									Utils.log("TWEAKS preferences after sync: " + result.syncWindowMonthsAfter);
++									Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
++								}
++								future.result = {returnValue: true};
++							} else{
++								Config.syncWindowMonthsAfter = 48;
++								Config.syncWindowMonthsBefore = 12;
++								Utils.error("failed to read TWEAKS preferences no result" + stringify(result));
++							}
++						});
++			} catch(e) {Utils.error("failed to read TWEAKS no service preferences");}
++			Utils.error("google sync start preferences: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++			
++			
+ 			var future = this._getAccount(accountId);
+ 			
+ 			future.then(this, function finishSetup() {
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
+index 73256cd..b1ae98f 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
+@@ -389,7 +389,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 						found = this._calendarEntries[i].remoteId === remoteId;
+ 						if (!found) {
+ 							// Second chance for calendars migrated from 1.4.5
+-							found = this._calendarEntries[i].UID === calendarEntries[j].content.src;
++							found = calendarEntries[j].content && (this._calendarEntries[i].UID === calendarEntries[j].content.src);
+ 							if (found) {
+ 								// Get the correct remoteId
+ 								Utils.log("---->>>> detectDeletedCalendars(): patchExistingCalendarRemoteId");
+@@ -1078,6 +1078,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 
+ 	_addOriginalEventInfoToChild: function (childObject, parent, isDeleting) {
+ 		var originalEvent = makeOriginalEvent(childObject.local.recurrenceId, parent),
++			reminders,
+ 			times,
+ 			transformer = new GoogleCalendarEventTransformer();
+ 
+@@ -1085,7 +1086,9 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 
+ 		times = childObject.remote.getTimes();
+ 		if (times && times.length) {
+-			transformer.alarm(times[0], parent);
++			reminders = GoogleCalendarEventTransformer.alarmsToReminders(parent.alarm);
++			times[0].setReminder(reminders);
++		//	transformer.alarm(times[0], parent);
+ 		}
+ 
+ 		if (isDeleting) {
+@@ -1263,7 +1266,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 							// The parent event was also part of this sync; get
+ 							// the ID directly from it
+ 							Utils.log("fixupChildEventIds(): parent: " + stringify(family.parent));
+-							that._addOriginalEventInfoToChild(child, family.parent);
++							that._addOriginalEventInfoToChild(child, family.parent, false);
+ 							return new Future(true);
+ 						}
+ 
+@@ -1275,7 +1278,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 							Assert.require(result.returnValue && result.results && result.results.length, "Google calendar sync: failed to find parent event for event '" + child.local._id);
+ 
+ 							parent = result.results[0];
+-							that._addOriginalEventInfoToChild(child, parent);
++							that._addOriginalEventInfoToChild(child, parent, false);
+ 
+ 							Utils.log("\n\n---->>>> Child event prepped: " + stringify(child.remote));
+ 
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
+index 92a1156..8ced0fd 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
+@@ -13,6 +13,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 
+ 	errorStrings[403] = "no read permissions on calendar";
+ 	errorStrings[410] = "lastModTime outside of permitted query range";
++	errorStrings[500] = "Cannot access the calendar you requested (server error)";
+ 
+ 
+ 	function getLastModifiedTimeForCalendar(update) {
+@@ -41,9 +42,11 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 		syncKey.calendar[calUID] = syncKey.calendar[calUID] || {};
+ 
+ 		if (time) {
+-			time = time.getDate();
++			Utils.log("time: " + typeof(time) + ": " + JSON.stringify(time));
++			if(typeof(time) == 'string') { time = Calendar.IO.Utils.dateFromIso8601(time);} else {
++			time = time.getDate();}
+ 
+-			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
++			logTime("setting update google", Calendar.IO.Utils.dateToIso8601(time));
+ 
+ 			if (update) {
+ 				now = new Date();
+@@ -124,8 +127,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			query.setUpdatedMin(startDate);
+ 			query.setUpdatedMax(endDate);
+ 
+-			Utils.log("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+ 		} else {
++			Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
+ 			if (lastModTime) {
+ 				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
+ 			} else {
+@@ -144,7 +148,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			query.setUpdatedMin(undefined);
+ 			query.setUpdatedMax(undefined);
+ 
+-			Utils.log("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			Utils.error("---->>>> Sync window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
+ 		}
+ 	}
+ 
+@@ -168,6 +172,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			switch (status) {
+ 				case 403:
+ 				case 410:
++				case 500: // Cannot access calendar requested
+ 					Utils.warn("---->>>> " + syncType(update) + " query error (" + status + "): " + errorStrings[status]);
+ 					Utils.warn("---->>>> Skipping " + syncType(update));
+ 					future.result = {
+@@ -182,7 +187,12 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 
+ 				default:
+ 					Utils.error("---->>>> " + syncType(update) + " query error: " + stringify(error));
+-					throw error;
++					future.result = {
++						count: 0,
++						modTime: undefined
++					};
++					//throw error;
++					break;
+ 			}
+ 		}));
+ 	}
+@@ -224,7 +234,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 							// "last update time", so store the fetch's time
+ 							setLastModifiedTimeForCalendar(true, queryResult.modTime);
+ 						}
+-						setLastModifiedTimeForCalendar(false, query.getMaximumStartTime());
++						setLastModifiedTimeForCalendar(false, queryResult.modTime);
+ 						join.result = false;
+ 					}
+ 				} else {
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
+index ed2ef73..ae81e0a 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
+@@ -70,7 +70,7 @@ var GoogleCalendarEventTransformer = Class.create({
+ 	dtstart: function (to, from) {
+ 		// "type": "long",
+ 		// "description": "start date and time of the event. Formerly startTimestamp"
+-		if (!from.rrule || _.values(from.rrule).length === 0) {
++		if (from.dtstart && (!from.rrule || _.values(from.rrule).length === 0)) {
+ 			var time = GoogleCalendarEventTransformer.getTimeOrAdd(to),
+ 				date = new google.gdata.DateTime(new Date(from.dtstart), from.allDay);
+ 
+@@ -81,7 +81,7 @@ var GoogleCalendarEventTransformer = Class.create({
+ 	dtend: function (to, from) {
+ 		// "type": "long",
+ 		// "description": "end date and time of the event. Formerly endTimestamp"
+-		if (!from.rrule || _.values(from.rrule).length === 0) {
++		if (from.dtend && (!from.rrule || _.values(from.rrule).length === 0)) {
+ 			var time = GoogleCalendarEventTransformer.getTimeOrAdd(to),
+ 				date;
+ 
+@@ -111,16 +111,20 @@ var GoogleCalendarEventTransformer = Class.create({
+ 			str += ":" + Calendar.IO.Utils.dateToIso8601(date, {justDate: model.allDay, noPunct: true, noMS: true, noTzOffset: true}) + "\r\n";
+ 			return str;
+ 		}
++		
++		if(from.rrule && _.values(from.rrule).length > 0) {
++			recurrence = formatDtTime("dtstart", from);
++			recurrence += formatDtTime("dtend", from, from.allDay);
+ 
+-		recurrence = formatDtTime("dtstart", from);
+-		recurrence += formatDtTime("dtend", from, from.allDay);
++			recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
+ 
+-		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
+-
+-		Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
+-		grecur = new google.gdata.Recurrence();
+-		grecur.setValue(recurrence);
+-		to.setRecurrence(grecur);
++			Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
++			grecur = new google.gdata.Recurrence();
++			grecur.setValue(recurrence);
++			to.setRecurrence(grecur);
++		} else {
++			to.setRecurrence(undefined);
++		}
+ 	},
+ 
+ 	subject: function (to, from) {
+@@ -176,45 +180,8 @@ var GoogleCalendarEventTransformer = Class.create({
+ 			time = GoogleCalendarEventTransformer.getTimeOrAdd(to);
+ 		}
+ 
+-		// Utils.log("\n\n---->>>> Alarms: " + stringify(from.alarm));
+-		for (i = 0; i < from.alarm.length; ++i) {
+-			alarm = from.alarm[i];
+-			alarmTrigger = alarm.alarmTrigger;
+-			// Utils.log("---->>>> Alarm trigger[" + i + "]: " + stringify(alarmTrigger));
+-
+-			// "none" is a placeholder value used by the Calendar app, but is
+-			// not valid in this context, so we skip the alarm
+-			if (!alarmTrigger.value || alarmTrigger.value === "none") {
+-				continue;
+-			}
+-
+-			reminder = new google.gdata.Reminder();
+-			if (alarmTrigger.valueType.toUpperCase() === "DATETIME") {
+-				date = google.gdata.DateTime.fromIso8601(alarmTrigger.value);
+-				// Utils.log("----->>>>> alarm trigger date: " + stringify(date));
+-				reminder.setAbsoluteTime(date);
+-			} else if (alarmTrigger.valueType.toUpperCase() === "DURATION") {
+-				date = Calendar.IO.Utils.parseIso8601Duration(alarmTrigger.value);
+-				// Utils.log("----->>>>> alarm trigger date: " + stringify(date));
+-				reminder.setDays(date.days);
+-				reminder.setHours(date.hours);
+-				reminder.setMinutes(date.minutes);
+-			} else {
+-				console.error("Not a valid alarm valueType: " + alarmTrigger.valueType);
+-			}
+-
+-			if (alarm.action.toLowerCase() === "email") {
+-				reminder.setMethod(google.gdata.Reminder.METHOD_EMAIL);
+-			} else if (alarm.action.toLowerCase() === "display") {
+-				reminder.setMethod(google.gdata.Reminder.METHOD_ALERT);
+-			} else {
+-				console.error("Not a valid alarm action: " + alarm.action);
+-			}
+-
+-			// Utils.log("----->>>>> new gdata reminder: " + stringify(reminder));
+-			reminders.push(reminder);
+-		}
+-
++		reminders = GoogleCalendarEventTransformer.alarmsToReminders(from.alarm);
++		
+ 		// Stomp on whatever reminders we just pulled from the server
+ 		to.setReminders(reminders);
+ 		if (time) {
+@@ -253,40 +220,46 @@ var GoogleCalendarEventTransformer = Class.create({
+ 	attendees: function (to, from) {
+ 		// "type": ["$ref": "Attendee"]
+ 		// "optional": "true"
++		
+ 		if (!from.attendees) {
+ 			return;
+ 		}
+-
++		//Utils.error("\n\n---->>>> attendees Google calendar event: " + (from.attendees && stringify(from.attendees)));
+ 		var i,
+ 			participant,
+ 			participants = [],
+ 			attendeeStatus;
+-		for (i = 0; i < from.length; ++i) {
+-			participant = new google.gdata.Attendee();
+-			participant.setRel(from.organizer ? google.gdata.Who.REL_ORGANIZER : google.gdata.Who.REL_ATTENDEE);
++		for (i = 0; i < from.attendees.length; ++i) {
++			participant = new google.gdata.Who();
++			participant.setRel(from.attendees[i].organizer ? google.gdata.Who.REL_EVENT_ORGANIZER : google.gdata.Who.REL_EVENT_ATTENDEE);
+ 
+ 			attendeeStatus = undefined;
+-			if (from.participationStatus === "ACCEPTED") {
++			if (from.attendees[i].participationStatus === "ACCEPTED") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_ACCEPTED);
+-			} else if (from.participationStatus === "DECLINED") {
++			} else if (from.attendees[i].participationStatus === "DECLINED") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_DECLINED);
+-			} else if (from.participationStatus === "TENTATIVE") {
++			} else if (from.attendees[i].participationStatus === "TENTATIVE") {
+ 				attendeeStatus = new google.gdata.AttendeeStatus();
+ 				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_TENTATIVE);
++			} else if (from.attendees[i].participationStatus === "NEEDS-ACTION" && from.attendees[i].organizer) {
++				to.setSendEventNotifications({value: true});
+ 			}
+ 			if (attendeeStatus) {
+ 				participant.setAttendeeStatus(attendeeStatus);
+ 			}
+ 
+-			participant.setEmail(from.email);
+-			participant.setValueString(from.commonName);
++			participant.setEmail(from.attendees[i].email);
++			participant.setValueString(from.attendees[i].commonName);
+ 			participants.push(participant);
++			//Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + (participant && stringify(participant)));
++			//Utils.error("\n\n---->>>> to Google calendar event: " + (to && stringify(to)));
+ 		}
+ 
+ 		if (participants.length) {
+ 			to.setParticipants(participants);
++			//Utils.error("\n\n---->>>> Setting participant on Google calendar event: " + participants.length);
+ 		}
+ 	},
+ 
+@@ -574,6 +547,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
+ 	return time;
+ };
+ 
++GoogleCalendarEventTransformer.alarmsToReminders = function (alarms) {
++	var alarm,
++		alarmTrigger,
++		date,
++		i,
++		reminder,
++		reminders = [];
++
++	Utils.log("\n\n---->>>> Alarms: " + stringify(alarms));
++	for (i = 0; i < alarms.length; ++i) {
++		alarm = alarms[i];
++		alarmTrigger = alarm.alarmTrigger;
++		Utils.log("---->>>> Alarm trigger[" + i + "]: " + stringify(alarmTrigger));
++
++		// "none" is a placeholder value used by the Calendar app, but is
++		// not valid in this context, so we skip the alarm
++		if (!alarmTrigger.value || alarmTrigger.value === "none") {
++			continue;
++		}
++
++		reminder = new google.gdata.Reminder();
++		if (alarmTrigger.valueType.toUpperCase() === "DATETIME") {
++			date = google.gdata.DateTime.fromIso8601(alarmTrigger.value);
++			Utils.log("----->>>>> alarm trigger date: " + stringify(date));
++			reminder.setAbsoluteTime(date);
++		} else if (alarmTrigger.valueType.toUpperCase() === "DURATION") {
++			date = Calendar.IO.Utils.parseIso8601Duration(alarmTrigger.value);
++			Utils.log("----->>>>> alarm trigger date: " + stringify(date));
++			reminder.setDays(date.days);
++			reminder.setHours(date.hours);
++			reminder.setMinutes(date.minutes);
++		} else {
++			console.error("Not a valid alarm valueType: " + alarmTrigger.valueType);
++		}
++
++		if (alarm.action.toLowerCase() === "email") {
++			reminder.setMethod(google.gdata.Reminder.METHOD_EMAIL);
++		} else if (alarm.action.toLowerCase() === "display") {
++			reminder.setMethod(google.gdata.Reminder.METHOD_ALERT);
++		} else {
++			console.error("Not a valid alarm action: " + alarm.action);
++		}
++
++		Utils.log("----->>>>> new gdata reminder: " + stringify(reminder));
++		reminders.push(reminder);
++	}
++
++	return reminders;
++};
++
+ GoogleCalendarEventTransformer.dayHash = [
+ 	"SU",
+ 	"MO",
+@@ -586,7 +609,17 @@ GoogleCalendarEventTransformer.dayHash = [
+ 
+ // Catches form-feed, return, horizontal tab, vertical tab, space, non-breaking space, line separator, and paragraph separator
+ GoogleCalendarEventTransformer.collapseWhitespaceRegex = new RegExp("[\\f\\r\\t \u000B\u00A0\u2028\u2029]{2,}", 'g');
+-
++	
+ GoogleCalendarEventTransformer.collapseWhitespace = function (str) {
+-	return str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
++	str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
++	
++	var ESCAPE_REGEX =	/(,)|(")/g;
++	var ESCAPE_MAP = {"," : "\\,", "\"" : "\\\""};
++
++	var ESCAPE_BSLASH_REGEX = /(\\)/g;
++	var ESCAPE_BSLASH_MAP = {"\\":"\\\\"};
++	
++	var escString = str.replace(/(\\)/g,"\\\\");
++	escString.replace(/(,)/g, "\,");
++	return escString.replace(/(")/g, "\"");
+ };
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
+index 5167014..f513379 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
+@@ -43,12 +43,16 @@ function formatTime (dateTime) {
+ }
+ 
+ function formatDuration (duration) {
++	if (!duration || (!duration.days && !duration.hours && !duration.minutes && !duration.seconds)) {
++		return "-PT0M";
++	}
++
+ 	var s = '-P',	// 'P' is for 'period'
+ 		hasTime = false;
+ 
+ 	var appendTime = function (time, type) {
+ 		var ss = '';
+-		if (time) {
++		if (typeof time === "number") {
+ 			if (!hasTime) {
+ 				ss += 'T';
+ 				hasTime = true;
+@@ -58,7 +62,7 @@ function formatDuration (duration) {
+ 		return ss;
+ 	};
+ 
+-	if (duration.days) {
++	if (typeof duration.days === "number") {
+ 		s += duration.getDays() + 'D';
+ 	}
+ 
+@@ -154,25 +158,27 @@ function transformReminder (reminder, obj) {
+ 
+ function transformAttendee(participant) {
+ 	var attendee = {},
++		attStatus,
+ 		attendeeType = participant.getRel(),
+ 		attendeeStatus = participant.getAttendeeStatus(),
+ 		attendeeEmail = participant.getEmail(),
+ 		attendeeCommonName = participant.getValueString();
+ 
+ 	attendee.organizer = attendeeType === google.gdata.Who.REL_EVENT_ORGANIZER;
+-
+-	attendeeStatus = attendeeStatus && attendeeStatus.getValue();
+-	if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_ACCEPTED) {
+-		attendee.participantStatus = "ACCEPTED";
+-	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_DECLINED) {
+-		attendee.participantStatus = "DECLINED";
+-	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_TENTATIVE) {
+-		attendee.participantStatus = "TENTATIVE";
++	//Utils.error("\n\n---->>>> transform attendee on Google calendar event: " + (participant && stringify(participant)));
++	//Utils.error("\n\n---->>>> transform attendee status: " + (attendeeStatus && attendeeStatus.getValue()));
++	attStatus = attendeeStatus && stringify(attendeeStatus.getValue());
++	if (attStatus && /event\.accepted/g.test(attStatus)) {
++		attendee.participationStatus = "ACCEPTED";
++	} else if (attStatus && /event\.declined/g.test(attStatus)) {
++		attendee.participationStatus = "DECLINED";
++	} else if (attStatus && /event\.tentative/g.test(attStatus)) {
++		attendee.participationStatus = "TENTATIVE";
+ 	}
+ 
+ 	attendee.email = attendeeEmail;
+ 	attendee.commonName = attendeeCommonName;
+-
++	Utils.log("\n\n---->>>> transform attendee on Google calendar event: " + (attendee && stringify(attendee)));
+ 	return attendee;
+ }
+ 
+@@ -241,7 +247,26 @@ Transforms = {
+ 					// Utils.log("\n\n---->>>> transformed rrule: " + stringify(recurrence));
+ 					Utils.log("\n\n---->>>> Recurrence exceptions: " + stringify(from.getRecurrenceException()));
+ 				}
+-				return (recurrence && recurrence.rrule) || undefined;
++				// In the "from" object...
++				// 1. if there is recurrence rule, return it.
++				// 2. if there is "exdates" but no "rrule", do not remove the 
++				//    existing "rrule".  Return "undefined" to 
++				//    leave the existing "rrule" unchanged (This happens when an 
++				//    exception is created on server).
++				// 3. if there is no "rrule" and no "exdates", remove the 
++				//    existing "rrule" by returning an empty string. (This happen 
++				//    when the user remove the recurrence from server).
++				
++				if(recurrence && recurrence.rrule) {
++					Utils.log("\n\n---->>>> has rrule");
++					return (recurrence && recurrence.rrule)
++				} else if (from.exdates && from.exdates.length) {
++					Utils.log("\n\n---->>>> undefined rrule, use existing rrule");
++					return undefined;
++				} else {
++					Utils.log("\n\n---->>>> removing rrule");
++					return "";
++				}
+ 			},
+ 			subject: function (from) {
+ 				// "type": "string"
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
+index 6240d9a..a802fac 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
+@@ -35,6 +35,12 @@ var XMLHttpRequest = Class.create({
+ 	
+ 	send: function (postBody) {
+ 		this.result = undefined;
++		// if it is a POST request then make it work if there are also UTF-8 characters in it
++		// because google does not compute properly the content length in gdata library
++		if (this.httpMethod === "POST" && this.options.headers["Content-Length"]) {
++			this.options.bodyEncoding = "utf8";
++			try{delete this.options.headers["Content-Length"];}catch(e){Utils.log("can't delete header");}
++		}		
+ 		var future = AjaxCall.call(this.httpMethod, this.url, postBody, this.options);
+ 
+ 		future.onError(function () {
+@@ -55,7 +61,7 @@ var XMLHttpRequest = Class.create({
+ 				/*jslint eqeqeq: true */
+ 				Utils.log("\n\n\n--->>> send called. post body: " + postBody + "");
+ 				Utils.log("--->>> method: " + this.httpMethod + ", url: " + this.url + ", options: " + stringify(this.options));
+-				Utils.log("\n\n\n--->>> status: " + this.result.status);
++				Utils.error("\n\n\n--->>> status: " + this.result.status);
+ 				Utils.log("\n--->>> responseText: " + this.result.responseText + " \n");
+ 				Utils.log("\n--->>> responseJSON: " + this.result.responseJSON + " \n");
+ 				Utils.log("\n--->>> response headers: " + stringify(this.result.getAllResponseHeaders()));
+diff --git a/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js
+index bbd7562..1e4f508 100644
+--- a/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js
++++ b/usr/palm/services/com.palm.service.contacts.google/javascript/utils/xhr.js
+@@ -52,7 +52,12 @@ var XMLHttpRequest = Class.create({
+ 			this.options.customRequest = this.httpMethod;
+ 			this.httpMethod = AjaxCall.RequestMethod.POST;
+ 		}
+-		
++		// if it is a POST request then make it work if there are also UTF-8 characters in it
++		// because google does not compute properly the content length in gdata library
++		if (this.httpMethod === "POST" && this.options.headers["Content-Length"]) {
++			this.options.bodyEncoding = "utf8";
++			delete this.options.headers["Content-Length"];
++		}
+ 		var future = AjaxCall.call(this.httpMethod, this.url, postBody, this.options);
+ 		
+ 		future.onError(function () {

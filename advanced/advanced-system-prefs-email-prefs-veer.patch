@@ -1,0 +1,1253 @@
+--- .orig/usr/palm/applications/com.palm.app.email/app/models/AccountPreferences.js
++++ /usr/palm/applications/com.palm.app.email/app/models/AccountPreferences.js
+@@ -33,6 +33,9 @@
+ 		notifications: {
+ 						enabled: emailAccount.notifications.enabled,
+ 						type: emailAccount.notifications.type,
++						blink: emailAccount.notifications.blink,
++						repeatInterval: emailAccount.notifications.repeatInterval,
++						repeatLimit: emailAccount.notifications.repeatLimit,
+ 						ringtoneName: emailAccount.notifications.ringtoneName,
+ 						ringtonePath: emailAccount.notifications.ringtonePath
+ 					}
+--- .orig/usr/palm/applications/com.palm.app.email/app/views/accountmanager/account-item.html
++++ /usr/palm/applications/com.palm.app.email/app/views/accountmanager/account-item.html
+@@ -1,5 +1,6 @@
+ <div class="palm-row" x-mojo-tap-highlight="momentary" id="accountmanager_#{_id}" accountid="#{accountId}">
+   <div class="palm-row-wrapper">
++    <div class="notifications icon" x-mojo-tap-highlight="momentary"></div>
+     <div class="two-line">
+ 	  <div id="account-icon-#{_id}" class="left palm-account-icon" style="background: url(#{iconPath})" ></div> 
+ 	  <div class="domain-text truncating-text">
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/accountmanager-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/accountmanager-assistant.js
+@@ -14,7 +14,7 @@
+ 	this.initialAccountNum = this.getNumberAccounts();
+ 	this.defaultAccountList = [];
+ 	this.currentDefaultAccount = null;
+-	this.renderDefaultAccount = this.renderDefaultAccount.bind(this);
++//	this.renderDefaultAccount = this.renderDefaultAccount.bind(this);
+ 	this.deletionSettings = {
+ 		confirmDeleteOnSwipe: !!EmailApp.prefs.get('confirmDeleteOnSwipe')
+ 	};
+@@ -23,7 +23,7 @@
+ 
+ 	AccountmanagerAssistant.prototype.activate = function() {
+ 		//EmailApp.accounts.refresh(); // update list of configured accounts
+-		this.renderDefaultAccount();
++//		this.renderDefaultAccount();
+ 		// Clear the notification filters so user will get notified when any email comes in
+ 		var notificationAssistant = Mojo.Controller.getAppController().assistant.notificationAssistant;
+ 		notificationAssistant.setFilter();
+@@ -54,7 +54,13 @@
+ 	
+ 	AccountmanagerAssistant.prototype.handleAccountTap = function(event) {
+ 		// make sure to pass decorated account object from AccountsList. This allows proper scene setup for account type
+-		this.controller.stageController.pushScene('accountpreferences', {account: EmailApp.accounts.ids[event.target.getAttribute('accountid')], type: "email" });
++		if(event.originalEvent.target.className == "notifications icon selected") {
++			this.controller.stageController.pushScene('prefsSetupNotifications', event.target.getAttribute('accountid'));
++		}
++		else {
++			// make sure to pass decorated account object from AccountsList. This allows proper scene setup for account type
++			this.controller.stageController.pushScene('accountpreferences', {account: EmailApp.accounts.ids[event.target.getAttribute('accountid')], type: "email" });
++		}
+ 	};
+ 	
+ 	AccountmanagerAssistant.prototype.handleAddAccount = function(event) {
+@@ -68,7 +74,7 @@
+ 	AccountmanagerAssistant.prototype.setup = function() {
+ 		var controller = this.controller;
+ 		this.delayActivate = true;
+-		this.defaultAccountElement = this.controller.get('account-manager-default-account');
++//		this.defaultAccountElement = this.controller.get('account-manager-default-account');
+ 		this.mainElement = this.controller.get('main');
+ 		this.accountsErrorCount = 0;
+ 		this.accountModel = {
+@@ -76,8 +82,8 @@
+ 			items: EmailApp.accounts.list
+ 		};
+ 		
+-		Mojo.Event.listen(this.controller.stageController.document,
+-							  Mojo.Event.stageActivate, this.renderDefaultAccount, true);
++//		Mojo.Event.listen(this.controller.stageController.document,
++//							  Mojo.Event.stageActivate, this.renderDefaultAccount, true);
+ 		this.smartFolderPrefs = {
+ 			allinboxes: { id: -1, value: EmailApp.prefs.get('showAllInboxes') },
+ 			allflagged: { id: -1, value: EmailApp.prefs.get('showAllFlagged') },
+@@ -116,7 +122,7 @@
+ 		controller.listen('add-account-button', Mojo.Event.tap, this.handleAddAccount);
+ 		
+ 		
+-		controller.listen('account-manager-default-account', Mojo.Event.tap, this.handleSelectDefaultAccount.bind(this));
++//		controller.listen('account-manager-default-account', Mojo.Event.tap, this.handleSelectDefaultAccount.bind(this));
+ 		this._setupAccountsList();
+ 		EmailApp.accounts.addListener(this.handleAccountsChanged);
+ 	};
+@@ -204,7 +210,7 @@
+ 						return (a - b); 
+ 					});
+ 	this.accountsChanged(mailAccts);
+-	this.renderDefaultAccount();
++//	this.renderDefaultAccount();
+ };
+ 
+ 	
+@@ -233,13 +239,15 @@
+ 		}
+ 		
+ 		EmailApp.AccountList.saveAccountOrder(freshList);
++
++		EmailApp.prefs.set('defaultAccountId', freshList[0].accountId);
+ 	};
+ 	
+ 	/**
+ 	 * event handler
+ 	 * @param {Object} id
+ 	 */
+-	AccountmanagerAssistant.prototype.defaultAccountChanged = function(id) {
++/*	AccountmanagerAssistant.prototype.defaultAccountChanged = function(id) {
+ 		// Don't do anything if this is already the default account
+ 		if (id === undefined || this.currentDefaultAccount._id === id) {
+ 			return;
+@@ -254,12 +262,12 @@
+ 		// update app preferences
+ 		EmailApp.prefs.set('defaultAccountId', this.currentDefaultAccount._id);
+ 	};
+-
++*/
+ 	AccountmanagerAssistant.prototype.cleanup = function() {
+ 		EmailApp.accounts.removeListener(this.handleAccountsChanged);
+ 		this.controller.stopListening('add-account-button', Mojo.Event.tap, this.handleAddAccount);
+-		Mojo.Event.stopListening(this.controller.stageController.document,
+-							  Mojo.Event.stageActivate, this.renderDefaultAccount, true);
++//		Mojo.Event.stopListening(this.controller.stageController.document,
++//							  Mojo.Event.stageActivate, this.renderDefaultAccount, true);
+ 
+ 		if (this.controller.stageController.setWindowOrientation) {
+ 			this.controller.stageController.setWindowOrientation("free");
+@@ -333,7 +341,7 @@
+ 		EmailApp.prefs.set(propName, event.model.value);
+ 	};
+ 
+-	AccountmanagerAssistant.prototype.renderDefaultAccount = function () {
++/*	AccountmanagerAssistant.prototype.renderDefaultAccount = function () {
+ 		// subscription succeeded so reset the failure count
+ 		this.accountsErrorCount = 0;
+ 
+@@ -350,12 +358,14 @@
+ 			
+ 			if (activeScene && activeScene.sceneName === 'accountmanager') {
+ 				Mojo.Log.info('AccountmanagerAssistant: no accounts found, so push to wizard scene');
++*/
+ 				/* Somehow activate add-event of accounts UI widget here */
++/*
+ 				this.accountWidget.mojo.addAccount({displayText: $L("New Mail Account")});
+ 			} 
+ 			this.controller.get('sceneTitle').innerHTML = AccountmanagerAssistant.kTitleNoAccounts;
+ 			this.controller.get('smart-folder-toggles').style.display='none';
+-			this.controller.get('account-manager-default-account-group').style.display='none';
++//			this.controller.get('account-manager-default-account-group').style.display='none';
+ 			return;
+ 		}
+ 		
+@@ -391,7 +401,7 @@
+ 			});
+ 		}
+ 	};
+-	
++*/
+ AccountmanagerAssistant.prototype.deletionOptions = {
+ 	modelProperty: "confirmDeleteOnSwipe",
+ 	trueValue: true,
+--- .orig/usr/palm/applications/com.palm.app.email/app/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/app/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
++
+ 	<div id="add-account-button" x-mojo-loc="" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title" x-mojo-loc=''>Default account</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div x-mojo-loc="" class="palm-info-text">New emails created in the “All Inboxes” view will default to this account.</div>
+-	</div> 
+-</div>
+\ No newline at end of file
++	</div> -->
++</div>
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/accountpreferences-assistant.js
+@@ -14,7 +14,7 @@
+ var AccountpreferencesAssistant = function(params){
+ 	this.accountPrefs = AccountPreferences.getPrefsByAccountId(params.account._id);
+ 	this.accountPrefs.type = EmailApp.accounts.getAccountType(params.account._id);
+-	this.accountPrefs.notifications = this.accountPrefs.notifications || {}; // ensure we have a notifications object, so we don't have to constantly check for it.
++//	this.accountPrefs.notifications = this.accountPrefs.notifications || {}; // ensure we have a notifications object, so we don't have to constantly check for it.
+ 	
+ 	this.account = params.account;
+ 	
+@@ -43,10 +43,10 @@
+ 	Mojo.Log.warn("NOTE setup() for scene %s", this.controller.sceneName);	
+ 	
+ 	// bind functions
+-	this.showNotificationChangeHandler = this.showNotificationChanged.bind(this);
++/*	this.showNotificationChangeHandler = this.showNotificationChanged.bind(this);
+ 	this.notificationTypeChangeHandler = this.notificationTypeChanged.bind(this);
+ 	this.chooseNotificationRingtone = this.chooseNotificationRingtone.bind(this);
+-
++*/
+ 	this.imapServerSent = this.controller.get('imap-sent');
+ 	this.imapServerDrafts = this.controller.get('imap-drafts');
+ 	this.imapServerTrash = this.controller.get('imap-trash');
+@@ -63,7 +63,7 @@
+ 	this.controller.setupWidget('edit-account-sync-lookback-selector', this.syncWindowOptions, this.accountPrefs);
+ 	this.controller.setupWidget('edit-account-sync-fetch-selector', this.fetchOptions, this.accountPrefs);
+ 	//this.controller.setupWidget('edit-account-mail-format-selector', this.mailFormats, this.accountPrefs);
+-	this.controller.setupWidget('edit-account-show-notification-toggle', this.notificationOptions, this.accountPrefs.notifications);
++//	this.controller.setupWidget('edit-account-show-notification-toggle', this.notificationOptions, this.accountPrefs.notifications);
+ 	this.controller.setupWidget('sync-deleted-toggle', this.syncDeletedOptions, this.accountPrefs);
+ 	this.controller.setupWidget('sync-server-deleted-toggle', this.syncServerDeletedOptions, this.accountPrefs);
+ 	
+@@ -91,8 +91,8 @@
+ 	this.handleEditAccountDetails = this.handleEditAccountDetails.bind(this);
+ 	this.controller.listen('edit-account-button', Mojo.Event.tap, this.handleEditAccountDetails);
+ 	this.controller.listen('delete-account-button', Mojo.Event.tap, this.handleRemoveAccount);
+-	this.controller.listen('ringtone-row', Mojo.Event.tap, this.chooseNotificationRingtone);
+-	this.controller.listen('edit-account-show-notification-toggle', Mojo.Event.propertyChange, this.showNotificationChangeHandler);
++//	this.controller.listen('ringtone-row', Mojo.Event.tap, this.chooseNotificationRingtone);
++//	this.controller.listen('edit-account-show-notification-toggle', Mojo.Event.propertyChange, this.showNotificationChangeHandler);
+ 
+ 	// Listen for taps on the IMAP Server folders
+ 	this.controller.listen('edit-account-imap-sent', Mojo.Event.tap, this.handleChangeServerFolder.bind(this, "sent"));
+@@ -165,10 +165,11 @@
+             this._renderImapFolders();
+         }
+         Mojo.Log.warn("NOTE: activate() for scene %s DONE", this.controller.sceneName);
+-        var notificationAssistant = Mojo.Controller.getAppController().assistant.notificationAssistant;
++/*        var notificationAssistant = Mojo.Controller.getAppController().assistant.notificationAssistant;
+         if (notificationAssistant) {
+             notificationAssistant.setFilter();
+         }
++*/
+         if (this.controller.stageController.setWindowOrientation) {
+             this.controller.stageController.setWindowOrientation("up");
+         }
+@@ -253,7 +254,7 @@
+ 
+ AccountpreferencesAssistant.prototype.handleSaveAccount = function() {
+ 	// If the user turned off UI notifications for this account, clear any that is currently displayed 
+-	if (this.accountPrefs.notifications.enabled === false) {
++/*	if (this.accountPrefs.notifications.enabled === false) {
+ 		Mojo.Controller.getAppController().assistant.notificationAssistant.clear(this.account._id);
+ 	}
+ 	
+@@ -263,7 +264,7 @@
+ 			!this.accountPrefs.notifications.ringtonePath) {
+ 		this.accountPrefs.notifications.type = AccountpreferencesAssistant.kNotifyTypeSystem;
+ 	}
+-	
++*/
+ 	// richtextedit doesn't use data model so manually copy the signature
+ 	var signature = this.controller.get('signature').innerHTML;
+ 	if (signature.length === 0) {
+@@ -303,7 +304,7 @@
+ 		object: account
+ 	});
+ };
+-
++/*
+ AccountpreferencesAssistant.prototype.showNotificationChanged = function() {
+ 	var rowElem = this.controller.get("show_notification-row");
+ 	if (this.accountPrefs.notifications.enabled !== false) {
+@@ -347,7 +348,7 @@
+ 	this.accountPrefs.notifications.ringtonePath = file.fullPath;
+ 	this.controller.get('current-ringtone').innerHTML = file.name;
+ };
+-
++*/
+ AccountpreferencesAssistant.prototype.saveSuccess = function() {
+ 	var message = $L("Preferences updated");
+ 	Mojo.Controller.getAppController().assistant.notificationAssistant.generalNotification(message);
+@@ -385,7 +386,7 @@
+ };
+ 
+ AccountpreferencesAssistant.prototype.renderAccountDetails = function() {
+-	this.accountPrefs.notifications.showRingtoneButton = this.accountPrefs.notifications.type === AccountpreferencesAssistant.kNotifyTypeRingtone;
++//	this.accountPrefs.notifications.showRingtoneButton = this.accountPrefs.notifications.type === AccountpreferencesAssistant.kNotifyTypeRingtone;
+ 	
+ 	// Set the title icon
+ 	Mojo.Log.error("Setting the title icon");
+@@ -458,7 +459,7 @@
+ 	Mojo.Event.listen(signatureElem, 'blur', function() { Mojo.Dom.removeClassName(signatureElem, 'focused'); }, true);
+ 
+ 	// Setup the drawer here so that it doesn't animate once the scene is rendered
+-	this.controller.setupWidget('sound-toggle-drawer', {unstyled:true, property:'enabled'}, this.accountPrefs.notifications);
++/*	this.controller.setupWidget('sound-toggle-drawer', {unstyled:true, property:'enabled'}, this.accountPrefs.notifications);
+ 	this.controller.setupWidget('sound-selector', this.soundOptions, this.accountPrefs.notifications);
+ 	this.controller.setupWidget('ringtone-drawer', {unstyled:true, property:'showRingtoneButton'}, this.accountPrefs.notifications);
+ 	this.controller.instantiateChildWidgets(this.controller.get('drawer-container'));
+@@ -468,7 +469,7 @@
+ 
+ 	// Update the UI now (this calls modelChanged)
+ 	this.showNotificationChanged();
+-	
++*/
+ 	if (this.readyToActivateCallback) {
+ 		this.readyToActivateCallback();
+ 		this.readyToActivateCallback = null;
+@@ -505,13 +506,13 @@
+ //		{label: $L('Plain text'), value: 0}
+ //	]
+ //};
+-
++/*
+ AccountpreferencesAssistant.prototype.notificationOptions = {
+ 	modelProperty: "enabled",
+ 	trueValue: true,
+ 	falseValue: false
+ };
+-
++*/
+ AccountpreferencesAssistant.prototype.syncWindowOptions = {
+     multiline: true,
+ 	modelProperty: 'syncWindowDays',
+@@ -525,7 +526,7 @@
+ 		{label: $L('All'), value: "0"}
+ 	]
+ };
+-
++/*
+ AccountpreferencesAssistant.prototype.soundOptions = {
+ 	multiline: true,
+ 	modelProperty: 'type',
+@@ -537,7 +538,7 @@
+ 		{label: $L("Mute"), value: AccountpreferencesAssistant.kNotifyTypeMute}
+ 	]
+ };
+-
++*/
+ AccountpreferencesAssistant.prototype.syncDeletedOptions = {
+ 	modelProperty: "deleteFromServer",
+ 	trueValue: true,
+--- .orig/usr/palm/applications/com.palm.app.email/app/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/app/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title" x-mojo-loc=''>New Message</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title" x-mojo-loc=''>Signature</div>
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
+@@ -20,12 +20,12 @@
+ 	// This is primarily to load the email depot so it doesn't need to be loaded later
+ 	this.depot = EmailAppDepot.getDepot();
+ 	
+-	// Send list of localized strings to the service.
+-	//ServiceStrings.sendLocalizedStrings();
+-	
+ 	// Startup NotificationAssistant
+ 	this.notificationAssistant = new NotificationAssistant(appController);
+ 
++	// Send list of localized strings to the service.
++	//ServiceStrings.sendLocalizedStrings();
++
+ 	// this is used to debounce the launch requests in case the user impatiently
+ 	// taps on a banner notification
+ 	this.debounceIds = {};
+@@ -72,6 +72,10 @@
+ 										},
+ 								syncronizer.wrap(Mojo.doNothing));
+ 	
++
++	// Load contacts.
++	EmailApp.emails = new EmailApp.Util.MojoDBEmails('com.palm.person:1', syncronizer.wrap(Mojo.doNothing));
++
+ 	// Configure initial carrier defaults, and load/reload them from the db as needed:
+ 	this.kDefaultCarrierDefaults = {
+ 		defaultSignature: EmailAccount.addStylingToSig(ServiceStrings.stringsNeededByService.defaultSignature)
+@@ -463,6 +467,10 @@
+ 	
+ 	LaunchHandler.prototype.handleLaunch = function() {
+ 		var params = this.launchParameters;
++
++		if(!params.playNotificationSound)
++			this.notificationAssistant.removePlayNotificationSoundTasks();
++
+ 		if (params.securityPolicyError) {
+ 			this.handleSecurityPolicyError(params);
+ 		} else if (params.certificateError) {
+@@ -481,11 +489,21 @@
+ 			this.handleEditAccount();
+ 		} else if (params.reminderPersonId) { 
+ 			this.handleContact(params);
++		} else if (params.playNotificationSound) {
++			// Delay playing to go around WebOS bug (sound not playing).
++
++			setTimeout(this.playNotificationSound.bind(this, params.accountId), 1000);
+ 		} else {
+ 			this.handleDefault();
+ 		}
+ 	};
+ 	
++	LaunchHandler.prototype.playNotificationSound = function(accountId) {
++		this.notificationAssistant.playNotificationSound(accountId);
++
++		this.notificationAssistant.schedulePlayNotificationSoundTasks(accountId);
++	};
++
+ 	LaunchHandler.prototype.handleCompose = function() {
+ 		var params = this.launchParameters;
+ 		var mailToURL = params.uri || params.target;
+--- .orig/usr/palm/applications/com.palm.app.email/stylesheets/email.css
++++ /usr/palm/applications/com.palm.app.email/stylesheets/email.css
+@@ -109,6 +109,17 @@
+ 	color:#555555; /*gray*/
+ }
+ 
++.palm-row .notifications.icon {
++	float: right;
++	display: block;
++	margin: 1px 3px -1px 0px;
++	background: url(../images/icon-notifications.png) top right no-repeat;
++	width: 60px;
++	height: 50px;
++}
++
++.notifications.icon.selected { background-position: bottom right; }
++
+ /* folder-list unread pill */
+ .folder-list-unread-container {
+ 	text-align:right;
+@@ -429,6 +440,11 @@
+     background: url(../images/account-generic-small.png) center center no-repeat;
+ }
+ 
++.palm-row .palm-account-icon {
++    background: url(../images/account-generic-small.png) center center no-repeat;
++    margin: 5px 10px 0px 2px;
++}
++
+ /**************************************************************************************************
+  *
+  * email read-view (message) specifics
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
+@@ -39,6 +39,11 @@
+ 	this.pending = {};
+ 	this.dashboards = {};
+ 	this.errorDashboards = {};
++	this.blinkNotification = {};
++	this.notificationsData = {};
++	this.newEmails = [];
++
++	this.notifyTimeout = null;
+ 	
+ 	this.windowActivate = this.windowActivate.bind(this);
+ 	this._handleNewEmails = this._handleNewEmails.bind(this);
+@@ -106,7 +111,6 @@
+ NotificationAssistant.prototype._handleNewEmails = function(emails) {
+ 	var maxRev = 0, count;
+ 	var i;
+-	var notifications;
+ 	
+ 	// Update showAllInboxes, in case it changed.
+ 	this.showAllInboxes = EmailApp.prefs.get('showAllInboxes');
+@@ -128,8 +132,26 @@
+ 	for(i=0; i<emails.length; i++) {
+ 		emails[i].accountId = this.appController.assistant.getEmailAccount(emails[i]);
+ 	}
++
++	this.newEmails = this.newEmails.concat(emails);
++
++	if(this.notifyTimeout)
++		clearTimeout(this.notifyTimeout);
++
++	// Make sure that the device wont go to sleep until alert is handled
++
++	this.activityRequest = new Mojo.Service.Request("palm://com.palm.power/com/palm/power", {
++    'method': "activityStart", 'parameters': {'id': Mojo.Controller.appInfo.id,
++    'duration_ms': 15000} });
+ 	
++	this.notifyTimeout = setTimeout(this._processNewEmails.bind(this), 5000);
++}
++
++NotificationAssistant.prototype._processNewEmails = function() {
++	var emails = this.newEmails.slice(0);
+ 	
++	this.newEmails = [];
++
+ 	// Filter out anything we don't currently care about:
+ 	count = emails.length;
+ 	emails = _.select(emails, this._shouldNotify, this);
+@@ -140,13 +162,40 @@
+ 	emails.forEach(this._addNewEmail, this);	
+ 	
+ 	// Build a list of accounts with new emails, and then map the "play sound for account" function over them.
+-	notifications = {};
+-	emails.forEach(function(email) {notifications[email.accountId] = true;}, this);	
+-	_.map(_.keys(notifications), this._doNotificationForAccount, this);
+ 	
+-	// Make our dashboards reflect the data. 
+-	this._updateDirtyDashboards();
++	var allUnknown = true;
++
++	var notifications = {};
+ 	
++	emails.forEach(function(email) {
++		if(EmailApp.emails.check(email.from.addr))
++			allUnknown = false;
++
++		notifications[email.accountId] = true;
++	}, this);
++
++	if(allUnknown) {
++		if(this.contactPrefs)
++			delete this.contactPrefs;
++
++		this.contactPrefs = new window.Contacts.AppPrefs(function() {
++			var prefs = this.contactPrefs.get(Contacts.AppPrefs.Pref.unknownContacts);
++
++			if((!prefs) || (!prefs.emailAlert) || (prefs.emailAlert == "default"))
++				_.map(_.keys(notifications), this._doNotificationForAccount, this);
++			else 
++				this._doNotificationForUnknown(prefs.emailAlert, prefs.emailRingtonePath);
++
++			// Make our dashboards reflect the data. 
++			this._updateDirtyDashboards();
++		}.bind(this));
++	}
++	else {
++		_.map(_.keys(notifications), this._doNotificationForAccount, this);
++
++		// Make our dashboards reflect the data.
++		this._updateDirtyDashboards();
++	}
+ };
+ 
+ 
+@@ -347,13 +396,35 @@
+ 		var lastMessage = messages[messages.length-1];
+ 		Mojo.Log.info("Updating  dashboard... textLen:%s, titleLen:%d, icon:%s", lastMessage.text && lastMessage.text.length, lastMessage.title && lastMessage.title.length, lastMessage.icon);
+ 		
++		var blinkNotify = false;
++
++		if(accountId == this.kUnifiedAccountId) {
++			for(var accId in this.blinkNotification) {
++				if(this.blinkNotification[accId]) {
++					blinkNotify = true;
++					break;
++				}
++			}
++		} else {
++			blinkNotify = this.blinkNotification[accountId];
++		}
++
+ 		// Update the dashboard content:
+ 		if(db) {
+ 			Mojo.Log.info("Updating dashboard for account %s, %d messages.", accountId, messages.length);
+ 			db.show(messages);
++
++			var stageController = this.appController.getStageController(NotificationAssistant.kNewEmailDashboardStageName+accountId);
++
++			if((stageController) && (blinkNotify))
++				stageController.indicateNewContent(true);
+ 		} else {
+ 			Mojo.Log.info("Creating dashboard for account %s, %d messages.", accountId, messages.length);
+ 			db = this.appController.createDashboard(NotificationAssistant.kNewEmailDashboardStageName+accountId, messages, {
++				onSuccess: function(blinkNotify, sceneController) {
++					if(blinkNotify)
++						sceneController.stageController.indicateNewContent(true);
++				}.bind(this, blinkNotify),
+ 				mainTapHandler: this._dashboardMainTap.bind(this, accountId),
+ 				iconTapHandler: this._dashboardIconTap.bind(this, accountId),
+ 				cleanup: this._dashboardClosed.bind(this, accountId)
+@@ -460,7 +531,12 @@
+ 	if(messages) {
+ 		messages.length = 0;
+ 	}
+-	
++
++	this.removePlayNotificationSoundTasks();
++
++	this.blinkNotification = {};
++	this.notificationsData = {};
++
+ 	Mojo.Log.info("NotificationAssistant._dashboardClosed for account ", accountId);
+ };
+ 
+@@ -590,20 +666,32 @@
+ 	var notifPrefs = acct.notifications;
+ 	var notifType = notifPrefs.type;
+ 	
++	this.blinkNotification[accountId] = notifPrefs.blink;
++
+ 	Mojo.Log.info("_doNotificationForAccount %s: ", accountId, notifType);
+ 	
+-	if (notifType === AccountpreferencesAssistant.kNotifyTypeSystem) {
+-		this.appController.playSoundNotification("notification");
+-	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeRingtone) {
+-		this.appController.playSoundNotification("alerts", notifPrefs.ringtonePath);
++	if (notifType === AccountpreferencesAssistant.kNotifyTypeRingtone) {
++		this.appController.playSoundNotification("notifications", notifPrefs.ringtonePath);
++	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeSystem) {
++		this.appController.playSoundNotification("notifications");
+ 	} else if (notifType === AccountpreferencesAssistant.kNotifyTypeVibrate) {
+-		PalmSystem.playSoundNotification("vibrate");
++		this.appController.playSoundNotification("vibrate");
+ 	}
+ 	// No need to check for AccountpreferencesAssistant.kNotifyTypeMute, since mute is what happens if we don't do anything.
+ 	
++	this.schedulePlayNotificationSoundTasks(accountId);
++
+ 	return; 
+ };
+ 
++NotificationAssistant.prototype._doNotificationForUnknown = function(notifType, ringtonePath) {
++	if(notifType === AccountpreferencesAssistant.kNotifyTypeRingtone)
++		this.appController.playSoundNotification("notifications", ringtonePath);
++	else if(notifType === AccountpreferencesAssistant.kNotifyTypeSystem)
++		this.appController.playSoundNotification("notifications");
++	else if(notifType === AccountpreferencesAssistant.kNotifyTypeVibrate)
++		this.appController.playSoundNotification("vibrate");
++};
+ 
+ // Utility for display of general notifications in a transient banner.
+ NotificationAssistant.prototype.generalNotification = function(msg) {
+@@ -631,18 +719,27 @@
+ 	// send errors use alert icon, from fw: ../images/notification-alert.png
+ 	// Others use account icon
+ 	
++	var stageName = NotificationAssistant.kErrorDashboardStageName+accountId;
++
+ 	if(!db) {
+ 		Mojo.Log.error("Creating error dashboard for account %s: %s, %s", accountId, details.title, details.text);
+ 		tapHandler = this._errorTapper.bind(this, accountId);
+-		db = this.appController.createDashboard(NotificationAssistant.kErrorDashboardStageName+accountId, [details], {
++		db = this.appController.createDashboard(stageName, [details], {
++			onSuccess: function(sceneController){
++				sceneController.stageController.indicateNewContent(true);
++			}.bind(this),
+ 			mainTapHandler: tapHandler,
+ 			iconTapHandler: tapHandler
+ 		});
+ 		this.errorDashboards[accountId] = db;
+ 	} else {
+ 		db.pushContent(details);
++
++		var stageController = this.appController.getStageController(stageName);
++
++		if(stageController)
++			stageController.indicateNewContent(true);
+ 	}
+-	
+ };
+ 
+ // Generic tap handler for all error dashboards.  Bound to handle both iconTap and mainTap.
+@@ -768,8 +865,75 @@
+ 	}
+ };
+ 
++NotificationAssistant.prototype.schedulePlayNotificationSoundTasks = function(accountId) {
++	var currentTime = new Date();
++
++	if(this.notificationsData[accountId] == undefined)
++		this.notificationsData[accountId] = 0;
++
++	var accData = EmailApp.accounts.mailAccounts[accountId];
++
++	if((!accData) || (!accData.notifications) || (accData.notifications.enabled == false) ||
++		(accData.notifications.type == "mute") || (accData.notifications.repeatInterval == 0))
++	{
++		delete this.notificationsData[accountId];
++	}
++	else {
++		var repeatLimitation = parseInt(accData.notifications.repeatLimit);
++
++		if(this.notificationsData[accountId]++ >= repeatLimitation) {
++			delete this.notificationsData[accountId];
++		}
++		else {
++			var repeatInterval = parseInt(accData.notifications.repeatInterval);
++
++			var playSoundTime = new Date(currentTime.getTime() + (repeatInterval * 1000));
++
++			var month = playSoundTime.getUTCMonth()+1;
++			if(month < 10) month = "0" + month;
++			var day = playSoundTime.getUTCDate();
++			if(day < 10) day = "0" + day;
++			var year = playSoundTime.getUTCFullYear();
++
++			var hours = playSoundTime.getUTCHours();
++			if(hours < 10) hours = "0" + hours;
++			var minutes = playSoundTime.getUTCMinutes();
++			if(minutes < 10) minutes = "0" + minutes;
++			var seconds = playSoundTime.getUTCSeconds();
++			if(seconds < 10) seconds = "0" + seconds;
++
++			var scheduledTimeStr = month + "/" + day + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
++
++			this.updateTimeoutRequest = new Mojo.Service.Request('palm://com.palm.power/timeout/', {
++				'method': "set", 'parameters': { 'key': 'emailPlayNotificationSound-' + accountId,
++				'wakeup': true, 'at': scheduledTimeStr, 'uri': "palm://com.palm.applicationManager/open",
++				'params': {'id': 'com.palm.app.email', 'params': {'accountId': accountId,
++					'playNotificationSound': this.notificationsData[accountId]}}} });
++		}
++	}
++};
++
++NotificationAssistant.prototype.removePlayNotificationSoundTasks = function() {
++	for(var accountId in this.notificationsData) {
++		if(this.notificationsData[accountId] > 0) {
++			this.removeTimeoutRequest = new Mojo.Service.Request("palm://com.palm.power/timeout/", {
++				'method': "clear", 'parameters': {"key": 'emailPlayNotificationSound-' + accountId} });
++		}
++	}
++};
+ 
++NotificationAssistant.prototype.playNotificationSound = function(accountId) {
++	var accData = EmailApp.accounts.mailAccounts[accountId];
+ 
++	if((accData) && (accData.notifications) && (accData.notifications.enabled == true)) {
++		if(accData.notifications.type === AccountpreferencesAssistant.kNotifyTypeRingtone)
++			this.appController.playSoundNotification("notifications", accData.notifications.ringtonePath);
++		else if(accData.notifications.type === AccountpreferencesAssistant.kNotifyTypeSystem)
++			this.appController.playSoundNotification("notifications");
++		else if(accData.notifications.type === AccountpreferencesAssistant.kNotifyTypeVibrate)
++			this.appController.playSoundNotification("vibrate");
++	}
++};
+ 
+ /*
+ NotificationAssistant.prototype.handleNewEmailNotification = function(list) {
+--- .orig/usr/palm/applications/com.palm.app.email/sources.json
++++ /usr/palm/applications/com.palm.app.email/sources.json
+@@ -33,6 +33,9 @@
+     "source": "app\/controllers\/accountpreferences-assistant.js"
+   },
+   {
++    "source": "app\/controllers\/prefsSetupNotifications-assistant.js"
++  },
++  {
+     "source": "app\/controllers\/app-assistant.js"
+   },
+   {
+--- .orig/usr/palm/applications/com.palm.app.email/javascripts/util.js
++++ /usr/palm/applications/com.palm.app.email/javascripts/util.js
+@@ -414,6 +414,65 @@
+ 	return;
+ };
+ 
++/******************************************************************************
++	Loads and manages changes to a persons email objects, stored in MojoDB.
++
++	The object's "ready" property will be true once initialization is complete.
++ ******************************************************************************/
++EmailApp.Util.MojoDBEmails = function(kind, onReady) {
++	this.ready = false; // set to true after we've loaded contact emails.
++
++	this._kind = kind;
++	this._onReady = onReady;
++
++	this._handleResult = this._handleResult.bind(this);
++
++	this._doQuery();
++};
++
++
++EmailApp.Util.MojoDBEmails.prototype._doQuery = function() {
++	this._request = new Mojo.Service.Request('palm://com.palm.db/', {"method": 'find', "parameters": {
++		query: {from:this._kind}, watch: true}, onSuccess: this._handleResult.bind(this)});
++};
++
++EmailApp.Util.MojoDBEmails.prototype._handleResult = function(result) {
++	if(result.fired) {
++		this._doQuery();
++	}
++	else {
++		var emails = [];
++
++		for(var i = 0; i < result.results.length; i++) {
++			if(result.results[i].emails) {
++				for(var j = 0; j < result.results[i].emails.length; j++) {
++					if(result.results[i].emails[j].value)
++						emails.push(result.results[i].emails[j].value);
++				}
++			}
++		}
++
++		this._emails = emails;
++		this.ready = true;
++
++		Mojo.Log.info("MojoDBEmails: Emails loaded for ", this._kind);
++
++		if(this._onReady) {
++			this._onReady();
++			this._onReady = undefined;
++		}
++	}
++};
++
++EmailApp.Util.MojoDBEmails.prototype.check = function(email) {
++	for(var i = 0; i < this._emails.length; i++) {
++		if(this._emails[i] == email)
++			return true;
++	}
++
++	return false;
++};
++
+ /**
+  * Function to pretty print an object with a label.
+  * Allows deeper insight into an object than Mojo.Log.__("%j", foo);
+--- .orig/usr/palm/applications/com.palm.app.email/resources/de/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/de/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">In der Ansicht “Alle Posteingänge” angelegte neue E-mails werden standardmäßig dem ersten Konto zugeordnet</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Standardkonto</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">In der Ansicht „Alle Posteingänge“ angelegte neue E-Mails werden standardmäßig diesem Konto zugeordnet.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/de/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">Neue Nachricht</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Signatur</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/de/strings.json
++++ /usr/palm/applications/com.palm.app.email/resources/de/strings.json
+@@ -291,5 +291,22 @@
+ 	"gmail": "googlemail",
+ 	"page at #{host}": "Seite auf #{host}",
+ 	"picture at #{host}": "Bild auf #{host}",
+-	"picture link": "Link zu Bild"
++	"picture link": "Link zu Bild",
++	"Off": "Aus",
++	"On": "Ein",
++	"Disabled": "Ausgeschaltet",
++	"Every 2 minutes": "Alle 2 Minuten",
++	"Every 5 minutes": "Alle 5 Minuten",
++	"Every 15 minutes": "Alle 15 Minuten",
++	"Every 30 minutes": "Alle 2 Minuten",
++	"Every 60 minutes": "Alle 2 Minuten",
++	"Repeat": "Wiederholung",
++	"Repeat infinitely": "Unendlich",
++	"Repeat 3 times": "3 Mal",
++	"Repeat 5 times": "5 Mal",
++	"Repeat 10 times": "10 Mal",
++	"Repeat 15 times": "15 Mal",
++	"Repeat 30 times": "30 Mal",
++	"Limitation": "Begrenzung",
++	"Unknown Contacts Notification": "Benachricht. für Unbekannte"
+ }
+--- .orig/usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Default account</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">New emails created in the “All Inboxes” view will default to this account.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/en/ca/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">New Message</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Signature</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Default account</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">New emails created in the “All Inboxes” view will default to this account.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/en/gb/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">New Message</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Signature</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/es/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/es/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Los correos creados en la vista “Todas las bandejas de entrada” pasarán de manera predeterminada a la primera cuenta.</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Cuenta predeterminada</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">Los nuevos mensajes creados en la vista “Todos los buzones” se enviarán de manera predeterminada de esta cuenta.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/es/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">Mensaje nuevo</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Firma</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/es/strings.json
++++ /usr/palm/applications/com.palm.app.email/resources/es/strings.json
+@@ -288,5 +288,22 @@
+ 	"Your username or password is not correct.": "Tu nombre de usuario o contraseña no es correcto.",
+ 	"page at #{host}": "página en #{host}",
+ 	"picture at #{host}": "imagen en #{host}",
+-	"picture link": "enlace de imagen"
++	"picture link": "enlace de imagen",
++	"Off": "No",
++	"On": "Sí",
++	"Disabled": "Desactivado",
++	"Every 2 minutes": "Cada 2 minutos",
++	"Every 5 minutes": "Cada 5 minutos",
++	"Every 15 minutes": "Cada 15 minutos",
++	"Every 30 minutes": "Cada 30 minutos",
++	"Every 60 minutes": "Cada 60 minutos",
++	"Repeat": "Repetir",
++	"Repeat infinitely": "Repetir indefinidamente",
++	"Repeat 3 times": "Repetir 3 veces",
++	"Repeat 5 times": "Repetir 5 veces",
++	"Repeat 10 times": "Repetir 10 veces",
++	"Repeat 15 times": "Repetir 15 veces",
++	"Repeat 30 times": "Repetir 30 veces",
++	"Limitation": "Límite",
++	"Unknown Contacts Notification": "Aviso contactos desconocidos"
+ }
+--- .orig/usr/palm/applications/com.palm.app.email/resources/es/es/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/es/es/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Los correos creados en la vista “Todas las bandejas de entrada” pasarán de manera predeterminada a la primera cuenta.</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Cuenta predeterminada</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">Los nuevos mensajes creados en la vista “Todas las band. de ent.” pasarán de manera predeterminada a esta cuenta.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/es/es/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/es/es/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">Mensaje nuevo</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Firma</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/fr/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/fr/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Les nouveaux emails créés depuis la vue « Toutes les boîtes » seront liés au premier compte de cette liste.</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Compte par défaut</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">Les nouveaux emails créés dans la vue « Toutes les boîtes » seront automatiquement liés à ce compte.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/fr/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">Nouveau message</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Signature</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/fr/strings.json
++++ /usr/palm/applications/com.palm.app.email/resources/fr/strings.json
+@@ -290,5 +290,22 @@
+ 	"Your username or password is not correct.": "Votre nom d’utilisateur ou votre mot de passe n’est pas correct.",
+ 	"page at #{host}": "page à #{host}",
+ 	"picture at #{host}": "photo à #{host}",
+-	"picture link": "lien photo"
++	"picture link": "lien photo",
++	"Off": "Non",
++	"On": "Oui",
++	"Disabled": "Désactivée",
++	"Every 2 minutes": "Toutes les 2 min.",
++	"Every 5 minutes": "Toutes les 5 min.",
++	"Every 15 minutes": "Toutes les 15 min.",
++	"Every 30 minutes": "Toutes les 30 min.",
++	"Every 60 minutes": "Toutes les 60 min.",
++	"Repeat": "Répétition",
++	"Repeat infinitely": "Indéfiniment",
++	"Repeat 3 times": "3 fois",
++	"Repeat 5 times": "5 fois",
++	"Repeat 10 times": "10 fois",
++	"Repeat 15 times": "15 fois",
++	"Repeat 30 times": "30 fois",
++	"Limitation": "Limite",
++	"Unknown Contacts Notification": "Gestion des contacts inconnus"	
+ }
+--- .orig/usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Les nouveaux emails créés depuis la vue « Toutes les boîtes » seront liés au premier compte de cette liste.</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Compte par défaut</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">Les nouveaux courriels créés dans la vue « Toutes les boîtes » seront automatiquement liés à ce compte.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/fr/ca/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">Nouveau message</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Signature</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/it/views/accountmanager/accountmanager-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/it/views/accountmanager/accountmanager-scene.html
+@@ -42,8 +42,11 @@
+ 	
+ 	<div id="account-display-list" class="edit_addremove accounts-list" x-mojo-element="List"></div>
+ 	<div id='accounts-list' x-mojo-element='AccountsList' style='display:none'></div>
++
++	<div x-mojo-loc="" class="palm-info-text">Emails created in “All Inboxes” view will default to the first account on the list.</div>
++
+ 	<div id="add-account-button" x-mojo-element="Button"></div>
+-	<div id="account-manager-default-account-group">
++<!--	<div id="account-manager-default-account-group">
+ 		<div class="palm-group">
+ 			<div class="palm-group-title">Account predefinito</div>
+ 			<div class="palm-list">
+@@ -54,5 +57,5 @@
+ 			</div>
+ 		</div> 
+ 		<div class="palm-info-text">I nuovi messaggi e-mail creati nella vista “In arrivo” saranno preimpostati su questo account.</div>
+-	</div> 
++	</div> -->
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html
++++ /usr/palm/applications/com.palm.app.email/resources/it/views/accountpreferences/accountpreferences-scene.html
+@@ -41,7 +41,7 @@
+ 	    <div id="edit-account-mail-format-selector" class="row single" x-mojo-element="ListSelector"></div>
+ 	</div>
+ </div-->
+-
++<!--
+ <div class="palm-group">
+ 	<div class="palm-group-title">Nuovo messaggio</div>
+ 	<div id="edit-account-new-message-list" class="palm-list">
+@@ -70,6 +70,7 @@
+ 		</div>
+ 	</div>
+ </div>
++-->
+ 
+ <div id="edit-account-signature" class="palm-group">
+ 	<div class="palm-group-title">Firma</div>
+--- .orig/usr/palm/applications/com.palm.app.email/resources/it/strings.json
++++ /usr/palm/applications/com.palm.app.email/resources/it/strings.json
+@@ -291,5 +291,22 @@
+ 	"Your username or password is not correct.": "Il nome utente o la password sono errati.",
+ 	"page at #{host}": "pagina a #{host}",
+ 	"picture at #{host}": "foto a #{host}",
+-	"picture link": "collegamento immagine"
++	"picture link": "collegamento immagine",
++	"Off": "",
++	"On": "",
++	"Disabled": "",
++	"Every 2 minutes": "",
++	"Every 5 minutes": "",
++	"Every 15 minutes": "",
++	"Every 30 minutes": "",
++	"Every 60 minutes": "",
++	"Repeat": "",
++	"Repeat infinitely": "",
++	"Repeat 3 times": "",
++	"Repeat 5 times": "",
++	"Repeat 10 times": "",
++	"Repeat 15 times": "",
++	"Repeat 30 times": "",
++	"Limitation": "",
++	"Unknown Contacts Notification": ""
+ }
