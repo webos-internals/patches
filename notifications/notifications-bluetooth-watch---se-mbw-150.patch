@@ -1,0 +1,138 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
+index 82de994..3eacb8a 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
+@@ -197,7 +197,28 @@ NotificationAssistant.prototype._decorateEmail = function(email) {
+ 		Mojo.Log.error("Email %s is missing Sender information, subject len= %s", email._id, email.subject && email.subject.length);
+ 	}
+ 	newMail.text = Foundations.StringUtils.escapeHTML(email.subject);
+-	
++
++		//Patch to report new Mail to BT-watch SE MBW-150
++		this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
++			method: 'get', parameters: {'owner': "bluetooth-mbw150", 
++			keys: ["mbwEmail"]},
++			onSuccess: function(response) {
++				if(response) {
++					if(response.mbwEmail == true) {
++						//Report Mail to ST-Watch MBW150
++						var request = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++					        method: 'open',
++					        parameters: {
++					            id: "de.metaviewsoft.mwatch",
++					            params: {command: "SMS", info: email.subject + " " + email.from.addr}
++				   	    	 },
++				     	   	onSuccess: function() {},
++				       	  	onFailure: function() {}
++				          	});
++					}
++				}
++			}.bind(this)});	
++
+ 	return newMail;
+ };
+ 
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+index 5a5aec0..23a92ab 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/notification-assistant.js
+@@ -407,6 +407,28 @@ NotificationAssistant.prototype.sendNewMessageNotificationAndUpdateDashboard = f
+ 			message: message
+ 		});
+ 	}
++
++
++		//Patch to report new SMS to BT-watch SE MBW-150
++		this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
++			method: 'get', parameters: {'owner': "bluetooth-mbw150", 
++			keys: ["mbwSMS"]},
++			onSuccess: function(response) {
++				if(response) {
++					if(response.mbwSMS== true) {
++						//Report Mail to ST-Watch MBW150
++						var request = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++					        method: 'open',
++					        parameters: {
++					            id: "de.metaviewsoft.mwatch",
++					            params: {command: "SMS", info: notificationText}
++				   	    	 },
++				     	   	onSuccess: function() {},
++				       	  	onFailure: function() {}
++				          	});
++					}
++				}
++			}.bind(this)});
+ 	
+ 	var bannerParams = {
+ 		messageText: notificationText
+diff --git a/usr/palm/applications/com.palm.app.musicplayer/scripts/MusicPlayer.js b/usr/palm/applications/com.palm.app.musicplayer/scripts/MusicPlayer.js
+index 6eb982a..aaed0a8 100644
+--- a/usr/palm/applications/com.palm.app.musicplayer/scripts/MusicPlayer.js
++++ b/usr/palm/applications/com.palm.app.musicplayer/scripts/MusicPlayer.js
+@@ -229,6 +229,32 @@ var musicPlayerSingleton = (function(){
+ 		},
+ 		
+ 		sendMessageToListeners: function(message){
++
++
++			//Patch report Title to BT-Watch SE MBW-150	to report new Mail to BT-watch SE MBW-150
++			if (message === this.MESSAGE_SONG_CHANGED){
++				this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
++				method: 'get', parameters: {'owner': "bluetooth-mbw150", 
++				keys: ["mbwSong"]},
++					onSuccess: function(response) {
++						if(response) {
++							if(response.mbwSong == true) {
++								Mojo.Log.error('ABOUT TO Report Title to ST-Watch MBW150');
++								var currentSong = this.getCurrentSong();
++								var request = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++						      		  method: 'open',
++						     		   parameters: {
++								            id: "de.metaviewsoft.mwatch",
++								            params: {command: "INFO", info: currentSong.title + " / " + currentSong.artist}
++							   	    	 },
++							     	   	onSuccess: function() {},
++			       					  	onFailure: function() {}
++				        		  	});	
++							}
++						}
++				}.bind(this)});			
++			}
++
+ 			if (!this.listeners){	return; }
+ 			
+ 			this.listeners.each(function(listener){
+diff --git a/usr/palm/applications/com.palm.app.phone/source/CallSynergizer.js b/usr/palm/applications/com.palm.app.phone/source/CallSynergizer.js
+index da103b8..0fa727b 100644
+--- a/usr/palm/applications/com.palm.app.phone/source/CallSynergizer.js
++++ b/usr/palm/applications/com.palm.app.phone/source/CallSynergizer.js
+@@ -47,6 +47,13 @@ enyo.kind({
+ 		{name:"callControl", kind:"PalmService", onFailure: "genericFailure", timeout: 5000},
+ 		{name:"callStateCallbacks", kind:"Utils.Dispatcher", delay: 100},
+ 		{name:"transportsCallbacks", kind:"Utils.Dispatcher"},
++		{name: "launchMW150",
++			     kind: "PalmService",
++			     service: "palm://com.palm.applicationManager/",
++			     method: "launch",
++			     onSuccess: "",
++			     onFailure: "",
++			     subscribe: true},
+ 		{name:"phoneCall", kind:"DBModels.PhoneCall"},
+ 		{name:"dialProxy", kind: "DialProxy"},
+ 		
+@@ -462,6 +469,15 @@ enyo.kind({
+ 				var height = line.calls[0].contact.picture.src ? 195 : 110;							
+ 				enyo.application.openPhoneAppPopup("IncomingCall", incomingWindowName, {"line": line}, height);				
+ 			}, line));
++				//Patch MBW150 report Call to BT watch
++				params = {
++						 command: "RING",
++		                 caller: line.calls[0].contact
++				};
++				this.$.launchMW150.call({
++					"id" : "de.metaviewsoft.mwatch",
++					"params" : params
++				});
+ 		}
+ 	},
+ 	/*testtimer: function() {
