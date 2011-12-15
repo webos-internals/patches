@@ -41,7 +41,7 @@ index 57cc297..8fe04e4 100644
  			
  			future.then(this, function finishSetup() {
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
-index 73256cd..b1ae98f 100644
+index 64adb78..b1ae98f 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
 @@ -389,7 +389,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
@@ -53,26 +53,15 @@ index 73256cd..b1ae98f 100644
  							if (found) {
  								// Get the correct remoteId
  								Utils.log("---->>>> detectDeletedCalendars(): patchExistingCalendarRemoteId");
-@@ -1078,6 +1078,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
- 
- 	_addOriginalEventInfoToChild: function (childObject, parent, isDeleting) {
- 		var originalEvent = makeOriginalEvent(childObject.local.recurrenceId, parent),
-+			reminders,
- 			times,
- 			transformer = new GoogleCalendarEventTransformer();
- 
-@@ -1085,7 +1086,9 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
- 
- 		times = childObject.remote.getTimes();
+@@ -1088,6 +1088,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
  		if (times && times.length) {
--			transformer.alarm(times[0], parent);
-+			reminders = GoogleCalendarEventTransformer.alarmsToReminders(parent.alarm);
-+			times[0].setReminder(reminders);
+ 			reminders = GoogleCalendarEventTransformer.alarmsToReminders(parent.alarm);
+ 			times[0].setReminder(reminders);
 +		//	transformer.alarm(times[0], parent);
  		}
  
  		if (isDeleting) {
-@@ -1263,7 +1266,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+@@ -1265,7 +1266,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
  							// The parent event was also part of this sync; get
  							// the ID directly from it
  							Utils.log("fixupChildEventIds(): parent: " + stringify(family.parent));
@@ -81,7 +70,7 @@ index 73256cd..b1ae98f 100644
  							return new Future(true);
  						}
  
-@@ -1275,7 +1278,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+@@ -1277,7 +1278,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
  							Assert.require(result.returnValue && result.results && result.results.length, "Google calendar sync: failed to find parent event for event '" + child.local._id);
  
  							parent = result.results[0];
@@ -91,32 +80,22 @@ index 73256cd..b1ae98f 100644
  							Utils.log("\n\n---->>>> Child event prepped: " + stringify(child.remote));
  
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-index 92a1156..8ced0fd 100644
+index 7d5124c..40f04bd 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-@@ -13,6 +13,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
- 
- 	errorStrings[403] = "no read permissions on calendar";
- 	errorStrings[410] = "lastModTime outside of permitted query range";
-+	errorStrings[500] = "Cannot access the calendar you requested (server error)";
- 
- 
- 	function getLastModifiedTimeForCalendar(update) {
-@@ -41,9 +42,11 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -42,8 +42,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  		syncKey.calendar[calUID] = syncKey.calendar[calUID] || {};
  
  		if (time) {
 -			time = time.getDate();
+-
 +			Utils.log("time: " + typeof(time) + ": " + JSON.stringify(time));
 +			if(typeof(time) == 'string') { time = Calendar.IO.Utils.dateFromIso8601(time);} else {
 +			time = time.getDate();}
- 
--			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
-+			logTime("setting update google", Calendar.IO.Utils.dateToIso8601(time));
+ 			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
  
  			if (update) {
- 				now = new Date();
-@@ -124,8 +127,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -125,8 +126,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			query.setUpdatedMin(startDate);
  			query.setUpdatedMax(endDate);
  
@@ -127,7 +106,7 @@ index 92a1156..8ced0fd 100644
  			if (lastModTime) {
  				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
  			} else {
-@@ -144,7 +148,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -145,7 +147,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			query.setUpdatedMin(undefined);
  			query.setUpdatedMax(undefined);
  
@@ -136,29 +115,20 @@ index 92a1156..8ced0fd 100644
  		}
  	}
  
-@@ -168,6 +172,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
- 			switch (status) {
- 				case 403:
- 				case 410:
-+				case 500: // Cannot access calendar requested
- 					Utils.warn("---->>>> " + syncType(update) + " query error (" + status + "): " + errorStrings[status]);
- 					Utils.warn("---->>>> Skipping " + syncType(update));
- 					future.result = {
-@@ -182,7 +187,12 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -184,11 +186,11 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  
  				default:
  					Utils.error("---->>>> " + syncType(update) + " query error: " + stringify(error));
--					throw error;
-+					future.result = {
-+						count: 0,
-+						modTime: undefined
-+					};
+-					Utils.warn("---->>>> Skipping " + syncType(update));
+ 					future.result = {
+ 						count: 0,
+ 						modTime: undefined
+ 					};
 +					//throw error;
-+					break;
+ 					break;
  			}
  		}));
- 	}
-@@ -224,7 +234,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -231,7 +233,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  							// "last update time", so store the fetch's time
  							setLastModifiedTimeForCalendar(true, queryResult.modTime);
  						}
@@ -168,7 +138,7 @@ index 92a1156..8ced0fd 100644
  					}
  				} else {
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-index ed2ef73..ae81e0a 100644
+index bf92f3b..52ac91f 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
 @@ -70,7 +70,7 @@ var GoogleCalendarEventTransformer = Class.create({
@@ -189,21 +159,19 @@ index ed2ef73..ae81e0a 100644
  			var time = GoogleCalendarEventTransformer.getTimeOrAdd(to),
  				date;
  
-@@ -111,16 +111,20 @@ var GoogleCalendarEventTransformer = Class.create({
- 			str += ":" + Calendar.IO.Utils.dateToIso8601(date, {justDate: model.allDay, noPunct: true, noMS: true, noTzOffset: true}) + "\r\n";
+@@ -112,15 +112,19 @@ var GoogleCalendarEventTransformer = Class.create({
  			return str;
  		}
-+		
+ 
+-		recurrence = formatDtTime("dtstart", from);
+-		recurrence += formatDtTime("dtend", from, from.allDay);
 +		if(from.rrule && _.values(from.rrule).length > 0) {
 +			recurrence = formatDtTime("dtstart", from);
 +			recurrence += formatDtTime("dtend", from, from.allDay);
  
--		recurrence = formatDtTime("dtstart", from);
--		recurrence += formatDtTime("dtend", from, from.allDay);
+-		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
 +			recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
  
--		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
--
 -		Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
 -		grecur = new google.gdata.Recurrence();
 -		grecur.setValue(recurrence);
@@ -218,55 +186,16 @@ index ed2ef73..ae81e0a 100644
  	},
  
  	subject: function (to, from) {
-@@ -176,45 +180,8 @@ var GoogleCalendarEventTransformer = Class.create({
- 			time = GoogleCalendarEventTransformer.getTimeOrAdd(to);
+@@ -177,7 +181,7 @@ var GoogleCalendarEventTransformer = Class.create({
  		}
  
--		// Utils.log("\n\n---->>>> Alarms: " + stringify(from.alarm));
--		for (i = 0; i < from.alarm.length; ++i) {
--			alarm = from.alarm[i];
--			alarmTrigger = alarm.alarmTrigger;
--			// Utils.log("---->>>> Alarm trigger[" + i + "]: " + stringify(alarmTrigger));
+ 		reminders = GoogleCalendarEventTransformer.alarmsToReminders(from.alarm);
 -
--			// "none" is a placeholder value used by the Calendar app, but is
--			// not valid in this context, so we skip the alarm
--			if (!alarmTrigger.value || alarmTrigger.value === "none") {
--				continue;
--			}
--
--			reminder = new google.gdata.Reminder();
--			if (alarmTrigger.valueType.toUpperCase() === "DATETIME") {
--				date = google.gdata.DateTime.fromIso8601(alarmTrigger.value);
--				// Utils.log("----->>>>> alarm trigger date: " + stringify(date));
--				reminder.setAbsoluteTime(date);
--			} else if (alarmTrigger.valueType.toUpperCase() === "DURATION") {
--				date = Calendar.IO.Utils.parseIso8601Duration(alarmTrigger.value);
--				// Utils.log("----->>>>> alarm trigger date: " + stringify(date));
--				reminder.setDays(date.days);
--				reminder.setHours(date.hours);
--				reminder.setMinutes(date.minutes);
--			} else {
--				console.error("Not a valid alarm valueType: " + alarmTrigger.valueType);
--			}
--
--			if (alarm.action.toLowerCase() === "email") {
--				reminder.setMethod(google.gdata.Reminder.METHOD_EMAIL);
--			} else if (alarm.action.toLowerCase() === "display") {
--				reminder.setMethod(google.gdata.Reminder.METHOD_ALERT);
--			} else {
--				console.error("Not a valid alarm action: " + alarm.action);
--			}
--
--			// Utils.log("----->>>>> new gdata reminder: " + stringify(reminder));
--			reminders.push(reminder);
--		}
--
-+		reminders = GoogleCalendarEventTransformer.alarmsToReminders(from.alarm);
 +		
  		// Stomp on whatever reminders we just pulled from the server
  		to.setReminders(reminders);
  		if (time) {
-@@ -253,40 +220,46 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -216,40 +220,46 @@ var GoogleCalendarEventTransformer = Class.create({
  	attendees: function (to, from) {
  		// "type": ["$ref": "Attendee"]
  		// "optional": "true"
@@ -322,64 +251,7 @@ index ed2ef73..ae81e0a 100644
  		}
  	},
  
-@@ -574,6 +547,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
- 	return time;
- };
- 
-+GoogleCalendarEventTransformer.alarmsToReminders = function (alarms) {
-+	var alarm,
-+		alarmTrigger,
-+		date,
-+		i,
-+		reminder,
-+		reminders = [];
-+
-+	Utils.log("\n\n---->>>> Alarms: " + stringify(alarms));
-+	for (i = 0; i < alarms.length; ++i) {
-+		alarm = alarms[i];
-+		alarmTrigger = alarm.alarmTrigger;
-+		Utils.log("---->>>> Alarm trigger[" + i + "]: " + stringify(alarmTrigger));
-+
-+		// "none" is a placeholder value used by the Calendar app, but is
-+		// not valid in this context, so we skip the alarm
-+		if (!alarmTrigger.value || alarmTrigger.value === "none") {
-+			continue;
-+		}
-+
-+		reminder = new google.gdata.Reminder();
-+		if (alarmTrigger.valueType.toUpperCase() === "DATETIME") {
-+			date = google.gdata.DateTime.fromIso8601(alarmTrigger.value);
-+			Utils.log("----->>>>> alarm trigger date: " + stringify(date));
-+			reminder.setAbsoluteTime(date);
-+		} else if (alarmTrigger.valueType.toUpperCase() === "DURATION") {
-+			date = Calendar.IO.Utils.parseIso8601Duration(alarmTrigger.value);
-+			Utils.log("----->>>>> alarm trigger date: " + stringify(date));
-+			reminder.setDays(date.days);
-+			reminder.setHours(date.hours);
-+			reminder.setMinutes(date.minutes);
-+		} else {
-+			console.error("Not a valid alarm valueType: " + alarmTrigger.valueType);
-+		}
-+
-+		if (alarm.action.toLowerCase() === "email") {
-+			reminder.setMethod(google.gdata.Reminder.METHOD_EMAIL);
-+		} else if (alarm.action.toLowerCase() === "display") {
-+			reminder.setMethod(google.gdata.Reminder.METHOD_ALERT);
-+		} else {
-+			console.error("Not a valid alarm action: " + alarm.action);
-+		}
-+
-+		Utils.log("----->>>>> new gdata reminder: " + stringify(reminder));
-+		reminders.push(reminder);
-+	}
-+
-+	return reminders;
-+};
-+
- GoogleCalendarEventTransformer.dayHash = [
- 	"SU",
- 	"MO",
-@@ -586,7 +609,17 @@ GoogleCalendarEventTransformer.dayHash = [
+@@ -599,7 +609,17 @@ GoogleCalendarEventTransformer.dayHash = [
  
  // Catches form-feed, return, horizontal tab, vertical tab, space, non-breaking space, line separator, and paragraph separator
  GoogleCalendarEventTransformer.collapseWhitespaceRegex = new RegExp("[\\f\\r\\t \u000B\u00A0\u2028\u2029]{2,}", 'g');
