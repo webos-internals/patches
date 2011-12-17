@@ -1,0 +1,160 @@
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/concatenated.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/concatenated.js
+index f4317d1..f8fd2d9 100755
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/concatenated.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/concatenated.js
+@@ -980,7 +980,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}).then(this, function(future) {
+ 				if (future.result) {
+ 					// TODO: Set up one of these for each synced kind...
+-					if (this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
++					if (this._future.result && this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
+ 						var rev = this.client.transport.modnum;
+ 						var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
+ 						var requiresInternet;
+@@ -1388,9 +1388,12 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 						rev = result.local._rev;
+ 					}
+ 				}, this);				
+-				this.client.transport.modnum = rev;
++				for (var id in map) {
++					if (rev < map[id]) {
++						rev = map[id];
++					}
++				}
+ 				this._latestRev = rev;
+-				this.handler.updateAccountTransportObject(this.client.transport, {modnum: rev});
+ 				this._localChanges = changes;
+ 				return "getFirstRemoteMatches";
+ 			}
+@@ -1686,7 +1689,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				}
+ 				else
+ 				{
+-					return "nextType";
++					return "getPostPutRemoteModnum";
+ 				}
+ 			}
+ 			catch (_)
+@@ -1752,18 +1755,15 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		__enter: function()
+ 		{
+ 			console.log("getPostPutRemoteModnum");
+-			this.handler.getLatestRev(this._kindName).then(this._gotReply);
+-		},
+ 
+-		gotReply: function(join)
+-		{
+ 			try
+ 			{
+-				// Find highest revision
+-				var latestRev = join.result;
++				var latestRev = this._latestRev;
+ 				console.log(">>> getPostPutRemoteModnum: cur: " + this.client.transport.modnum + ", latest: " + JSON.stringify(latestRev));
+-				if (latestRev > this._latestRev) {
+-					this._latestRev = latestRev;
++				if (latestRev > this.client.transport.modnum)
++				{
++					this.client.transport.modnum = latestRev;
++					this.handler.updateAccountTransportObject(this.client.transport, {modnum: this.client.transport.modnum});
+ 				}
+ 				return "nextType";
+ 			}
+@@ -1789,6 +1789,9 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			if (this._latestRev > this.client.transport.modnum) {
+ 				return "getLocalChanges";
+ 			}
++			if (this._latestRev !== undefined && this._latestRev > this.client.transport.modnum) {
++				return "getPostPutRemoteModnum";
++			}
+ 			console.log(">>> this._kindIndex = "+this._kindIndex+", this._kinds.syncOrder.length-1="+(this._syncOrder.length-1));
+ 			if (this._kindIndex < this._syncOrder.length-1) {
+ 				this._kindIndex++;
+@@ -1870,7 +1873,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				//		until the user corrects the error
+ 
+ 				//whether or not we notify the user of the error, we need to propagate it upwards
+-				this._future.exception = this._error;
++				this._future.exception = this._error || new Error("Unspecified error");
+ 			});
+ 		}
+ 	}
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
+index 87b6e88..2cc8d83 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
+@@ -363,7 +363,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}).then(this, function(future) {
+ 				if (future.result) {
+ 					// TODO: Set up one of these for each synced kind...
+-					if (this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
++					if (this._future.result && this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
+ 						var rev = this.client.transport.modnum;
+ 						var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
+ 						var requiresInternet;
+@@ -771,9 +771,12 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 						rev = result.local._rev;
+ 					}
+ 				}, this);				
+-				this.client.transport.modnum = rev;
++				for (var id in map) {
++					if (rev < map[id]) {
++						rev = map[id];
++					}
++				}
+ 				this._latestRev = rev;
+-				this.handler.updateAccountTransportObject(this.client.transport, {modnum: rev});
+ 				this._localChanges = changes;
+ 				return "getFirstRemoteMatches";
+ 			}
+@@ -1069,7 +1072,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				}
+ 				else
+ 				{
+-					return "nextType";
++					return "getPostPutRemoteModnum";
+ 				}
+ 			}
+ 			catch (_)
+@@ -1135,18 +1138,15 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		__enter: function()
+ 		{
+ 			console.log("getPostPutRemoteModnum");
+-			this.handler.getLatestRev(this._kindName).then(this._gotReply);
+-		},
+ 
+-		gotReply: function(join)
+-		{
+ 			try
+ 			{
+-				// Find highest revision
+-				var latestRev = join.result;
++				var latestRev = this._latestRev;
+ 				console.log(">>> getPostPutRemoteModnum: cur: " + this.client.transport.modnum + ", latest: " + JSON.stringify(latestRev));
+-				if (latestRev > this._latestRev) {
+-					this._latestRev = latestRev;
++				if (latestRev > this.client.transport.modnum)
++				{
++					this.client.transport.modnum = latestRev;
++					this.handler.updateAccountTransportObject(this.client.transport, {modnum: this.client.transport.modnum});
+ 				}
+ 				return "nextType";
+ 			}
+@@ -1172,6 +1172,9 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			if (this._latestRev > this.client.transport.modnum) {
+ 				return "getLocalChanges";
+ 			}
++			if (this._latestRev !== undefined && this._latestRev > this.client.transport.modnum) {
++				return "getPostPutRemoteModnum";
++			}
+ 			console.log(">>> this._kindIndex = "+this._kindIndex+", this._kinds.syncOrder.length-1="+(this._syncOrder.length-1));
+ 			if (this._kindIndex < this._syncOrder.length-1) {
+ 				this._kindIndex++;
+@@ -1253,7 +1256,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				//		until the user corrects the error
+ 
+ 				//whether or not we notify the user of the error, we need to propagate it upwards
+-				this._future.exception = this._error;
++				this._future.exception = this._error || new Error("Unspecified error");
+ 			});
+ 		}
+ 	}
