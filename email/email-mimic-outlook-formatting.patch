@@ -1,0 +1,325 @@
+--- .orig/usr/palm/applications/com.palm.app.email/app/models/Composition.js
++++ /usr/palm/applications/com.palm.app.email/app/models/Composition.js
+@@ -34,7 +34,10 @@
+ 	var body;
+ 	
+ 	// Start with a new blank message.
+-	this.text = this.SIGNATURE_PLACEHOLDER; // default body text.
++	if(Mojo.Controller.appController.assistant.formatting == "outlook")
++		this.text = this.SIGNATURE_PLACEHOLDER_OUTLOOK; // default body text.
++	else
++		this.text = this.SIGNATURE_PLACEHOLDER; // default body text.
+ 	this.originalText = this.text;
+ 	this.email = {
+ 		from: {},
+@@ -93,14 +96,21 @@
+ 
+ // Need to break this out of the regular prototype assignment, since it's used in the def'n of REPLY_FWD_HTML
+ ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER = "<span style='font-family:Prelude, Verdana, san-serif;'><br><br></span><span id='signature'></span>";
++ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px;'><br><br></span><span id='signature'></span>";
++ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK_PLUS = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px; color: #1F497D;'><br><br></span><span id='signature'></span>";
+ 
+ ComposeAssistant.prototype.Composition.prototype = {
+ 
+ 	SIGNATURE_PLACEHOLDER: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER,
+-	REPLY_FWD_HTML: "<br><br>" + ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER + "<span style='color:navy; font-family:Prelude, Verdana, san-serif; '><hr align='left' style='width:75%'/>",
++	SIGNATURE_PLACEHOLDER_OUTLOOK: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK,
++	REPLY_FWD_HTML: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER + "<span style='color:navy; font-family:Prelude, Verdana, san-serif; '><hr align='left' style='width:75%'/>",
++	REPLY_FWD_HTML_OUTLOOK: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK + "<span style='color:black; font-family:Prelude, Calibri, san-serif; font-size:15px; '>",
++	REPLY_FWD_HTML_OUTLOOK_PLUS: ComposeAssistant.prototype.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK_PLUS + "<span style='color:black; font-family:Prelude, Calibri, san-serif; font-size:15px; '><hr align='left' style='width:100%'/>",
+ 
+ 	SUBJECT_PREFIX_RE: $L("Re: "),
++	SUBJECT_PREFIX_RE_OUTLOOK: $L("RE: "),
+ 	SUBJECT_PREFIX_FW: $L("Fw: "),
++	SUBJECT_PREFIX_FW_OUTLOOK: $L("FW: "),
+ 
+ 
+ 	// Send the email.  Saves it into the account's outbox, where it's picked up by the transport.
+@@ -243,7 +253,10 @@
+ 	_setReply: function(original) {
+ 		this.action = "reply";
+ 
+-		this._createCommon(original, this.SUBJECT_PREFIX_RE);
++		if(Mojo.Controller.appController.assistant.formatting == "outlook")
++			this._createCommon(original, this.SUBJECT_PREFIX_RE_OUTLOOK);
++		else
++			this._createCommon(original, this.SUBJECT_PREFIX_RE);
+ 		this.email.to = [this._convertSenderToRecipient(original)];
+ 		this._commonReplyPrep(original);
+ 	},
+@@ -252,7 +265,10 @@
+ 	// Configure this email as a reply-all to 'original'.
+ 	_setReplyAll: function(original) {
+ 		this.action = "replyAll";
+-		this._createCommon(original, this.SUBJECT_PREFIX_RE);
++		if(Mojo.Controller.appController.assistant.formatting == "outlook")
++			this._createCommon(original, this.SUBJECT_PREFIX_RE_OUTLOOK);
++		else
++			this._createCommon(original, this.SUBJECT_PREFIX_RE);
+ 		this._addReplyAll(original);		
+ 		this._commonReplyPrep(original);	
+ 	},
+@@ -262,7 +278,10 @@
+ 	_setForward: function(original) {
+ 		this.action = "forward";
+ 		
+-		this._createCommon(original, this.SUBJECT_PREFIX_FW);
++		if(Mojo.Controller.appController.assistant.formatting == "outlook")
++			this._createCommon(original, this.SUBJECT_PREFIX_FW_OUTLOOK);
++		else
++			this._createCommon(original, this.SUBJECT_PREFIX_FW);
+ 		
+ 		// Copy all attachments when forwarding.
+ 		this._setAttachments(_.select(original.parts, this._isAttachment, this));		
+@@ -275,7 +294,10 @@
+ 		var recipients;
+ 		var parser = new MailtoURIParser(url);
+ 		this._setSubject(parser.getDecodedSubject());
+-		this._setContent(parser.getDecodedBody() + this.SIGNATURE_PLACEHOLDER);
++		if(Mojo.Controller.appController.assistant.formatting == "outlook")
++			this._setContent(parser.getDecodedBody() + this.SIGNATURE_PLACEHOLDER_OUTLOOK);
++		else
++			this._setContent(parser.getDecodedBody() + this.SIGNATURE_PLACEHOLDER);
+ 
+ 		var convertAddress = function(addr) {
+ 			return {addr: addr, name:addr};
+@@ -334,7 +356,10 @@
+ 		}
+ 
+ 		if (params.text) {
+-			this._setContent(params.text + this.SIGNATURE_PLACEHOLDER);
++			if(Mojo.Controller.appController.assistant.formatting == "outlook")
++				this._setContent(params.text + this.SIGNATURE_PLACEHOLDER);
++			else
++				this._setContent(params.text + this.SIGNATURE_PLACEHOLDER);
+ 		}
+ 
+ 		// TODO: this should perform validation/fixup on the recipients
+@@ -508,80 +533,121 @@
+ 		// Here we rely on the message scene having added a 'text' property at the top level of the object.
+ 		// It would be more robust to read the message body ourselves, and modify the message scene not to modify the object.
+ 		// So let's change this at some point.
+-		if (original.text && original.text.length > 0) {
+-			text = this.REPLY_FWD_HTML;
++		if (original.text && original.text.length > 0 && Mojo.Controller.appController.assistant.formatting != "none") {
++			if(Mojo.Controller.appController.assistant.formatting == "outlook") {
++				if(Mojo.Controller.appController.assistant.formattingReply == "plus")
++					text = this.REPLY_FWD_HTML_OUTLOOK_PLUS;
++				else
++					text = this.REPLY_FWD_HTML_OUTLOOK;
++			}
++			else
++				text = this.REPLY_FWD_HTML;
+ 			var fromObj = original.from;
+ 
+-			if (this.action === "forward") {
+-				var toAddressList = [];
+-				var ccAddressList = [];
+-				if (original.to) { // sometimes to is null. ie: in case of all bcc recips
+-					original.to.forEach(function(r){
+-						if (r.type === EmailRecipient.typeTo) {
++			var toAddressList = [];
++			var ccAddressList = [];
++			if (original.to) { // sometimes to is null. ie: in case of all bcc recips
++				original.to.forEach(function(r){
++					if (r.type === EmailRecipient.typeTo) {
++						if (r.name) {
++							var toStr;
++							if (r.name === r.addr) {
++								toStr = r.name;
++							}
++							else {
++								if(Mojo.Controller.appController.assistant.formatting == "outlook")							
++									toStr = EmailApp.Util.interpolate("#{name}", r);
++								else							
++									toStr = EmailApp.Util.interpolate("#{name} <#{addr}>", r);
++							}
++							toAddressList.push(toStr);
++						}
++					}
++					else 
++						if (r.type === EmailRecipient.typeCc) {
+ 							if (r.name) {
+-								var toStr;
++								var ccStr;
+ 								if (r.name === r.addr) {
+-									toStr = r.name;
++									ccStr = r.name;
+ 								}
+ 								else {
+-									toStr = EmailApp.Util.interpolate("#{name} <#{addr}>", r);
++								if(Mojo.Controller.appController.assistant.formatting == "outlook")							
++									ccStr = EmailApp.Util.interpolate("#{name}", r);
++								else
++									ccStr = EmailApp.Util.interpolate("#{name} <#{addr}>", r);
+ 								}
+-								toAddressList.push(toStr);
++								ccAddressList.push(ccStr);
+ 							}
+ 						}
+-						else 
+-							if (r.type === EmailRecipient.typeCc) {
+-								if (r.name) {
+-									var ccStr;
+-									if (r.name === r.addr) {
+-										ccStr = r.name;
+-									}
+-									else {
+-										ccStr = EmailApp.Util.interpolate("#{name} <#{addr}>", r);
+-									}
+-									ccAddressList.push(ccStr);
+-								}
+-							}
+-					});
+-				}
++				});
++			}
+ 
++			if (this.action === "forward") {
+ 				if (fromObj.name === fromObj.addr) {
+ 					text += $L("<b>From:</b> ") + Foundations.StringUtils.escapeHTML(fromObj.name || '') + "<br/>";
+ 				}
+ 				else {
+-					text += $L("<b>From:</b> ") + Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate("#{name} <#{addr}>", fromObj)) + "<br/>";
++					if(Mojo.Controller.appController.assistant.formatting == "outlook")
++						text += $L("<b>From:</b> ") + Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate("#{name}", fromObj)) + "<br/>";
++					else
++						text += $L("<b>From:</b> ") + Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate("#{name} <#{addr}>", fromObj)) + "<br/>";
++				}
++				if(Mojo.Controller.appController.assistant.formatting == "outlook")
++					text += $L("<b>Sent:</b> ") + Mojo.Format.formatDate(new Date(parseInt(original.timestamp, 10)), {date:'full', time:'short'}) + "<br/>";
++				else {
++					text += $L("<b>Date:</b> ") + Mojo.Format.formatDate(new Date(parseInt(original.timestamp, 10)), {date:'medium', time:'short'}) + "<br/>";
++					text += EmailApp.Util.interpolate($L("<b>Subject:</b> #{subject}"), original) + "<br/>";
+ 				}
+-				text += $L("<b>Date:</b> ") + Mojo.Format.formatDate(new Date(parseInt(original.timestamp, 10)), {date:'medium', time:'short'}) + "<br/>";
+-				text += EmailApp.Util.interpolate($L("<b>Subject:</b> #{subject}"), original) + "<br/>";
+ 				if (toAddressList.length > 0) {
+ 					text += $L("<b>To:</b> ") + Foundations.StringUtils.escapeHTML(toAddressList.join("; ") || '') + "<br/>";
+ 				}
+ 				if (ccAddressList.length > 0) {
+-					text += $L("<b>CC:</b> ") + Foundations.StringUtils.escapeHTML(ccAddressList.join("; ") || '') + "<br/>";
++					if(Mojo.Controller.appController.assistant.formatting == "outlook")
++						text += $L("<b>Cc:</b> ") + Foundations.StringUtils.escapeHTML(ccAddressList.join("; ") || '') + "<br/>";
++					else
++						text += $L("<b>CC:</b> ") + Foundations.StringUtils.escapeHTML(ccAddressList.join("; ") || '') + "<br/>";
+ 				}
++				if(Mojo.Controller.appController.assistant.formatting == "outlook")				
++					text += EmailApp.Util.interpolate($L("<b>Subject:</b> #{subject}"), original) + "<br/>";
+ 				text += "<br/>";
+ 
+ 			} else {
+-
+-				// reply case. Integrate header info with sentence
+-				var strArgs = {
+-					"monthDate": "",
+-					"name": fromObj.name,
+-					"addr": fromObj.addr
+-				};
+-				if (original.timestamp) {
+-					//<Month (short version)> <Day>,<Year> at <time>
+-					strArgs.monthDate = Mojo.Format.formatDate(new Date(parseInt(original.timestamp, 10)), {date:'medium', time:'short'});
+-					text += Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate($L("On #{monthDate}, #{name} <#{addr}> wrote: "), strArgs));
+-				} else {
+-					text += Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate($L("#{name} <#{addr}> wrote: "), strArgs));
++				if(Mojo.Controller.appController.assistant.formatting == "outlook")	{
++					text += $L("<b>From:</b> ") + Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate("#{name}", fromObj)) + "<br/>";
++					text += $L("<b>Sent:</b> ") + Mojo.Format.formatDate(new Date(parseInt(original.timestamp, 10)), {date:'full', time:'short'}) + "<br/>";
++					if (toAddressList.length > 0) {
++						text += $L("<b>To:</b> ") + Foundations.StringUtils.escapeHTML(toAddressList.join("; ") || '') + "<br/>";
++					}
++					if (ccAddressList.length > 0) {
++						text += $L("<b>Cc:</b> ") + Foundations.StringUtils.escapeHTML(ccAddressList.join("; ") || '') + "<br/>";
++					}
++					text += EmailApp.Util.interpolate($L("<b>Subject:</b> #{subject}"), original) + "<br/>";
++					text += "<br/>";
++				}
++				else {
++					// reply case. Integrate header info with sentence
++					var strArgs = {
++						"monthDate": "",
++						"name": fromObj.name,
++						"addr": fromObj.addr
++					};
++					if (original.timestamp) {
++						//<Month (short version)> <Day>,<Year> at <time>
++						strArgs.monthDate = Mojo.Format.formatDate(new Date(parseInt(original.timestamp, 10)), {date:'medium', time:'short'});
++						text += Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate($L("On #{monthDate}, #{name} <#{addr}> wrote: "), strArgs));
++					} else {
++						text += Foundations.StringUtils.escapeHTML(EmailApp.Util.interpolate($L("#{name} <#{addr}> wrote: "), strArgs));
++	 				}
++					text += "<br><br>";
+ 				}
+-				text += "<br><br>";
+ 			}
+ 			originalText = original.text;
+ 		} else {
+ 			Mojo.Log.error("Composition._createCommon: couldn't find original message text.");
+-			text = this.SIGNATURE_PLACEHOLDER;
++			if(Mojo.Controller.appController.assistant.formatting == "outlook")
++				text = this.SIGNATURE_PLACEHOLDER_OUTLOOK;
++			else
++				text = this.SIGNATURE_PLACEHOLDER;
+ 			originalText = "";
+ 		}
+ 		
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/app-assistant.js
+@@ -13,6 +13,8 @@
+ 
+ 
+ function AppAssistant(appController) {
++	this.formatting = "default";	
++	this.formattingReply = "default";	
+ 	
+ 	//window.logger = window.logger || new EmailApp.Util.PerfLogger();
+ 	Mojo.Log.warn("NOTE: AppAssistant() constructor");
+@@ -165,6 +167,26 @@
+ 
+ // Called when prefs & accounts are loaded, to handle any launches that were delayed earlier.
+ AppAssistant.prototype.appInitializationComplete = function() {
++	this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
++		method: 'get', parameters: {'owner': "org.webosinternals.patches.email-mimic-outlook-formatting", 
++		keys: ["emailReplyForward"]}, 
++		onSuccess: function(response) {
++			if((response) && (response.emailReplyForward != undefined)) {
++				if(response.emailReplyForward == "outlook+") {
++					this.formatting = "outlook";
++					this.formattingReply = "plus";
++				}
++				else
++					this.formatting = response.emailReplyForward;
++			}
++			this.appInitializationCompleteDone();
++		}.bind(this),
++		onFailure: function(response) {
++			this.appInitializationCompleteDone();
++		}.bind(this)});
++};
++
++AppAssistant.prototype.appInitializationCompleteDone = function() {
+ 	var propName, unsavedPrefs;
+ 	
+ 	Mojo.Log.info("NOTE: AppAssistant.appInitializationComplete()");
+--- .orig/usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
++++ /usr/palm/applications/com.palm.app.email/app/controllers/compose-assistant.js
+@@ -269,7 +269,10 @@
+ 	
+ 	this.signatureGuard = function(e) { 
+ 		// reset formatting on signature clear
+-		if (this.bodyElement.innerHTML.match(ComposeAssistant.kEmptySignatureRegex)) {
++		if((this.bodyElement.innerHTML.match(ComposeAssistant.kEmptySignatureRegex)) ||
++			((Mojo.Controller.appController.assistant.formatting == "outlook") &&
++			(this.bodyElement.innerHTML.match(ComposeAssistant.kEmptySignatureRegexOutlook))))
++		{
+ 			Mojo.Dom.remove(this.controller.get('signature'));
+ 			// focus and set cursor to the end of the text
+ 			this.bodyElement.focus();
+@@ -1251,6 +1254,7 @@
+ ComposeAssistant.kAppMenuHighPriority = $L('Set as High Priority');
+ ComposeAssistant.kAppMenuNormalPriority = $L('Set as Normal Priority');
+ ComposeAssistant.kEmptySignatureRegex = /<span id="signature"><div style="font-family: arial, sans-serif; font-size: 12px;color: #999999;">[<br>]*<\/div>[<br>]*<\/span>/;
++ComposeAssistant.kEmptySignatureRegexOutlook = /<span id="signature"><div style="font-family: Calibri, sans-serif; font-size: 15px;color: #999999;">[<br>]*<\/div>[<br>]*<\/span>/;
+ // Send Email Banner Messages
+ ComposeAssistant.kSendWDiscardSummary = $L("Sending email. #{discardSummary}");
+ ComposeAssistant.kSaveWDiscardSummary = $L("Saving email to outbox. #{discardSummary}");
