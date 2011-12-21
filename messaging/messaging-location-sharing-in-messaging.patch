@@ -1,0 +1,135 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 46c3d51..923278c 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -227,6 +227,13 @@ var ChatviewAssistant = Class.create({
+ 			disabled: false,
+ 			visible: true
+ 		};
++		this.appMenuInsertCoordsItem = {
++			label: $L('Insert GPS Location'),
++			command: ChatviewAssistant.kMenuCmdInsertCoords,
++			disabled: false,
++			visible: true,
++			shortcut:'l'
++		};
+ 
+ 		this.appMenuBlockUsernameItem = {
+ 			label: $L('Block this person'),
+@@ -254,6 +261,7 @@ var ChatviewAssistant = Class.create({
+ 		this.appMenuItems = new MenuWrapper([
+ 			chatEditItems,
+ 			this.appMenuAddPictureItem,
++			this.appMenuInsertCoordsItem,
+ 			this.appMenuSetTopicItem,
+ 			this.appMenuAddBuddyToGroupItem,
+ 			this.appMenuLeaveChatItem,
+@@ -478,9 +486,26 @@ var ChatviewAssistant = Class.create({
+ 			if (delayed) {
+ 				//Mojo.Log.info("********** RUNNING DELAYED TEXT INDEXER ***************");
+ 				
++				var coordIndexer = function(text) {
++					var str = text;
++					var coordFilter = /-?\d+(\.?\d+)?,-?\d+(\.?\d+)?/g;
++					var result = "";
++					var matches = str.match(coordFilter);
++					while(matches) {
++						var matchIndex = str.indexOf(matches[0]);
++						result += str.substring(0, matchIndex);
++						result += "<a href=\"maploc:" + matches[0] + "\">" + matches[0] + "</a>";
++						str = str.substring(matchIndex + matches[0].length);
++						matches = str.match(coordFilter);
++					}
++					result += str;
++					return result;
++				}
++				
+ 				val = delayed.summary;
+ 				if (val) {
+ 					nval = PalmSystem.runTextIndexer(val);
++					nval = coordIndexer(nval);
+ 					if (nval !== val) {
+ 						items[i].summary = nval;
+ 						isChanged = true;
+@@ -489,6 +514,7 @@ var ChatviewAssistant = Class.create({
+ 				val = delayed.messageText;
+ 				if (val) {
+ 					nval = PalmSystem.runTextIndexer(val);
++					nval = coordIndexer(nval);
+ 					if (nval !== val) {
+ 						items[i].messageText = nval;
+ 						isChanged = true;
+@@ -726,6 +752,28 @@ var ChatviewAssistant = Class.create({
+ 					this.attachFilePicker();
+ 					event.stop();
+ 					break;
++				case ChatviewAssistant.kMenuCmdInsertCoords:
++					this.controller.serviceRequest("palm://com.palm.location", {
++						method:"getCurrentPosition",
++						parameters: {
++							accuracy:1,
++							maximumAge :10,
++							responseTime:1
++						},
++						onSuccess: function(response) {
++							if(response.errorCode==0) {
++								var currText = this.messageTextWidget.mojo.getValue();
++								if(currText.length>0) {
++									if(currText.charAt(currText.length-1) != " ") {
++										currText += " ";
++									}
++								}
++								currText += response.latitude + "," + response.longitude + " ";
++								this.messageTextWidget.mojo.setValue(currText);
++							}
++						}.bind(this)
++					});
++					break;
+ 				case ChatviewAssistant.kMenuCmdDeleteUsername:
+ 					this.deleteUsername();
+ 					event.stop();
+@@ -1721,10 +1769,28 @@ var ChatviewAssistant = Class.create({
+ 			{
+ 				//Mojo.Log.info("********** RUNNING DELAYED TEXT INDEXER ***************");
+ 				var nval;
++				
++				var coordIndexer = function(text) {
++					var str = text;
++					var coordFilter = /-?\d+(\.?\d+)?,-?\d+(\.?\d+)?/g;
++					var result = "";
++					var matches = str.match(coordFilter);
++					while(matches) {
++						var matchIndex = str.indexOf(matches[0]);
++						result += str.substring(0, matchIndex);
++						result += "<a href=\"maploc:" + matches[0] + "\">" + matches[0] + "</a>";
++						str = str.substring(matchIndex + matches[0].length);
++						matches = str.match(coordFilter);
++					}
++					result += str;
++					return result;
++				}
++				
+ 				var val = delayed.summary;
+ 				if (val)
+ 				{
+ 					nval = PalmSystem.runTextIndexer(val);
++					nval = coordIndexer(nval);
+ 					if (nval !== val)
+ 					{
+ 						itemModel.summary = nval;
+@@ -1735,6 +1801,7 @@ var ChatviewAssistant = Class.create({
+ 				if (val)
+ 				{
+ 					nval = PalmSystem.runTextIndexer(val);
++					nval = coordIndexer(nval);
+ 					if (nval !== val)
+ 					{
+ 						itemModel.messageText = nval;
+@@ -3768,6 +3835,7 @@ ChatviewAssistant.kMenuCmdSetTopic = "setTopic";
+ ChatviewAssistant.kMenuCmdAddBuddyToGroup = "addBuddyToGroup";
+ ChatviewAssistant.kMenuCmdLeaveChat = "leaveChat";
+ ChatviewAssistant.kMenuCmdAddPicture = "addPicture";
++ChatviewAssistant.kMenuCmdInsertCoords = "insertCoords";
+ ChatviewAssistant.kMenuCmdBlockUsername = "blockUsername";
+ ChatviewAssistant.kMenuCmdDeleteUsername = "deleteUsername";
+ ChatviewAssistant.kMenuCmdCopyAll = "copyall";
