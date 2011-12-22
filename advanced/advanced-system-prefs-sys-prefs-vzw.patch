@@ -1,0 +1,1182 @@
+--- .orig/usr/palm/applications/com.palm.app.calculator/calculator.js
++++ /usr/palm/applications/com.palm.app.calculator/calculator.js
+@@ -18,6 +18,15 @@
+ 		this.memory = this.getMemDbValue();
+ 		this.clear();
+ 		this.decimalChar = resources.$L('.');
++
++		this.hapticFeedback = false;
++
++		this.hapticFeedbackRequest = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'getPreferences', parameters: {"keys": ["hapticFeedback"], "subscribe": true},
++			onSuccess: function(response) {
++				if ((response) && (response.hapticFeedback != undefined))
++					this.hapticFeedback = response.hapticFeedback;
++			}.bind(this)});
+ 	},
+ 
+ 
+--- .orig/usr/palm/applications/com.palm.app.calculator/calculator-app.js
++++ /usr/palm/applications/com.palm.app.calculator/calculator-app.js
+@@ -225,6 +225,8 @@
+ 		clearOperatorHighlight();
+ 		calculator.enterDigit(number);
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -232,6 +234,8 @@
+ 		clearOperatorHighlight();
+ 		calculator.enterDecimal();
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -245,6 +249,8 @@
+ 			calculator.multiply();
+ 		}
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -264,6 +270,8 @@
+ 			calculator.subtract();
+ 		}
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -277,6 +285,8 @@
+ 			calculator.add();
+ 		}
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -284,6 +294,8 @@
+ 		clearOperatorHighlight();
+ 		calculator.equals();
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -291,6 +303,8 @@
+ 		clearOperatorHighlight();
+ 		calculator.clear();
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -298,6 +312,8 @@
+ 		calculator.memPlus();
+ 		showMemoryIndicator();
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -305,12 +321,16 @@
+ 		clearOperatorHighlight();
+ 		calculator.memRecall();
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+ 	function onBackspacePress(event) {
+ 		calculator.backspace();
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -318,6 +338,8 @@
+ 		calculator.memClear();
+ 		hideMemoryIndicator();
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+@@ -343,6 +365,8 @@
+ 			calculator.divide();
+ 		}
+ 		updateResults();
++		if(calculator.hapticFeedback)
++			new Mojo.Service.Request("palm://com.palm.vibrate/", {method: 'vibrate', parameters: {'period': 0,'duration': 50}});
+ 		event.stop();
+ 	}
+ 
+--- .orig/usr/palm/applications/com.palm.app.calculator/index.html
++++ /usr/palm/applications/com.palm.app.calculator/index.html
+@@ -6,6 +6,7 @@
+ <head>
+ 	<title>Calculator</title> 
+ 	<meta name="viewport" content="height=device-height">
++	<script src="/usr/palm/frameworks/mojo2/mojo.js" x-mojo-version="1" type="text/javascript"></script>
+ 	<script src="/usr/palm/frameworks/mojo-core.js" type="text/javascript"></script>
+ 	<script src="/usr/palm/frameworks/prototype/prototype_1603.js" type="text/javascript"></script>
+ 	<script src="calculator.js" type="text/javascript"></script>
+--- .orig/usr/palm/applications/com.palm.app.location/app/controllers/app-assistant.js
++++ /usr/palm/applications/com.palm.app.location/app/controllers/app-assistant.js
+@@ -51,8 +51,11 @@
+ }
+ 
+ AppAssistant.prototype.readLocationServicePrefs = function(stageController, response) {
+-		if (response && !response.useGoogle && !response.useGps) {
+-			stageController.swapScene("gpsoff", response);
++//		if (response && !response.useGoogle && !response.useGps) {
++//			stageController.swapScene("gpsoff", response);
++
++		if (response && response.useGoogle && !response.isTermsOfUseAccepted) {
++			stageController.swapScene("terms", "com.palm.app.location");	
+ 		} else {
+ 			stageController.swapScene("main", response);
+ 		}
+--- .orig/usr/palm/applications/com.palm.app.location/app/controllers/main-assistant.js
++++ /usr/palm/applications/com.palm.app.location/app/controllers/main-assistant.js
+@@ -77,6 +77,11 @@
+ 			disabled : false
+ 	    };
+ 		
++	   this.locSrvOnOffModel = {
++	   	value: true,
++	   	disabled: false
++	    };
++
+ 	   this.prefData = prefData;
+ 	
+ 	},
+@@ -130,6 +135,9 @@
+                 }],
+ 	
+ 	setup: function() {
++		this.controller.setupWidget('gpsonoff', {}, this.locSrvOnOffModel);
++		this.controller.get('gpsonoff').observe('mojo-property-change', this.locSrvOnOffHandler.bind(this));
++
+ 		//for app locate preferences
+ 		var autoLocateSelections = {
+ 			modelProperty: 'value',
+@@ -187,6 +195,24 @@
+ 		this.readLocationServicePrefs(this.prefData);
+ 	},
+ 	
++	locSrvOnOffHandler: function(event){
++		if(event.value) {
++			this.gpsPreference = true;
++			this.useGoogle = true;
++		} else {
++			this.gpsPreference = false;
++			this.useGoogle = false;
++		}
++
++		LocationService.setUseGps(this.gpsPreference,
++			this.successSetGpsPreference.bind(this), 
++			this.errorSetGpsPreference.bind(this), this.controller);
++
++		LocationService.setUseGoogle(this.useGoogle,
++			this.successSetGooglePreference.bind(this), 
++			this.errorSetGooglePreference.bind(this), this.controller);
++	},
++
+ 	toggleLocationMenu: function(){
+ 		if (!this.prefData.useGps && !this.prefData.useGoogle) {
+ 			Mojo.Log.info("**** sssssssssss both GPS and Google are OFF");
+@@ -214,11 +240,14 @@
+ 	
+ 	handleSetGpsLocateSuccess: function(result) {
+ 		Mojo.Log.info("------------------- Set gps -----------------%j", $H(result));
+-		if (result && !result.useGps && !result.useGoogle) {
++/*		if (result && !result.useGps && !result.useGoogle) {
+ 			this.controller.stageController.swapScene("gpsoff", result);
+ 		} else {
+ 			this.controller.stageController.swapScene("main", result);
+-		} 	
++		} 	*/
++
++		this.prefData = result;
++		this.readLocationServicePrefs(this.prefData);
+ 	},
+ 	
+ 	errorSetGpsPreference: function (response) {
+@@ -234,7 +263,12 @@
+ 		Mojo.Log.info("------------------- Set handleSetGoogleSuccess -----------------%j", $H(result));
+ 		if (result && result.useGoogle && !result.isTermsOfUseAccepted) {
+ 			this.controller.stageController.swapScene("terms", "com.palm.app.location");	
+-		} else if (result && !result.useGps && !result.useGoogle) {
++		} else {
++			this.prefData = result;
++			this.readLocationServicePrefs(this.prefData);		
++		}
++
++/*		} else if (result && !result.useGps && !result.useGoogle) {
+ 			this.controller.stageController.swapScene("gpsoff", result);
+ 		} else {
+ 			if (result.useGoogle) {
+@@ -246,7 +280,7 @@
+ 						}
+ 		  this.prefData = result;
+ 		  this.toggleLocationMenu();								
+-		}	
++		}	*/
+ 	},
+ 	
+ 	errorSetGooglePreference: function (response) {
+@@ -311,8 +345,27 @@
+ 	readLocationServicePrefs: function(response) {
+ 		Mojo.Log.info("Preference to use location services: %j", $H(response));
+ 		
+-		if(response != undefined && response.autoLocate != undefined) {
++		if((response) && (!response.useGps) && (!response.useGoogle)) {
++			this.controller.get("siteLocatePrefs").hide();
++			this.controller.get("sitelocationOffMessage").hide();
++			this.controller.get("sitelocationOnMessage").hide();
++			this.controller.get("locationOffMessage").hide();
++			this.controller.get("locationOnMessage").hide();
++			this.controller.get("autoLocatePrefs").hide();
++			this.controller.get("geotagPhotosPrefs").hide();
++			this.controller.get("dataPrefs").hide();
++			this.controller.get("turnedofftext").show();
++
++			this.locSrvOnOffModel.value = false;
++			this.controller.modelChanged(this.locSrvOnOffModel);
++		} else if(response != undefined && response.autoLocate != undefined) {
+ 			Mojo.Log.info("Preference to autoLocate: ", response.autoLocate);
++
++			this.controller.get("turnedofftext").hide();
++			this.controller.get("siteLocatePrefs").show();
++			this.controller.get("autoLocatePrefs").show();
++			this.controller.get("geotagPhotosPrefs").show();
++
+ 			//for app auto locate preferences
+ 			
+ 			if(!response.autoLocate) {
+@@ -343,6 +396,7 @@
+ 				if (!response.isTermsOfUseAccepted || !response.useGoogle) {
+ 				 	this.disableBackGroundDataCollection();
+ 				} else {				
++					this.enableBackGroundDataCollection();
+ 					this.readUseBackgroundDataCollection(response);	
+ 				}	
+ 			}
+@@ -438,9 +492,9 @@
+ 	enableAutoLocate: function(isInit) {
+ 		this.controller.get('locationOnMessage').show();
+ 		this.controller.get('locationOffMessage').hide();
+-		if (isInit) {
++//		if (isInit) {
+ 			this.controller.get('geotagPhotosPrefs').show();
+-		}
++//		}
+ 	},
+ 	
+ 	handleGetGeotagPhotosPref: function(response) {
+--- .orig/usr/palm/applications/com.palm.app.location/app/views/main/main-scene.html
++++ /usr/palm/applications/com.palm.app.location/app/views/main/main-scene.html
+@@ -4,6 +4,13 @@
+ 		<div class="header-text">
+ 			<span x-mojo-loc=''>Location services</span>
+ 		</div>
++		<div class="header-sliding-toggle">
++	    	<div x-mojo-element="ToggleButton" id="gpsonoff" class="header-toggle-button"></div>
++		</div>
++	</div>
++	
++	<div id="turnedofftext" class="palm-body-text" style="display:none;">
++		<div class="section" style="text-align:justify;" x-mojo-loc=''>You have turned off all location data sources. No location data will be provided to applications that request your location.</div>
+ 	</div>
+ 	<div id='siteLocatePrefs' class="palm-group">
+ 		<div class="palm-group-title" x-mojo-loc="">
+--- .orig/usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
++++ /usr/palm/applications/com.palm.app.screenlock/app/controllers/securityconfig-assistant.js
+@@ -31,6 +31,12 @@
+ 		 value: false,
+ 	},
+ 	
++	hapticFeedbackToggleModel: {
++ 		 value: false,
++ 	},
++
++	brightnessPresets: [{label: $L('Maximum'), value: 100},{label: $L('Minimum'), value: 0}],
++
+ 	voiceDialToggleModel: {
+ 		 value: false,
+ 	},
+@@ -38,8 +44,8 @@
+ 	sliderattributes: {
+ 			modelProperty: 'value',
+ 			maxValue: 100,
+-			minValue: 10,
+-			round: false,
++			minValue: 0,
++			round: true,
+ 			updateInterval: 0.1
+ 	},	
+ 				
+@@ -51,6 +57,9 @@
+ 		
+ 		//this.controller.get('fixedtimerrow').hide();
+ 			
++		this.controller.setupWidget('hapticFeedback', this.onOffToggleOpt, this.hapticFeedbackToggleModel);
++		Mojo.Event.listen($('hapticFeedback'),'mojo-property-change', this.toggleHapticFeedback.bindAsEventListener(this));
++
+ 		this.controller.setupWidget('showAlerts', this.onOffToggleOpt, this.alertToggleModel);
+ 		Mojo.Event.listen($('showAlerts'),'mojo-property-change', this.toggleShowAlerts.bindAsEventListener(this));
+ 		
+@@ -86,9 +95,17 @@
+ 		
+ 		this.controller.setupWidget('secureUnlock', {
+ 			choices: this.availableSecurity,
++			label: $L("Security"),
+ 			modelProperty: 'currentSecurity'
+ 		}, this.securityModel);
+ 		
++		this.controller.setupWidget('screenBrightness', {
++			label: $L("Brightness"),
++			choices: this.brightnessPresets
++		}, this.brightnessModel);
++
++		Mojo.Event.listen($('screenBrightness'),'mojo-property-change', this.handleBrightnessChange.bindAsEventListener(this));
++
+ 		this.controller.setupWidget('brightness', this.sliderattributes,this.brightnessModel);
+ 		Mojo.Event.listen($('brightness'),'mojo-property-change', this.handleBrightnessChange.bindAsEventListener(this));
+ 		
+@@ -113,6 +130,15 @@
+ 		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, appMenuModel);
+ 		
+ 		this.getVoiceDialPreference();				
++
++		this.getHapticFeedback = this.controller.serviceRequest("palm://com.palm.systemservice/", {
++			method: 'getPreferences', parameters: {"keys": ["hapticFeedback"]},
++			onSuccess: function(response) {
++				if(response.hapticFeedback) {
++					this.hapticFeedbackToggleModel.value = response.hapticFeedback;
++					this.controller.modelChanged(this.hapticFeedbackToggleModel, this);
++				}
++			}.bind(this)});
+ 	},
+ 	
+ 	handleCommand: function(event) {
+@@ -148,7 +174,7 @@
+ 	timerModel: {currentTimer: 30},
+ 	
+ 	//Available Timer Values.
+-	availableTimers: [{label: $L('30 seconds'), value:30},{label: $L('1 minute'), value:60},{label: $L('2 minutes'), value:120},{label: $L('3 minutes'), value:180}],
++	availableTimers: [{label: $L('15 seconds'), value: 15}, {label: $L('30 seconds'), value:30},{label: $L('1 minute'), value:60},{label: $L('2 minutes'), value:120},{label: $L('3 minutes'), value:180},{label: $L('5 minutes'), value:300},{label: $L('Never'), value:10800}],
+ 	
+ 	//Model for Security Selection List
+ 	securityModel: {currentSecurity: 'none'},
+@@ -398,6 +424,9 @@
+ 	handleBrightnessChange: function(event) {
+ 		if(!event)
+ 			return;
++
++		this.controller.modelChanged(this.brightnessModel, this);
++
+ 		this.controller.serviceRequest('palm://com.palm.display/control', {
+ 			method: 'setProperty', 
+ 			parameters:{maximumBrightness:parseInt(event.value)}
+@@ -555,6 +584,11 @@
+ 		SystemService.setLEDThrobber(event.value);		
+ 	},
+ 	
++	toggleHapticFeedback: function(event) {
++		this.setHapticFeedback = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'setPreferences', parameters: {"hapticFeedback":event.value}});
++ 	},
++ 
+ 	toggleSwitchApps: function(event) {
+ 		if(!event)
+ 			return;		
+--- .orig/usr/palm/applications/com.palm.app.screenlock/app/views/securityconfig/securityconfig-scene.html
++++ /usr/palm/applications/com.palm.app.screenlock/app/views/securityconfig/securityconfig-scene.html
+@@ -13,8 +13,8 @@
+ 		<div class="palm-list">
+ 
+ 			<div class="palm-row first">
+-				<div class="palm-row-wrapper">
+-					<div class="title" x-mojo-loc=''>Brightness</div>
++				<div class="palm-row-wrapper" style="max-height:100px;">
++					<div id="screenBrightness" x-mojo-element="ListSelector" class="right" style="max-height:40px;"></div>
+ 					<div x-mojo-element="Slider" id='brightness' class="palm-slider"></div>
+ 				</div>
+ 			</div>
+@@ -42,6 +42,26 @@
+ 
+ 	 <div class="palm-group">
+ 		<div class="palm-group-title">
++			<span x-mojo-loc=''>Touchscreen</span>
++		</div>
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="hapticFeedback"></div>
++					<div class="title capitalize" x-mojo-loc=''>Haptic Feedback</div>
++				</div>
++			</div>
++			<div class="palm-row last">
++				<div class="palm-row-wrapper">
++					<div x-mojo-element="ToggleButton" id="switchApps"></div>
++					<div class="title capitalize" x-mojo-loc=''>Advanced Gestures</div>
++				</div>
++			</div>
++		</div>
++	</div>
++	
++<!--	 <div class="palm-group">
++		<div class="palm-group-title">
+ 			<span x-mojo-loc=''>Advanced Gestures</span>
+ 		</div>
+ 		<div class="palm-list">
+@@ -53,6 +73,7 @@
+ 			</div>
+ 		</div>
+ 	</div>
++-->
+ 	<div class="palm-info-text" id="switchAppsInfo"></div>
+ 
+ 	<div class="palm-group">
+@@ -63,7 +84,7 @@
+ 			<div id='secureFirstrow' class="palm-row">
+ 				<div class="palm-row-wrapper" x-mojo-focus-highlight="true">
+ 					<div class="">
+-						<img id='lockImg' src="images/lock.png" style='display:none;' class='label label-lock-image'></img>    
++<!--						<img id='lockImg' src="images/lock.png" style='display:none;' class='label label-lock-image'></img>-->
+ 						<div id="secureUnlock" x-mojo-element="ListSelector"></div>
+ 					 </div>
+ 			    </div>
+@@ -71,6 +92,7 @@
+ 			<div id='securelastrow' class="palm-row" x-mojo-tap-highlight="momentary">
+ 				<div class="palm-row-wrapper textfield-group">
+ 					<div class="title">
++						<img id='lockImg' src="images/lock.png" style='display:none;padding-top:13px;' class='label label-lock-image'></img>
+ 						<div id="changepassword"></div>
+ 					 </div>
+ 			    </div>
+@@ -85,44 +107,44 @@
+ 
+ 	<div class="palm-group">
+ 		<div class="palm-group-title">
+-			<span x-mojo-loc=''>Notifications</span>
++			<span x-mojo-loc=''>Lock Screen</span>
+ 		</div>
+ 		<div class="palm-list">
+ 			<div class="palm-row first">
+ 				<div class="palm-row-wrapper">
+ 					<div x-mojo-element="ToggleButton" id="showAlerts"></div>
+-					<div class="title capitalize" x-mojo-loc=''>Show when locked</div>
++					<div class="title capitalize" x-mojo-loc=''>Notifications</div>
+ 				</div>
+ 			</div>
+ 			<div class="palm-row last">
+ 				<div class="palm-row-wrapper">
+-					<div x-mojo-element="ToggleButton" id="blinkAlerts"></div>
+-					<div class="title capitalize" x-mojo-loc=''>Blink notifications</div>
++					<div x-mojo-element="ToggleButton" id="voiceDial"></div>
++					<div class="title capitalize" x-mojo-loc=''>Voice Dialing</div>
+ 				</div>
+ 			</div>
+ 		</div>
+ 	</div>
+ 
+ 	<div class="palm-info-text single" x-mojo-loc=''>
+-		The gesture area blinks when new notifications arrive.
++		Access voice dialing even when your phone is locked.
+ 	</div>
+ 	
+ 	<div class="palm-group">
+ 		<div class="palm-group-title">
+-			<span x-mojo-loc=''>Voice Dialing</span>
++			<span x-mojo-loc=''>Notifications</span>
+ 		</div>
+ 		<div class="palm-list">
+ 			<div class="palm-row single">
+ 				<div class="palm-row-wrapper">
+-					<div x-mojo-element="ToggleButton" id="voiceDial"></div>
+-					<div class="title capitalize" x-mojo-loc=''>Enable when locked</div>
++					<div x-mojo-element="ToggleButton" id="blinkAlerts"></div>
++					<div class="title capitalize" x-mojo-loc=''>Blink notifications</div>
+ 				</div>
+ 			</div>
+ 		</div>
+ 	</div>
+ 
+ 	<div class="palm-info-text single" x-mojo-loc=''>
+-		Access voice dialing even when your phone is locked.
++		The gesture area blinks when new notifications arrive.
+ 	</div>
+ 
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/appinfo.json
++++ /usr/palm/applications/com.palm.app.soundsandalerts/appinfo.json
+@@ -1,5 +1,5 @@
+ {
+-	"title": "Sounds & Ringtones",
++	"title": "Sound Settings",
+ 	"type": "web",
+ 	"main": "index.html",
+ 	"id": "com.palm.app.soundsandalerts",
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/models/audio-luna-service.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/models/audio-luna-service.js
+@@ -5,6 +5,44 @@
+ 	}
+ });
+     
++AudioService.getMediaVolume = function(callback, sceneController) {
++	var request = new Mojo.Service.Request(AudioService.media_identifier, {
++		method: 'getVolume',
++		onSuccess: callback,
++		onFailure: callback
++	});
++
++	return request;
++}
++
++AudioService.setMediaVolume = function(volume, callback, sceneController) {
++	var request = new Mojo.Service.Request(AudioService.media_identifier, {
++		method: 'setVolume',
++		parameters: {volume:volume },
++		onSuccess: function(response) {
++			if(callback)
++				callback(response);
++		},
++		onFailure: function(response) {
++			if(callback)
++				callback(response);
++		}
++	});
++
++	return request;
++}
++
++AudioService.subscribeToMediaVolume = function(callback) {
++	var request = new Mojo.Service.Request(AudioService.media_identifier, {
++		method: 'status',
++		parameters: {"subscribe": true},
++		onSuccess: callback,
++		onFailure: callback
++	});
++
++	return request;
++}
++
+ AudioService.getSystemVolume = function(callback, sceneController) {
+     var request = new Mojo.Service.Request(AudioService.system_identifier, {
+       method: 'getVolume',
+@@ -29,6 +67,17 @@
+     });
+ 	return request;
+ }
++
++AudioService.subscribeToSystemVolume = function(callback) {
++	var request = new Mojo.Service.Request(AudioService.system_identifier, {
++		method: 'status',
++		parameters: {"subscribe": true},
++		onSuccess: callback,
++		onFailure: callback
++	});
++
++	return request;
++}
+   
+ AudioService.getRingtoneVolume = function(callback, sceneController) {
+    var request = new Mojo.Service.Request(AudioService.ringtone_identifier, {
+@@ -110,6 +159,7 @@
+ 	return request;
+ }
+ 
++AudioService.media_identifier = 'palm://com.palm.audio/media';
+ AudioService.system_identifier = 'palm://com.palm.audio/system';
+ AudioService.ringtone_identifier = 'palm://com.palm.audio/ringtone';
+ AudioService.vibrate_identifier = 'palm://com.palm.audio/state';
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+@@ -3,7 +3,17 @@
+ var SoundsalertsconfigAssistant = Class.create({
+ 	
+ 	initialize: function() {
+-		
++		this.curAlertName = "alert.wav";
++		this.curAlertPath = "/usr/palm/sounds/alert.wav";
++		this.curNotifyName = "notification.wav";
++		this.curNotifyPath = "/usr/palm/sounds/notification.wav";
++
++		this.curLowBatteryValue = "notifications";
++		this.curLowBatteryName = "";
++		this.curLowBatteryPath = "";
++		this.curChargerNotifyValue = "notifications";
++		this.curChargerNotifyName = "";
++		this.curChargerNotifyPath = "";
+ 	},
+ 	
+ 	ToggleOpt: {
+@@ -37,6 +47,30 @@
+ 	availableOffSettings: [{label: $L('Vibrate'), value:'vibrate'},{label: $L('Mute'), value:'mute'}],
+ 	availableOnSettings: [{label: $L('Sound & Vibrate'), value:'vibrate'},{label: $L('Sound'), value:'mute'}],
+ 	
++	alertRingtoneChoices: [{'label': $L("Default"), 'value': "alert.wav"}, {'label': $L("Select"), 'value': "select"}],
++
++	alertRingtoneModel: {
++		'value' : "alert.wav"
++	},
++
++	notifyRingtoneChoices: [{'label': $L("Default"), 'value': "notification.wav"}, {'label': $L("Select"), 'value': "select"}],
++
++	notifyRingtoneModel: {
++		'value' : "notification.wav"
++	},
++
++	batteryNotifyChoices: [{'label': $L("Vibrate"), 'value': "vibrate"},{'label': $L("System Sound"), 'value': "notifications"},{'label': $L("Ringtone"), 'value': "ringtone"},{'label': $L("Mute"), 'value': "none"}],
++
++	batteryNotifyModel: {
++		'value' : "notifications"
++	},
++
++	chargerNotifyChoices: [{'label': $L("Vibrate"), 'value': "vibrate"},{'label': $L("System Sound"), 'value': "notifications"},{'label': $L("Ringtone"), 'value': "ringtone"},{'label': $L("Mute"), 'value': "none"}],
++
++	chargerNotifyModel: {
++		'value' : "notifications"
++	},
++
+ 	setup: function() {
+ 		this.attributes = {
+ 			modelProperty: 'value',
+@@ -51,6 +85,12 @@
+ 			round: true
+ 		};
+ 				
++		this.ringtoneVolumePresets = [{label: $L('Maximum'), value: 100},{label: $L('Minimum'), value: 0}];
++
++		this.systemVolumePresets = [{label: $L('Maximum'), value: 100},{label: $L('Minimum'), value: 0}];
++
++		this.mediaVolumePresets = [{label: $L('Maximum'), value: 100},{label: $L('Minimum'), value: 0}];
++
+     	this.ringtoneVolumeModel = {
+      	 'value' : 50
+   		  };
+@@ -59,6 +99,10 @@
+      	 'value' : 50
+   		  };
+ 		  
++		 this.mediaVolumeModel = {
++     	 'value' : 50
++  		  };
++
+ 		/*this.controller.setupWidget('soundWhenCharging', {
+ 			choices: this.availableOptions,
+ 			modelProperty: 'value'
+@@ -66,11 +110,33 @@
+ 		
+ 		$('soundWhenCharging').observe('mojo-property-change', this.handleSelection.bindAsEventListener(this));*/
+ 	
++		this.controller.setupWidget('ringvolumeSelector', {
++			label: $L("Ringtone"),
++			choices: this.ringtoneVolumePresets,
++			modelProperty: 'value',
++			multiline: true
++		}, this.ringtoneVolumeModel);
++
++		this.controller.setupWidget('systemvolumeSelector', {
++			label: $L("System"),
++			choices: this.systemVolumePresets,
++			modelProperty: 'value',
++			multiline: true
++		}, this.systemVolumeModel);
++
++		this.controller.setupWidget('mediavolumeSelector', {
++			label: $L("Media"),
++			choices: this.mediaVolumePresets,
++			modelProperty: 'value',
++			multiline: true
++		}, this.mediaVolumeModel);
++
+         this.controller.setupWidget('ringvolume', this.attributes,this.ringtoneVolumeModel);
+ 		this.controller.setupWidget('systemvolume', this.attributes1,this.systemVolumeModel);
++		this.controller.setupWidget('mediavolume', this.attributes1,this.mediaVolumeModel);
+ 		$('ringvolume').observe('mojo-property-change', this.handleRingtoneVolumeChange.bindAsEventListener(this));
+ 		$('systemvolume').observe('mojo-property-change', this.handleSystemVolumeChange.bindAsEventListener(this));
+-				
++		$('mediavolume').observe('mojo-property-change', this.handleMediaVolumeChange.bindAsEventListener(this));
+ 	
+ 		//added to the assistant so that the when charging vibrate widget is shown
+ 		//this.controller.setupWidget('vibrate_off', this.ToggleOpt, this.vibrateOffModel);
+@@ -91,16 +157,53 @@
+ 		
+ 		this.controller.setupWidget('system_ui_sounds', this.ToggleOpt, this.systemUISoundsModel);
+ 			
++		this.controller.setupWidget('alertringtone', {
++			label: $L("Alert"),
++			choices: this.alertRingtoneChoices,
++			modelProperty: 'value',
++			multiline: true
++		}, this.alertRingtoneModel);
++
++		this.controller.setupWidget('notifyringtone', {
++			label: $L("Notify"),
++			choices: this.notifyRingtoneChoices,
++			modelProperty: 'value',
++			multiline: true
++		}, this.notifyRingtoneModel);
++
++		this.controller.setupWidget('battery_notify', {
++			label: $L("Low Battery"),
++			choices: this.batteryNotifyChoices,
++			modelProperty: 'value',
++			multiline: true
++		}, this.batteryNotifyModel);
++
++		this.controller.setupWidget('charger_notify', {
++			label: $L("Charger"),
++			choices: this.chargerNotifyChoices,
++			modelProperty: 'value',
++			multiline: true
++		}, this.chargerNotifyModel);
++
+ 		$('vibrate_off').observe('mojo-property-change', this.toggleVibrateOff.bindAsEventListener(this));
+ 		$('vibrate_on').observe('mojo-property-change', this.toggleVibrateOn.bindAsEventListener(this));
+ 		$('system_ui_sounds').observe('mojo-property-change', this.toggleSystemUISounds.bindAsEventListener(this));
+ 		
++		$('alertringtone').observe('mojo-property-change', this.showAlertFilePicker.bindAsEventListener(this));
++		$('notifyringtone').observe('mojo-property-change', this.showNotificationFilePicker.bindAsEventListener(this));
++
++		$('battery_notify').observe('mojo-property-change', this.setBatterySystemNotification.bindAsEventListener(this));
++		$('charger_notify').observe('mojo-property-change', this.setChargerSystemNotification.bindAsEventListener(this));
++
+ 		$('currentringtonerow').observe(Mojo.Event.tap, this.showAudioFilePicker.bindAsEventListener(this));
+ 				
+ 		this.getCurrentVolumes();
+ 		this.getCurrentRingtone();
+ 		this.getVibrateSettings();	
+ 		this.getOtherSettings();
++		this.getCurrentAlert();
++		this.getCurrentNotification();
++		this.getSystemNotifications();
+ 		
+ 		//App Menu - Remove default items and add only Edit & Help items.
+ 		var appMenuModel = {
+@@ -112,6 +215,9 @@
+ 	},
+ 	
+ 	cleanup : function() {
++		if(this.getMediaVolumeSubscribe)
++			this.getMediaVolumeSubscribe.cancel();
++
+ 		if(this.getRingtoneVolumeSubscribe)
+ 			this.getRingtoneVolumeSubscribe.cancel();
+ 	},	
+@@ -151,6 +257,9 @@
+ 	handleRingtoneVolumeChange: function(event) {
+ 		if(event.value == undefined)
+ 			return;
++
++		this.controller.modelChanged(this.ringtoneVolumeModel, this);
++
+ 		this.setRingtoneVolumeReq = AudioService.setRingtoneVolume(event.value,this.setVolumeDone.bind(this),this);		
+ 	},
+ 		
+@@ -205,6 +314,9 @@
+ 	handleSystemVolumeChange: function(event) {
+ 		if(event.value == undefined)
+ 			return;
++
++		this.controller.modelChanged(this.systemVolumeModel, this);
++
+ 		this.setSystemVolumeReq = AudioService.setSystemVolume(event.value,this.setSystemVolumeResponse.bind(this),this); 
+ 	},
+ 	
+@@ -217,12 +329,43 @@
+ 		})
+ 	},
+ 		
++	handleMediaVolumeChange: function(event) {
++		if(event.value == undefined)
++			return;
++
++		this.controller.modelChanged(this.mediaVolumeModel, this);
++
++		this.setMediaVolumeReq = AudioService.setMediaVolume(event.value,this.setMediaVolumeResponse.bind(this),this);
++	},
++
++	setMediaVolumeResponse: function(response) {
++		if(!response.returnValue)
++			return;
++		this.controller.serviceRequest('palm://com.palm.audio/media', {
++			method: 'playFeedback',
++			parameters : {"name":"shutter"}
++		})
++	},
++
+ 	getCurrentVolumes: function() {		
+-		this.getSystemVolumeReq = AudioService.getSystemVolume(this.systemVolumeCB.bind(this),this);
++		//Subscribe to Media Volume
++		this.getMediaVolumeSubscribe = AudioService.subscribeToMediaVolume(this.mediaVolumeCB.bind(this));
++		//Subscribe to System Volume
++		this.getSystemVolumeReq = AudioService.subscribeToSystemVolume(this.systemVolumeCB.bind(this),this);
+ 		//Subscribe to Ringtone Volume
+ 		this.getRingtoneVolumeSubscribe = AudioService.subscribeToRingtoneVolume(this.ringtoneVolumeCB.bind(this));
+ 	},
+ 	
++	mediaVolumeCB: function(response) {
++		if(response.returnValue) {
++			this.mediaVolumeModel.value = response.volume;
++			this.controller.modelChanged(this.mediaVolumeModel,this);
++		}
++		else {
++			Mojo.log("getVolume Failed"+response.errorText);
++		}
++	},
++
+ 	systemVolumeCB: function(payload) {
+ 		if(payload.returnValue) {
+ 			this.systemVolumeModel.value = payload.volume;
+@@ -296,6 +439,205 @@
+ 		//this.getSoundWhenOnCradleReq = SystemService.getSoundWhenOnCradle(this.getSoundWhenOnCradleQuery.bind(this));
+ 	},
+ 	
++	getCurrentAlert: function() {
++		this.getCurrentAlertReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'getPreferences', parameters: {"keys":["alerttone"]},
++			onSuccess: this.getCurrentAlertQuery.bind(this),
++			onFailure: this.getCurrentAlertQuery.bind(this)});
++	},
++
++	getCurrentAlertQuery: function(response) {
++		if(response.alerttone) {
++			this.alertRingtoneModel.value = response.alerttone.name;
++			this.curAlertName = response.alerttone.name;
++			this.curAlertPath = response.alerttone.fullPath;
++
++			this.controller.modelChanged(this.alertRingtoneModel, this);
++		}
++	},
++
++	showAlertFilePicker: function(event) {
++		if(event.value == "select") {
++			this.alertRingtoneModel.value = this.curAlertName;
++			this.controller.modelChanged(this.alertRingtoneModel, this);
++
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curAlertPath, "onSelect": this.selectedAlertFile.bind(this),actionType:"attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++		}
++		else {
++			this.selectedAlertFile({'name': "alert.wav", 'fullPath': "/usr/palm/sounds/alert.wav"});
++		}
++	},
++
++	selectedAlertFile: function(file) {
++		this.curAlertName = file.name;
++		this.curAlertPath = file.fullPath;
++
++		this.setAlertReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'setPreferences', parameters: {"alerttone":file}});
++
++		this.alertRingtoneModel.value = file.name;
++		this.controller.modelChanged(this.alertRingtoneModel, this);
++	},
++
++	getCurrentNotification: function() {
++		this.getCurrentNotificationReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'getPreferences', parameters: {"keys":["notificationtone"]},
++			onSuccess: this.getCurrentNotificationQuery.bind(this),
++			onFailure: this.getCurrentNotificationQuery.bind(this)});
++	},
++
++	getCurrentNotificationQuery: function(response) {
++		if(response.notificationtone) {
++			this.notifyRingtoneModel.value = response.notificationtone.name;
++			this.curNotifyName = response.notificationtone.name;
++			this.curNotifyPath = response.notificationtone.fullPath;
++
++			this.controller.modelChanged(this.notifyRingtoneModel, this);
++		}
++	},
++
++	showNotificationFilePicker: function(event) {
++		if(event.value == "select") {
++			this.notifyRingtoneModel.value = this.curNotifyName;
++			this.controller.modelChanged(this.notifyRingtoneModel, this);
++
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curNotifyPath, "onSelect": this.selectedNotificationFile.bind(this), actionType: "attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++		}
++		else {
++			this.selectedNotificationFile({'name': "notification.wav", 'fullPath': "/usr/palm/sounds/notification.wav"});
++		}
++	},
++
++	selectedNotificationFile: function(file) {
++		this.curNotifyName = file.name;
++		this.curNotifyPath = file.fullPath;
++
++		this.setNotificationReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'setPreferences', parameters: {"notificationtone":file}});
++
++		this.notifyRingtoneModel.value = file.name;
++		this.controller.modelChanged(this.notifyRingtoneModel, this);
++	},
++
++	getSystemNotifications: function() {
++		this.getSystemNotificationsReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'getPreferences', parameters: {"keys":["notifications"]},
++			onSuccess: this.getSystemNotificationsQuery.bind(this),
++			onFailure: this.getSystemNotificationsQuery.bind(this)});
++	},
++
++	getSystemNotificationsQuery: function(response) {
++		if(response.notifications) {
++			if(response.notifications.lowBattery == "ringtone") {
++				this.batteryNotifyModel.value = response.notifications.lowBatteryRingtoneName;
++
++				this.curLowBatteryValue = "ringtone";
++				this.curLowBatteryName = response.notifications.lowBatteryRingtoneName;
++				this.curLowBatteryPath = response.notifications.lowBatteryRingtonePath;
++			}
++			else
++				this.batteryNotifyModel.value = response.notifications.lowBattery;
++
++			this.controller.modelChanged(this.batteryNotifyModel, this);
++
++			if(response.notifications.chargerConnected == "ringtone") {
++				this.chargerNotifyModel.value = response.notifications.chargerConnectedRingtoneName;
++
++				this.curChargerNotifyValue = "ringtone";
++				this.curChargerNotifyName = response.notifications.chargerConnectedRingtoneName;
++				this.curChargerNotifyPath = response.notifications.chargerConnectedRingtonePath;
++			}
++			else
++				this.chargerNotifyModel.value = response.notifications.chargerConnected;
++ 			
++			this.controller.modelChanged(this.chargerNotifyModel, this);
++		}
++	},
++
++	selectedSystemNotificationsFile: function(notification, file) {
++		if(notification == "battery") {
++			this.batteryNotifyModel.value = file.name;
++
++			this.curLowBatteryValue = "ringtone";
++			this.curLowBatteryName = file.name;
++			this.curLowBatteryPath = file.fullPath;
++
++			this.controller.modelChanged(this.batteryNotifyModel, this);
++		}
++		else if(notification == "charger") {
++			this.chargerNotifyModel.value = file.name;
++
++			this.curChargerNotifyValue = "ringtone";
++			this.curChargerNotifyName = file.name;
++			this.curChargerNotifyPath = file.fullPath;
++
++			this.controller.modelChanged(this.chargerNotifyModel, this);
++		}
++
++		this.saveSystemNotifications();
++	},
++
++	setBatterySystemNotification: function(event) {
++		if(this.batteryNotifyModel.value == "ringtone") {
++			if(this.curLowBatteryValue == "ringtone")
++				this.batteryNotifyModel.value = this.curLowBatteryName;
++			else
++				this.batteryNotifyModel.value = this.curLowBatteryValue;
++
++			this.controller.modelChanged(this.batteryNotifyModel, this);
++
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curLowBatteryPath, "onSelect": this.selectedSystemNotificationsFile.bind(this, "battery"), actionType: "attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++		}
++		else {
++			this.curLowBatteryValue = this.batteryNotifyModel.value;
++			this.curLowBatteryName = "";
++			this.curLowBatteryPath = "";
++
++			this.saveSystemNotifications();
++		}
++	},
++
++	setChargerSystemNotification: function(event) {
++		if(this.chargerNotifyModel.value == "ringtone") {
++			if(this.curChargerNotifyValue == "ringtone")
++				this.chargerNotifyModel.value = this.curChargerNotifyName;
++			else
++				this.chargerNotifyModel.value = this.curChargerNotifyValue;
++
++			this.controller.modelChanged(this.chargerNotifyModel, this);
++
++			Mojo.FilePicker.pickFile({"kinds": ["ringtone"], "filePath": this.curChargerNotifyPath, "onSelect": this.selectedSystemNotificationsFile.bind(this, "charger"), actionType: "attach", actionName: $L("Done")}, Mojo.Controller.stageController);
++		}
++		else {
++			this.curChargerNotifyValue = this.chargerNotifyModel.value;
++			this.curChargerNotifyName = "";
++			this.curChargerNotifyPath = "";
++
++			this.saveSystemNotifications();	
++		}
++	},
++
++	saveSystemNotifications: function() {
++		var notifications = {
++			'lowBattery': this.batteryNotifyModel.value, 
++			'chargerConnected': this.chargerNotifyModel.value };
++
++		if(this.curLowBatteryValue == "ringtone") {
++			notifications.lowBattery = "ringtone";
++			notifications.lowBatteryRingtoneName = this.curLowBatteryName;
++			notifications.lowBatteryRingtonePath = this.curLowBatteryPath;
++		}
++
++		if(this.curChargerNotifyValue == "ringtone") {
++			notifications.chargerConnected = "ringtone";
++			notifications.chargerConnectedRingtoneName = this.curChargerNotifyName;
++			notifications.chargerConnectedRingtonePath = this.curChargerNotifyPath;
++		}
++
++		this.setNotificationReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'setPreferences', parameters: {"notifications": notifications}});
++	},
++
+ 	getSystemUISoundsQuery: function(payload) {	
+ 	    
+ 		if(payload.systemSounds != undefined) {
+--- .orig/usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
++++ /usr/palm/applications/com.palm.app.soundsandalerts/app/views/soundsalertsconfig/soundsalertsconfig-scene.html
+@@ -2,7 +2,7 @@
+ 	<div class="palm-page-header">
+ 	  <div class="header-icon soundsandalerts"></div>
+ 		<div class="header-text">
+-			<span x-mojo-loc=''>Sounds &amp; ringtones</span>
++			<span x-mojo-loc=''>Sound Settings</span>
+ 		</div>
+ 	</div>
+ 	
+@@ -32,32 +32,86 @@
+ 					<div id='vibrate_on' x-mojo-element="ListSelector" class="right"></div>
+ 				</div>
+             </div>
+-			 <div id='currentringtonerow' class="palm-row" x-mojo-tap-highlight="momentary">
++			 <div class="palm-row last">
+ 				<div class="palm-row-wrapper">
+-					<div class="label left" x-mojo-loc=''>Ringtone</div>
+-	            	<div id='currentringtone' class="title right"></div>					
++	            	<div id="system_ui_sounds" x-mojo-element="ToggleButton"></div>
++	                <div class="title left" x-mojo-loc="">
++	                    System Sounds
++	                </div>
+ 	            </div>
+             </div>
+-			<div class="palm-row">
++			
++		</div>
++	</div>
++	
++	<div class="palm-group">
++		<div class="palm-group-title">				
++			<span x-mojo-loc=''>Ring & Alert Tones</span>
++		</div>
++		
++		<div class="palm-list">
++			 <div id='currentringtonerow' class="palm-row first" x-mojo-tap-highlight="momentary">
+ 				<div class="palm-row-wrapper">
+-					<div class="title" x-mojo-loc=''>Ringtone Volume</div>
+-					<div x-mojo-element="Slider" id='ringvolume' class="palm-slider"></div>
++         	<div id='currentringtone' class="label right">Ringtone</div>
++					<div class="title left" x-mojo-loc=''>Ringtone</div>
+ 	            </div>
+             </div>
+ 			 <div class="palm-row">
+ 				<div class="palm-row-wrapper">
+-	            	<div id="system_ui_sounds" x-mojo-element="ToggleButton"></div>
+-	                <div class="label left" x-mojo-loc="">
+-	                    System Sounds
+-	                </div>
+-	            </div>
++					<div id='alertringtone' x-mojo-element="ListSelector" class="right"></div>
+             </div>
++         </div>
++         <div class="palm-row last">
++				<div class="palm-row-wrapper">
++					<div id='notifyringtone' x-mojo-element="ListSelector" class="right"></div>
++            </div>
++         </div>
++		</div>
++	</div>
++	
++	<div class="palm-group">
++		<div class="palm-group-title">
++			<span x-mojo-loc=''>System Notifications</span>
++		</div>
++		
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper">
++					<div id='battery_notify' x-mojo-element="ListSelector" class="right"></div>
++				</div>
++         </div>
+ 			<div class="palm-row last">
+ 				<div class="palm-row-wrapper">
+-					<div class="title" x-mojo-loc=''>Volume</div>
++					<div id='charger_notify' x-mojo-element="ListSelector" class="right"></div>
++				</div>
++         </div>
++		</div>
++	</div>
++	
++	<div class="palm-group">
++		<div class="palm-group-title">
++			<span x-mojo-loc=''>Sound Volume Levels</span>
++		</div>
++		
++		<div class="palm-list">
++			<div class="palm-row first">
++				<div class="palm-row-wrapper" style="max-height:100px;">
++					<div id="ringvolumeSelector" x-mojo-element="ListSelector" class="right" style="max-height:40px;"></div>
++					<div x-mojo-element="Slider" id='ringvolume' class="palm-slider"></div>
++	            </div>
++            </div>
++			 <div class="palm-row">
++				<div class="palm-row-wrapper" style="max-height:100px;">
++					<div id="systemvolumeSelector" x-mojo-element="ListSelector" class="right" style="max-height:40px;"></div>
+ 					<div x-mojo-element="Slider" id='systemvolume' class="palm-slider"></div>
+ 	            </div>
+             </div>
++			<div class="palm-row last">
++				<div class="palm-row-wrapper" style="max-height:100px;">
++					<div id="mediavolumeSelector" x-mojo-element="ListSelector" class="right" style="max-height:40px;"></div>
++					<div x-mojo-element="Slider" id='mediavolume' class="palm-slider"></div>
++            </div>
++         </div>
+ 		</div>
+ 	</div>	
+ </div>
+--- .orig/usr/palm/applications/com.palm.app.wifi/app/views/networklist/networklist-scene.html
++++ /usr/palm/applications/com.palm.app.wifi/app/views/networklist/networklist-scene.html
+@@ -10,12 +10,12 @@
+ 	        </div>
+ 	    </div>
+     </div>
+-    <div id="wifiNetworkInfoList" x-mojo-element="List" style="display:none;">
+-    </div>
+     <div id="wifiInfoText" style="display:none;" class="palm-info-text" x-mojo-loc=''>
+ 			Your phone automatically connects to known networks.
+     </div>
+     <div id="wifiOffText" style="display:none;" class="palm-text-wrapper">
+ 			<div class="palm-body-text" x-mojo-loc=''>Wi-Fi is turned off.</div>
+     </div>
++    <div id="wifiNetworkInfoList" x-mojo-element="List" style="display:none;">
++    </div>
+ </div>
