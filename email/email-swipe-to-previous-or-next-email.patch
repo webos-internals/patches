@@ -1,0 +1,68 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+index 95bb302..80956b7 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/message-assistant.js
+@@ -81,7 +81,8 @@ var MessageAssistant = function(targetEmail, focusStage, detailsObj){
+ 	this.handleWebViewSingleTap = this.handleWebViewSingleTap.bind(this);
+ 	this.handleDOMClicked = this.handleDOMClicked.bind(this);
+ 	this.handleMessageDownloadRetry = this.handleMessageDownloadRetry.bind(this);
+-	
++	this.previousEmailSwipeControl = true;
++	this.reverseSwipeControl = false;
+ 	this.displayContactAvatarAndPresence = this.displayContactAvatarAndPresence.bind(this);
+ 	
+ 	this.pendingComposeActions = [];
+@@ -120,6 +121,17 @@ var MessageAssistant = function(targetEmail, focusStage, detailsObj){
+ 		this._hookupEventListeners();
+         this._orientationChanged(this.positions[this.lastPosition]);
+ 		//window.logger.log("MessageAssistant setup done");
++	
++		//Tweaks Setup for Swipe Controls
++		this.controller.serviceRequest("palm://org.webosinternals.tweaks.prefs/", {method: "get", 
++		parameters: {owner: "org.webosinternals.patches.swipe-to-previous-or-next-email",
++			keys: ["previousEmailSwipeControl", "reverseSwipeControl"]},
++			onSuccess: function(response) {
++				if((response) && (response.previousEmailSwipeControl != undefined))
++						this.previousEmailSwipeControl = response.previousEmailSwipeControl;
++				if((response) && (response.reverseSwipeControl != undefined))
++						this.reverseSwipeControl = response.reverseSwipeControl;
++			}.bind(this)});
+ 	};
+ 	
+ 	MessageAssistant.prototype._setupMenus = function() {
+@@ -196,6 +208,8 @@ var MessageAssistant = function(targetEmail, focusStage, detailsObj){
+ 		Mojo.Log.warn("Need to put scroll listening code back");
+ 		Mojo.Event.listen(this.controller.getSceneScroller(), Mojo.Event.scrollStarting, this.addAsScrollListener.bind(this));
+ 		
++		Mojo.Event.listen(this.controller.document, Mojo.Event.flick, this.flickHandler.bind(this));
++		
+ 		this.subjectElement = this.controller.get('email_subject');
+ 		this.readViewContainer = this.controller.get('email-readview-content-container');
+         this.controller.listen(this.controller.document, 'orientationchange', this.handleOrientationChangedEvent);
+@@ -2308,6 +2322,26 @@ MessageAssistant.prototype._getAttachmentById = function(id) {
+ 		}
+ 	};
+ 
++	MessageAssistant.prototype.flickHandler = function(event) {
++	console.info('Swipe Detected')
++		if(this.reverseSwipeControl == false){
++			if(this.previousEmailSwipeControl == true){
++				if (event.velocity.x > 0)
++					this.boundGotoNextEmailNewer();
++				else 
++					this.boundGotoNextEmailOlder();
++			}
++		}
++		else {
++			if(this.previousEmailSwipeControl == true){
++				if (event.velocity.x < 0)
++					this.boundGotoNextEmailNewer();
++				else 
++					this.boundGotoNextEmailOlder();
++			}
++		}
++	};
++	
+ 	MessageAssistant.prototype.gotoNextEmail = function(direction) {
+ 		if (this.nextMessages !== undefined && this.nextMessages[direction] !== undefined) {
+ 			Mojo.Log.info("### we have emails in the desired direction");
