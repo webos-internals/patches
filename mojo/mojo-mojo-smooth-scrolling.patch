@@ -1,46 +1,113 @@
 diff --git a/usr/palm/frameworks/mojo/builtins/palmInitFramework2112.js b/usr/palm/frameworks/mojo/builtins/palmInitFramework2112.js
-index 6495b12..dcef4df 100644
+index 6495b12..879e846 100644
 --- a/usr/palm/frameworks/mojo/builtins/palmInitFramework2112.js
 +++ b/usr/palm/frameworks/mojo/builtins/palmInitFramework2112.js
-@@ -609,10 +609,9 @@ return{components:this._possibleComponents,startScrolling:this.isHorizontal?Math
+@@ -571,8 +571,26 @@ updateScrollIndicators:function(current){var currentCoordinate=current||this.cur
+ limitValue+this.MIN_SCROLL_DELTA_SIZE)}}},MIN_SCROLL_DELTA_SIZE:3};(function(){var proto=Mojo.Widget.Scroller.ComponentAnimator.prototype;proto.STEP_RATE=Mojo.Core.Animation.stepRate*1.2;proto.MAX_TIME_SKIP=proto.STEP_RATE*3})();
+ Mojo.Widget.Scroller.Overscroller=function Overscroller(scroller,animatorComp,timeoutWindow,element){this.bindHandlers();this.timeoutWindow=timeoutWindow;this.element=element;this.scroller=scroller;this.animatorComp=animatorComp;this.correctOverscrollTimeMs=this.CORRECT_OVERSCROLL_TIME_MS;this.currentState="idle"};
+ Mojo.Widget.Scroller.Overscroller.prototype={cleanup:function(){this.clearCorrectOverscrollTimer();this.scroller.strategy.removeContinueOverscrollHandler()},bindHandlers:function(){this.triggeredCallback=this.handleTriggeredState.bind(this)},startCorrectOverscrollTimer:function(){this.clearCorrectOverscrollTimer();this.correctOverscrollTimer=this.timeoutWindow.setTimeout(this.triggeredCallback,this.correctOverscrollTimeMs)},clearCorrectOverscrollTimer:function(){if(this.correctOverscrollTimer){this.timeoutWindow.clearTimeout(this.correctOverscrollTimer);
+-this.correctOverscrollTimer=undefined}},handleIdleState:function(){this.currentState="idle";this.clearCorrectOverscrollTimer();this.inOverscroll=false;this.correctingOverscroll=false;this.animatorComp.restoreNonOverscrollAlgorithm();this.clearLimits()},handlePendingState:function(){this.currentState="pending";this.inOverscroll=true;if(!this.correctOverscrollTimer)this.startCorrectOverscrollTimer()},handleTriggeredState:function(){var component=this.animatorComp;var animator=component.animator;this.currentState=
+-"triggered";this.correctOverscrollTimer=undefined;this.correctingOverscroll=true;component.setOverscrollAlgorithm();if(!animator.targetCoordinate)animator.setupCoordinates();component.setFrameDistanceRatio(this.CORRECT_OVERSCROLL_SPEED);this.scroller.strategy.dragEndWork()},clearLimits:function(){this.limit=undefined;this.isMaxLimit=undefined},setLimits:function(limit,isMaxLimit){this.limit=limit;this.isMaxLimit=isMaxLimit},handleUserAction:function(args){if(args.animatedMotion!==undefined)this.correctOverscrollTimeMs=
++this.correctOverscrollTimer=undefined}},handleIdleState:function(){this.currentState="idle";this.clearCorrectOverscrollTimer();this.inOverscroll=false;this.correctingOverscroll=false;this.animatorComp.restoreNonOverscrollAlgorithm();this.clearLimits()},handlePendingState:function(){this.currentState="pending";this.inOverscroll=true;if(!this.correctOverscrollTimer)this.startCorrectOverscrollTimer()},
++
++handleTriggeredState:function()
++{
++    var component=this.animatorComp;
++    var animator=component.animator;
++    this.currentState="triggered";
++    this.correctOverscrollTimer=undefined;
++    this.correctingOverscroll=true;
++    this.flicked=false; //
++    component.setOverscrollAlgorithm();
++    if(!animator.targetCoordinate)
++    {
++        animator.setupCoordinates();
++    }
++    component.setFrameDistanceRatio(this.CORRECT_OVERSCROLL_SPEED);
++    this.scroller.strategy.dragEndWork()
++},
++
++clearLimits:function(){this.limit=undefined;this.isMaxLimit=undefined},setLimits:function(limit,isMaxLimit){this.limit=limit;this.isMaxLimit=isMaxLimit},handleUserAction:function(args){if(args.animatedMotion!==undefined)this.correctOverscrollTimeMs=
+ args.animatedMotion?this.CORRECT_OVERSCROLL_TIME_FLICK_MS:this.CORRECT_OVERSCROLL_TIME_MS;if(this.currentState==="pending"){this.inOverscroll=true;this.startCorrectOverscrollTimer()}},handleLocationChange:function(min,max,current,done,outside){switch(this.currentState){case "idle":if(current>max||current<min)this.handlePendingState();break;case "triggered":if(done||!outside)this.handleIdleState();break}},CORRECT_OVERSCROLL_TIME_MS:250,CORRECT_OVERSCROLL_TIME_FLICK_MS:30,CORRECT_OVERSCROLL_SPEED:0.3};
+ Mojo.Widget.Scroller.Indicator=function Indicator(indicatorElement){this.indicatorElement=indicatorElement;this.isVisible=Mojo.Dom.visible(indicatorElement)};Mojo.Widget.Scroller.Indicator.prototype.update=function update(shouldShow){if(this.isVisible!==shouldShow){if(shouldShow)Mojo.Dom.show(this.indicatorElement);else Mojo.Dom.hide(this.indicatorElement);this.isVisible=shouldShow}};Mojo.Widget.Scroller.StateMachine=function(initialPosition,stateMap,options){Mojo.requireDefined(stateMap,"state machine requires a state map");this.currentStateName=initialPosition;this.stateSwitcher=options.stateSwitcher;this.map=stateMap};
+ Mojo.Widget.Scroller.StateMachine.prototype={nextState:function(stateArgs){var lastName=this.currentStateName;var nextName=this.stateSwitcher(this.currentStateName,stateArgs);var nextHandler;if(!nextName||nextName===lastName)return;nextHandler=this.map[nextName];if(nextHandler){nextHandler(lastName,stateArgs);this.currentStateName=nextName}},getState:function(){return this.currentStateName}};Mojo.Widget.Scroller._genericStrategy=Foundations.Class.create({initialize:function initialize(scroller,options){var oldStrategy=options.oldStrategy;delete options.oldStrategy;this.scroller=scroller;this.animator=oldStrategy&&oldStrategy.animator||new Mojo.Widget.Scroller.Animator(scroller,this);this.options=options;this.bindAndListen()},PROPERTY_MAP:{x:"width",y:"height"},calculateMax:function calculateMax(){var contentSize,scrollerSize,component,property,max;var ret={x:0,y:0};var components=this.getPermittedAxes();
+@@ -608,11 +626,29 @@ dist<minDist){minDist=dist;minIndex=i}}this.updateSnapIndex(minIndex);snapIndex=
+ return{components:this._possibleComponents,startScrolling:this.isHorizontal?Math.abs(distance.x)>Math.abs(distance.y):Math.abs(distance.y)>Math.abs(distance.x)}}});
  Mojo.Widget.Scroller.FreeStrategy=Foundations.Class.create(Mojo.Widget.Scroller._genericStrategy,{stratType:"2d",initialize:function initialize(scroller,options){this.$super(initialize)(scroller,options);this._possibleComponents=["x","y"];this._possibleComponents.x=this._possibleComponents.y=true;this.animator.setStrategy(this)},calculateScrollInfo:function calculateScrollInfo(distance){return{components:this._possibleComponents,startScrolling:true}}});
  Mojo.Widget.Scroller.DominantStrategy=Foundations.Class.create(Mojo.Widget.Scroller._genericStrategy,{stratType:"dominant",LOCK_RADIUS:50,initialize:function initialize(scroller,options){this.$super(initialize)(scroller,options);this._possibleComponents=["x","y"];this._possibleComponents.x=this._possibleComponents.y=true;this.animator.setStrategy(this)},handleMotion:function handleMotion(motion,pointer){var animator=this.animator;if(this.delayingFlickStop)return;if(motion.x||motion.y){animator.updateMovementState(false);
- if(!this.animatingToPointer&&!animator.correctingOverscroll())animator.setFrameDistanceRatio(1);this.lastPointer=pointer;this.calculateAxis();animator.adjustTarget(motion)}},setupAxisTargetAreas:function setupAxisTargetAreas(){var pt=this.firstPointer;var x=pt.x;var y=pt.y;var r=this.LOCK_RADIUS;var axisTargets={left:x-r,right:x+r,top:y-r,bottom:y+r};this.axisTargets=axisTargets},calculateScrollInfo:function calculateScrollInfo(distance){var currentComponents;this.setupAxisTargetAreas();if(Math.abs(distance.x)<=
+-if(!this.animatingToPointer&&!animator.correctingOverscroll())animator.setFrameDistanceRatio(1);this.lastPointer=pointer;this.calculateAxis();animator.adjustTarget(motion)}},setupAxisTargetAreas:function setupAxisTargetAreas(){var pt=this.firstPointer;var x=pt.x;var y=pt.y;var r=this.LOCK_RADIUS;var axisTargets={left:x-r,right:x+r,top:y-r,bottom:y+r};this.axisTargets=axisTargets},calculateScrollInfo:function calculateScrollInfo(distance){var currentComponents;this.setupAxisTargetAreas();if(Math.abs(distance.x)<=
 -Math.abs(distance.y))currentComponents=["y"];else currentComponents=["x"];return{components:currentComponents,startScrolling:true}},dragStart:function dragStart(dragStartEvent){this.firstPointer=Mojo.Event.pointer(dragStartEvent.down);this.$super(dragStart)(dragStartEvent)},calculateAxis:function calculateAxis(){var components,component,delta,absDistance,x,y,axisTargets;var lockRadius=this.LOCK_RADIUS;var lastPointer=this.lastPointer;var animator=this.animator;components=animator.components;if(components.length==
 -2)return;absDistance=Mojo.Gesture.calculateAbsDistance(this.firstPointer,lastPointer);if(absDistance.x<lockRadius||absDistance.y<lockRadius)if(absDistance.x<=absDistance.y)components=["y"];else components=["x"];else{axisTargets=this.axisTargets;x=lastPointer.x;y=lastPointer.y;if(y<axisTargets.top||y>axisTargets.bottom)if(x<axisTargets.left||x>axisTargets.right)components=["x","y"]}if(components.length==2){animator.components=components;if(this.mouseTracker)this.mouseTracker.components=components;
 -this.setComponentLimits();for(var i=components.length-1;i>=0;i--){component=components[i];if(!animator.componentsAtStart[component]){delta=this.firstPointer[component]-this.lastPointer[component];animator.setComponentTarget(component,animator.getComponentOriginal(component)+delta)}}animator.setFrameDistanceRatio(animator.OVERSCROLL_SPEED);this.animatingToPointer=true;animator.startAnimating()}},handleAnimateDone:function handleAnimateDone(){this.animatingToPointer=false;this.$super(handleAnimateDone)()}});
 -Mojo.Widget.Scroller.MouseTracker=function(motionHandler,dragStartEvent,components){var downEvent=dragStartEvent.down;this.handler=motionHandler;this.components=components;this.lastPointer=Mojo.Event.pointer(downEvent)};
-+Math.abs(distance.y))currentComponents=["y"];else currentComponents=["x"];return{components:currentComponents,startScrolling:true}},dragStart:function dragStart(dragStartEvent){this.firstPointer=Mojo.Event.pointer(dragStartEvent.down);this.$super(dragStart)(dragStartEvent)},calculateAxis:function calculateAxis(){var components,component,delta,absDistance,x,y,axisTargets;var lockRadius=this.LOCK_RADIUS;var lastPointer=this.lastPointer;var animator=this.animator;components=animator.components;if(this.mode==this.MODE_DOMINANT){absDistance=Mojo.Gesture.calculateAbsDistance(this.firstPointer,lastPointer);if(absDistance.x<lockRadius||absDistance.y<lockRadius)if(absDistance.x<=absDistance.y)components=["y"];else components=["x"];else{axisTargets=this.axisTargets;x=lastPointer.x;y=lastPointer.y;if(y<axisTargets.top||y>axisTargets.bottom)if(x<axisTargets.left||x>axisTargets.right)components=["x","y"]}}animator.components=components;if(this.mouseTracker)this.mouseTracker.components=components;
-+this.setComponentLimits();for(var i=components.length-1;i>=0;i--){component=components[i];if(!animator.componentsAtStart[component]){delta=this.firstPointer[component]-this.lastPointer[component];animator.setComponentTarget(component,animator.getComponentOriginal(component)+delta)}}animator.setFrameDistanceRatio(0.7);this.animatingToPointer=true;animator.startAnimating()},handleAnimateDone:function handleAnimateDone(){this.animatingToPointer=false;this.$super(handleAnimateDone)()}});
++if(!this.animatingToPointer&&!animator.correctingOverscroll())animator.setFrameDistanceRatio(1);this.lastPointer=pointer;this.smoothDragging();animator.adjustTarget(motion)}},setupAxisTargetAreas:function setupAxisTargetAreas(){var pt=this.firstPointer;var x=pt.x;var y=pt.y;var r=this.LOCK_RADIUS;var axisTargets={left:x-r,right:x+r,top:y-r,bottom:y+r};this.axisTargets=axisTargets},
++
++calculateScrollInfo:function calculateScrollInfo(distance)
++{
++var currentComponents;
++this.setupAxisTargetAreas();
++currentComponents=["x","y"];
++if(Math.abs(distance.y)/2.5>Math.abs(distance.x)){
++currentComponents=["y"];
++}
++if(Math.abs(distance.x)/2.5>Math.abs(distance.y)){
++currentComponents=["x"];
++}
++return{components:currentComponents,startScrolling:true}
++},
++
++dragStart:function dragStart(dragStartEvent){this.firstPointer=Mojo.Event.pointer(dragStartEvent.down);this.$super(dragStart)(dragStartEvent)},
++
++smoothDragging:function smoothDragging(){var components,component,delta;var lockRadius=this.LOCK_RADIUS;var lastPointer=this.lastPointer;var animator=this.animator;components=animator.components;animator.components=components;if(this.mouseTracker)this.mouseTracker.components=components;
++this.setComponentLimits();for(var i=components.length-1;i>=0;i--){component=components[i];if(!animator.componentsAtStart[component]){delta=this.firstPointer[component]-this.lastPointer[component];animator.setComponentTarget(component,animator.getComponentOriginal(component)+delta)}}animator.setFrameDistanceRatio(0.7);this.animatingToPointer=true;animator.startAnimating()},
++
++handleAnimateDone:function handleAnimateDone(){this.animatingToPointer=false;this.$super(handleAnimateDone)()}});
 +Mojo.Widget.Scroller.MouseTracker=function(motionHandler,dragStartEvent,components){var downEvent=dragStartEvent.move;this.handler=motionHandler;this.components=components;this.lastPointer=Mojo.Event.pointer(downEvent)};
  Mojo.Widget.Scroller.MouseTracker.prototype={dragged:function(draggedEvent){var moveEvent=draggedEvent.move;var component;var pointer=moveEvent.filteredPointer;var motion={x:0,y:0};var componentIndex;for(componentIndex=0;componentIndex<this.components.length;componentIndex++){component=this.components[componentIndex];if(this.lastPointer[component]!=pointer[component])motion[component]=this.lastPointer[component]-pointer[component]}this.lastPointer=pointer;this.handler.handleMotion(motion,pointer)}};Mojo.Menu={};Mojo.Menu.viewMenu="palm-view-menu";Mojo.Menu.commandMenu="palm-command-menu";Mojo.Menu.appMenu="palm-app-menu";Mojo.Menu.showAppCmd="palm-show-app-menu";Mojo.Menu.cutCmd="palm-cut-cmd";Mojo.Menu.copyCmd="palm-copy-cmd";Mojo.Menu.pasteCmd="palm-paste-cmd";Mojo.Menu.prefsCmd="palm-prefs-cmd";Mojo.Menu.helpCmd="palm-help-cmd";Mojo.Menu.boldCmd="palm-bold-cmd";Mojo.Menu.italicCmd="palm-italic-cmd";Mojo.Menu.underlineCmd="palm-underline-cmd";Mojo.Menu.selectAllCmd="palm-selectall-cmd";
  Mojo.Menu.cutItem={label:$LL("Cut"),command:Mojo.Menu.cutCmd,shortcut:"x",checkEnabled:true};Mojo.Menu.copyItem={label:$LL("Copy"),command:Mojo.Menu.copyCmd,shortcut:"c",checkEnabled:true};Mojo.Menu.pasteItem={label:$LL("Paste"),command:Mojo.Menu.pasteCmd,shortcut:"v",checkEnabled:true};Mojo.Menu.boldItem={label:$LL("Bold"),command:Mojo.Menu.boldCmd,checkEnabled:true};Mojo.Menu.italicItem={label:$LL("Italic"),command:Mojo.Menu.italicCmd,checkEnabled:true};
  Mojo.Menu.underlineItem={label:$LL("Underline"),command:Mojo.Menu.underlineCmd,checkEnabled:true};Mojo.Menu.selectAllItem={label:$LL("Select All"),command:Mojo.Menu.selectAllCmd,shortcut:"a",checkEnabled:true};Mojo.Menu.prefsItem={label:$LL("Preferences"),command:Mojo.Menu.prefsCmd,checkEnabled:true};Mojo.Menu.helpItem={label:$LL("Help"),command:Mojo.Menu.helpCmd,checkEnabled:true};Mojo.Menu.editItem={label:$LL("Edit"),items:[Mojo.Menu.selectAllItem,Mojo.Menu.cutItem,Mojo.Menu.copyItem,Mojo.Menu.pasteItem]};
 diff --git a/usr/palm/frameworks/mojo/builtins/palmInitFramework383.js b/usr/palm/frameworks/mojo/builtins/palmInitFramework383.js
-index 24ffb3e..871a621 100644
+index 24ffb3e..0ff80b7 100644
 --- a/usr/palm/frameworks/mojo/builtins/palmInitFramework383.js
 +++ b/usr/palm/frameworks/mojo/builtins/palmInitFramework383.js
-@@ -12991,9 +12991,7 @@ var components,originalComponents,component,delta,distance,absDistance,x,y,axisT
+@@ -12985,33 +12985,12 @@ bottom:y+r
+ this.axisTargets=axisTargets;
+ },
+ 
+-
+-calculateAxis:function(){
+-var components,originalComponents,component,delta,distance,absDistance,x,y,axisTargets;
++smoothDragging:function(){
++var components,originalComponents,component,delta;
  var lockRadius=this.LOCK_RADIUS;
  var lastPointer=this.lastPointer;
  components=originalComponents=this.components;
 -if(this.mode!=='dominant'||components.length==2){
 -return;
 -}
-+if(this.mode=='dominant'){
- absDistance=Mojo.Gesture.calculateAbsDistance(this.firstPointer,lastPointer);
- if(absDistance.x<lockRadius&&absDistance.y<lockRadius){
- if(absDistance.x<=absDistance.y){
-@@ -13011,7 +13009,7 @@ components=["x","y"];
- }
- }
- }
+-absDistance=Mojo.Gesture.calculateAbsDistance(this.firstPointer,lastPointer);
+-if(absDistance.x<lockRadius&&absDistance.y<lockRadius){
+-if(absDistance.x<=absDistance.y){
+-components=["y"];
+-}else{
+-components=["x"];
+-}
+-}else{
+-axisTargets=this.axisTargets;
+-x=lastPointer.x;
+-y=lastPointer.y;
+-if(y<axisTargets.top||y>axisTargets.bottom){
+-if(x<axisTargets.left||x>axisTargets.right){
+-components=["x","y"];
+-}
+-}
+-}
 -if(components.length==2){
-+}
++
  this.components=components;
  if(this.mouseTracker){
  this.mouseTracker.components=components;
-@@ -13024,10 +13022,9 @@ delta=this.lastPointer[component]-this.firstPointer[component];
+@@ -13024,10 +13003,9 @@ delta=this.lastPointer[component]-this.firstPointer[component];
  this.targetCoordinate[component]=this.originalCoordinate[component]+delta;
  }
  }
@@ -52,7 +119,34 @@ index 24ffb3e..871a621 100644
  },
  
  
-@@ -14229,7 +14226,7 @@ Mojo.Widget.Scroller.MouseTracker=Class.create({
+@@ -13073,9 +13051,11 @@ startScrolling=(Math.abs(distance.x)<=Math.abs(distance.y));
+ break;
+ case"dominant":
+ this.setupAxisTargetAreas();
+-if(Math.abs(distance.x)<=Math.abs(distance.y)){
++components=["x","y"];
++if(Math.abs(distance.y)/2.5>Math.abs(distance.x)){
+ components=["y"];
+-}else{
++}
++if(Math.abs(distance.x)/2.5>Math.abs(distance.y)){
+ components=["x"];
+ }
+ break;
+@@ -13254,11 +13234,8 @@ if(this.delayingFlickStop){
+ 
+ return;
+ }
+-if(!this.animatingToPointer&&!this.correctingOverscroll){
+-this.setFrameDistanceRatio(1,"motion from mouse");
+-}
+ this.lastPointer=pointer;
+-this.calculateAxis();
++this.smoothDragging();
+ var components=this.components;
+ var motionForCoordinate,component,targetForComponent;
+ for(var i=components.length-1;i>=0;i--){
+@@ -14229,7 +14206,7 @@ Mojo.Widget.Scroller.MouseTracker=Class.create({
  
  initialize:function(widget,dragStartEvent,components){
  this.widget=widget;
