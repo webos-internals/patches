@@ -1,0 +1,58 @@
+diff --git a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+index 5d8756b..2932b65 100644
+--- a/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
++++ b/usr/palm/applications/com.palm.app.camera/app/controllers/capture-assistant.js
+@@ -130,7 +130,7 @@ CaptureAssistant.prototype = {
+ 				this._handleCaptureToggle();
+ 			}.bind(this));
+ 		}
+-		
++		this.volumeKeySubscription = null;
+ 		
+ 		this.onKeyPressHandler = this.onKeyPress.bindAsEventListener(this);
+ 		Mojo.listen(this.controller.sceneElement, Mojo.Event.keydown, this.onKeyPressHandler);
+@@ -149,7 +149,16 @@ CaptureAssistant.prototype = {
+ 		if (!AppAssistant.photoRollVideoLoader) {
+ 			AppAssistant.photoRollVideoLoader = AppAssistant.libraries["metascene.videos"];
+ 		}
+-		
++		// listen to volume key events
++		this.volumeKeySubscription = new Mojo.Service.Request(
++			'palm://com.palm.keys/audio', 
++			{
++				method: 'status',
++				parameters: {'subscribe': true},
++				onFailure: function() { Mojo.Log.error("Could not subscribe to volume key events"); },
++				onSuccess: this.handleVolumeKeys.bind(this), 
++			});
++			
+ 		llog("CaptureAssistant::setup() finished");
+ 	}catch(e){llog("setup threw: "+JSON.stringify(e));}},
+ 	
+@@ -369,6 +378,11 @@ CaptureAssistant.prototype = {
+ 		this._powerService.cleanup();
+ 
+ 		this.cameraControl.closeCamera();
++		
++		// clean up listener for volume keys
++		if(this.volumeKeySubscription) {
++			this.volumeKeySubscription.cancel();
++		}		
+ 	},
+ 	
+ 	handleCommand: function(event){
+@@ -479,6 +493,14 @@ CaptureAssistant.prototype = {
+ 			this.cameraControl.stillCapture();
+ 		}
+ 	},
++	
++	// capture on release of volume keys
++	handleVolumeKeys: function(payload) {
++		// capture when either volume up or down buttons are released
++		if(payload.state === 'up' && (payload.key === 'volume_up' || payload.key === 'volume_down')) {
++ 			this.cameraControl.stillCapture();
++ 		}
++	},
+   
+ 	/**
+ 	 * Called by the camera control when a picture has been written out to disk by the media server.
