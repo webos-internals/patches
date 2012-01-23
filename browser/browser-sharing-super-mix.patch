@@ -1,8 +1,8 @@
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
-index 6bf5870..ad1c516 100644
+index 6bf5870..caa30e4 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
-@@ -19,6 +19,115 @@ MenuData.ApplicationMenu = {
+@@ -19,6 +19,120 @@ MenuData.ApplicationMenu = {
  		checkEnabled: true
  	},
  	
@@ -83,7 +83,12 @@ index 6bf5870..ad1c516 100644
 +		label: $L('Send via Neato!'),
 +		command: 'add-neato-cmd',
 +		checkEnabled: true
-+	},	
++	},
++	DataJogThatUrl: {
++		label: $L('Send via DataJog'),
++		command: 'add-datajog-cmd',
++		checkEnabled: true
++	},		
 +	
 +	ShortenURL: {
 +		label: $L('Shorten URL'),
@@ -119,7 +124,7 @@ index 6bf5870..ad1c516 100644
  		label: $L('Add to Launcher'),
  		command: 'add-launch-icon-cmd',
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-index 6e8efd0..32550f6 100644
+index 6e8efd0..4b3eb03 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 @@ -136,6 +136,10 @@ PageAssistant.prototype.setup = function() {
@@ -133,7 +138,7 @@ index 6e8efd0..32550f6 100644
  		
  		//observe seamless transition changes
  		
-@@ -796,20 +800,78 @@ PageAssistant.prototype._setupMenus = function() {
+@@ -796,20 +800,80 @@ PageAssistant.prototype._setupMenus = function() {
  		this._pageControls.setup(true);
  
  		// Create the application menus and shortcuts (once the modifier keys work).
@@ -173,12 +178,14 @@ index 6e8efd0..32550f6 100644
 +		
 +		this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
 +			method: 'get', parameters: {'owner': "browser-sharing-super-mix", 
-+			keys: ["showNeato","showSpareTime", "showInstapaper", "ipUsername", "ipPassword", "showRelego", "showReadontouch", "showClipboard", "shortenURL", "reKindleIt", 
++			keys: ["showNeato", "showDataJog", "showSpareTime", "showInstapaper", "ipUsername", "ipPassword", "showRelego", "showReadontouch", "showClipboard", "shortenURL", "reKindleIt", 
 +					"showFacebook", "showBadKitty", "showSpaz", "showTwee", "showTweed", "showCarbon", "showTachyon", "showQuickPost"]},
 +			onSuccess: function(response) {
 +				if(response) {
 +					if(response.showNeato == true)
 +						this.appMenuModel.items[0].items.push(MenuData.ApplicationMenu.NeatoThatUrl);
++					if(response.showDataJog == true)
++						this.appMenuModel.items[0].items.push(MenuData.ApplicationMenu.DataJogThatUrl);
 +					if(response.showSpareTime == true) 
 +						this.appMenuModel.items[0].items.push(MenuData.ApplicationMenu.AddToSpareTime);
 +					if(response.showInstapaper == true) {
@@ -218,10 +225,12 @@ index 6e8efd0..32550f6 100644
  
  		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
  
-@@ -2180,8 +2242,590 @@ PageAssistant.prototype.handleCommand = function(event) {
+@@ -2180,8 +2244,642 @@ PageAssistant.prototype.handleCommand = function(event) {
  					this._createDefaultBookmarkImages(urlReference);
  					this.showBookmarkDialog(BookmarkDialogAssistant.createLaunchpointTask, urlReference);
  					break;
+-
+-				case MenuData.ApplicationMenu.SharePage.command:
 +				
 +				//NEATO	
 +				case MenuData.ApplicationMenu.NeatoThatUrl.command:
@@ -260,6 +269,51 @@ index 6e8efd0..32550f6 100644
 +					}
 +					break;
 +					
++			//DATAJOG
++			case MenuData.ApplicationMenu.DataJogThatUrl.command:
++			var datajogappids = ['com.datajog.webos', 'com.datajog.webos.beta', 'com.datajog.webos.trial'], datajogindex = 0;
++			var target = this;
++		function makeCallDJ() {
++		if (datajogindex < datajogappids.length) {
++			Mojo.Log.info('Trying to Sendvia appid %s', datajogappids[datajogindex]);
++			var request = new Mojo.Service.Request("palm://com.palm.applicationManager", {
++				method: 'open',
++					parameters: {
++						id: datajogappids[datajogindex],
++							params: {action: 'send', data: target.currentUrl}
++							},
++								onFailure: function() {
++									Mojo.Log.info('DataJog failed to launch with appid %s', datajogappids[datajogindex]);
++									datajogindex++; // go to next appid
++									makeCallDJ(); // retry
++									}.bind(this)
++									});
++									} else {
++										Mojo.Log.error('DataJog failed to launch');
++										target.controller.showAlertDialog({
++											onChoose: function(value){
++												if (value=="yes"){
++												target.controller.serviceRequest('palm://com.palm.applicationManager', {
++												method:'open',
++												parameters:{
++												target: "http://developer.palm.com/appredirect/?packageid=" + datajogappids[0]
++												}
++											});
++										}
++									},
++										preventCancel: false,
++										title: $L("DataJog Not Installed"),
++										message: $L("DataJog is not installed. Would you like to download it?"),
++										choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++										]
++										});
++									}
++								}
++						makeCallDJ();
++						break;
++			
 +				//SPARE TIME
 +				case MenuData.ApplicationMenu.AddToSpareTime.command:
 +					// Send the URL to Spare Time
@@ -373,49 +427,55 @@ index 6e8efd0..32550f6 100644
 +						Mojo.Log.error("Relego Patch Error: " + e);
 +					}
 +					break;
-+
-+				//READONTOUCH
-+				case MenuData.ApplicationMenu.AddToReadontouch.command:
-+
-+					// Add to 
-+					try{
-+						this.readontouchappid = "com.sven-ziegler.readontouch";
-+						this.controller.serviceRequest("palm://com.palm.applicationManager", {
-+							method: 'open',
-+							parameters: {
-+								id: this.readontouchappid,
-+								params: {action: 'addLink', title: this.currentTitle, url: this.currentUrl}
++					
++			//READONTOUCH
++			case MenuData.ApplicationMenu.AddToReadontouch.command:
++	
++			//Add to
++			var readontouchappids = ['com.sven-ziegler.readontouch', 'com.sven-ziegler.readontouch-phone'], readontouchindex = 0;
++			var target = this;
++		function makeCallRoT() {
++		if (readontouchindex < readontouchappids.length) {
++			Mojo.Log.info('Trying to Addto appid %s', readontouchappids[readontouchindex]);
++			var request = new Mojo.Service.Request("palm://com.palm.applicationManager", {
++				method: 'open',
++					parameters: {
++						id: readontouchappids[readontouchindex],
++							params: {action: 'addLink', title: target.currentTitle, url: target.currentUrl}
 +							},
-+							onFailure:function(){
-+								this.controller.showAlertDialog({
-+									onChoose: function(value){
-+										if (value=="yes"){
-+											this.controller.serviceRequest('palm://com.palm.applicationManager', { 
++								onFailure: function() {
++									Mojo.Log.info('ReadOnTouch failed to launch with appid %s', readontouchappids[readontouchindex]);
++									readontouchindex++; // go to next appid
++									makeCallRoT(); // retry
++									}.bind(this)
++									});
++									} else {
++										Mojo.Log.error('ReadOnTouch failed to launch');
++										target.controller.showAlertDialog({
++											onChoose: function(value){
++												if (value=="yes"){
++												target.controller.serviceRequest('palm://com.palm.applicationManager', {
 +												method:'open',
 +												parameters:{
-+													target: "http://developer.palm.com/appredirect/?packageid=" + this.readontouchappid
++												target: "http://developer.palm.com/appredirect/?packageid=" + readontouchappids[0]
 +												}
 +											});
 +										}
 +									},
-+									preventCancel: false,
-+									title: $L("ReadOnTouch not Installed"),
-+									message: $L("ReadOnTouch is not installed. Would you like to download it?"),
-+									choices:[
++										preventCancel: false,
++										title: $L("ReadonTouch Not Installed"),
++										message: $L("ReadOnTouch is not installed. Would you like to download it?"),
++										choices:[
 +										{label:$L('Yes'), value:"yes", type:'affirmative'},
 +										{label:$L('No'), value:"no", type:'dismissal'}
-+									]
-+								});
-+							}.bind(this)
-+						})
-+					}catch(e){
-+						Mojo.Log.error("ReadOnTouch Patch Error: " + e);
-+					}
-+					break;
- 
--				case MenuData.ApplicationMenu.SharePage.command:
-+				
-+				//CLIPBOARD
++										]
++										});
++									}
++								}
++						makeCallRoT();
++						break;
++			
++			//CLIPBOARD
 +				case MenuData.ApplicationMenu.CopyToClipboard.command:
 +					this.controller.stageController.setClipboard(this.currentTitle + ' - ' + this.currentUrl);
 +					Mojo.Controller.getAppController().showBanner("Copied to Clipboard!",  {source: 'notification'});
