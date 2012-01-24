@@ -1,0 +1,342 @@
+--- .orig/media/cryptofs/apps/usr/palm/applications/com.palm.app.email/compose/source/Compose.js
++++ /media/cryptofs/apps/usr/palm/applications/com.palm.app.email/compose/source/Compose.js
+@@ -274,6 +274,9 @@
+ 	
+ 	populateMessage: function(inParams) {
+ 		var params = enyo.mixin(enyo.mixin({}, this.messageDefaults), inParams);
++		params.formatting = enyo.windowParams.formatting;
++		params.formattingReply = enyo.windowParams.formattingReply;
++		
+ 		this.composition = new EmailApp.Composition(params);
+ 		
+ 		// This flag indicates original fwd content has been modified, 
+--- .orig/media/cryptofs/apps/usr/palm/applications/com.palm.app.email/compose/source/Composition.js
++++ /media/cryptofs/apps/usr/palm/applications/com.palm.app.email/compose/source/Composition.js
+@@ -26,6 +26,9 @@
+ 	
+ */
+ EmailApp.Composition = function(options) {
++	this.formatting = options.formatting;
++	this.formattingReply = options.formattingReply;
++	
+ 	// Start with a new blank message.
+ 	this.originalText = "";
+ 	
+@@ -38,7 +41,10 @@
+ 	// TODO: Refactor this. it's hella ugly.
+ 	var targetAcctId = options && options.accountId || enyo.application.accounts.getDefaultAccountId();
+ 	var signature = AccountPreferences.getSignature(targetAcctId);
+-	var defaultBodyText = "<span style='font-family:Prelude, Verdana, san-serif;'><br><br></span><span id='signature'>" + signature + "</span>";
++	if(this.formatting == "outlook")
++		var defaultBodyText = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px;'><br><br></span><span id='signature'>" + signature + "</span>";
++	else
++		var defaultBodyText = "<span style='font-family:Prelude, Verdana, san-serif;'><br><br></span><span id='signature'>" + signature + "</span>";
+ 	
+ 	this.draftEmail.setBodyContent(defaultBodyText);
+ 	
+@@ -83,14 +89,21 @@
+ 
+ // Need to break this out of the regular prototype assignment, since it's used in the def'n of REPLY_FWD_HTML
+ EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER = "<span style='font-family:Prelude, Verdana, san-serif;'><br><br></span><span id='signature'></span>";
++EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px;'><br><br></span><span id='signature'></span>";
++EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK_PLUS = "<span style='font-family:Prelude, Calibri, san-serif; font-size:15px; color: #1F497D;'><br><br></span><span id='signature'></span>";
+ 
+ EmailApp.Composition.prototype = {
+ 
+ 	SIGNATURE_PLACEHOLDER: EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER,
+-	REPLY_FWD_HTML: "<br><br>" + EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER + "<span style='color:navy; font-family:Prelude, Verdana, san-serif; '><hr align='left' style='width:75%'/>",
++	SIGNATURE_PLACEHOLDER_OUTLOOK: EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK,
++	REPLY_FWD_HTML: EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER + "<br><span style='color:navy; font-family:Prelude, Verdana, san-serif; '><hr align='left' style='width:75%'/>",
++	REPLY_FWD_HTML_OUTLOOK: EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK + "<br><span style='color:black; font-family:Prelude, Calibri, san-serif; font-size:15px; '>",
++	REPLY_FWD_HTML_OUTLOOK_PLUS: EmailApp.Composition.prototype.SIGNATURE_PLACEHOLDER_OUTLOOK_PLUS + "<br><span style='color:black; font-family:Prelude, Calibri, san-serif; font-size:15px; '><hr align='left' style='width:100%'/>",
+ 
+ 	SUBJECT_PREFIX_RE: $L("Re: "),
++	SUBJECT_PREFIX_RE_OUTLOOK: $L("RE: "),
+ 	SUBJECT_PREFIX_FW: $L("Fw: "),
++	SUBJECT_PREFIX_FW_OUTLOOK: $L("FW: "),
+ 
+ 	isForward: function() {
+ 		return (this.action === "forward");
+@@ -267,7 +280,10 @@
+ 		
+ 		this.action = "reply";
+ 
+-		this._createCommon(original, this.SUBJECT_PREFIX_RE);
++		if(this.formatting == "outlook")
++			this._createCommon(original, this.SUBJECT_PREFIX_RE_OUTLOOK);
++		else		
++			this._createCommon(original, this.SUBJECT_PREFIX_RE);
+ 		this.email.to = [this._convertSenderToRecipient(original)];
+ 		this._commonReplyPrep(original);
+ 	},
+@@ -280,7 +296,10 @@
+ 		original.accountId = original.accountId || options.accountId;
+ 		
+ 		this.action = "replyAll";
+-		this._createCommon(original, this.SUBJECT_PREFIX_RE);
++		if(this.formatting == "outlook")
++			this._createCommon(original, this.SUBJECT_PREFIX_RE_OUTLOOK);
++		else		
++			this._createCommon(original, this.SUBJECT_PREFIX_RE);
+ 		this._addReplyAll(original);		
+ 		this._commonReplyPrep(original);	
+ 	},
+@@ -294,7 +313,10 @@
+ 		
+ 		this.action = "forward";
+ 		
+-		this._createCommon(original, this.SUBJECT_PREFIX_FW);
++		if(this.formatting == "outlook")
++			this._createCommon(original, this.SUBJECT_PREFIX_FW_OUTLOOK);
++		else		
++			this._createCommon(original, this.SUBJECT_PREFIX_FW);
+ 		
+ 		// Copy attachments when forwarding
+ 		// Include the original part id so we can download if necessary
+@@ -328,8 +350,11 @@
+ 		var recipients;
+ 		var parser = new MailtoURIParser(url);
+ 		this._setSubject(parser.getDecodedSubject());
+-		this._setContent(parser.getDecodedBody() + this.SIGNATURE_PLACEHOLDER);
+-
++		if(this.formatting == "outlook")
++			this._setContent(parser.getDecodedBody() + this.SIGNATURE_PLACEHOLDER_OUTLOOK);
++		else
++			this._setContent(parser.getDecodedBody() + this.SIGNATURE_PLACEHOLDER);
++		
+ 		var convertAddress = function(addr) {
+ 			return {addr: addr, name:addr};
+ 		};
+@@ -431,7 +456,10 @@
+ 				text = text.escapeHTML().replace(/\n/g,"<br>");
+ 			}
+ 			
+-			this._setContent(text + this.SIGNATURE_PLACEHOLDER);
++			if(this.formatting == "outlook")
++				this._setContent(text + this.SIGNATURE_PLACEHOLDER_OUTLOOK);
++			else
++				this._setContent(text + this.SIGNATURE_PLACEHOLDER);
+ 		}
+ 
+ 		// TODO: this should perform validation/fixup on the recipients
+@@ -583,79 +611,119 @@
+ 		// Here we rely on the message scene having added a 'text' property at the top level of the object.
+ 		// It would be more robust to read the message body ourselves, and modify the message scene not to modify the object.
+ 		// So let's change this at some point.
+-		if (original.text && original.text.length > 0) {
+-			text = this.REPLY_FWD_HTML;
++		if (original.text && original.text.length > 0 && (this.formatting != "none" || this.action === "forward")) {
++			if(this.formatting == "outlook") {
++				if(this.formattingReply == "plus")
++					text = this.REPLY_FWD_HTML_OUTLOOK_PLUS;
++				else
++					text = this.REPLY_FWD_HTML_OUTLOOK;
++			}
++			else
++				text = this.REPLY_FWD_HTML;			
+ 			var fromObj = original.from;
+ 			var dateFormatter = new enyo.g11n.DateFmt({
+ 				date:'medium',
+ 				time:'short'
+ 			});
++			var dateFormatterOutlook = new enyo.g11n.DateFmt({
++				date:'full',
++				time:'short'
++			});
+ 			
+-
+-			if (this.action === "forward") {
+-				var toAddressList = [];
+-				var ccAddressList = [];
+-				if (original.to) { // sometimes to is null. ie: in case of all bcc recips
+-					original.to.forEach(function(r){
+-						if (r.type === EmailRecipient.typeTo) {
++			var toAddressList = [];
++			var ccAddressList = [];
++			if (original.to) { // sometimes to is null. ie: in case of all bcc recips
++				original.to.forEach(function(r){
++					if (r.type === EmailRecipient.typeTo) {
++						if (r.name) {
++							var toStr;
++							if (r.name === r.addr) {
++								toStr = r.name;
++							}
++							else {
++								if(this.formatting == "outlook")
++									toStr = EmailApp.Util.interpolate("#{name}", r);
++								else
++									toStr = EmailApp.Util.interpolate("#{name} <#{addr}>", r);
++							}
++							toAddressList.push(toStr);
++						}
++					}
++					else 
++						if (r.type === EmailRecipient.typeCc) {
+ 							if (r.name) {
+-								var toStr;
++								var ccStr;
+ 								if (r.name === r.addr) {
+-									toStr = r.name;
++									ccStr = r.name;
+ 								}
+ 								else {
+-									toStr = EmailApp.Util.interpolate("#{name} <#{addr}>", r);
+-								}
+-								toAddressList.push(toStr);
+-							}
+-						}
+-						else 
+-							if (r.type === EmailRecipient.typeCc) {
+-								if (r.name) {
+-									var ccStr;
+-									if (r.name === r.addr) {
+-										ccStr = r.name;
+-									}
+-									else {
++									if(this.formatting == "outlook")
++										ccStr = EmailApp.Util.interpolate("#{name}", r);
++									else
+ 										ccStr = EmailApp.Util.interpolate("#{name} <#{addr}>", r);
+-									}
+-									ccAddressList.push(ccStr);
+ 								}
++								ccAddressList.push(ccStr);
+ 							}
+-					});
+-				}
++						}
++				});
++			}
+ 
++			var d = parseInt(original.timestamp, 10);
++				
++			if (this.action === "forward") {
+ 				if (fromObj.name === fromObj.addr) {
+ 					text += $L("<b>From:</b> ") + (fromObj.name || '').escapeHTML() + "<br/>";
+ 				}
+ 				else {
+-					text += $L("<b>From:</b> ") + (EmailApp.Util.interpolate("#{name} <#{addr}>", fromObj)).escapeHTML() + "<br/>";
++					if(this.formatting == "outlook")
++						text += $L("<b>From:</b> ") + (EmailApp.Util.interpolate("#{name}", fromObj)).escapeHTML() + "<br/>";
++					else
++						text += $L("<b>From:</b> ") + (EmailApp.Util.interpolate("#{name} <#{addr}>", fromObj)).escapeHTML() + "<br/>";
++				}
++				if(this.formatting == "outlook")
++					text += $L("<b>Sent:</b> ") + dateFormatterOutlook.format(new Date(d)) + "<br/>";
++				else {
++					text += $L("<b>Date:</b> ") + dateFormatter.format(new Date(d)) + "<br/>";
++					text += $L("<b>Subject:</b> ") + original.subject.escapeHTML() + "<br/>";
+ 				}
+-				var d = parseInt(original.timestamp, 10);
+-				text += $L("<b>Date:</b> ") + dateFormatter.format(new Date(d)) + "<br/>";
+-				text += $L("<b>Subject:</b> ") + original.subject.escapeHTML() + "<br/>";
+ 				if (toAddressList.length > 0) {
+ 					text += $L("<b>To:</b> ") + (toAddressList.join("; ") || '').escapeHTML() + "<br/>";
+ 				}
+ 				if (ccAddressList.length > 0) {
+-					text += $L("<b>CC:</b> ") + (ccAddressList.join("; ") || '').escapeHTML() + "<br/>";
++					if(this.formatting == "outlook")
++						text += $L("<b>Cc:</b> ") + (ccAddressList.join("; ") || '').escapeHTML() + "<br/>";
++					else	
++						text += $L("<b>CC:</b> ") + (ccAddressList.join("; ") || '').escapeHTML() + "<br/>";
+ 				}
+-
++				if(this.formatting == "outlook")
++					text += $L("<b>Subject:</b> ") + original.subject.escapeHTML() + "<br/>";				
+ 			} else {
+-
+-				// reply case. Integrate header info with sentence
+-				var strArgs = {
+-					"monthDate": "",
+-					"name": fromObj.name,
+-					"addr": fromObj.addr
+-				};
+-				if (original.timestamp) {
+-					//<Month (short version)> <Day>,<Year> at <time>
+-					var d = parseInt(original.timestamp, 10);
+-					strArgs.monthDate = dateFormatter.format(new Date(d));
+-					text += EmailApp.Util.interpolate($L("On #{monthDate}, #{name} <#{addr}> wrote: "), strArgs).escapeHTML();
+-				} else {
+-					text += EmailApp.Util.interpolate($L("#{name} <#{addr}> wrote: "), strArgs).escapeHTML();
++				if(this.formatting == "outlook") {
++					text += $L("<b>From:</b> ") + (EmailApp.Util.interpolate("#{name}", fromObj)).escapeHTML() + "<br/>";
++					text += $L("<b>Sent:</b> ") + dateFormatterOutlook.format(new Date(d)) + "<br/>";
++					if (toAddressList.length > 0) {
++						text += $L("<b>To:</b> ") + (toAddressList.join("; ") || '').escapeHTML() + "<br/>";
++					}
++					if (ccAddressList.length > 0) {
++						text += $L("<b>Cc:</b> ") + (ccAddressList.join("; ") || '').escapeHTML() + "<br/>";
++					}
++					text += $L("<b>Subject:</b> ") + original.subject.escapeHTML() + "<br/>";				
++				}
++				else {
++					// reply case. Integrate header info with sentence
++					var strArgs = {
++						"monthDate": "",
++						"name": fromObj.name,
++						"addr": fromObj.addr
++					};
++					if (original.timestamp) {
++						//<Month (short version)> <Day>,<Year> at <time>
++						var d = parseInt(original.timestamp, 10);
++						strArgs.monthDate = dateFormatter.format(new Date(d));
++						text += EmailApp.Util.interpolate($L("On #{monthDate}, #{name} <#{addr}> wrote: "), strArgs).escapeHTML();
++					} else {
++						text += EmailApp.Util.interpolate($L("#{name} <#{addr}> wrote: "), strArgs).escapeHTML();
++					}
+ 				}
+ 			}
+ 			
+@@ -665,7 +733,10 @@
+ 			originalText = original.text;
+ 		} else {
+ 			console.log("ERROR: Composition._createCommon: couldn't find original message text.");
+-			text = this.SIGNATURE_PLACEHOLDER;
++			if(this.formatting == "outlook")
++				text = this.SIGNATURE_PLACEHOLDER_OUTLOOK;
++			else
++				text = this.SIGNATURE_PLACEHOLDER;
+ 			originalText = "";
+ 		}
+ 		
+--- .orig/media/cryptofs/apps/usr/palm/applications/com.palm.app.email/nowindow/source/Launch.js
++++ /media/cryptofs/apps/usr/palm/applications/com.palm.app.email/nowindow/source/Launch.js
+@@ -9,6 +9,9 @@
+ 	constructor: function() {
+ 		this.inherited(arguments);
+ 		this.uniqueCardNums = {};
++		
++		this.formatting = "default";
++		this.formattingReply = "default";
+ 	},
+ 	
+ 	
+@@ -28,6 +31,19 @@
+ 		// Actual startup is here. 
+ 		enyo.application.accounts = new EmailApp.AccountList(loadPrefs);
+ 		EmailApp.Util.setUpConnectionWatch();
++
++		var tweaksPrefsLoaded = function(response) {
++			if(response.emailReplyForward == "outlook+") {
++				this.formatting = "outlook";
++				this.formattingReply = "plus";
++			}
++			else
++				this.formatting = response.emailReplyForward;
++		};
++
++		this.getTweaksPrefs = EmailApp.Util.callService('palm://org.webosinternals.tweaks.prefs/get', 
++			{'owner': "org.webosinternals.patches.email-mimic-outlook-formatting", keys: ["emailReplyForward"]}, 
++			tweaksPrefsLoaded.bind(this));
+ 		
+ 		// Helper Launch handlers below. (hoisting pulls them to the top); 
+ 
+@@ -153,6 +169,8 @@
+ 		if (windowParams.edit && windowParams.edit._id) {
+ 			newWindow=false;
+ 		}
++		windowParams.formatting = this.formatting;
++		windowParams.formattingReply = this.formattingReply;
+ 		this.openCard("compose", windowParams, newWindow);
+ 	},
+ 	
