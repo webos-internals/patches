@@ -1,12 +1,12 @@
 diff --git a/usr/palm/applications/com.palm.app.browser/css/browser.css b/usr/palm/applications/com.palm.app.browser/css/browser.css
-index a2dd6b4..f369091 100644
+index a2dd6b4..bf65e11 100644
 --- a/usr/palm/applications/com.palm.app.browser/css/browser.css
 +++ b/usr/palm/applications/com.palm.app.browser/css/browser.css
-@@ -1,3 +1,34 @@
+@@ -1,3 +1,59 @@
 +/* ThumbNav */
 +
 +.gestureBarRight {
-+	width: 7px;
++	width: 8px;
 +	height: 1024px;
 +	background: none;
 +	position: absolute;
@@ -15,7 +15,7 @@ index a2dd6b4..f369091 100644
 +	z-index: 120;
 +}
 +.gestureBarLeft {
-+	width: 7px;
++	width: 8px;
 +	height: 1024px;
 +	background: none;
 +	position: absolute;
@@ -24,52 +24,207 @@ index a2dd6b4..f369091 100644
 +	z-index: 120;
 +}
 +.navBar {
-+	width: 50px;
-+	background: rgba(0,0,0,.7);
-+	padding: 5px 5px 5px 5px;
++	padding: 0px;
 +	margin: 0px;
-+	min-width: 10px;
++	/* enyo-popup overrides */
++	min-width: 50px;
 +	-webkit-box-sizing: border-box;
 +	border-width: 0px;
 +	-webkit-border-image: url(../images/popup.png) 0 0 0 0 stretch stretch;
++}
++.commandBar {
++	background: rgba(0,0,0,.8);
++	padding: 5px;
++}
++.shareBar {
++	background: rgba(0,0,0,.8);
++}
++.shareItem {
++	border-top: none;
++	border-bottom: none;
++	padding: 10px;
++	font-size: .9rem;
++	color: #fff;
++}
++.shareItem.enyo-held {
++	background: rgba(0,0,0,.5);
++}
++.navBarSpacer {
++	width: 155px;
++}
++.rotateToUp {
++	-webkit-transform: rotate(90deg);
++}
++.rotateToDown {
++	-webkit-transform: rotate(-90deg);
 +}
 +
  /* Start Page */
  
  .startpage-list .enyo-datalist-client {
+diff --git a/usr/palm/applications/com.palm.app.browser/source/ActionBar.js b/usr/palm/applications/com.palm.app.browser/source/ActionBar.js
+index b680425..cbb7c78 100644
+--- a/usr/palm/applications/com.palm.app.browser/source/ActionBar.js
++++ b/usr/palm/applications/com.palm.app.browser/source/ActionBar.js
+@@ -29,7 +29,7 @@ enyo.kind({
+ 	},
+ 	components: [
+     	{kind: "Control", showing: false, name: "title", className: "page-title enyo-text-ellipsis", content: "Untitled"},
+-		{kind: enyo.HFlexBox, className: "menu-container", align: "center", components: [
++		{kind: enyo.HFlexBox, name: "gActionBar", className: "menu-container", align: "center", components: [
+ 			{kind: "ToolButton", name: "back", className: "actionbar-tool-button", icon: "images/chrome/menu-icon-back.png", onclick: "doBack"},
+ 			{kind: "ToolButton", name: "forward", className: "actionbar-tool-button", icon: "images/chrome/menu-icon-forward.png", onclick: "doForward"},
+ 			{kind: "ToolButton", name: "search", className: "actionbar-tool-button", flex: 1, kind: "URLSearch", onLoad: "doLoad", onStopLoad: "doStopLoad", onRefresh: "doRefresh"},
 diff --git a/usr/palm/applications/com.palm.app.browser/source/Browser.js b/usr/palm/applications/com.palm.app.browser/source/Browser.js
-index 6094e1c..afd8f63 100644
+index 6094e1c..00277dc 100644
 --- a/usr/palm/applications/com.palm.app.browser/source/Browser.js
 +++ b/usr/palm/applications/com.palm.app.browser/source/Browser.js
 @@ -56,6 +56,8 @@ enyo.kind({
  			onPrint: "doPrint",
  			minFontSize: 2,
  		},
-+		{kind: "Control", className: "gestureBarLeft", onmousedown: "openNavBar"},
-+		{kind: "Control", className: "gestureBarRight", onmousedown: "openNavBar"},
++		{name: "gestureBarLeft", kind: "Control", className: "gestureBarLeft", onmousedown: "openNavBar"},
++		{name: "gestureBarRight", kind: "Control", className: "gestureBarRight", onmousedown: "openNavBar"},
  		{kind: "FindBar", showing: false, onFind: "find", onGoToPrevious: "goToPrevious", onGoToNext: "goToNext"},
  		{name: "context", kind: "BrowserContextMenu", onItemClick: "contextItemClick"},
  		{name: "dialog", kind: "VerticalAcceptCancelPopup", cancelCaption: "", components: [
-@@ -86,6 +88,13 @@ enyo.kind({
+@@ -86,6 +88,24 @@ enyo.kind({
  				{kind: "Button", flex: 1, caption: $L("Don't Trust"), response: "0", className: "enyo-button-dark", onclick: "closeSSLConfirmBox"}
  			]}
  		]},
-+		{name: "navBar", kind: "Popup", className: "navBar", components: [
-+			{kind: "ToolButton", name: "back", className: "actionbar-tool-button", icon: "images/chrome/menu-icon-back.png", onclick: "nbBack"},
-+			{kind: "ToolButton", name: "forward", className: "actionbar-tool-button", icon: "images/chrome/menu-icon-forward.png", onclick: "nbForward"},
-+			{kind: "ToolButton", name: "refresh", className: "actionbar-tool-button", icon: "images/chrome/menu-icon-refresh.png", onclick: "nbRefresh"},
-+			{kind: "ToolButton", className: "actionbar-tool-button", icon: "images/chrome/menu-icon-newcard.png", onclick: "nbNewCard"},
-+			{kind: "ToolButton", className: "actionbar-tool-button", icon: "images/chrome/menu-icon-bookmark.png", onclick: "nbOpenBookmarks"},
++		{name: "navBar", kind: "Popup", layoutKind: "HFlexLayout", className: "navBar", onClose: "cleanupNavBar", components: [
++			{name: "shareBarL", kind: "VFlexBox", pack: "center", className: "shareBar", showing: false, components: [
++				{kind: "Item", className: "shareItem", tapHighlight: true, content: "Add Bookmark", onclick: "nbAddBookmark"},
++				{kind: "Item", className: "shareItem", tapHighlight: true, content: "Share Link", onclick: "nbShareLink"},
++				{kind: "Item", className: "shareItem", tapHighlight: true, content: "Add to Launcher", onclick: "nbAddToLauncher"},
++			]},
++			{name: "spacer", className: "navBarSpacer", showing: false, onclick: "closeNavBar"},
++			{name: "nbButtons", kind: "VFlexBox", className: "commandBar", components: [
++								
++			]},
++			{name: "shareBarR", kind: "VFlexBox", pack: "center", className: "shareBar", showing: false, components: [
++				{kind: "Item", className: "shareItem", tapHighlight: true, content: "Add Bookmark", onclick: "nbAddBookmark"},
++				{kind: "Item", className: "shareItem", tapHighlight: true, content: "Share Link", onclick: "nbShareLink"},
++				{kind: "Item", className: "shareItem", tapHighlight: true, content: "Add to Launcher", onclick: "nbAddToLauncher"},
++			]},
++			
 +		]},
++		{kind: "PalmService", name: "getTweaks", service: "palm://org.webosinternals.tweaks.prefs/", method: "get", onSuccess: "gotTweaks", onFailure: "gotTweaksFailed"},
          {name: "sslCertDialog", kind: "CertificateDialog", onCertLoad: "enableViewSSLCertificate", onClose: "closeSSLCertificate"}
      ],
  	WebKitErrors: {
-@@ -116,6 +125,29 @@ enyo.kind({
+@@ -99,6 +119,11 @@ enyo.kind({
+ 	create: function() {
+ 		this.inherited(arguments);
+ 		this.$.context.setView(this.$.view);
++		this.nbSlotAction = [];
++		this.nbSlotIcon = [];
++		var defaultButtons = {nbSlot0:"fullScreen",nbSlot1:"share",nbSlot2:"back",nbSlot3:"forward",nbSlot4:"refresh",nbSlot5:"bookmarks",nbSlot6:"newCard"};
++		this.gotTweaks("", defaultButtons);
++		this.$.getTweaks.call({owner: "com.choorp.thumbnav", keys: ["nbSlot0","nbSlot1","nbSlot2","nbSlot3","nbSlot4","nbSlot5","nbSlot6"]});
+ 		this.urlChanged();
+ 		this.searchPreferencesChanged();
+ 		this.defaultSearchChanged();
+@@ -116,6 +141,187 @@ enyo.kind({
  			this.$.actionbar.forceBlur();
  		}
  	},
++	defineButton: function(index, name) {
++		this.nbSlotAction[index] = this.defineButtonAction(name);
++		this.nbSlotIcon[index] = this.defineButtonIcon(name);
++	},
++	defineButtonAction: function(name) {
++		switch(name) {
++			case "back":
++				return "nbBack";
++			case "bookmarks":
++				return "nbBookmarks";
++			case "forward":
++				return "nbForward";
++			case "fullScreen":
++				return "nbFullScreen";
++			case "newCard":
++				return "nbNewCard";
++			case "refresh":
++				return "nbRefresh";
++			case "share":
++				return "nbShare";
++			default:
++				return "empty";
++		}
++	},
++	defineButtonIcon: function(name) {
++		switch(name) {
++			case "back":
++				return "images/chrome/menu-icon-back.png";
++			case "bookmarks":
++				return "images/chrome/menu-icon-bookmark.png";
++			case "forward":
++				return "images/chrome/menu-icon-forward.png";
++			case "fullScreen":
++				return "/media/cryptofs/apps/usr/palm/applications/com.palm.app.photos/images/icn-fillscreen.png";
++			case "newCard":
++				return "images/chrome/menu-icon-newcard.png";
++			case "refresh":
++				return "images/chrome/menu-icon-refresh.png";
++			case "share":
++				return "images/chrome/menu-icon-share.png";
++			default:
++				return "empty";
++		}
++	},
++	gotTweaks: function(inSender, inResponse){
++		if((inResponse) && (inResponse.nbSlot0)) {
++			this.defineButton(0,inResponse.nbSlot0);
++		}
++		if((inResponse) && (inResponse.nbSlot1)) {
++			this.defineButton(1,inResponse.nbSlot1);
++		}
++		if((inResponse) && (inResponse.nbSlot2)) {
++			this.defineButton(2,inResponse.nbSlot2);
++		}
++		if((inResponse) && (inResponse.nbSlot3)) {
++			this.defineButton(3,inResponse.nbSlot3);
++		}
++		if((inResponse) && (inResponse.nbSlot4)) {
++			this.defineButton(4,inResponse.nbSlot4);
++		}
++		if((inResponse) && (inResponse.nbSlot5)) {
++			this.defineButton(5,inResponse.nbSlot5);
++		}
++		if((inResponse) && (inResponse.nbSlot6)) {
++			this.defineButton(6,inResponse.nbSlot6);
++		}
++		
++	},
 +	openNavBar: function(inSender, inEvent) {
-+		this.$.navBar.openAtEvent(inEvent, {top: -100, left: -7});
++		var topOffset = 0;
++		for(i=0;i<7;i++) {
++			if(this.nbSlotAction[i]!="empty")
++				topOffset = topOffset - 16;
++		}
++		this.$.navBar.openAtEvent(inEvent, {top: topOffset, left: -200});
++		
++		this.$.nbButtons.destroyControls();
++		for(i=0;i<7;i++) {
++			if(this.nbSlotAction[i]!="empty")
++				this.$.nbButtons.createComponent({owner: this, kind: "ToolButton", className: "actionbar-tool-button", icon: this.nbSlotIcon[i], onclick: this.nbSlotAction[i]});
++		}
++		this.$.nbButtons.render();
++	
++		var side = inSender.getName();
++		if(side=="gestureBarLeft") {
++			this.navBarLoc = "left";
++		}
++		else {
++			this.navBarLoc = "right";
++			this.$.spacer.setShowing(true);
++		}
++		this.nbHeight = -112;
++		
++	},
++	closeNavBar: function() {
++		this.$.navBar.close();
 +	},
 +	nbBack: function() {
 +		this.goBack();
@@ -83,14 +238,78 @@ index 6094e1c..afd8f63 100644
 +		this.reloadClick();
 +		this.$.navBar.close();
 +	},
++	nbShare: function(inSender, inEvent) {
++		if(this.navBarLoc=="right") {
++			var shareBarShowing = this.$.shareBarR.getShowing();
++			if(!shareBarShowing) {
++				this.$.shareBarR.setShowing(true);
++				this.$.spacer.setShowing(false);
++			}
++			else {
++				this.$.shareBarR.setShowing(false);
++				this.$.spacer.setShowing(true);
++			}
++		}
++		else {
++			var shareBarShowing = this.$.shareBarL.getShowing();
++			if(!shareBarShowing) {
++				this.$.shareBarL.setShowing(true);
++			}
++			else {
++				this.$.shareBarL.setShowing(false);
++			}
++		}
++	},
 +	nbNewCard: function() {
 +		this.openNewCard();
 +		this.$.navBar.close();
 +	},
-+	nbOpenBookmarks: function() {
++	nbFullScreen: function() {
++		var actionbarShowing = this.$.actionbar.$.gActionBar.getShowing();
++		
++		if(actionbarShowing) {
++			//this.$.btnFullScreen.setIcon("/usr/palm/applications/com.palm.app.photos/images/icn-normalsize.png");
++			enyo.setFullScreen(true);
++			this.$.actionbar.removeClass("enyo-toolbar actionbar enyo-vflexbox");
++			this.$.actionbar.setStyle("height:0px;");
++			this.$.actionbar.$.progressBar.setStyle("position:absolute;top:0px;z-index:121");
++			this.$.actionbar.$.gActionBar.hide();
++			this.resize();
++		}			
++		else {
++			//this.$.btnFullScreen.setIcon("/usr/palm/applications/com.palm.app.photos/images/icn-fillscreen.png");
++			enyo.setFullScreen(false);
++			this.$.actionbar.setClassName("enyo-toolbar actionbar enyo-vflexbox");
++			this.$.actionbar.setStyle("");
++			this.$.actionbar.$.progressBar.setStyle("");
++			this.$.actionbar.$.gActionBar.show();
++			this.resize();
++		}
++			
++		this.$.navBar.close();
++	},
++	nbBookmarks: function() {
 +		this.doOpenBookmarks();
 +		this.$.navBar.close();
 +	},
++	nbAddBookmark: function() {
++		this.doAddBookmark();
++		this.$.navBar.close();
++	},
++	nbShareLink: function() {
++		this.doShareLink();
++		this.$.navBar.close();
++	},
++	nbAddToLauncher: function() {
++		this.doAddToLauncher();
++		this.$.navBar.close();
++	},
++	cleanupNavBar: function() {
++		this.$.spacer.setShowing(false);
++		this.$.shareBarL.setShowing(false);
++		this.$.shareBarR.setShowing(false);
++	},
++	// End ThumbNav
  	//* @public
  	printFrame: function(inJobID, inPrintParams) {
  		this.viewCall("printFrame", ["", inJobID, inPrintParams.width, inPrintParams.height, inPrintParams.pixelUnits, false, inPrintParams.renderInReverseOrder]);
