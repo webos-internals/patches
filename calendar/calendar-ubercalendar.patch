@@ -3233,7 +3233,7 @@ index 84263c0..196446a 100644
  				}.bind(this), 
  				{
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
-index 9ba9c70..d4f3b9b 100644
+index 9ba9c70..7782500 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 @@ -8,13 +8,16 @@ var EditAssistant = Class.create({
@@ -3759,7 +3759,15 @@ index 9ba9c70..d4f3b9b 100644
  	},
  	/*
  	//Not relevant anymore - cleanup
-@@ -997,6 +1293,195 @@ var EditAssistant = Class.create({
+@@ -929,6 +1225,7 @@ var EditAssistant = Class.create({
+ 		else this.repeatFreqChoice = 1; //no repeat
+ 	
+ 
++
+ 	},
+ 	
+ 	checktargetEventDirty:function(){
+@@ -997,6 +1294,279 @@ var EditAssistant = Class.create({
  		this.controller.stageController.pushScene('datetime', this.targetEvent,this.targetModifiedTime,this.resettargetEvent.bind(this),this.oldEvent,this.setEventCallback,this.controller,this.callBackAfterUpdate,this.targetId);
  		
  	},	
@@ -3774,7 +3782,8 @@ index 9ba9c70..d4f3b9b 100644
 +					{label: $L("Map"), command: 0},
 +					{label: $L("Directions"), command: 1},
 +					{label: $L("Insert address"), command: 2},
-+					{label: $L("Clear location"), command: 3}
++					{label: $L("Clear location"), command: 3},
++					{label: $L("Advanced copy"), command: 4}
 +					];
 +					
 +				this.controller.popupSubmenu({
@@ -3787,6 +3796,7 @@ index 9ba9c70..d4f3b9b 100644
 +				var items=[
 +					{label: $L("Map"), command: 0},
 +					{label: $L("Insert address"), command: 2},
++					{label: $L("Advanced copy"), command: 4}
 +					];
 +				
 +				this.controller.popupSubmenu({
@@ -3798,8 +3808,82 @@ index 9ba9c70..d4f3b9b 100644
 +		}
 +	},
 +	
++	uberAdvCopyDone: function (array){
++		if(this.notemodel && this.notemodel.disabled===true) {
++			//read only, do nothing
++			return;
++		}
++		var options = [], len, obj, txt, field, old;
++		options = array;
++		len = options && options.length;
++		if(len && len > 0){
++			for(var i =0; i< len;i++){
++				obj = {};
++				replace = false;
++				txt = "";
++				field = "";
++				old = "";
++				obj = options[i];
++				replace = !!obj.replace;
++				txt = obj.data || "";
++				field = obj.field || "";
++				switch(field){
++					case "note":
++						if(replace && txt){
++							this.editnotediv.mojo.value = txt;
++							this.targetEvent.note = this.editnotediv.mojo.value;
++							this.controller.modelChanged (this.notemodel);
++							this.targetEvent.dirty =true;
++							this.getUberCatValue(this.editnotediv.mojo.value);
++						} else if(txt){
++							old = this.editnotediv.mojo.value;
++							this.editnotediv.mojo.value = old + " " + txt;
++							this.targetEvent.note = this.editnotediv.mojo.value;
++							this.controller.modelChanged (this.notemodel);
++							this.targetEvent.dirty =true;
++							this.getUberCatValue(this.editnotediv.mojo.value);
++						}
++						break;
++						
++					case "loc":
++						if(replace && txt){
++							this.locationmodel.location = txt;
++							this.targetEvent.location = txt;
++							this.controller.modelChanged(this.locationmodel);
++							this.targetEvent.dirty =true;
++						} else if(txt){
++							old = this.locationmodel.location !== "" ? this.locationmodel.location: "";
++							this.targetEvent.location =(old + " " + txt);
++							this.locationmodel.location = old + " " + txt;
++							this.controller.modelChanged(this.locationmodel);
++							this.targetEvent.dirty =true;
++						}
++						break;
++					
++					case "subject":
++						if(replace && txt){
++							this.targetEvent.subject = txt;
++							this.subjectmodel.subject = this.targetEvent.subject;
++							this.controller.modelChanged (this.subjectmodel);
++							this.targetEvent.dirty =true;
++						} else if(txt){
++							old = this.targetEvent.subject;
++							this.targetEvent.subject = old + " " + txt;
++							this.subjectmodel.subject = this.targetEvent.subject;
++							this.controller.modelChanged (this.subjectmodel);
++							this.targetEvent.dirty =true;
++						}
++						break;
++					default:
++					break;
++				}
++			}
++		}
++	},
++	
 +	uberLocationChoose: function(val) {
 +		var value = parseInt(val);
++		this.advancedCopy = false;
 +		this.uberEditLoc = false;
 +		if(val !== undefined) {
 +			switch (value) {
@@ -3811,6 +3895,8 @@ index 9ba9c70..d4f3b9b 100644
 +					getAppManagerService().launchMaps(this.controller,this.targetEvent.location,true);
 +					break;
 +				
++				case 4:
++					this.advancedCopy = true;
 +				case 2: //insert address
 +					this.uberEditLoc = true;
 +					this.controller.stageController.pushScene(
@@ -3848,7 +3934,13 @@ index 9ba9c70..d4f3b9b 100644
 +	},
 +	
 +	handleUberPicker: function(resp) {
-+		if(resp && resp.details && resp.details.record) {
++		if(resp && this.advancedCopy){
++			this.controller.showDialog({
++            template: 'shared/uber-timezone',
++            assistant: new UberAdvancedCopy(this.controller, this, resp),
++			});
++			return;
++		} else if(resp && resp.details && resp.details.record) {
 +			var adds = resp.details.record.addresses;
 +			var lname = resp.details.record.lastName || "";
 +			var fname = resp.details.record.firstName || "";
@@ -3955,7 +4047,7 @@ index 9ba9c70..d4f3b9b 100644
  	handleEditRepeat: function(e){
  		Mojo.Log.info("edit-assistant:handleEditRepeat");
  			var items=[];
-@@ -1040,7 +1525,7 @@ var EditAssistant = Class.create({
+@@ -1040,7 +1610,7 @@ var EditAssistant = Class.create({
  	repeatChoose: function(val) {
  		//Mojo.Log.info("edit-assistant:repeatChoose");
  	
@@ -3964,7 +4056,7 @@ index 9ba9c70..d4f3b9b 100644
  		if (val != undefined && (value != this.repeatFreqChoice) ){			
  			this.targetEvent.onlyRepeatChanged = true;
  			if (this.repeatFreqChoice == 5) {
-@@ -1076,6 +1561,52 @@ var EditAssistant = Class.create({
+@@ -1076,6 +1646,52 @@ var EditAssistant = Class.create({
  
  	},
  
@@ -4017,7 +4109,7 @@ index 9ba9c70..d4f3b9b 100644
  	handleEditAlarm: function(e){
  		Mojo.Log.info("edit-assistant:handleEditAlarm");
  		var items=[];
-@@ -1100,7 +1631,7 @@ var EditAssistant = Class.create({
+@@ -1100,7 +1716,7 @@ var EditAssistant = Class.create({
  
  	alarmChoose: function(val) {
  		
@@ -4740,7 +4832,7 @@ index 747fcb3..5c4796b 100644
  		this.gotoDayView(new Date());
  	},
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
-index cebe803..f1314ac 100644
+index cebe803..3444a2e 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 @@ -3,7 +3,7 @@
@@ -4752,7 +4844,7 @@ index cebe803..f1314ac 100644
  var PrefsAssistant = Class.create({
  				 
  	initialize: function() {
-@@ -43,12 +43,20 @@ var PrefsAssistant = Class.create({
+@@ -43,12 +43,22 @@ var PrefsAssistant = Class.create({
  	renderNewEventDuration: function() {
  		var ned = {};
  		
@@ -4763,6 +4855,8 @@ index cebe803..f1314ac 100644
 +		} else if (this.prefs.defaultEventDuration <= 60) {
  			ned.duration = ONE_HOUR;
 -		} else {
++		} else if (this.prefs.defaultEventDuration <= 75) {
++			ned.duration = "75 minutes";
 +		} else if (this.prefs.defaultEventDuration <= 90) {
 +			ned.duration = "90 minutes";
 +		} else if (this.prefs.defaultEventDuration <= 120) {
@@ -4776,7 +4870,7 @@ index cebe803..f1314ac 100644
  		}
  		
  		this.controller.get('pv_new_event_duration').update(ned.duration);
-@@ -189,19 +197,21 @@ var PrefsAssistant = Class.create({
+@@ -189,19 +199,21 @@ var PrefsAssistant = Class.create({
  	
  	getCurrentAllDayAlarmString: function() {
  		var index = 0;
@@ -4801,7 +4895,7 @@ index cebe803..f1314ac 100644
  		for (index = 0; index < this.alarms.size() + this.allDayAlarms.size() - 1; index++) {
  			alarmStr = response[index];
  			
-@@ -234,6 +244,7 @@ var PrefsAssistant = Class.create({
+@@ -234,6 +246,7 @@ var PrefsAssistant = Class.create({
  	
  	buildAlarmsMenu: function() {
  		//Mojo.Log.info('prefs-assistant: buildAlarmsMenu');
@@ -4809,7 +4903,7 @@ index cebe803..f1314ac 100644
  		var params =[this.alarms[0].command, 
  					 this.alarms[1].command, 
  					 this.alarms[2].command,
-@@ -247,7 +258,14 @@ var PrefsAssistant = Class.create({
+@@ -247,7 +260,14 @@ var PrefsAssistant = Class.create({
  					 this.allDayAlarms[2].command,
  					 this.allDayAlarms[3].command,
  					 this.allDayAlarms[4].command];
@@ -4825,7 +4919,7 @@ index cebe803..f1314ac 100644
  		/*this.request = new Mojo.Service.Request(CalendarMojoService.identifier + '/formatter', {
  			method: 'formatAlarmStrings',
  			parameters: params,
-@@ -377,6 +395,1062 @@ var PrefsAssistant = Class.create({
+@@ -377,6 +397,1062 @@ var PrefsAssistant = Class.create({
  	setup: function() {
  		// Retrieve the prefs from the service
  		this.prefs = getPrefs();
@@ -5888,7 +5982,7 @@ index cebe803..f1314ac 100644
  		this.requests = [];
  		this.syncSources = [];
  		this.dirty = false;
-@@ -399,7 +1473,7 @@ var PrefsAssistant = Class.create({
+@@ -399,7 +1475,7 @@ var PrefsAssistant = Class.create({
  		};
  	    this.controller.setupWidget('pv_startofday_timepicker', {label: $L("Start")}, this.startTimeModel);
  	    this.controller.listen('pv_startofday_timepicker',Mojo.Event.propertyChange, this.startOfDayCallback.bindAsEventListener(this));
@@ -5897,7 +5991,7 @@ index cebe803..f1314ac 100644
  		var endTime = new Date(this.prefs.endTimeOfDay);
  		endTime.addMinutes(endTime.getTimezoneOffset());
  		var utcEndTime = endTime.getTime();
-@@ -408,7 +1482,7 @@ var PrefsAssistant = Class.create({
+@@ -408,7 +1484,7 @@ var PrefsAssistant = Class.create({
  		};
  	    this.controller.setupWidget('pv_endofday_timepicker', {label: $L("End")}, this.endTimeModel);
  	    this.controller.listen('pv_endofday_timepicker',Mojo.Event.propertyChange, this.endOfDayCallback.bindAsEventListener(this));
@@ -5906,7 +6000,7 @@ index cebe803..f1314ac 100644
  		var soundSelections = {
        	modelProperty: 'value',
        	label: $L("Alert"),
-@@ -419,7 +1493,6 @@ var PrefsAssistant = Class.create({
+@@ -419,7 +1495,6 @@ var PrefsAssistant = Class.create({
  			{label: $L('Mute'),value:"4"}
        		]
        	};
@@ -5914,7 +6008,7 @@ index cebe803..f1314ac 100644
  		
  		this.notificationSoundModel = {
          	value:this.convertSoundDBToPopupVal(this.prefs.alarmSoundOn)
-@@ -452,8 +1525,6 @@ var PrefsAssistant = Class.create({
+@@ -452,8 +1527,6 @@ var PrefsAssistant = Class.create({
  					{label:$L('Help'), command:Mojo.Menu.helpCmd, disabled:false}]
  		}
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
@@ -5923,7 +6017,7 @@ index cebe803..f1314ac 100644
  	},
  
  	setCalendarPrefsCallback: function(response) {
-@@ -473,6 +1544,8 @@ var PrefsAssistant = Class.create({
+@@ -473,6 +1546,8 @@ var PrefsAssistant = Class.create({
  		
  		if (this.dirty)
  			this.savePrefs();
@@ -5932,7 +6026,7 @@ index cebe803..f1314ac 100644
  	},
  	
  	syncAllCallback: function(response) {
-@@ -494,9 +1567,9 @@ var PrefsAssistant = Class.create({
+@@ -494,9 +1569,9 @@ var PrefsAssistant = Class.create({
  	},
  	
  	activate: function() {
@@ -5943,7 +6037,7 @@ index cebe803..f1314ac 100644
  		this.startOfWeekClickHandler = this.handleStartOfWeekClick.bindAsEventListener(this);
  		this.controller.get('pv_start_of_week').observe('mojo-tap', this.startOfWeekClickHandler);
  		
-@@ -504,7 +1577,7 @@ var PrefsAssistant = Class.create({
+@@ -504,7 +1579,7 @@ var PrefsAssistant = Class.create({
  		this.controller.get('pv_default_evt_alarm').observe('mojo-tap', this.defaultEventAlarmClickHandler);
  		this.defaultAllDayEventAlarmClickHandler = this.handleDefaultAllDayEventAlarmClick.bindAsEventListener(this);
  		this.controller.get('pv_default_allday_evt_alarm').observe('mojo-tap', this.defaultAllDayEventAlarmClickHandler);
@@ -5952,7 +6046,7 @@ index cebe803..f1314ac 100644
  		this.newEventDurationClickHandler = this.handleNewEventDurationClick.bindAsEventListener(this);
  		this.controller.get('pv_new_event_duration').observe('mojo-tap', this.newEventDurationClickHandler);	
  	
-@@ -529,15 +1602,199 @@ var PrefsAssistant = Class.create({
+@@ -529,15 +1604,199 @@ var PrefsAssistant = Class.create({
  		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
  		this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
@@ -6153,7 +6247,7 @@ index cebe803..f1314ac 100644
  		//Mojo.Log.info('prefs-assistant: deactivate');
  		this.controller.get('pv_start_of_week').stopObserving('mojo-tap', this.startOfWeekClickHandler);
  		
-@@ -562,6 +1819,51 @@ var PrefsAssistant = Class.create({
+@@ -562,6 +1821,51 @@ var PrefsAssistant = Class.create({
  		
  		this.controller.stopListening('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
@@ -6205,7 +6299,7 @@ index cebe803..f1314ac 100644
  	},
  	
  	// *** EVENT HANDLERS ***
-@@ -595,6 +1897,209 @@ var PrefsAssistant = Class.create({
+@@ -595,6 +1899,209 @@ var PrefsAssistant = Class.create({
  			//this.renderDefaultCalendar();
  		}
  	},
@@ -6415,10 +6509,13 @@ index cebe803..f1314ac 100644
  	
  	handleAcctsListSelection: function(event) {
  		var id = event.item.accountId;
-@@ -698,8 +2203,20 @@ var PrefsAssistant = Class.create({
+@@ -698,8 +2205,23 @@ var PrefsAssistant = Class.create({
  					label: ONE_HOUR,
  					command: 60
  				}, {
++				label: $L("75 minutes"),
++					command: 75
++				}, {
 +				label: $L("90 minutes"),
 +					command: 90
 +				}, {
@@ -6436,7 +6533,7 @@ index cebe803..f1314ac 100644
  				}]
  			});
  	},
-@@ -744,34 +2261,336 @@ var PrefsAssistant = Class.create({
+@@ -744,34 +2266,336 @@ var PrefsAssistant = Class.create({
  			});
  	},
  	
@@ -11991,7 +12088,7 @@ index c53e388..219e47d 100644
  });
 \ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js b/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
-index e7499fe..8aef176 100644
+index e7499fe..60f7de6 100644
 --- a/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
 +++ b/usr/palm/applications/com.palm.app.calendar/javascripts/recurrence-warning.js
 @@ -1,3 +1,4 @@
@@ -12034,7 +12131,7 @@ index e7499fe..8aef176 100644
  	handleSingle: function(event) {
  		//Mojo.Log.info("************handling single");
  		this.widget.mojo.close();		
-@@ -50,4 +71,337 @@ var RecurrenceWarning = Class.create({
+@@ -50,4 +71,686 @@ var RecurrenceWarning = Class.create({
  	},
  		
  	
@@ -12371,6 +12468,355 @@ index e7499fe..8aef176 100644
 +		this.widget.mojo.close();
 +		this.sceneAssistant.uberConverterCallBack();
 +	}
++});
++
++var UberAdvancedCopy = Class.create({
++
++	initialize: function(controller, sceneAssistant, persObj) {
++		this.app = getAppAssistant();
++		this.sceneAssistant = sceneAssistant;
++		this.controller = controller;
++		if(persObj && persObj.details && persObj.details.record){
++			this.personObj = persObj.details.record;
++		}
++		this.setupPickedArray();
++		this.parsePerObj();
++	},
++	
++	setupPickedArray: function setupPickedArray(){
++		var arr = [];
++		arr[0] = {field: "note", replace: false, data:""};
++		arr[1] = {field: "loc", replace: false, data:""};
++		arr[2] = {field: "subject", replace: false, data:""};
++		this.pickedArray = arr;
++	},
++	
++	findType: function findType(type){
++		if(type !== undefined){
++			var loc;
++			switch(type){
++							case 0:
++							loc = $L("HOME");
++							break;
++							
++							case 1:
++							loc = $L("WORK");
++							break;
++							
++							case 3:
++							loc = $L("MOBILE");
++							break;
++							
++							case 2:
++							default:
++							loc = $L("OTHER");
++							break;
++			}
++			return loc;
++		}
++		return false;
++	},
++	
++	parsePerObj: function (){
++		if(this.personObj && this.personObj != undefined){
++			this.personDataArray = [];
++			var contact = this.personObj;
++			var obj, lname, fname, item, txt, fields = ["lastName", "firstName", "emailAddresses", "phoneNumbers", "urls", "notes", "addresses", "companyName", "jobTitle", "spouse", "nickname"];
++			for(var prop in this.personObj){
++				
++				if(this.personObj.hasOwnProperty(prop)){
++					if(fields.indexOf(prop) !== -1){
++						
++						obj = {}, item = {}, txt ="";
++						obj = this.personObj[prop];
++						//console.error(" person obj changed ::::::::::::: " + prop + ": " + JSON.stringify(obj));
++						if(prop === "lastName"){
++							lname = (obj || "");
++						} else if(prop === "firstName"){
++							fname = (obj || "");
++						} else if(prop === "companyName"){
++							item.label = "";
++							item.field = "";
++							txt = (obj || ""); 
++							if(txt){
++								item.data = txt;
++								this.personDataArray.push(item);
++							}
++						} else if(prop === "jobTitle"){
++							item.label = "";
++							item.field = "";
++							txt = (obj || ""); 
++							if(txt){
++								item.data = txt;
++								this.personDataArray.push(item);
++							}
++						} else if(prop === "notes" || prop === "birthday" || prop === "nickname" || prop === "spouse"){
++							var len = obj && obj.length;
++							if(len && len > 0){
++								for(var i =0;i < len; i++){
++									item = {};
++									item.field = "";
++									txt = "";
++									if(obj[i]){
++										item.label = "";
++										txt = (obj[i] || ""); 
++										if(txt){
++											item.data = txt;
++											this.personDataArray.push(item);
++										}
++									}
++								}
++							}
++						} else if(prop === "addresses"){
++							var len = obj && obj.length;
++							if(len && len > 0){
++								for(var i =0;i < len; i++){
++									item = {};
++									item.field = "";
++									txt = "";
++									if(obj[i].freeformAddress && obj[i].freeformAddress != ""){
++										txt = obj[i].freeformAddress;
++									} else if(obj[i].streetAddress || obj[i].city || obj[i].country || obj[i].state || obj[i].zipCode) {
++										txt = obj[i].streetAddress ? obj[i].streetAddress : "";
++										txt += obj[i].city ? (txt !== "" ? ", " : "") + obj[i].city : "";
++										txt += obj[i].state ? (txt !== "" ? ", " : "") + obj[i].state : "";
++										txt += obj[i].zipCode ? (txt !== "" ? ", " : "") + obj[i].zipCode : "";
++										txt += obj[i].country ? (txt !== "" ? ", " : "") + obj[i].country  : "";
++									}
++									if(obj[i].label !== undefined ) {
++										item.label = this.findType(obj[i].label);
++										if(txt){
++											item.data = txt;
++											this.personDataArray.push(item);
++										}
++									}
++								}
++							}
++						} else if(prop === "urls" || prop === "phoneNumbers"){
++							var len = obj && obj.length;
++							if(len && len > 0){
++								for(var i =0;i < len; i++){
++									item = {};
++									item.field = "";
++									txt = "";
++									item.label = this.findType(obj[i].label) || "";
++									if(obj[i].url){
++										txt = obj[i].url;
++									} else if(obj[i].type && obj[i].type === "PHONE"){
++										txt = obj[i].value;
++									}
++									if(txt){
++										item.data = txt;
++										this.personDataArray.push(item);
++									}
++								}
++							}
++						}
++					}
++				}
++			}
++			if(lname || fname){
++				item = {};
++				item.label = "";
++				item.field = "";
++				txt = (fname || "");
++				txt += txt !== "" ? " " + (lname || "") : (lname || ""); 
++				if(txt){
++					item.data = txt;
++					this.personDataArray.unshift(item);
++				}
++			}
++		}
++	},
++	
++	setup : function(widget) {
++		this.widget = widget;
++		var tzList = this.controller.get('uber-manual-tz-grp');
++		var parentDiv = tzList.parentNode;
++		var tzScroller = this.controller.get('TZscroller');
++		var hgt = '340px', devinfoHeight = Mojo.Environment.DeviceInfo.screenHeight;
++		if(devinfoHeight){
++			if(devinfoHeight == 400){
++				hgt = '260px';
++			}
++		}
++		tzScroller.setAttribute('style', "height:"+hgt+";");
++		parentDiv.removeChild(tzList);
++		tzScroller.innerHTML = '<div class="palm-group"><div class="palm-group-title" x-mojo-loc="">' + $L('check to replace, clear to append') + '</div>' +
++									'<div class="palm-row single"><div class="palm-row-wrapper">' +
++									'<table width="100%" style="margin-left:-20px;">	<tr ><td width="30%" nowrap="nowrap"><div ><div id="adv-copy-subject" x-mojo-element="CheckBox" class="icon left" style:"padding:0px; margin:0px -10px 0px -10px;"></div><div style="font:10px prelude; overflow:hidden;padding-top:15px;" x-mojo-loc="">' + $L('Subject')+ '</div></div></td>' +
++										'<td width="30%" nowrap="nowrap"><div><div id="adv-copy-location" x-mojo-element="CheckBox" class="icon left" style:"padding=2px; margin:2px;></div><div style="font:10px prelude; overflow:hidden;padding-top:15px;" x-mojo-loc="">' + $L('Location')+ '</div></div></td>' +
++										'<td width="30% right="0px"" nowrap="nowrap" style="margin-left:30px;"><div><div id="adv-copy-note" x-mojo-element="CheckBox" class="icon left" style:"padding=2px; margin:2px;></div><div style="font:10px prelude; overflow:hidden;padding-top:15px;" x-mojo-loc="">' + $L('Note')+ '</div></div></td>' +
++									'</tr></table></div></div>' +
++								'</div>';
++		
++		if(this.personDataArray && this.personDataArray.length > 0){
++			var item, len = this.personDataArray.length;
++			for(var i=0;i<len;i++){
++				item = {};
++				item = this.personDataArray[i];
++				var newDiv1 = document.createElement('div');
++				newDiv1.setAttribute('class', "palm-row");
++				newDiv1.innerHTML =  '<div class="palm-row-wrapper">' + 
++						'<table width="100%"><tr><td width="70%" ><div id="'+i+'_person_obj_item_txt" style="font:12px prelude; overflow:hidden;max-width:100%">' + (item.label != "" ? item.label + ": " + item.data : item.data)+ '</div></td>' +
++							'<td width="30%" nowrap="nowrap"><div id="'+i+'_person_obj_item_button" style="overflow:hidden;max-width:100%;" class="palm-button" x-mojo-tap-highlight="momentary" x-mojo-loc="">'+ $L('Not in use') +  '</div></td>' +
++						'</tr></table></div>';
++				tzScroller.appendChild(newDiv1);
++				//this.controller.setupWidget(i+'_person_obj_item_button', {},{label:"", disabled:false});
++			}
++		}
++		var parentDiv = this.controller.get('Cancel').parentNode.parentNode.parentNode.parentNode;
++		parentDiv.innerHTML = '<table width="100%" style="margin-top:-5px; margin-bottom:-5px"><tr><td width="50%"><div id="Cancel" class="palm-button dismiss" x-mojo-tap-highlight="momentary" style="overflow:hidden" x-mojo-loc="">' + $L("Cancel") + '</div></td>' +
++				'<td width="50%"><div id="Done" class="palm-button affimative" x-mojo-tap-highlight="momentary" style="overflow:hidden" x-mojo-loc="">' + $L('Done') + '</div></td></tr></table>';
++		
++		this.controller.setupWidget("TZscroller",{mode: 'vertical'});
++		var msgDiv = this.controller.get('uber-tz-msg');
++		msgDiv.innerHTML = $L('Contact data');
++		this.subjectModel = {value: this.pickedArray[2].replace};
++		this.locModel = {value: this.pickedArray[1].replace};
++		this.noteModel = {value: this.pickedArray[0].replace};
++		this.checkBoxAttr = {modelProperty: 'value'	};
++		this.controller.setupWidget('adv-copy-subject',this.checkBoxAttr,this.subjectModel);
++		this.controller.setupWidget('adv-copy-location',this.checkBoxAttr,this.locationModel);
++		this.controller.setupWidget('adv-copy-note',this.checkBoxAttr,this.noteModel);
++		
++	},
++	
++	activate: function(){
++		//this.pickedFieldIndex = null;
++		this.cancelTapHandler=this.onCancel.bindAsEventListener(this);
++		this.controller.get ('Cancel').addEventListener(Mojo.Event.tap, this.cancelTapHandler);
++		this.doneTapHandler=this.onDone.bindAsEventListener(this);
++		this.controller.get ('Done').addEventListener(Mojo.Event.tap, this.doneTapHandler);
++		this.controller.get('adv-copy-subject').observe(Mojo.Event.propertyChange, this.chooseSubjectEdit.bindAsEventListener(this));
++		this.controller.get('adv-copy-location').observe(Mojo.Event.propertyChange, this.chooseLocationEdit.bindAsEventListener(this));
++		this.controller.get('adv-copy-note').observe(Mojo.Event.propertyChange, this.chooseNotesEdit.bindAsEventListener(this));
++		if(this.personDataArray && this.personDataArray.length > 0){
++			var name, btn, len = this.personDataArray.length;
++			this.advButtonTapHandler = this.handleAdvButtonTap.bindAsEventListener(this);
++			for(var i=0;i<len;i++){
++				btn = this.controller.get((i+'_person_obj_item_button'));
++				btn.addEventListener(Mojo.Event.tap, this.advButtonTapHandler);
++			}
++		}
++	},
++	
++	deactivate: function(){
++		this.controller.get ('Cancel').removeEventListener(Mojo.Event.tap, this.cancelTapHandler);
++		this.controller.get ('Done').removeEventListener(Mojo.Event.tap, this.doneTapHandler);
++		this.controller.get('adv-copy-subject').stopObserving(Mojo.Event.propertyChange, this.chooseSubjectEdit.bind(this));
++		this.controller.get('adv-copy-location').stopObserving(Mojo.Event.propertyChange, this.chooseLocationEdit.bind(this));
++		this.controller.get('adv-copy-note').stopObserving(Mojo.Event.propertyChange, this.chooseNotesEdit.bind(this));
++		if(this.personDataArray && this.personDataArray.length > 0){
++			var name, len = this.personDataArray.length;
++			for(var i=0;i<len;i++){
++				btn = this.controller.get((i+'_person_obj_item_button'));
++				btn.removeEventListener(Mojo.Event.tap, this.advButtonTapHandler);
++			}
++		}
++	},
++	
++	onCancel: function (event) {
++		Event.stop(event);
++		this.widget.mojo.close();
++	},
++	
++	onDone: function (event){
++		Event.stop(event);
++		this.updatePickedArray();
++		this.sceneAssistant.uberAdvCopyDone(this.pickedArray);
++		this.widget.mojo.close();
++	},
++	
++	handleAdvButtonTap: function(e){
++		//Mojo.Log.error("Handle adv copy button::::::::: " + Object.keys(e));
++		//Mojo.Log.error("Handle adv copy button::::::::: " + (e.srcElement.id) + " num:: " + parseInt(e.srcElement.id, 10));
++		this.pickedIdx = null;
++		if(e.srcElement.id){
++			this.pickedIdx = parseInt(e.srcElement.id, 10);
++			var items = [
++				{label: $L("Not in use"), command: 0}
++				,{label: $L("Subject"), command: 1}
++				,{label: $L("Location"), command:2}
++				,{label: $L("Note"), command:3}
++			];
++			
++			this.controller.popupSubmenu({
++					onChoose: this.fieldChosen.bind(this),
++					items: items,
++					placeNear: this.controller.get(e.srcElement.id)
++					});
++		}
++		Event.stop(e);
++		return;
++	},
++	
++	fieldsArray: [$L('Not in use'), $L('Subject'), $L('Location'), $L('Note')],
++	
++	fieldChosen: function fieldChosen(idx){
++		//Mojo.Log.error("field chosen ::::::::: " + (idx) + " , pickedIdx: " + this.pickedIdx);
++		if(idx !== undefined && this.pickedIdx !== undefined && this.pickedIdx !== null){
++			var row = this.pickedIdx;
++			var idex = parseInt(idx, 10);
++			if(idex === 0){
++				this.personDataArray[row].field = "notInUse";
++			} else if(idex === 1){
++				this.personDataArray[row].field = "subject";
++			} else  if(idex === 2){
++				this.personDataArray[row].field = "loc";
++			} else  if(idex === 3){
++				this.personDataArray[row].field = "note";
++			}
++			this.updatePickedArray();
++			this.controller.get(row+'_person_obj_item_button').innerHTML = this.fieldsArray[idex];
++			
++		}
++		return true;
++	},
++	
++	updatePickedArray: function updatePickedArray(){
++		var txt, itemSub = "", itemLoc = "", itemNote = "", obj = {}, len;
++		len = this.personDataArray && this.personDataArray.length;
++		if(len && len > 0){
++			for(var i = 0; i < len; i++){
++				obj = {};
++				obj = this.personDataArray[i] && this.personDataArray[i];
++				if(obj.field && obj.field != undefined && obj.field !== "notInUse" && obj.data && obj.data != undefined && obj.data !== ""){
++					switch(obj.field){
++						case "note":
++						itemNote += (itemNote !== "" )? " " + obj.data : obj.data;
++						break;
++						
++						case "subject":
++						itemSub += (itemSub !== "" )? " " + obj.data : obj.data;
++						break;
++						
++						case "loc":
++						itemLoc += (itemLoc !== "" )? " " + obj.data : obj.data;
++						break;
++					}
++					//Mojo.Log.error("gen picked object ::::::" + itemSub + " :::::: loc : " + itemLoc + "note::::::: " + itemNote);
++				}
++			}
++			
++		}
++		this.pickedArray[0].data = itemNote;
++		this.pickedArray[1].data = itemLoc;
++		this.pickedArray[2].data = itemSub;
++		//Mojo.Log.error("gen picked array ::::::::::::: " + JSON.stringify(this.pickedArray));
++	},
++	
++	chooseSubjectEdit: function chooseSubjectEdit(event){
++		this.pickedArray[2].replace = event.value;
++	},
++	
++	chooseLocationEdit: function chooseLocationEdit(event){
++		this.pickedArray[1].replace = event.value;
++	},
++	
++	chooseNotesEdit: function chooseNotesEdit(event){
++		this.pickedArray[0].replace = event.value;
++	},
  });
 \ No newline at end of file
 diff --git a/usr/palm/applications/com.palm.app.calendar/sources.json b/usr/palm/applications/com.palm.app.calendar/sources.json
