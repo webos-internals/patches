@@ -1,8 +1,48 @@
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
-index 510366d..c98cd2f 100644
+index 510366d..f762aef 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
-@@ -228,11 +228,27 @@ enyo.kind ({
+@@ -41,6 +41,7 @@ enyo.kind ({
+ 		enyoApp.watch ({createEvent:this, currentDate:this});
+ 		enyoApp.app					= new calendar.App();
+ 		enyoApp.shareCurrentDate	= enyo.bind (this, this.shareCurrentDate);
++		enyoApp.getNotesIconParts	= enyo.bind (this, this.getNotesIconParts);
+ 	},
+ 
+ 	destroy: function destroy () {
+@@ -220,6 +221,31 @@ enyo.kind ({
+ 		};
+ 		enyo.application.share ({currentDate: currentDate});
+ 	},
++	
++	getNotesIconParts: function(note){
++		//Mojo.Log.error("icon parsing note :::::: "+ note );
++		if(!note || note === ""){
++			return false;
++		}
++		var start = note.indexOf('ICON=');
++		if( start > -1) {
++			var test = note.indexOf(';',start);
++			if(test >-1 && test > start + 5 && test - start <20){
++				var startTxt, endTxt, result, vresult, resultArray, patt = /[^a-z0-9_-]/;
++				startTxt = note.substring(0,start);
++				endTxt = note.length > test +1 ? note.substring(test+1) : "";
++				result = note.substring(start+5,test);
++				vresult = !patt.test(result) && result;
++				resultArray = vresult && [startTxt, vresult, endTxt];
++				//Mojo.Log.error("icon parsing :::::: "+ resultArray );
++				return resultArray;
++			} else {
++				return false;
++			}
++		} else {
++			return false;
++		}
++	},
+ 
+ 	showCalendarView: function showCalendarView () {
+ 		var calendarWindow	= enyo.windows.fetchWindow ("Calendar")		// Find any pre-existing Calendar GUI Window.
+@@ -228,11 +254,27 @@ enyo.kind ({
  
  		var	launchDate
  		,	timeMachine		= this.timeMachine
@@ -31,7 +71,7 @@ index 510366d..c98cd2f 100644
  		calendarWindow && (view.wait = true);									// If the window already exists, make it switch views first.
  		enyoApp.share ({showView: view});
  
-@@ -283,7 +299,7 @@ enyo.kind ({
+@@ -283,7 +325,7 @@ enyo.kind ({
  //			enyo.application.launchCount = 1;
  //		}
  
@@ -1260,7 +1300,7 @@ index 0000000..de8c10e
 +});
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
 new file mode 100644
-index 0000000..52e0fc9
+index 0000000..95c3fb3
 --- /dev/null
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
 @@ -0,0 +1,675 @@
@@ -1597,12 +1637,12 @@ index 0000000..52e0fc9
 +			
 +			if(evt.note) {
 +				var cat, note, wholeNote = evt.note !== "\n" ? evt.note : "";
-+				var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++				//var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
 +				if(wholeNote && wholeNote !== "\n" && wholeNote.length > 0) {
-+					var result = wholeNote.match(patt);
-+					if(result && result[3]) {
-+						cat = result[3];
-+						note = result[1] + result[4];
++					var result = enyo.application.getNotesIconParts(wholeNote);
++					if(result && result[1]) {
++						cat = result[1];
++						note = result[0] + result[2];
 +					} else {
 +						note = wholeNote;
 +					}
@@ -1940,7 +1980,7 @@ index 0000000..52e0fc9
 +	
 +});
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
-index ba59f97..57af1bc 100644
+index ba59f97..a148f7a 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
 @@ -11,12 +11,20 @@ enyo.kind({
@@ -1979,15 +2019,16 @@ index ba59f97..57af1bc 100644
  		return true;
  	},
  	
-@@ -42,6 +55,22 @@ enyo.kind({
+@@ -42,6 +55,23 @@ enyo.kind({
  
  	eventChanged: function allDayEventChanged (oldEvent) {
  		this.event && this.$.text.setContent (this.event.subject || $L("No Subject"));
 +		try {
-+				var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
-+				var bgimage, start = this.event.note && this.event.note.match(patt);
-+				if (start && start[3]) {
-+					var icon = start[3];
++				//var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++				var bgimage, start;
++				start = this.event.note && enyo.application.getNotesIconParts(this.event.note);
++				if (start && start[1]) {
++					var icon = start[1];
 +					bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
 +					var bgrepeat = "background-repeat: no-repeat";
 +				}
@@ -2003,7 +2044,7 @@ index ba59f97..57af1bc 100644
  	}
  });
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
-index 55dffc1..1d156a3 100644
+index 55dffc1..aeaf7d8 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
 @@ -23,12 +23,13 @@ enyo.kind({
@@ -2066,16 +2107,17 @@ index 55dffc1..1d156a3 100644
  		var	createEvent =
  		{	event	: {dtstart: +date}
  		,	then	: enyo.bind (this, this.createEventThen, hour, true)
-@@ -313,21 +324,61 @@ enyo.kind({
+@@ -313,21 +324,62 @@ enyo.kind({
  		for (var i = 0; i < numEvents; i++) {
  			event	= events[i];
  			id		= idPrefix + '_' + event._id;
 +			try {
-+				var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
-+				var wholeNote, bgimage, bgposition, bgrepeat, start = event.note && event.note.match(patt);
-+				if (start && start[3]) {
-+					wholeNote = start[1] + start[4];
-+					var icon = start[3];
++				//var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++				var wholeNote, bgimage, bgposition, bgrepeat, start = [];
++				start = event.note && enyo.application.getNotesIconParts(event.note);
++				if (start && start[1]) {
++					wholeNote = start[0] + start[2];
++					var icon = start[1];
 +					bgimage = "url(/media/internal/.scrims/ubercalendar/icon-" + icon + ".png)";
 +					bgrepeat = "no-repeat";
 +					bgposition = "top right";
@@ -2627,7 +2669,7 @@ index d28ca07..afd4099 100644
  		ui.btnEdit.setShowing(!isReadOnly);
  	},
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
-index e1dd533..98584bc 100644
+index e1dd533..3f62f7d 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 @@ -33,6 +33,17 @@ enyo.kind({
@@ -3804,13 +3846,13 @@ index e1dd533..98584bc 100644
 +		var wholeNote = note !== ("\n" || "<br />") ? note : "";
 +		var customIcon = {};
 +		var last = this.userUberCats.length;
-+		var patt = /((.|\n|\r|<br \/>)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r|<br \/>)*)/;
++		//var patt = /((.|\n|\r|<br \/>)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r|<br \/>)*)/;
 +		if(wholeNote && wholeNote !== "\n" && wholeNote.length > 0) {
-+			var result = wholeNote.match(patt);
-+			if(result && result[3]) {
-+				this.uberNotePrefix = result[1];
-+				this.uberNoteSuffix = result[4];
-+				this.uberNoteCat = result[3];
++			var result = enyo.application.getNotesIconParts(wholeNote);
++			if(result && result[1]) {
++				this.uberNotePrefix = result[0];
++				this.uberNoteSuffix = result[2];
++				this.uberNoteCat = result[1];
 +				if(this.uberNoteCat) {
 +					this.uberHasCat = true;
 +					for(var i=0; i < this.userUberCats.length; i++) {
@@ -3924,7 +3966,22 @@ index e1dd533..98584bc 100644
  	},
  	 
  	//Rules for date and time changes:
-@@ -622,10 +1704,18 @@ enyo.kind({
+@@ -596,9 +1678,11 @@ enyo.kind({
+ 		,	event	= this.event
+ 		;
+ 		
+-		time.setFullYear	(date.getFullYear());
+-		time.setMonth		(date.getMonth());
+-		time.setDate		(date.getDate());
++		//time.setFullYear	(date.getFullYear());
++		//time.setMonth		(date.getMonth());
++		//time.setDate		(date.getDate());
++		time.set({year: date.getFullYear(), month: date.getMonth(), day: date.getDate()});
++		//console.error("change start time: " + time +", date: " + date);
+ 
+ 		var duration = this.pickerEnd - this.pickerStart;
+ 		
+@@ -622,10 +1706,18 @@ enyo.kind({
  		var event	= this.event;
  		
  		this.changeStartTime();
@@ -3944,17 +4001,38 @@ index e1dd533..98584bc 100644
  		}
  		this.oldStartValue = this.$.startDate.getValue().getTime();
  	},
-@@ -664,6 +1754,9 @@ enyo.kind({
+@@ -638,9 +1730,10 @@ enyo.kind({
  		,	changedDate = false
  		;
  
+-		time.setFullYear	(date.getFullYear());
+-		time.setMonth		(date.getMonth());
+-		time.setDate		(date.getDate());
++		//time.setFullYear	(date.getFullYear());
++		//time.setMonth		(date.getMonth());
++		//time.setDate		(date.getDate());
++		time.set({year: date.getFullYear(), month: date.getMonth(), day: date.getDate()});
+ 		
+ 		if(time < this.pickerStart){			
+ 			//consider it as setting for next 12 hour clock
+@@ -664,9 +1757,13 @@ enyo.kind({
+ 		,	changedDate = false
+ 		;
+ 
+-		time.setFullYear	(date.getFullYear());
+-		time.setMonth		(date.getMonth());
+-		time.setDate		(date.getDate());
 +		if(this.rmlastBtn === "popCanvasBtn"){
 +			this.$.editMiniMonth.setViewDay(date);
 +		}
- 		time.setFullYear	(date.getFullYear());
- 		time.setMonth		(date.getMonth());
- 		time.setDate		(date.getDate());
-@@ -731,7 +1824,9 @@ enyo.kind({
++		//time.setFullYear	(date.getFullYear());
++		//time.setMonth		(date.getMonth());
++		//time.setDate		(date.getDate());
++		time.set({year: date.getFullYear(), month: date.getMonth(), day: date.getDate()});
+ 		
+ 		if(time < this.pickerStart){
+ 			var startDate = new Date(this.pickerStart);
+@@ -731,7 +1828,9 @@ enyo.kind({
  		ui.startTime.setValue	(start);	
  		event.allDay = state;
  		ui.startTimeDrawer	.setOpen (!state);
@@ -3964,7 +4042,7 @@ index e1dd533..98584bc 100644
  		
  		this.setupReminder(event, true);
  	},
-@@ -1053,6 +2148,7 @@ enyo.kind({
+@@ -1053,6 +2152,7 @@ enyo.kind({
  	
  	editNote: function editNote (note) {
  		this.event.note = note && note.getText();
@@ -3972,7 +4050,7 @@ index e1dd533..98584bc 100644
  	},
  	
  	confirmSave: function confirmSave(){
-@@ -1120,6 +2216,67 @@ enyo.kind({
+@@ -1120,6 +2220,67 @@ enyo.kind({
  		this.doExit(this.event);
  	},
  
@@ -5302,7 +5380,7 @@ index 5c72111..4c906f8 100644
  	},
  	
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
-index ec3a975..ee66d30 100644
+index ec3a975..2147037 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
 @@ -143,6 +143,8 @@ enyo.kind({
@@ -5314,17 +5392,18 @@ index ec3a975..ee66d30 100644
  		var dateString = String(+this.date)
  		,	day		= this.days && this.days[dateString] && (this.day = this.days[dateString])
  		;
-@@ -188,7 +190,30 @@ enyo.kind({
+@@ -188,11 +190,61 @@ enyo.kind({
  				(extras.length < 3) && extras.push ({ className:"event ellipsis", event:event, watchCalendars:false, calendars: calendars });
  			} else {
  				eventView.event = event;
 -				eventViews.createComponent (eventView);
 +				try {
 +					if(event.note){
-+						var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
-+						var bgimage, start = event.note.match(patt);
-+						if (start && start[3]) {
-+							var icon = start[3];
++						//var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++						var bgimage, start = [];
++						start = enyo.application.getNotesIconParts(event.note);
++						if (start && start[1]) {
++							var icon = start[1];
 +							bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
 +							//event && event.note && icon && bgimage && eventView && eventView.style= "background-color: " + bgimage; // + bgrepeat + bgposition;
 +							//eventViews.createComponent (eventView);
@@ -5346,8 +5425,39 @@ index ec3a975..ee66d30 100644
  			}
  		}
  		if (extras.length == 1) {
+-			eventViews.createComponent (extras[0]);
++			try {
++				eventView = extras[0];
++				if(eventView.event.note){
++					//var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++					var bgimage, start = [];
++					start = enyo.application.getNotesIconParts(eventView.event.note);
++					if (start && start[1]) {
++						var icon = start[1];
++						bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
++						//event && event.note && icon && bgimage && eventView && eventView.style= "background-color: " + bgimage; // + bgrepeat + bgposition;
++						//eventViews.createComponent (eventView);
++						var uberCont = bgimage && eventViews.createComponent({kind: enyo.HFlexBox, style:"position:relative; height: 13px;", defaultKind: "calendar.EventView"});//, className:"events"});
++						eventView.owner = eventViews;
++						bgimage && uberCont.createComponent({kind: enyo.Image, className:"ubermonthicon", style:"position:relative;height:10;width:10;top:-6px;left:-3px;z-index:3;padding: 0px;margin:0px;", owner: eventViews, src:bgimage});
++						uberCont && uberCont.createComponent(eventView);
++						
++						var uberDone = true;
++					} else{
++						eventViews.createComponent (eventView);
++						var uberDone = true;
++					}
++				} else {
++					eventViews.createComponent (eventView);
++				}
++			
++			} catch(e){return;}
++			//eventViews.createComponent (extras[0]);
+ 			hasRenderContent ? eventViews.renderContent() : eventViews.render();	// PERF: Enyo team deprecating more performant renderContent :-(
+ 			return;
+ 		}
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
-index 592cb6e..fc55cbd 100644
+index 592cb6e..96fef32 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
 @@ -20,10 +20,13 @@ enyo.kind({
@@ -5359,11 +5469,11 @@ index 592cb6e..fc55cbd 100644
 -		,	full	: new enyo.g11n.DateFmt({date: "long", dateComponents: "my"})
 -		}},
 +		{kind:enyo.HFlexBox, components:[
-+			{name:"dateHeader", kind:"calendar.DateHeader", className:"date", fit: true, flex: 1, formats:{
++			{name:"dateHeader", kind:"calendar.DateHeader", style:"padding: 0px 4px 2px;", className:"date", fit: true, flex: 1, formats:{
 +				"short"	: new enyo.g11n.DateFmt({date: "medium", dateComponents: "my"})
 +			,	full	: new enyo.g11n.DateFmt({date: "long", dateComponents: "my"})
 +			}},
-+			{name:"weekNumber"	, className:"today", showing:false}
++			{name:"weekNumber"	, style:"padding-right: 4px;", className:"today", showing:false}
 +		]},
  		{name:"weekHeader", className:"weeks", kind: enyo.HFlexBox}
  	],
@@ -5470,6 +5580,14 @@ index 592cb6e..fc55cbd 100644
  		,	weekLength	= dayFormats.length
  		,	weekHeader	= this.$.weekHeader
  		;
+@@ -71,6 +147,7 @@ enyo.kind({
+ 			({	name	: day
+ 			,	content	: dayFormats [dayIndex]
+ 			,	flex	: 1
++			,	style	: "padding-left: 4px;"
+ 			});
+ 		}
+ 		this.startOfWeekChanged();
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 index d06f5ca..bf50695 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
@@ -8270,10 +8388,10 @@ index 6bc90c4..aec9877 100644
  	}
  });
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
-index c8349e4..1781f8a 100644
+index c8349e4..0f3162a 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
-@@ -9,7 +9,7 @@
+@@ -9,11 +9,11 @@
  
  .calendar .week-view .week-header .date	{
  	color					: #333;
@@ -8282,6 +8400,11 @@ index c8349e4..1781f8a 100644
  	font-weight				: 100;
  	margin 					: 0;
  	overflow 				: hidden;
+-	padding					: 0px 0px 7px;
++	padding					: 0px 3px 7px;
+ 	white-space				: pre;
+ }
+ .calendar .week-view .week-header .date-month {
 @@ -24,6 +24,10 @@
  /*	font-family: PreludeWGL-Light;*/
  }
@@ -8337,7 +8460,12 @@ index c8349e4..1781f8a 100644
  }
  .calendar .week-view .week-hours .hour {
  	background				: url(../day/images/day-hour-markers.png) no-repeat;
-@@ -99,15 +122,28 @@
+@@ -95,19 +118,33 @@
+ .calendar .week-view .today	{
+ 	/*background-color		: #f2f2f2;*/
+ 	position: relative;
++	padding-right:			4px;
+ 	/*z-index: -2;*/
  }
  
  .calendar .week-view .todayDate	{
@@ -8370,7 +8498,7 @@ index c8349e4..1781f8a 100644
  .calendar .week-view .day .hour	{
  	background				: none;
  	padding					: 0;
-@@ -127,4 +163,4 @@
+@@ -127,4 +164,4 @@
  	width					: 67px; 
  	margin-left				: -12px; 
  	text-align				: center;
