@@ -81,7 +81,7 @@ index 510366d..f762aef 100644
  			enyo.application.reminderManager.handleLaunchParams(params);
  		}
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
-index 40d8368..070c5ce 100644
+index 40d8368..06052c7 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
 @@ -19,7 +19,12 @@ enyo.kind({
@@ -760,7 +760,7 @@ index 40d8368..070c5ce 100644
  	resetMenu: function resetMenu (from) {
  		this.log(" ENYO PERF: SINGLE CLICK OCCURED time: "+ Date.now());
  		this.viewSelected (from, this.$.main.getView(), from);
-@@ -441,13 +946,77 @@ enyo.kind({
+@@ -441,13 +946,82 @@ enyo.kind({
  		this.$.pane.selectViewByName ("prefsView");
  	},
  
@@ -769,15 +769,20 @@ index 40d8368..070c5ce 100644
 +	},
 +
  	viewIdNameMap: ["dayCarousel", "weekCarousel", "monthCarousel"],
++	prefsIdName:["dayShowMini", "weekShowMini", "monthShowMini"],
  
  	switchView: function switchView (from, i) {							// This is called when switching between views.
 +		var oldView = this.$.main.getViewName();
  		var name = this.viewIdNameMap [i];	
++		var prefs = enyo.application.prefsManager.prefs;
++		var prefName = this.prefsIdName[i];
++		var showMini = prefs && prefName && !!prefs[prefName];
  		this.switchViewClicked.lastClickedViewName = name;				//	Set the view switching flag.
 +		this.saveLastView(name);
  		this.log(" ENYO PERF: SINGLE CLICK OCCURED time: "+ Date.now());
  		this.$.main.selectViewByName (name);							//	Switch to the selected view.
 +		this.$.ucListView.setCurrentView(name);
++		this.$.miniMonthDrawer.setOpen(showMini);
 +		//this.preloadDays(name, oldView);
 +	},
 +
@@ -1980,15 +1985,17 @@ index 0000000..95c3fb3
 +	
 +});
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
-index ba59f97..a148f7a 100644
+index ba59f97..4d6b5af 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/AllDayEvent.js
-@@ -11,12 +11,20 @@ enyo.kind({
+@@ -11,12 +11,23 @@ enyo.kind({
  	className	: "allday-event",
  	kind		: "calendar.EventView",
  
 +	published:{
 +		uberMode	: null //watching calendar mode
++	,	enhancedView: true
++	,	useIcons	:true
 +	},
 +
  	components: [
@@ -2001,11 +2008,12 @@ index ba59f97..a148f7a 100644
  
  	create: function create () {
  		this.inherited (arguments);
++		
 +		this.uberMode = enyo.application.uberMode !== undefined ? enyo.application.uberMode : 2;
  	},
  
  	destroy: function destroy () {
-@@ -24,7 +32,12 @@ enyo.kind({
+@@ -24,7 +35,12 @@ enyo.kind({
  	},
  
  	clickHandler: function allDayEventClicked (from, domEvent) {
@@ -2019,21 +2027,19 @@ index ba59f97..a148f7a 100644
  		return true;
  	},
  	
-@@ -42,6 +55,23 @@ enyo.kind({
+@@ -42,6 +58,21 @@ enyo.kind({
  
  	eventChanged: function allDayEventChanged (oldEvent) {
  		this.event && this.$.text.setContent (this.event.subject || $L("No Subject"));
-+		try {
-+				//var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
-+				var bgimage, start;
-+				start = this.event.note && enyo.application.getNotesIconParts(this.event.note);
-+				if (start && start[1]) {
-+					var icon = start[1];
-+					bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
-+					var bgrepeat = "background-repeat: no-repeat";
-+				}
-+			} catch(e) {
++		var bgimage, start;
++		if(this.enhancedView && this.useIcons){
++			start = this.event && this.event.note && enyo.application.getNotesIconParts(this.event.note);
++			if (start && start[1]) {
++				var icon = start[1];
++				bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
++				var bgrepeat = "background-repeat: no-repeat";
 +			}
++		}
 +		if(this.event && this.event.note && (bgimage != undefined)){
 +			this.$.image.setSrc(bgimage);
 +			this.$.image.setShowing(true);
@@ -2044,15 +2050,34 @@ index ba59f97..a148f7a 100644
  	}
  });
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
-index 55dffc1..aeaf7d8 100644
+index 55dffc1..45dda07 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayEventGroup.js
-@@ -23,12 +23,13 @@ enyo.kind({
+@@ -14,21 +14,26 @@ enyo.kind({
+ 	kind				: "Control",
+ 	defaultKind			: "calendar.day.DayEvent",
+ 	timeMachine			: new Date(),
+-	hourHeight			: 59,
+-	minWidthToShowText	: 30,
++	minWidthToShowText	: 28,
+ 	minHeightToShowLocation	: 38,
+-	minHeightToShowNote		: 58,
++	minHeightToShowNote		: 48,
+ 
+ 
  	published:
- 	{	events	: null		// Object	: For setting this group's events.
- 	,	date	: null
-+	,	uberMode	: null
- 	,	edge	: "none"
+-	{	events	: null		// Object	: For setting this group's events.
+-	,	date	: null
+-	,	edge	: "none"
++	{	events	: 	null		// Object	: For setting this group's events.
++	,	date	: 	null
++	,	uberMode: 	null
++	,	edge	: 	"none"
++	,	useIcons:	true
++	,	alarmIcons:	true
++	,	enhancedView: true
++	,	hourHeight:	59
++	,	inWeekView: false
  	},
  
  	edges:
@@ -2062,7 +2087,7 @@ index 55dffc1..aeaf7d8 100644
  	,	none		: {width: 0, borderWidth: 0, spacing: 0, className: ""}
  	},
  
-@@ -48,6 +49,7 @@ enyo.kind({
+@@ -48,6 +53,7 @@ enyo.kind({
  		this.changeEventColor = enyo.bind(this, this.changeEventColor);
  		this.resetEventColor = enyo.bind(this, this.resetEventColor);
  		this.eventsChanged();
@@ -2070,7 +2095,7 @@ index 55dffc1..aeaf7d8 100644
  	},
  
  	destroy: function destroy () {
-@@ -76,8 +78,13 @@ enyo.kind({
+@@ -76,8 +82,13 @@ enyo.kind({
  				if (domSubstr.indexOf (event._id) >= 0)
  				{
  					DEBUG && this.log ("You clicked on: " + event.subject);
@@ -2085,7 +2110,7 @@ index 55dffc1..aeaf7d8 100644
  					return true;
  				}
  			}
-@@ -127,7 +134,7 @@ enyo.kind({
+@@ -127,7 +138,7 @@ enyo.kind({
  	},
  
  	becameCurrentPaneHandler: function becameCurrentPaneHandler (isCurrentPane) {
@@ -2094,7 +2119,50 @@ index 55dffc1..aeaf7d8 100644
  			this.rotatedWhileHidden = false;
  			this.isCurrentPane = true;
  			this.performResize();
-@@ -273,7 +280,11 @@ enyo.kind({
+@@ -139,9 +150,24 @@ enyo.kind({
+ 
+ // BEGIN :-------: Published Property Handlers :--------------------------------------------------------------------------------------------------------------//
+ 
++	hourHeightChanged: function hourHeightChanged(oldHeight){
++		if(this.hourHeight == oldHeight){return;}
++		//this.calcEventPositions();
++		this.eventsChanged();
++	},
++	
+ 	eventsChanged: function eventsChanged (inOldEvents) {
+ 		if(!this.events) return;
+-		
++		var prefs =  enyo.application.prefsManager.prefs;
++		if(this.inWeekView && prefs){
++			this.enhancedView = !!prefs.weekViewEnhanced;
++			this.useIcons = !!prefs.weekUseIcons;
++			this.alarmIcons	= !!prefs.weekAlarmIcons;
++		} else if(prefs){
++			this.enhancedView = !!prefs.dayViewEnhanced;
++			this.useIcons = !!prefs.dayUseIcons;
++			this.alarmIcons	= !!prefs.dayAlarmIcons;
++		}
+ 		//if(this.events == inOldEvents) {
+ 		//	return; 
+ 		//}
+@@ -250,8 +276,8 @@ enyo.kind({
+ 			,	end			= event.renderEndTime	|| event.dtend
+ 			,	start		= event.renderStartTime	|| event.dtstart
+ 			,	minutes		= ((end - start) / 60000)
+-			,	height		= (minutes < 30 ? 30 : minutes * hourHeight / 60) - 1
+-			,	top			= this.timeMachine.setTime (start) && this.timeMachine.getMinutes()
++			,	height		= (minutes < 30 ? 30* hourHeight / 60 : minutes * (hourHeight / 60)) - 1
++			,	top			= this.timeMachine.setTime (start) && (this.timeMachine.getMinutes() * (hourHeight/59))
+ 			,	thisHour	= Math.floor(event.start_decimal / 100)
+ 			;
+ 
+@@ -268,12 +294,16 @@ enyo.kind({
+ 		this.timeMachine.setTime(this.date || Date.now())
+ 		var	date = this.timeMachine;
+ 
+-		var	hour		= Math.floor(domEvent.offsetY / 59)				// Store the current hour.
++		var	hour		= Math.floor(domEvent.offsetY / this.hourHeight)				// Store the current hour.
+ 		,	minute		= 0 //Math.ceil (date.getMinutes() / 15) * 15	// Calculate the closest 15 minute interval after the current time.
  		;
  		date.clearTime();												// Set the event's time to midnight.
  		date.set({hour:hour, minute:minute});							// Set the event's hour and minute.
@@ -2107,49 +2175,61 @@ index 55dffc1..aeaf7d8 100644
  		var	createEvent =
  		{	event	: {dtstart: +date}
  		,	then	: enyo.bind (this, this.createEventThen, hour, true)
-@@ -313,21 +324,62 @@ enyo.kind({
+@@ -306,28 +336,72 @@ enyo.kind({
+ 		,	edgeWidth				= edge.width + edge.borderWidth + edge.spacing
+ 		,	widthDiff				= edgeWidth + 2							// 2 accounts for the event's border
+ 		,	minWidthToShowText		= this.minWidthToShowText + widthDiff
+-		,	minHeightToShowLocation	= this.minHeightToShowLocation
+-		,	minHeightToShowNote		= this.minHeightToShowNote
++		,	minHeightToShowLocation	= this.hourHeight < 59 ? 30 : this.minHeightToShowLocation
++		,	minHeightToShowNote		=  this.hourHeight < 59 ? 40 : this.minHeightToShowNote
+ 		;
+ 
  		for (var i = 0; i < numEvents; i++) {
  			event	= events[i];
  			id		= idPrefix + '_' + event._id;
-+			try {
-+				//var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
-+				var wholeNote, bgimage, bgposition, bgrepeat, start = [];
-+				start = event.note && enyo.application.getNotesIconParts(event.note);
-+				if (start && start[1]) {
-+					wholeNote = start[0] + start[2];
-+					var icon = start[1];
-+					bgimage = "url(/media/internal/.scrims/ubercalendar/icon-" + icon + ".png)";
-+					bgrepeat = "no-repeat";
-+					bgposition = "top right";
-+				} else {
-+					bgimage = false;
-+					bgposition = false;
-+					bgrepeat = false;
-+				}
-+				
-+				if(event.alarm  && event.alarm[0] && event.alarm[0].alarmTrigger && event.alarm[0].alarmTrigger.valueType && event.alarm[0].alarmTrigger.valueType === "DURATION" && event.alarm[0].alarmTrigger.value && event.alarm[0].alarmTrigger.value !== "" && event.alarm[0].alarmTrigger.value !== "none"){
-+					if(bgimage && bgposition){
-+						bgimage += ", url(/media/internal/.scrims/ubercalendar/alarm-icon.png)";
-+						bgposition += ", center right";
-+						bgrepeat += ", no-repeat";
-+					} else {
-+						bgimage = "url(/media/internal/.scrims/ubercalendar/alarm-icon.png)";
-+						bgposition = "center right";
++			var wholeNote, bgimage, bgposition, bgrepeat, start = [];
++			if(this.enhancedView){
++				try {
++					//var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++					//var wholeNote, bgimage, bgposition, bgrepeat, start = [];
++					start = event.note && enyo.application.getNotesIconParts(event.note);
++					if (this.useIcons && start && start[1]) {
++						wholeNote = start[0] + start[2];
++						var icon = start[1];
++						bgimage = "url(/media/internal/.scrims/ubercalendar/icon-" + icon + ".png)";
 +						bgrepeat = "no-repeat";
-+					}
-+				}
-+				if(event.attendees && event.attendees.length > 1) {
-+					if(bgimage && bgposition){
-+						bgimage += ", url(/media/internal/.scrims/ubercalendar/icon-meeting.png)";
-+						bgposition += ", bottom left";
-+						bgrepeat += ", no-repeat";
++						bgposition = "top right";
 +					} else {
-+						bgimage = "url(/media/internal/.scrims/ubercalendar/icon-meeting.png)";
-+						bgposition = "bottom left";
-+						bgrepeat = "no-repeat";
++						bgimage = false;
++						bgposition = false;
++						bgrepeat = false;
 +					}
++					
++					if(this.alarmIcons && event.alarm  && event.alarm[0] && event.alarm[0].alarmTrigger && event.alarm[0].alarmTrigger.valueType && event.alarm[0].alarmTrigger.valueType === "DURATION" && event.alarm[0].alarmTrigger.value && event.alarm[0].alarmTrigger.value !== "" && event.alarm[0].alarmTrigger.value !== "none"){
++						if(bgimage && bgposition){
++							bgimage += ", url(/media/internal/.scrims/ubercalendar/alarm-icon.png)";
++							bgposition += ", center right";
++							bgrepeat += ", no-repeat";
++						} else {
++							bgimage = "url(/media/internal/.scrims/ubercalendar/alarm-icon.png)";
++							bgposition = "center right";
++							bgrepeat = "no-repeat";
++						}
++					}
++					if(this.useIcons && event.attendees && event.attendees.length > 1) {
++						if(bgimage && bgposition){
++							bgimage += ", url(/media/internal/.scrims/ubercalendar/icon-meeting.png)";
++							bgposition += ", bottom left";
++							bgrepeat += ", no-repeat";
++						} else {
++							bgimage = "url(/media/internal/.scrims/ubercalendar/icon-meeting.png)";
++							bgposition = "bottom left";
++							bgrepeat = "no-repeat";
++						}
++					}
++				} catch(e) {
 +				}
-+			} catch(e) {
 +			}
  			htmlString += '<div id="' + id +'" class="event theme-' + event.color + edge.className + '" style="'
  				+	'top:'		+ (event.top)						+ 'px;'
@@ -2163,20 +2243,94 @@ index 55dffc1..aeaf7d8 100644
  
  			if(event.width > minWidthToShowText) {
 -				htmlString += '<div id="' + id + '_subject" class="ellipsis subject">' + enyo.string.escapeHtml(event.subject || this.G11N.defaults.subject) + '</div>';
-+				htmlString += '<div id="' + id + '_subject" class="subject">' + enyo.string.escapeHtml(event.subject || this.G11N.defaults.subject) + '</div>';
++				htmlString += '<div id="' + id + '_subject" class="' + (this.hourHeight < 59 ? 'subject-shrunk' : 'subject') +' ">' + enyo.string.escapeHtml(event.subject || this.G11N.defaults.subject) + '</div>';
  				/* Don't display location or note if we're too small */
  				if(event.height > minHeightToShowLocation) {
 -					htmlString += '<div id="' + id + '_location" class="ellipsis location">' + enyo.string.escapeHtml(event.location || '') + '</div>';
-+					htmlString += '<div id="' + id + '_location" class="location">' + enyo.string.escapeHtml(event.location || '') + '</div>';
++					htmlString += '<div id="' + id + '_location" class="' + (this.hourHeight < 59 ? 'location-shrunk' : 'location') +' ">' + enyo.string.escapeHtml(event.location || '') + '</div>';
  					/* Don't display note if we're too small */
  					if(event.height > minHeightToShowNote) {
 -						htmlString += '<div id="' + id + '_note" class="ellipsis note">' + enyo.string.escapeHtml(event.note || '') + '</div>';
-+						htmlString += '<div id="' + id + '_note" class="note">' + enyo.string.escapeHtml((start ? wholeNote :event.note) || '') + '</div>';
++						htmlString += '<div id="' + id + '_note" class="' + (this.hourHeight < 59 ? 'note-shrunk' : 'note') +' ">' + enyo.string.escapeHtml((start ? wholeNote :event.note) || '') + '</div>';
  					}
  				}
  			}
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayHours.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayHours.js
+index de91ac7..d92d0c7 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayHours.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayHours.js
+@@ -13,6 +13,7 @@ enyo.kind({
+ 
+ 	published:
+ 	{	is24Hr	: false		// Boolean	: For accepting 24hr clock mode changes.
++	,	hourHeight: 59
+ 	},
+ 
+ 	G11N:
+@@ -23,9 +24,11 @@ enyo.kind({
+ 	create: function create () {
+ 		this.inherited (arguments);
+ 		this.hours = [];
+-
++		//this.hourHeight = enyo.application.hourHeight != undefined ? enyo.application.hourHeight : 59;
+ 		for (var i=0; i < 24; ++i) {	
+ 			this.hours.push (this.createComponent());
++			this.hours[i].setHourHeight(this.hourHeight);
++			this.hours[i].applyStyle("height", this.hourHeight + "px");
+ 		}
+ 		if(this.is24Hr === undefined){ 
+ 			//coming from weekview 
+@@ -68,7 +71,17 @@ enyo.kind({
+ 				hourLabel.setAMPM		(is24Hr || hour == 12 ? "" : hour < 12 ? am : pm);
+ 			}
+ 		}
+-	}
++	},
++	
++	hourHeightChanged: function(oldHeight){
++		if(this.hourHeight == oldHeight){return;}
++		for (var i=0; i < 24; ++i) {
++			this.hours[i] && this.hours[i].setHourHeight(this.hourHeight);
++			this.hours[i] && this.hours[i].applyStyle("height", this.hourHeight + "px");
++		//this.$.halfMarker.applyStyle("top", (((this.hourHeight+1)/2) -2)+"px");
++		//this.$.current.applyStyle("height", this.hourHeight+"px");
++		}
++	},
+ });
+ 
+ enyo.kind({
+@@ -80,6 +93,7 @@ enyo.kind({
+ 	{	AMPM			: ""
+ 	,	hour			: -1
+ 	,	hourLabel		: ""
++	,	hourHeight		: 59
+ 	,	isActiveHour	: false
+ 	,	isCurrentHour	: false
+ 	},
+@@ -89,7 +103,7 @@ enyo.kind({
+ 			{name:"hourLabel"	, className:"number"},
+ 			{name:"AMPM"		, className:"ampm"}
+ 		]},
+-		{className:"halfMarker"},
++		{name: "halfMarker", className:"halfMarker"},
+ 		{name:"current", className:"current", showing:false}
+ 	],
+ 
+@@ -108,6 +122,12 @@ enyo.kind({
+ 		if (this.hourLabel == oldHourLabel) { return; }
+ 		this.$.hourLabel.setContent (this.hourLabel);
+ 	},
++	
++	hourHeightChanged: function(oldHeight){
++		if(this.hourHeight == oldHeight){return;}
++		this.$.halfMarker.applyStyle("top", (((this.hourHeight+1)/2) -2)+"px");
++		this.$.current.applyStyle("height", this.hourHeight+"px");
++	},
+ 
+ 	isActiveHourChanged: function isActiveHourChanged (wasActiveHour) {
+ //		if (this.isActiveHour == wasActiveHour) { return; }
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css
-index c72bea7..86a7965 100644
+index c72bea7..9cf6aef 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.css
 @@ -10,12 +10,12 @@
@@ -2243,7 +2397,7 @@ index c72bea7..86a7965 100644
  	height						: 100%;
  }
  .calendar .day .event,
-@@ -178,27 +180,31 @@
+@@ -178,27 +180,61 @@
  .calendar .day .event .subject	,
  .calendar .day .event .location	,
  .calendar .day .event .note		{
@@ -2262,7 +2416,8 @@ index c72bea7..86a7965 100644
 +	white-space					: normal;
  }
  .calendar .day .event .subject	{
- 	margin-top					: 5px;
+-	margin-top					: 5px;
++	margin-top					: 2px;
  	color 						: #333;
 +	max-height					: 24px;
  	font-weight					: bold;
@@ -2278,33 +2433,92 @@ index c72bea7..86a7965 100644
  	color 						: #666666;
 -	font-size					: 12px;
 +	font-size					: 10px;
++	margin-bottom				: 1px;
++	white-space					: nowrap;
++	padding-top					: 1px;
++}
++.calendar .day .event .subject-shrunk	,
++.calendar .day .event .location-shrunk	,
++.calendar .day .event .note-shrunk		{
++	line-height					: 10px;
++	margin-left					: 3px;
++	margin-right				: 4px;
++	min-height					: 10px;
++	overflow 					: hidden;
++	font						: prelude;
++	white-space					: normal;
++}
++.calendar .day .event .subject-shrunk{
++	margin-top					: 1px;
++	color 						: #333;
++	max-height					: 20px;
++	font-weight					: bold;
++	font-size					: 10px;
++}
++.calendar .day .event .location-shrunk{
++	color 						: #666666;
++	font-size					: 9px;
++	max-height					: 10px;
++}
++.calendar .day .event .note-shrunk{
++	color 						: #666666;
++	font-size					: 9px;
  	margin-bottom				: 1px;
 +	white-space					: nowrap;
  	padding-top					: 1px;
  }
  .calendar .day .eventGroup {
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
-index 4285875..655c1eb 100644
+index 4285875..39545c9 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
-@@ -25,6 +25,7 @@ enyo.kind({
+@@ -25,6 +25,11 @@ enyo.kind({
  	,	prefs		: null		// Object	: For watching Preferences changes.
  	,	tzId		: ""		// String	: For watching timezone changes.
  	,	weekRange	: null		// Object	: {start:Number, end:Number}: The start and end of this day's week.
++	,	hourHeight	: 59		//
++	,	useIcons	: true
++	,	alarmIcons	: true
++	,	enhancedView: true
 +	,	weekAllDayHeader : null	// pointer to week All Day Header
  	},
  
  	G11N:
-@@ -58,7 +59,7 @@ enyo.kind({
+@@ -35,6 +40,10 @@ enyo.kind({
+ 		}
+ 	,	Today			: $L("Today")
+ 	},
++	
++	components:	[
++		{kind:"ApplicationEvents", onWindowRotated			: "windowRotatedHandler"}
++	],
+ 
+ 	constructor: function DayView () {
+ 		this.timeMachine	= new Date();				// For calculating date/times without creating new instances.
+@@ -58,35 +67,46 @@ enyo.kind({
  
  	create: function create () {
  		this.inherited (arguments);
 -
 +		this.wkAllDayHeader = this.weekAllDayHeader;
  		this.is24Hr === undefined && this.setIs24Hr(!enyo.application.fmts.isAmPm());	// If 24Hr isn't set yet, grab the default setting.
- 
+-
  		this.createEventThen	= enyo.bind (this, this.createEventThen);
-@@ -72,21 +73,25 @@ enyo.kind({
+ 		this.updateCurrentHour	= enyo.bind (this, this.updateCurrentHour);
++		var prefs	= this.prefs || enyo.application.prefsManager.prefs;
+ 		
+ 		//this.busyFreeManager	= enyo.application.busyFreeManager;
+ 		this.layoutManager		= enyo.application.layoutManager;
+ 
++		if(!this.inWeekView){
++			this.enhancedView = !!prefs.dayViewEnhanced;
++			this.hourHeight= prefs.dayHourHeight && this.enhancedView ? parseInt(prefs.dayHourHeight,10) : 59;
++			this.useIcons = !!prefs.dayUseIcons;
++			this.alarmIcons	= !!prefs.dayAlarmIcons;
++		}
++		
+ 		if(!this.inWeekView) {
+ 			this.createComponent
  			({name:"header", className:"header", kind:enyo.HFlexBox, components:[
  				{name:"dateHeader"		, kind:"calendar.DateHeader", formats:this.G11N.DateFormat, flex:1}
  			,	{name:"today"			, className:"today", showing:false}
@@ -2338,7 +2552,19 @@ index 4285875..655c1eb 100644
  
  		if (!this.inWeekView) {									// If not being show as part of Week View:
  			ui.today		.setContent (this.G11N.Today);		//		Update the "Today" indicator.
-@@ -128,7 +133,11 @@ enyo.kind({
+@@ -111,6 +131,11 @@ enyo.kind({
+ 	childrenNeedResizeHandler: function childrenNeedResizeHandler(resizeNeeded){
+ 		this.broadcastMessage("childNeedsResize", [resizeNeeded]);
+ 	},
++	
++	windowRotatedHandler: function windowRotatedHandler(){
++		this.showing && this.updateCurrentHour ({scroll: true});
++	},
++
+ 
+ // BEGIN :-------: Custom Handlers :--------------------------------------------------------------------------------------------------------------------------//
+ 
+@@ -128,7 +153,11 @@ enyo.kind({
  		enyo.application [handle] (this.commonWatches);
  		!this.inWeekView && enyo.application [handle] (this.dayWatches);		// Adjust watches based on whether this day is part of WeekView.
  
@@ -2351,7 +2577,99 @@ index 4285875..655c1eb 100644
  	},
  
  	is24HrHandler: function is24HrHandler (is24Hr) {
-@@ -264,6 +273,11 @@ enyo.kind({
+@@ -179,6 +208,39 @@ enyo.kind({
+ 	clockChanged: function clockChanged (oldClock) {
+ 		this.updateCurrentHour ({scroll: false});		// Don't scroll when the hour changes; user may want to stay on the specific date and/or time. TODO: Auto-scroll preference?
+ 	},
++	
++	prefsChanged: function prefsChanged(oldPrefs){
++		var prefs	= this.prefs || enyo.application.prefsManager.prefs
++		,	oldHeight= this.hourHeight
++		;
++		if (!prefs) {
++			return;
++		}
++		if(this.inWeekView && prefs){
++			this.enhancedView = !!prefs.weekViewEnhanced;
++			this.hourHeight= prefs.weekHourHeight && this.enhancedView ? parseInt(prefs.weekHourHeight,10) : 59;
++			this.useIcons = !!prefs.weekUseIcons;
++			this.alarmIcons	= !!prefs.weekAlarmIcons;
++		} else if(prefs){
++			this.enhancedView = !!prefs.dayViewEnhanced;
++			this.hourHeight= prefs.dayHourHeight && this.enhancedView ? parseInt(prefs.dayHourHeight,10) : 59;
++			this.useIcons = !!prefs.dayUseIcons;
++			this.alarmIcons	= !!prefs.dayAlarmIcons;
++		}
++		if(oldHeight  !== this.hourHeight){
++			this.eventGroup.applyStyle("height", (this.hourHeight +1)*24 +"px;");
++			this.eventGroup.applyStyle("-webkit-background-size", "1px "+ this.hourHeight + "px");
++			this.eventGroup.setHourHeight(this.hourHeight);
++			
++			if(!this.inWeekView) {
++				this.$.hours.applyStyle("height", this.hourHeight +'px;');
++				this.$.hours.$.dayContainer.applyStyle("height", (this.hourHeight +1)*24 +"px");
++				this.$.hourLabels.setHourHeight(this.hourHeight);
++				this.$.hours.$.dayContainer.$.hoursContainer.applyStyle("height", (this.hourHeight +1)*24 +"px");
++				this.updateCurrentHour ({scroll: true});
++			}
++		}
++	},
+ 
+ 	dateChanged: function dateChanged (oldDate) {
+ 		var date = this.date;
+@@ -187,6 +249,7 @@ enyo.kind({
+ 		}
+ 
+ 		this.day = undefined;
++
+ 		this.eventGroup.setDate(new Date(date));
+ 		this.clearEventDisplay ();
+ 
+@@ -194,6 +257,7 @@ enyo.kind({
+ 			this.$.dateHeader.setDate(new Date(date));
+ 			this.updateCurrentHour ({scroll: true});
+ 		}
++
+ 	},
+ 
+ 	daysChanged: function daysChanged (oldDays) {
+@@ -239,31 +303,43 @@ enyo.kind({
+ 		;
+ 		hourContainer.className	= "hours";
+ 		hourContainer.name		= "hours";
++		if(!inWeekView){hourContainer.style =  'border-top: 1px solid #b9b9b9; height:'+ this.hourHeight +'px; padding: 0 10px;';}
+ 		hourContainer.flex		= 1;
+ 		hourContainer			= this.createComponent (hourContainer);
+ 
+ 		this.inWeekView && (hoursContainer = hourContainer);
+ 
+ 		if (!inWeekView) {
+-			var	dayContainer	= hourContainer.createComponent	({name: "dayContainer"	, kind: enyo.HFlexBox, className:"day-container"})
+-			,	hourLabels		= dayContainer.createComponent	({name: "hourLabels"	, kind:"calendar.day.DayHours", owner: this, is24Hr:is24Hr})	// Build hour labels with the retained 24hr setting.
++			var	dayContainer	= hourContainer.createComponent	({name: "dayContainer"	, kind: enyo.HFlexBox, className:"day-container", style:"width: 100%;height: " +(this.hourHeight +1)*24 +"px; overflow: hidden;	padding-top	: 29px;"})
++			,	hourLabels		= dayContainer.createComponent	({name: "hourLabels"	, kind:"calendar.day.DayHours", hourHeight: this.hourHeight, owner: this, is24Hr:is24Hr})	// Build hour labels with the retained 24hr setting.
+ 			;
+-			hoursContainer		= dayContainer.createComponent	({name: "hoursContainer", kind: enyo.Control, style: "height: 1440px; position: relative;", flex: 1});
++			hoursContainer		= dayContainer.createComponent	({name: "hoursContainer", kind: enyo.Control, style: "height: "+(this.hourHeight +1)*24 +"px; position: relative;", flex: 1});
+ 		}
+ 
+ 		this.eventGroup = hoursContainer.createComponent(
+ 		{	kind	: "calendar.day.DayEventGroup"
+ 		,	flex	: 1
+-		,	style	: "position: relative; height: 1440px;"
++		,	style	: "position: relative; height: "+(this.hourHeight +1)*24 +"px;"
+ 		,	owner	: this
+ 		,	edge	: inWeekView ? "none" : "default"
++		,	enhancedView: this.enhancedView
++		,	hourHeight:	this.hourHeight
++		,	useIcons: this.useIcons
++		,	alarmIcons: this.alarmIcons
++		,	inWeekView: this.inWeekView
+ 		});
++		this.eventGroup.applyStyle("-webkit-background-size", "1px "+ this.hourHeight + "px")
+ 	},
+ 
+ 	createAllDayEvent: function createAllDayEvent (from, domEvent) {
  		if (!this.createAllDayEvent.then) {
  			this.createAllDayEvent.then = enyo.bind (this, this.createEventThen, null, true);
  		}
@@ -2363,22 +2681,24 @@ index 4285875..655c1eb 100644
  		var	createEvent =
  		{	event	: {allDay: true, dtstart: +this.date}
  		,	then	: this.createAllDayEvent.then
-@@ -279,7 +293,7 @@ enyo.kind({
+@@ -279,8 +355,8 @@ enyo.kind({
  		}
  
  		var eventGUI;
 -		if(event.allDay){
+-			eventGUI = this.$.allDayHeader.createComponent ({event:event})					//	create an all-day event GUI
 +		if(false){
- 			eventGUI = this.$.allDayHeader.createComponent ({event:event})					//	create an all-day event GUI
++			eventGUI = this.$.allDayHeader.createComponent ({event:event, enhancedView: this.enhancedView, useIcons:this.useIcons})					//	create an all-day event GUI
  		}
  		else{
-@@ -301,6 +315,53 @@ enyo.kind({
+ 			eventGUI = event;
+@@ -301,6 +377,53 @@ enyo.kind({
  		return isToday;
  	},
  
 +	uberWeekNumber: function uberWeekNumber (){
 +		var prefs	= this.prefs || enyo.application.prefsManager.prefs;
-+		if(!prefs.showWkNumber) {
++		if(!prefs.showWkNumber || !prefs.dayViewEnhanced) {
 +			return;
 +		}
 +		var useISOweekNum = prefs.useISOWeekNumber
@@ -2426,12 +2746,12 @@ index 4285875..655c1eb 100644
  	updateCurrentHour: function updateCurrentHour (options) {
  		/*	Update the now indicator for the currently displayed day or hide it
  			if today is not the currently viewed day.
-@@ -313,16 +374,22 @@ enyo.kind({
+@@ -313,16 +436,22 @@ enyo.kind({
  		,	isToday		= this.isToday (dayDate, now)							// Store whether this day is today.
  		,	ui			= this.$
  		,	hourLabels	= ui.hourLabels.hours
 +		,	prefs		= enyo.application.prefsManager.prefs
-+		,	prefsHour	= (new Date(prefs.startTimeOfDay)).getHours()
++		,	prefsHour	= (new Date(prefs.startTimeOfDay)).getUTCHours()
  		;
  		isFinite(this.currentHour) && hourLabels[this.currentHour].setIsCurrentHour (false);					// Clear the now indicator if this isn't today or the current hour is wrong.
  		isToday	&& hourLabels[currentHour].setIsCurrentHour (true);				// If this day is today, update the now (current hour) indicator.
@@ -2441,17 +2761,18 @@ index 4285875..655c1eb 100644
 +		if (options && options.scroll && isToday && prefs.scrollToCurrentTime) {
  			(currentHour > 0) && (--currentHour); 								// Scroll to the hour before the current hour.
 -			currentHour = Math.min(currentHour, 17); 							// Can't scroll past 4pm anyway
+-			var top = 59 * currentHour;
 +			currentHour = Math.min(currentHour, 16); 							// Can't scroll past 4pm anyway
- 			var top = 59 * currentHour;
++			var top = this.hourHeight * currentHour;
  			isFinite(top) && ui.hours.setScrollTop(top);
 +		} else {
-+			var	top = 59* prefsHour;
++			var	top = this.hourHeight* prefsHour;
 +			//console.log(this.ucWeekScrollTop);
 +			isFinite (top) && ui.hours.setScrollTop (top);
  		}
  	},
  
-@@ -400,7 +467,7 @@ enyo.kind({
+@@ -400,7 +529,7 @@ enyo.kind({
  		var	calendar
  		,	control
  		,	event
@@ -2460,7 +2781,7 @@ index 4285875..655c1eb 100644
  		,	allDayControls		= allDayHeader.getControls()
  		,	allDayEvents		= events.allDayEvents
  		,	calendars			= this.calendars
-@@ -412,28 +479,32 @@ enyo.kind({
+@@ -412,28 +541,34 @@ enyo.kind({
  		;
  
  		// If we already have allDayEvent controls, let's reuse them.
@@ -2485,6 +2806,8 @@ index 4285875..655c1eb 100644
 +						calendar && (event.color = calendar.color);
 +					}
 +					DEBUG && this.log ("\tGrouping all-day event (Reusing existing control):\n\n\t", event, "\n\n\t");
++					control.setEnhancedView(this.enhancedView);
++					control.setUseIcons(this.useIcons);
 +					control.setEvent (event);
 +					control.show();
 +				} else {
@@ -2512,7 +2835,7 @@ index 4285875..655c1eb 100644
  		// If we ran out of available controls, build some for the rest of the allDayEvents.
  		for (; controlIndex < numAllDay; ++controlIndex) {
  			event = allDayEvents[controlIndex];
-@@ -442,11 +513,43 @@ enyo.kind({
+@@ -442,11 +577,43 @@ enyo.kind({
  				calendar && (event.color = calendar.color);
  			}
  			DEBUG && this.log ("\tGrouping all-day event (Creating new control):\n\n\t", event, "\n\n\t");
@@ -2521,10 +2844,10 @@ index 4285875..655c1eb 100644
 +				var eventView = {className:"event", watchCalendars:true, calendars:calendars};
 +				eventView.event = event;
 +				if(event.note){
-+					var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
-+					var bgimage, start = event.note.match(patt);
-+					if (start && start[3]) {
-+						var icon = start[3];
++					var start=[];
++					var bgimage, start = (this.enhancedView && this.useIcons && event.note) && enyo.application.getNotesIconParts(event.note);
++					if (start && start[1]) {
++						var icon = start[1];
 +						bgimage = "/media/internal/.scrims/ubercalendar/icon-" + icon + ".png";
 +						//event && event.note && icon && bgimage && eventView && eventView.style= "background-color: " + bgimage; // + bgrepeat + bgposition;
 +						//eventViews.createComponent (eventView);
@@ -2548,7 +2871,7 @@ index 4285875..655c1eb 100644
 +				}
 +				//hasRenderContent ? allDayHeader.renderContent() : allDayHeader.render()
 +			} else {
-+				allDayHeader.createComponent ({event:event});
++				allDayHeader.createComponent ({event:event, enhancedView: this.enhancedView, useIcons:this.useIcons});
 +			}
  		}
  
@@ -2558,7 +2881,7 @@ index 4285875..655c1eb 100644
  
  		var timedEvents = events.events;
  		var numTimed = timedEvents.length;		
-@@ -459,5 +562,8 @@ enyo.kind({
+@@ -459,5 +626,8 @@ enyo.kind({
  		}
  		timedEvents.sort(this.groupSort);
  		this.eventGroup.setEvents (timedEvents);
@@ -5380,10 +5703,39 @@ index 5c72111..4c906f8 100644
  	},
  	
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
-index ec3a975..2147037 100644
+index ec3a975..1c979ad 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthDay.js
-@@ -143,6 +143,8 @@ enyo.kind({
+@@ -16,6 +16,8 @@ enyo.kind({
+ 	,	date		: null		// Date		: This Month Day's actual date.
+ 	,	maxEvents	: NaN		// Number	: Maximum # of events to display per month day.
+ 	,	days		: null		// Array	: For watching day events.
++	,	useIcons	: true
++	,	enhancedView: true
+ 	},
+ 
+ 	G11N:
+@@ -39,6 +41,9 @@ enyo.kind({
+ 		this.date		= new Date();
+ 		this.monthDate	= new Date();
+ 		this.windowRotatedHandler();
++		var prefs = enyo.application.prefsManager.prefs;
++		this.useIcons = !!prefs.monthUseIcons;
++		this.enhancedView = !!prefs.monthViewEnhanced;
+ 		this.changeEventColor = enyo.bind(this, this.changeEventColor);
+ 		this.resetEventColor = enyo.bind(this, this.resetEventColor);
+ 	},
+@@ -122,6 +127,9 @@ enyo.kind({
+ 
+ 	dateChanged: function dateChanged (oldDate) {
+ 		this.day = undefined;
++		// var prefs = enyo.application.prefsManager.prefs;
++		// this.useIcons = !!prefs.monthUseIcons;
++		// this.enhancedView = !!prefs.monthViewEnhanced;
+ 		this.$.date.setContent	(this.G11N.shortFmt.format (this.date));
+ 
+ 		this.inCurrentMonth = this.monthDate.getMonth() == this.date.getMonth();
+@@ -143,6 +151,8 @@ enyo.kind({
  			return;												//	Avoid updating it with events.
  		}
  
@@ -5392,13 +5744,13 @@ index ec3a975..2147037 100644
  		var dateString = String(+this.date)
  		,	day		= this.days && this.days[dateString] && (this.day = this.days[dateString])
  		;
-@@ -188,11 +190,61 @@ enyo.kind({
+@@ -188,11 +198,61 @@ enyo.kind({
  				(extras.length < 3) && extras.push ({ className:"event ellipsis", event:event, watchCalendars:false, calendars: calendars });
  			} else {
  				eventView.event = event;
 -				eventViews.createComponent (eventView);
 +				try {
-+					if(event.note){
++					if(event.note && this.useIcons && this.enhancedView){
 +						//var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
 +						var bgimage, start = [];
 +						start = enyo.application.getNotesIconParts(event.note);
@@ -5428,7 +5780,7 @@ index ec3a975..2147037 100644
 -			eventViews.createComponent (extras[0]);
 +			try {
 +				eventView = extras[0];
-+				if(eventView.event.note){
++				if(eventView.event.note && this.useIcons && this.enhancedView){
 +					//var start=[], patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
 +					var bgimage, start = [];
 +					start = enyo.application.getNotesIconParts(eventView.event.note);
@@ -5457,7 +5809,7 @@ index ec3a975..2147037 100644
  			return;
  		}
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
-index 592cb6e..96fef32 100644
+index 592cb6e..decd2c8 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthHeader.js
 @@ -20,10 +20,13 @@ enyo.kind({
@@ -5487,7 +5839,7 @@ index 592cb6e..96fef32 100644
 +	
 +	uberWeekNumber: function uberWeekNumber (){
 +		var prefs	= this.prefs || enyo.application.prefsManager.prefs;
-+		if(!prefs.showWkNumber) {
++		if(!prefs.showWkNumber || !prefs.monthViewEnhanced) {
 +			this.$.weekNumber.setShowing(false);
 +			return;
 +		}
@@ -5589,7 +5941,7 @@ index 592cb6e..96fef32 100644
  		}
  		this.startOfWeekChanged();
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
-index d06f5ca..bf50695 100644
+index d06f5ca..995d265 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 @@ -12,6 +12,39 @@ enyo.kind(
@@ -5999,7 +6351,7 @@ index d06f5ca..bf50695 100644
  	name		: "calendar.prefs.PreferencesView",
  	kind		: enyo.VFlexBox,
  	className	: "prefs enyo-bg",
-@@ -183,30 +540,145 @@ enyo.kind({
+@@ -183,30 +540,209 @@ enyo.kind({
  					{kind: enyo.RowGroup, caption: $L("First Day of Week"), components:[
  						{kind: "calendar.day.DayPicker", name: "startOfWeek", onChange: "chooseStartOfWeek"}
  					]},
@@ -6093,8 +6445,72 @@ index d06f5ca..bf50695 100644
 +								{name:"autoConfirmAgendaSwipe", kind: enyo.ToggleButton, state: false, onChange:"chooseAutoConfirmAgendaSwipe"}
 +							 ]},
 +							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
-+								{flex: 1, content: $L("Show mini month at start")},
-+								{name:"showMini", kind: enyo.ToggleButton, state: true, onChange:"chooseShowMini"}
++								{flex: 1, content: $L("Day views enhanced"), onclick:"toggleDayDrawer"},
++								{name:"dayViewEnhanced", kind: enyo.ToggleButton, state: true, onChange:"chooseDayViewEnhanced"}
++							 ]},
++							 {name:"dayDrawer", kind: enyo.Drawer, style:"padding:5px;", open:false, components: [
++								{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Show mini month at start")},
++									{name:"dayShowMini", kind: enyo.ToggleButton, state: true, onChange:"chooseDayShowMini"}
++								 ]},
++								{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Day: view icons")},
++									{name:"dayUseIcons", kind: enyo.ToggleButton, state: true, onChange:"chooseDayUseIcons"}
++								 ]},
++								 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Day: alarm icons")},
++									{name:"dayAlarmIcons", kind: enyo.ToggleButton, state: true, onChange:"chooseDayAlarmIcons"}
++								 ]},
++								 {kind: enyo.RowItem, tapHighlight: false, components:[
++									{name:"dayHourHeight", kind: enyo.ListSelector, label: $L("Shrink Day View"), value: 59, onChange:"chooseDayHourHeight",
++										items: [{caption: $L("None"), value: 59}
++												,{caption: $L("Small"), value: 45}
++												,{caption: $L("Medium"), value: 37}
++												,{caption: $L("Strong"), value: 29}
++												]
++									}
++								 ]}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Week views enhanced"), onclick:"toggleWeekDrawer"},
++								{name:"weekViewEnhanced", kind: enyo.ToggleButton, state: true, onChange:"chooseWeekViewEnhanced"}
++							 ]},
++							 {name:"weekDrawer", kind: enyo.Drawer, style:"padding:5px;", open:false, components: [
++								{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Show mini month at start")},
++									{name:"weekShowMini", kind: enyo.ToggleButton, state: true, onChange:"chooseWeekShowMini"}
++								 ]},
++								{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Week: view icons")},
++									{name:"weekUseIcons", kind: enyo.ToggleButton, state: true, onChange:"chooseWeekUseIcons"}
++								 ]},
++								 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Week: alarm icons")},
++									{name:"weekAlarmIcons", kind: enyo.ToggleButton, state: true, onChange:"chooseWeekAlarmIcons"}
++								 ]},
++								 {kind: enyo.RowItem, tapHighlight: false, components:[
++									{name:"weekHourHeight", kind: enyo.ListSelector, label: $L("Shrink Week View"), value: 59, onChange:"chooseWeekHourHeight",
++										items: [{caption: $L("None"), value: 59}
++												,{caption: $L("Small"), value: 45}
++												,{caption: $L("Medium"), value: 37}
++												,{caption: $L("Strong"), value: 29}
++												]
++									}
++								 ]}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Month views enhanced"), onclick:"toggleMonthDrawer"},
++								{name:"monthViewEnhanced", kind: enyo.ToggleButton, state: true, onChange:"chooseMonthViewEnhanced"}
++							 ]},
++							 {name:"monthDrawer", kind: enyo.Drawer, style:"padding:5px;", open:false, components: [
++								{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Show mini month at start")},
++									{name:"monthShowMini", kind: enyo.ToggleButton, state: true, onChange:"chooseMonthShowMini"}
++								 ]},
++								{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++									{flex: 1, content: $L("Month: view icons")},
++									{name:"monthUseIcons", kind: enyo.ToggleButton, state: true, onChange:"chooseMonthUseIcons"}
++								 ]},
 +							 ]},
 +							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
 +								{flex: 1, content: $L("Use ISO week number")},
@@ -6157,7 +6573,7 @@ index d06f5ca..bf50695 100644
  					{kind: enyo.Group, caption: $L("Calendar Colors"), components: [
  						{name: "calendarList", kind: enyo.VirtualRepeater, onSetupRow: "getCalendar", components: [
  							{kind: enyo.Item, name: "calendarItem", onclick: "calendarClick", layoutKind: enyo.HFlexLayout, className:"accounts-list-item", components: [
-@@ -242,6 +714,7 @@ enyo.kind({
+@@ -242,6 +778,7 @@ enyo.kind({
  	},
  
  	ready: function ready (){
@@ -6165,7 +6581,7 @@ index d06f5ca..bf50695 100644
  		this.$.accountsList.getAccountsList("CALENDAR", []);
  	},
  
-@@ -298,18 +771,46 @@ enyo.kind({
+@@ -298,18 +835,61 @@ enyo.kind({
  		var ui = this.$;
  		ui.startOfWeek		.setValue (this.prefs.startOfWeek);
  		ui.reminder			.setValue (this.prefs.defaultEventReminder);
@@ -6182,12 +6598,27 @@ index d06f5ca..bf50695 100644
 +		ui.alarmsFollowToggles.setState (this.prefs.alarmsFollowToggles);
 +		ui.showSearch		.setState (this.prefs.showSearch);
 +		ui.showSnoozeBanner	.setState (this.prefs.showSnoozeBanner);
-+		ui.showMini			.setState (this.prefs.showMini);
++		ui.dayViewEnhanced	.setState (this.prefs.dayViewEnhanced);
++		ui.dayDrawer		.close();
++		ui.dayShowMini		.setState (this.prefs.dayShowMini);
++		ui.dayUseIcons		.setState (this.prefs.dayUseIcons);
++		ui.dayAlarmIcons	.setState (this.prefs.dayAlarmIcons);
++		ui.dayHourHeight	.setValue((this.prefs.dayHourHeight ? this.prefs.dayHourHeight: 59));
++		ui.weekViewEnhanced	.setState (this.prefs.weekViewEnhanced);
++		ui.weekDrawer		.close();
++		ui.weekShowMini		.setState (this.prefs.weekShowMini);
++		ui.weekUseIcons		.setState (this.prefs.weekUseIcons);
++		ui.monthViewEnhanced.setState (this.prefs.monthViewEnhanced);
++		ui.monthDrawer		.close();
++		ui.monthShowMini	.setState (this.prefs.monthShowMini);
++		ui.monthUseIcons	.setState (this.prefs.monthUseIcons);
++		ui.weekAlarmIcons	.setState (this.prefs.weekAlarmIcons);
++		ui.weekHourHeight	.setValue((this.prefs.weekHourHeight ? this.prefs.weekHourHeight: 59))
 +		ui.useISOWeekNumber	.setState (this.prefs.useISOWeekNumber);
 +		ui.scrollToCurrentTime	.setState (this.prefs.scrollToCurrentTime);
 +		ui.useParens		.setState (this.prefs.useParens);
 +		ui.workWeekOnly		.setState (this.prefs.workWeekOnly);
-+		ui.enableUcGroups		.setState (this.prefs.enableUcGroups);
++		ui.enableUcGroups	.setState (this.prefs.enableUcGroups);
 +		ui.openInView		.setValue (this.prefs.openInView);
 +		ui.linkOffAfterLoad	.setState (this.prefs.linkOffAfterLoad);
 +		ui.autoConfirmAgendaSwipe	.setState (this.prefs.autoConfirmAgendaSwipe);
@@ -6219,7 +6650,7 @@ index d06f5ca..bf50695 100644
  		this.setupDefaultCalendar();
  	},
  
-@@ -359,25 +860,25 @@ enyo.kind({
+@@ -359,25 +939,25 @@ enyo.kind({
  	},
  
  //	Commenting out the following but keeping it in case it is needed again.
@@ -6264,7 +6695,7 @@ index d06f5ca..bf50695 100644
  	chooseReminder: function chooseReminder () {
  		this.prefs.defaultEventReminder = this.$.reminder.getValue();
  	},
-@@ -389,6 +890,10 @@ enyo.kind({
+@@ -389,6 +969,10 @@ enyo.kind({
  	chooseDuration: function chooseDuration () {
  		this.prefs.defaultEventDuration = this.$.durationSelector.getValue();
  	},
@@ -6275,7 +6706,7 @@ index d06f5ca..bf50695 100644
  
  	syncNow: function syncNow () {
  		enyo.application.calendarsManager.syncAllCalendars();
-@@ -408,6 +913,114 @@ enyo.kind({
+@@ -408,6 +992,177 @@ enyo.kind({
  		}
  	},
  
@@ -6321,8 +6752,71 @@ index d06f5ca..bf50695 100644
 +		this.prefs.showSnoozeBanner = inState;
 +	},
 +	
-+	chooseShowMini: function chooseShowMini(inSender, inState) {
-+		this.prefs.showMini = inState;
++	chooseDayViewEnhanced: function chooseDayViewEnhanced(inSender, inState) {
++		this.prefs.dayViewEnhanced = inState;
++		this.$.dayDrawer.setOpen(inState);
++	},
++	
++	toggleDayDrawer: function toggleDayDrawer(inSender){
++		this.$.dayDrawer.toggleOpen();
++	},
++	
++	chooseDayShowMini: function chooseDayShowMini(inSender, inState) {
++		this.prefs.dayShowMini = inState;
++	},
++	
++	chooseDayUseIcons: function chooseDayUseIcons(inSender, inState) {
++		this.prefs.dayUseIcons = inState;
++	},
++	
++	chooseDayAlarmIcons: function chooseDayAlarmIcons(inSender, inState) {
++		this.prefs.dayAlarmIcons = inState;
++	},
++	
++	chooseDayHourHeight: function chooseDayHourHeight() {
++		this.prefs.dayHourHeight = this.$.dayHourHeight.getValue();
++	},
++	
++	chooseWeekViewEnhanced: function chooseWeekViewEnhanced(inSender, inState) {
++		this.prefs.weekViewEnhanced = inState;
++		this.$.weekDrawer.setOpen(inState);
++	},
++	
++	toggleWeekDrawer: function toggleWeekDrawer(inSender){
++		this.$.weekDrawer.toggleOpen();
++	},
++	
++	chooseWeekShowMini: function chooseWeekShowMini(inSender, inState) {
++		this.prefs.weekShowMini = inState;
++	},
++	
++	chooseWeekUseIcons: function chooseWeekUseIcons(inSender, inState) {
++		this.prefs.weekUseIcons = inState;
++	},
++	
++	chooseWeekAlarmIcons: function chooseWeekAlarmIcons(inSender, inState) {
++		this.prefs.weekAlarmIcons = inState;
++	},
++	
++	chooseWeekHourHeight: function chooseWeekHourHeight() {
++		this.prefs.weekHourHeight = this.$.weekHourHeight.getValue();
++	},
++	
++	chooseMonthViewEnhanced: function chooseMonthViewEnhanced(inSender, inState) {
++		this.prefs.monthViewEnhanced = inState;
++		this.$.monthDrawer.setOpen(inState);
++	},
++	
++	toggleMonthDrawer: function toggleMonthDrawer(inSender){
++		this.$.monthDrawer.toggleOpen();
++	},
++	
++	chooseMonthShowMini: function chooseMonthShowMini(inSender, inState) {
++		this.prefs.monthShowMini = inState;
++	},
++	
++	chooseMonthUseIcons: function chooseMonthUseIcons(inSender, inState) {
++		this.prefs.monthUseIcons = inState;
 +	},
 +	
 +	chooseISOWeek: function chooseISOWeek(inSender, inState) {
@@ -7018,7 +7512,7 @@ index 10d7efa..9227859 100644
  	exitView: function exitView () {
  		DEBUG && this.log ("########## Exit JumpTo view.");
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
-index 7d54e34..865c338 100644
+index 7d54e34..b23c884 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
 @@ -11,6 +11,7 @@ function PrefsManager () {
@@ -7090,7 +7584,7 @@ index 7d54e34..865c338 100644
  PrefsManager.prototype.alarmSoundOptions =
  {	mute		: 0
  ,	systemSound	: 1
-@@ -280,10 +335,36 @@ PrefsManager.prototype.defaultPrefs =
+@@ -280,10 +335,48 @@ PrefsManager.prototype.defaultPrefs =
  ,	defaultCalendarID			: 0
  ,	defaultEventDuration		: 60
  ,	defaultEventReminder		: "-PT15M"
@@ -7115,7 +7609,19 @@ index 7d54e34..865c338 100644
 +,	showPeek					: false			// show peek of agenda list
 +,	showSearch					: false			// show search of agenda list
 +,	showSnoozeBanner			: true			// show search of agenda list
-+,	showMini					: true			// show mini month on start
++,	dayShowMini					: true			// show mini month on start
++,	weekShowMini				: true			// show mini month on start
++,	monthShowMini				: true			// show mini month on start
++,	dayUseIcons					: true
++,	weekUseIcons				: true
++,	monthUseIcons				: true
++,	dayAlarmIcons				: true
++,	weekAlarmIcons				: true
++,	dayViewEnhanced				: true
++,	weekViewEnhanced			: true
++,	monthViewEnhanced			: true
++,	dayHourHeight				: 59
++,	weekHourHeight				: 59
 +,	useISOWeekNumber			: true			// use iso week numbers first week contains Thursday
 +,	openInView					: "week"		//setting for first open
 +,	uberMinuteInt				: 5				//setting for edit event minute interval
@@ -8232,7 +8738,7 @@ index bd02879..c956d06 100644
  		if (this.viewsReady) {
  
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js
-index 6bc90c4..aec9877 100644
+index 6bc90c4..477d38b 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekHeader.js
 @@ -22,6 +22,7 @@ enyo.kind({
@@ -8294,7 +8800,7 @@ index 6bc90c4..aec9877 100644
 +	
 +	uberWeekNumber: function uberWeekNumber (){
 +		var prefs	= this.prefs || enyo.application.prefsManager.prefs;
-+		if(!prefs.showWkNumber) {
++		if(!prefs.showWkNumber || !prefs.weekViewEnhanced) {
 +			this.$.weekNumber.setShowing(false);
 +			return;
 +		}
@@ -8388,10 +8894,10 @@ index 6bc90c4..aec9877 100644
  	}
  });
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
-index c8349e4..0f3162a 100644
+index c8349e4..a924b0a 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.css
-@@ -9,11 +9,11 @@
+@@ -9,7 +9,7 @@
  
  .calendar .week-view .week-header .date	{
  	color					: #333;
@@ -8400,11 +8906,6 @@ index c8349e4..0f3162a 100644
  	font-weight				: 100;
  	margin 					: 0;
  	overflow 				: hidden;
--	padding					: 0px 0px 7px;
-+	padding					: 0px 3px 7px;
- 	white-space				: pre;
- }
- .calendar .week-view .week-header .date-month {
 @@ -24,6 +24,10 @@
  /*	font-family: PreludeWGL-Light;*/
  }
@@ -8460,12 +8961,7 @@ index c8349e4..0f3162a 100644
  }
  .calendar .week-view .week-hours .hour {
  	background				: url(../day/images/day-hour-markers.png) no-repeat;
-@@ -95,19 +118,33 @@
- .calendar .week-view .today	{
- 	/*background-color		: #f2f2f2;*/
- 	position: relative;
-+	padding-right:			4px;
- 	/*z-index: -2;*/
+@@ -99,15 +122,28 @@
  }
  
  .calendar .week-view .todayDate	{
@@ -8498,7 +8994,14 @@ index c8349e4..0f3162a 100644
  .calendar .week-view .day .hour	{
  	background				: none;
  	padding					: 0;
-@@ -127,4 +164,4 @@
+@@ -121,10 +157,10 @@
+ 	padding					: 0;
+ }
+ .calendar .hourLabels		{
+-	height					: 1410px!important; 
++	/*height					: 1410px!important;*/ 
+ }
+ .events-header {
  	width					: 67px; 
  	margin-left				: -12px; 
  	text-align				: center;
@@ -8506,20 +9009,26 @@ index c8349e4..0f3162a 100644
 +}
 \ No newline at end of file
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
-index efcb2ab..726b0bf 100644
+index efcb2ab..ed8706d 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
-@@ -31,6 +31,7 @@ enyo.kind({
+@@ -31,6 +31,11 @@ enyo.kind({
  	,	prefs	: null		// Object	: For watching Preferences changes (i.e. startOfWeek).
  	,	range	: null		// Object	: {start:Number, end:Number}: This week's start and end timestamps.
  	,	tzId	: ""		// String	: For watching timezone changes.
 +	,	uberWorkWeek: null  // Bool		: for work week in week view
++	,	hourHeight: 59		//
++	,	useIcons: true
++	,	alarmIcons: true
++	,	enhancedView: true
  	},
  
  	G11N:
-@@ -39,11 +40,32 @@ enyo.kind({
+@@ -38,12 +43,34 @@ enyo.kind({
+ 	},
  
  	components:	[
++		{kind:"ApplicationEvents", onWindowRotated			: "windowRotatedHandler"},
  		{name:"header", kind:"calendar.week.WeekHeader"},
 +		{name:"allDayContainer", className:"allday-header", kind: enyo.HFlexBox, components: [
 +			{name:"allDayLabel", style:"padding-left:3px;width:62px;border-right:3px double #eaeaea;padding-right:0px;background:#fff;", className:"label"},
@@ -8553,7 +9062,7 @@ index efcb2ab..726b0bf 100644
  				{name:"hourLabels"	, className:"hours", kind:"calendar.day.DayHours"},
  				{name:"week"	, className:"days enyo-fit", kind: HJSFlex, defaultKind:"calendar.day.DayView"}
  			]}
-@@ -65,20 +87,28 @@ enyo.kind({
+@@ -65,20 +92,37 @@ enyo.kind({
  
  	create: function create () {
  		this.inherited (arguments);
@@ -8576,17 +9085,26 @@ index efcb2ab..726b0bf 100644
  		this.weekdays = [];
 -
 -		for (var week=ui.week, i=0; i < 7; i++) {
++		ui.weekContainer.applyStyle("height", ((this.hourHeight +1)*24) +"px");
++		ui.hourLabels.applyStyle("height", ((this.hourHeight +1)*24) +"px");
++		ui.hourLabels.setHourHeight(this.hourHeight);
++		ui.week.applyStyle("height", ((this.hourHeight +1)*24) +"px");
 +		var len	= this.uberWorkWeek ? 5 : 7;
 +		for (var week=ui.week, i=0; i < len; i++) {
++			
  			this.weekdays[i]  = week.createComponent
  			({	flex			: 1
  			,	inWeekView		: true
  			,	owner			: this
++			,	enhancedView	: this.enhancedView
++			,	hourHeight		: this.hourHeight
++			,	useIcons		: this.useIcons
++			,	alarmIcons		: this.alarmIcons
 +			,	weekAllDayHeader: this.$["allDayHeader"+i]
  			});
  		}
  		this.broadcastMessage ("isActive", [true]);
-@@ -91,6 +121,13 @@ enyo.kind({
+@@ -91,6 +135,13 @@ enyo.kind({
  
  // BEGIN :-------: Custom Handlers :-----------------------------------------------------------------------------------------------------------------------//
  	
@@ -8600,7 +9118,18 @@ index efcb2ab..726b0bf 100644
  	becameCurrentPaneHandler: function becameCurrentPaneHandler(isCurrentPane){
  		this.$.week && this.$.week.broadcastMessage("becameCurrentPane", [isCurrentPane]);
  	},
-@@ -111,15 +148,14 @@ enyo.kind({
+@@ -99,6 +150,10 @@ enyo.kind({
+ 		enyo.application [isActive ? "watch" : "ignore"] (this.commonWatches);
+ 		this.$.week && this.$.week.broadcastMessage ("isActive", [isActive]);
+ 	},
++	
++	windowRotatedHandler: function windowRotatedHandler(){
++		this.showing && this.updateCurrentHour ({scroll: true});
++	},
+ 
+ // BEGIN: Published Properties Change Handlers ---------------------------------------------------------------------------------------------------------------//
+ 
+@@ -111,15 +166,14 @@ enyo.kind({
  		if(!date) {
  			return;
  		}
@@ -8619,7 +9148,7 @@ index efcb2ab..726b0bf 100644
  			weekdays[i].setDate(new Date (timeMachine).addDays (i).clearTime());
  		}
  		this.updateCurrentHour ({scroll: true});
-@@ -131,9 +167,11 @@ enyo.kind({
+@@ -131,9 +185,11 @@ enyo.kind({
  			return;
  		}
  		var weekdays = this.weekdays;
@@ -8632,7 +9161,7 @@ index efcb2ab..726b0bf 100644
  	},
  
  	is24HrChanged: function is24HrChanged(was24Hr){
-@@ -143,7 +181,7 @@ enyo.kind({
+@@ -143,16 +199,48 @@ enyo.kind({
  		}
  		this.$.hourLabels.setIs24Hr (is24Hr);
  	},
@@ -8641,14 +9170,39 @@ index efcb2ab..726b0bf 100644
  	prefsChanged: function prefsChanged (oldPrefs) {
  		var header	= this.$.header
  		,	prefs	= this.prefs || enyo.application.prefsManager.prefs
-@@ -151,8 +189,16 @@ enyo.kind({
- 		if (!header || !this.prefs || isNaN (this.prefs.startOfWeek)) {
++		,	oldHeight= this.hourHeight
+ 		;
+-		if (!header || !this.prefs || isNaN (this.prefs.startOfWeek)) {
++		if (!header || !prefs || isNaN (prefs.startOfWeek)) {
  			return;
  		}
++		
++		this.enhancedView = !!prefs.weekViewEnhanced;
++		this.useIcons = !!prefs.weekUseIcons;
++		this.alarmIcons = !!prefs.weekAlarmIcons;
++		this.hourHeight = prefs.weekHourHeight ? prefs.weekHourHeight : 59;
++		//compression check
++		if(oldHeight !== this.hourHeight && this.weekdays && this.weekdays.length > 0){
++			this.$.weekContainer.applyStyle("height", ((this.hourHeight +1)*24) +"px");
++			this.$.hourLabels.applyStyle("height", ((this.hourHeight +1)*24) +"px");
++			this.$.hourLabels.setHourHeight(this.hourHeight);
++			this.$.week.applyStyle("height", ((this.hourHeight +1)*24) +"px");
++			var len	= this.uberWorkWeek ? 5 : 7;
++			for (var i=0; i < len; i++) {
++				this.weekdays[i].prefsChanged();
++			}
++			this.childNeedsResizeHandler(true);
++			this.updateCurrentHour ({scroll: true});
++		} else if(this.weekdays && this.weekdays.length > 0){
++			var len	= this.uberWorkWeek ? 5 : 7;
++			for (var i=0; i < len; i++) {
++				this.weekdays[i].prefsChanged();
++			}
++		}
 +		header.setUberWorkWeek(this.uberWorkWeek);
  		this.date && header.setDate			(this.date);
 -		header.setStartOfWeek	(this.prefs.startOfWeek - 1);	// Date.getDay() is zero-based, but Calendar prefs startOfWeek is 1-based.
-+		var startOfWeek = this.prefs.startOfWeek -1
++		var startOfWeek = prefs.startOfWeek -1
 +		if(this.uberWorkWeek && startOfWeek !== 1){startOfWeek = 1;}
 +		header.setStartOfWeek	(startOfWeek);	// Date.getDay() is zero-based, but Calendar prefs startOfWeek is 1-based.
 +	},
@@ -8659,16 +9213,16 @@ index efcb2ab..726b0bf 100644
  	},
  
  // BEGIN: Custom Methods -------------------------------------------------------------------------------------------------------------------------------------//
-@@ -170,6 +216,8 @@ enyo.kind({
+@@ -170,6 +258,8 @@ enyo.kind({
  		,	timeMachine	= this.timeMachine
  		,	ui			= this.$
  		,	hourLabels	= ui.hourLabels.hours
 +		,	prefs		= enyo.application.prefsManager.prefs
-+		,	prefsHour	= (new Date(prefs.startTimeOfDay)).getHours()
++		,	prefsHour	= (new Date(prefs.startTimeOfDay)).getUTCHours()
  		;
  
  		timeMachine.setTime (weekDate);
-@@ -183,15 +231,15 @@ enyo.kind({
+@@ -183,15 +273,15 @@ enyo.kind({
  		isToday	&& hourLabels[currentHour].setIsCurrentHour (true);				// If this week contains today, update the now (current hour) indicator.
  		this.currentHour = currentHour;
  
