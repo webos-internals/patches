@@ -81,7 +81,7 @@ index 510366d..f762aef 100644
  			enyo.application.reminderManager.handleLaunchParams(params);
  		}
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
-index 40d8368..06052c7 100644
+index 40d8368..e066989 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
 @@ -19,7 +19,12 @@ enyo.kind({
@@ -120,7 +120,7 @@ index 40d8368..06052c7 100644
 -							{name:"monthSwitch"	, kind: enyo.RadioButton, lab_el: $L("Month")	, icon: "../images/menu-icon-month.png"	, value: 2 }	// lab_el is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
 +					{name:"defCalList", kind:"calendar.CalendarList", onEditGroups: "showEditGroups"},
 +					{name: "uberView", kind: enyo.SlidingPane, style:"background:#fff;padding:0px;margin-top:-8px;", onSlideComplete:"ucPaneMove", flex: 1,components: [
-+						{name: "left", width: "320px", kind:enyo.SlidingView, dragAnywhere:false, fixedWidth:true, style:"background:#fff;margin:0px;padding:0px;", components: [
++						{name: "left", width: "250px", kind:enyo.SlidingView, dragAnywhere:false, fixedWidth:true, style:"background:#fff;margin:0px;padding:0px;", components: [
 +								{name: "ucListView", kind: "calendar.uc.UberAgenda", linked:true, uberMode:2, flex:1, onUcSearchDone:"ucSearchDone", onUcSearchStart:"hideMiniMonth", onDelete:"showDeleteConfirm"},
 +								{name:"miniMonthDrawer", kind: "DividerDrawer", caption: $L("mini month"), style:"background:#fff;",components:[
 +									{kind:enyo.HFlexBox, pack:"center", align:"center", components:[
@@ -218,7 +218,7 @@ index 40d8368..06052c7 100644
  		;
 -		ui.daySwitch.clickHandler();
 -		ui.pane.selectView (ui.calendar);
-+		
++		ui.left.applyStyle("width", ((prefs && prefs.shrinkAgenda) ? "250px" : "320px"));
 +		ui.right.setPeekWidth((prefs && prefs.showPeek) ? 30 : 0);
 +		ui.miniMonthDrawer.setOpen((prefs && prefs.showMini) ? true : false);
 +		//ui.daySwitch.clickHandler();
@@ -1305,10 +1305,10 @@ index 0000000..de8c10e
 +});
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
 new file mode 100644
-index 0000000..95c3fb3
+index 0000000..86b09aa
 --- /dev/null
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/UberAgenda.js
-@@ -0,0 +1,675 @@
+@@ -0,0 +1,683 @@
 +enyo.kind({
 +	name: "calendar.uc.UberAgenda",
 +	kind: enyo.VFlexBox,
@@ -1337,7 +1337,7 @@ index 0000000..95c3fb3
 +		{kind: enyo.HFlexBox, components:[
 +				{content: $L("All Calendars"), domStyles: {font: "14px prelude",display: "inline-block", padding: "2px 8px 10px 8px"}}, 
 +				{name:"ucAllCals", kind: enyo.CheckBox, checked:false, onChange:"allCalsChanged"},
-+				{content: $L("All Day"), domStyles: {font: "14px prelude", display: "inline-block", padding: "2px 8px 10px 8px"}}, 
++				{content: $L("All day"), domStyles: {font: "14px prelude", display: "inline-block", padding: "2px 8px 10px 8px"}}, 
 +				{name:"ucAllDay", checked:true, onChange:"incAllDayChanged", kind: enyo.CheckBox},
 +				{kind:enyo.Spacer},
 +				{name:"ucSearchBtn", kind:enyo.ToolButton, style:"height:25px;width:25px;padding-right:4px;", icon:"/usr/palm/applications/com.palm.app.dateandtime/images/search-icon.png", onclick:"toggleSearch"}
@@ -1395,8 +1395,10 @@ index 0000000..95c3fb3
 +		this.viewDay = (new Date(+enyo.application.currentDate)).clearTime();
 +		this.agendaDays = [];
 +		this.agendaCache = [];
-+		this.allCals = false;
-+		this.incAllDay = true;
++		this.allCals = enyo.application.prefsManager.prefs.ucAgendaAllCals === undefined ? false : enyo.application.prefsManager.prefs.ucAgendaAllCals;
++		this.$.ucAllCals.setChecked(this.allCals);
++		this.incAllDay = enyo.application.prefsManager.prefs.ucAgendaAllDay === undefined ? true : enyo.application.prefsManager.prefs.ucAgendaAllDay;
++		this.$.ucAllDay.setChecked(this.incAllDay);
 +		this.renderedEvts = [];
 +		this.renderedTS =[];
 +		this.workDay = new Date();
@@ -1630,7 +1632,7 @@ index 0000000..95c3fb3
 +			if(evt.color){
 +				this.$.itemTimeBlock.setClassName('theme-'+evt.color);
 +			} else if(evt.calendarId){
-+				var color = enyo.application.calendarsManager.getCalColor(evt.calendarId);
++				var color =  enyo.application.calendarsManager.getCalColor(evt.calendarId);
 +				this.$.itemTimeBlock.setClassName('theme-'+color);
 +			}
 +			
@@ -1935,14 +1937,18 @@ index 0000000..95c3fb3
 +		// refresh list?
 +	},
 +	
-+	calendarsChanged: function calendarsChanged() {
++	calendarsChanged: function calendarsChanged(old) {
++		//console.error("UC agenda cals changed:::::::::::::: "+ JSON.stringify(this.calendars));
++		if(!this.calendars){return;}
 +		//this.buildDataSets();
 +		this.$.uberDaysList.punt();
 +		this.uberScroll();
 +	},
 +	
 +	allCalsChanged: function allCalsChanged() {
++		if(this.allCals === this.$.ucAllCals.getChecked()){return;}
 +		this.allCals = this.$.ucAllCals.getChecked();
++		enyo.application.prefsManager.prefs.ucAgendaAllCals = this.allCalls;
 +		if(this.followCD){
 +			this.buildDataSets();
 +		}
@@ -1961,7 +1967,9 @@ index 0000000..95c3fb3
 +	},
 +	
 +	incAllDayChanged: function incAllDayChanged(){
++		if(this.incAllDay === this.$.ucAllDay.getChecked()){return;}
 +		this.incAllDay = this.$.ucAllDay.getChecked();
++		enyo.application.prefsManager.prefs.ucAgendaAllDay = this.incAllDay;
 +		if(this.followCD){
 +			this.buildDataSets();
 +		}
@@ -2992,7 +3000,7 @@ index d28ca07..afd4099 100644
  		ui.btnEdit.setShowing(!isReadOnly);
  	},
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
-index e1dd533..3f62f7d 100644
+index e1dd533..62bbca2 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 @@ -33,6 +33,17 @@ enyo.kind({
@@ -3552,7 +3560,7 @@ index e1dd533..3f62f7d 100644
  	name		: "calendar.edit.EditView",
  	kind		: enyo.VFlexBox,
  	className	: "edit enyo-bg",
-@@ -109,42 +652,54 @@ enyo.kind({
+@@ -109,42 +652,56 @@ enyo.kind({
  			{name: "contentContainer", className: "content-container", components:[
  				{kind:enyo.RowGroup, className: "group", components:[
  					{name:"subject"		, kind: enyo.RichText, hint: $L("Event Name"), className: "event-name", onblur:"editSubject", autoLinking: true, allowHtml: true, onkeydown:"ignoreNewLines", inputClassName: "event-name-input", maxTextHeight: "23px"},
@@ -3581,7 +3589,8 @@ index e1dd533..3f62f7d 100644
 -							]}	
 +								{name: "startTime", kind: enyo.TimePicker, label: " ", minuteInterval:5, className:"spacer", onChange:"changeStartTime"}
 +							]},
-+							{name: "popTimeZoneBtn2", kind: enyo.IconButton, icon:"./edit/images/timedate-icon.png", onclick:"popTimezone"}							
++							{name: "popTimeZoneBtn2", kind: enyo.IconButton, icon:"./edit/images/timedate-icon.png", onclick:"popTimezone"},
++							{name: "popDuraBtn2", kind: enyo.IconButton, icon:"./edit/images/repeat-icon.png", onclick:"popDura"}
 +						]},
 +						{name: "miniDrawer", open:false, kind:enyo.Drawer, components:[
 +							{name: "editMiniMonth",kind:"calendar.uc.MiniMonth", linked:false, followViewDay:true, onMiniMonDateTap:"miniMonDateTap", followMe: ["prefs"]}	
@@ -3595,7 +3604,8 @@ index e1dd533..3f62f7d 100644
 -							]}
 +								{name: "endTime", kind: enyo.TimePicker, label: " ", minuteInterval:5, className:"spacer", onChange:"changeEndTime"}
 +							]},
-+							{name: "popTimeZoneBtn", kind: enyo.IconButton, icon:"./edit/images/timedate-icon.png", onclick:"popTimezone"}
++							{name: "popTimeZoneBtn", kind: enyo.IconButton, icon:"./edit/images/timedate-icon.png", onclick:"popTimezone"},
++							{name: "popDuraBtn", kind: enyo.IconButton, icon:"./edit/images/repeat-icon.png", onclick:"popDura"}
  						]},
  					]},
  					{kind: enyo.HFlexBox, components: [
@@ -3619,7 +3629,7 @@ index e1dd533..3f62f7d 100644
  										,	onSelect: "editRepeat"
  										,	className: "alert-list"
  										,	items	:
-@@ -159,14 +714,24 @@ enyo.kind({
+@@ -159,14 +716,24 @@ enyo.kind({
  								]}
  							]}
  						]},
@@ -3651,7 +3661,7 @@ index e1dd533..3f62f7d 100644
  									]}
  								]}
  							]}
-@@ -182,23 +747,50 @@ enyo.kind({
+@@ -182,23 +749,53 @@ enyo.kind({
  
  				{kind: enyo.RowGroup, onclick:"focusNote", components: [
  					{name: "note", kind: enyo.RichText, hint: $L("Event Notes"), autoLinking: true, className: "note", onblur:"editNote", alwaysLooksFocused:true}	//HACK because onblur sux with back gesture!
@@ -3702,11 +3712,14 @@ index e1dd533..3f62f7d 100644
 +						,{caption: $L("Map location"), value:"edit"}
 +						,{caption: $L("Clear location"), value: "clear"}
 +						
++		]},
++		{name:"duraPopup", kind:enyo.PopupList, onSelect:"duraChosen",
++				items: [{caption: "Hello", value:"hi"}
 +		]}
  	],//end EditView components
  
  	create: function create () {
-@@ -223,6 +815,13 @@ enyo.kind({
+@@ -223,6 +820,13 @@ enyo.kind({
  		,	customMonthly	: $L("Custom Monthly")
  		,	customYearly	: $L("Custom Yearly")
  		};
@@ -3720,7 +3733,7 @@ index e1dd533..3f62f7d 100644
  	},
  
  	destroy: function destroy () {
-@@ -256,6 +855,7 @@ enyo.kind({
+@@ -256,6 +860,7 @@ enyo.kind({
  
  	eventChanged: function eventChanged (oldEvent) {
  		var event = this.event;
@@ -3728,7 +3741,7 @@ index e1dd533..3f62f7d 100644
  		if (!event) { return; }
  
  		event.event													// This event is likely an event's GUI because it contains an event object:
-@@ -282,14 +882,14 @@ enyo.kind({
+@@ -282,14 +887,14 @@ enyo.kind({
  		ui.subject	.setValue	(subject	||	"");
  		ui.location	.setValue	(event.location	||	"");
  		ui.note		.setValue	(indexedNote);
@@ -3746,7 +3759,7 @@ index e1dd533..3f62f7d 100644
  		//pickerStart and pickerEnd are the values displayed by the 
  		//time and date pickers.  If they change, they'll be merged back on to
  		//the event before we save.
-@@ -297,6 +897,8 @@ enyo.kind({
+@@ -297,6 +902,8 @@ enyo.kind({
  		this.pickerEnd   = event.currentLocalEnd;
  		var start = new Date (this.pickerStart);
  		var end   = new Date (this.pickerEnd);		
@@ -3755,7 +3768,7 @@ index e1dd533..3f62f7d 100644
  		ui.startDate.setValue	(start);
  		ui.startTime.setValue	(start);
  
-@@ -305,8 +907,9 @@ enyo.kind({
+@@ -305,8 +912,9 @@ enyo.kind({
  
  		ui.allDay			.setChecked	(!!event.allDay);					
  		ui.startTimeDrawer	.setOpen	(!event.allDay);
@@ -3766,7 +3779,7 @@ index e1dd533..3f62f7d 100644
  		Utilities.findEventOrganizer(event);
  
  		this.setupRepeatValue();
-@@ -347,6 +950,7 @@ enyo.kind({
+@@ -347,6 +955,7 @@ enyo.kind({
  			this.startDateOld	=	this.endDateOld	= null;
  			this.pickerStart	=	this.pickerEnd	= null;
  			enyo.call(document.activeElement, "blur");
@@ -3774,7 +3787,7 @@ index e1dd533..3f62f7d 100644
  			
  			if (this.hasCustomReminderItem && this.hasCustomReminderItem.selector) {
  				var	selector	= this.hasCustomReminderItem.selector
-@@ -389,7 +993,8 @@ enyo.kind({
+@@ -389,7 +998,8 @@ enyo.kind({
  				}
  				break;	
  
@@ -3784,7 +3797,7 @@ index e1dd533..3f62f7d 100644
  				this.doDelete (this.eventGUI || this.event);
  				break;
  
-@@ -434,6 +1039,362 @@ enyo.kind({
+@@ -434,6 +1044,451 @@ enyo.kind({
  		this.$.contentScroller.setScrollTop (0);	// Reset the scroll position.
  	},
  
@@ -4060,6 +4073,95 @@ index e1dd533..3f62f7d 100644
 +		}
 +	},
 +	
++	popDura: function popDura(inSender){
++		var tempDate, ui = this.$, curBtn = inSender.name, prefs = enyo.application.prefsManager.prefs
++		,	prefsEndHour	= (new Date(prefs.endTimeOfDay)).getUTCHours()
++		,	prefsStartHour	= (new Date(prefs.startTimeOfDay)).getUTCHours()
++		,	prefsEndMin	= (new Date(prefs.endTimeOfDay)).getUTCMinutes()
++		,	prefsStartMin	= (new Date(prefs.startTimeOfDay)).getUTCMinutes()
++		,	setTS, newTS
++		;
++		this.duraLastBtn = curBtn;
++		this.duraItems = [{caption: $L("15 minutes"),	value: 15},
++					{caption: $L("30 minutes"),	value: 30},
++					{caption: $L("45 minutes"),	value: 45},
++					{caption: $L("1 hour"),	value: 60},
++					{caption: $L("90 minutes"), value: 90},
++					{caption: $L("2 hours"),	value: 120},
++					{caption: $L("3 hours"),	value: 180},
++					{caption: $L("4 hours"),	value: 240},
++					{caption: $L("8 hours"),	value: 480}
++					];
++		if(curBtn === "popDuraBtn2"){
++			tempDate = new Date(this.pickerStart);
++			if(tempDate.getHours() > prefsEndHour){tempDate.addDays(1);}
++			tempDate.setHours(prefsEndHour);
++			tempDate.setMinutes(prefsEndMin);
++			newTS = tempDate.getTime();
++			//console.error("edit end time value::::::::: " + ((newTS - this.pickerStart)/60000) + " , newTS ::: " +tempDate + " , prefsEndHour : " + prefsEndHour);
++			this.duraItems.push({caption: $L("Until end of day"), value: ((newTS - this.pickerStart)/60000)});
++		} else if(curBtn === "popDuraBtn"){
++			tempDate = new Date(this.pickerEnd);
++			if(tempDate.getHours() < prefsStartHour){tempDate.addDays(-1);}
++			tempDate.set({hour: prefsStartHour, minute: prefsStartMin});
++			newTS = tempDate.getTime();
++			//console.error("edit start time value::::::::: " + ((this.pickerEnd - newTS)/60000) + " , newTS ::: " +tempDate + " , prefsStartHour : " + prefsStartHour);
++			this.duraItems.push({caption: $L("From start of day"), value: ((this.pickerEnd - newTS)/60000)});
++		}
++		ui.duraPopup.lazy && ui.duraPopup.validateComponents();
++		ui.duraPopup.setItems(this.duraItems);
++		ui.duraPopup.validateComponents();
++		ui.duraPopup.openAtControl(inSender);
++	},
++	
++	duraChosen: function duraChosen(inSender, inSelected){
++		var ui = this.$, mins, oldDate, cDate, newDate;
++		ui.duraPopup.close();
++		var op = (inSelected !== undefined) ? parseInt(inSelected, 10) : -1;
++		if(op > -1){
++			mins = this.duraItems[op].value;
++			if(this.duraLastBtn === "popDuraBtn2"){
++				//move end
++				oldDate = new Date((ui.endDate.getValue()).getTime());
++				cDate = new Date(this.pickerStart + (mins*60*1000));
++				if(cDate.getFullYear() === oldDate.getFullYear() && cDate.getMonth() === oldDate.getMonth() && cDate.getDate() === oldDate.getDate() ) {
++					this.pickerEnd = cDate.getTime();
++					ui.endTime.setValue(new Date(cDate));
++				} else { //change time & date, time first
++					newDate = new Date(this.pickerEnd); 
++					newDate.setHours(cDate.getHours());
++					newDate.setMinutes(cDate.getMinutes());
++					this.pickerEnd = newDate.getTime();
++					ui.endTime.setValue(new Date(newDate));
++					this.pickerEnd = cDate.getTime();
++					ui.endDate.setValue(new Date(this.pickerEnd));
++				}
++			} else if(this.duraLastBtn === "popDuraBtn"){
++				//move start
++				oldDate = new Date((ui.startDate.getValue()).getTime());
++				cDate = new Date(this.pickerEnd - (mins*60*1000));
++				var oldDura = this.pickerEnd - this.pickerStart;
++				var convertedTS = cDate.getTime();
++				if(cDate.getFullYear() === oldDate.getFullYear() && cDate.getMonth() === oldDate.getMonth() && cDate.getDate() === oldDate.getDate() ) {
++					if((convertedTS < oldDate.getTime()) || ((convertedTS > oldDate.getTime()) && convertedTS - oldDate.getTime() < oldDura)){this.pickerStart = convertedTS;}
++					ui.startTime.setValue(cDate);
++				} else { //changing start date & time
++					//first change time, so it does not automatically change end date
++					newDate = new Date(this.pickerStart);
++					newDate.setHours(cDate.getHours());
++					newDate.setMinutes(cDate.getMinutes());
++					if((convertedTS < oldDate.getTime()) || ((convertedTS > oldDate.getTime()) && convertedTS- oldDate.getTime() < oldDura)){this.pickerStart = newDate.getTime();}
++					ui.startTime.setValue(newDate);
++					// time set now must change day & pickerstart time again for duration
++					if((convertedTS < oldDate.getTime()) || ((convertedTS > oldDate.getTime()) && convertedTS - oldDate.getTime() < oldDura)){
++						this.pickerStart = convertedTS;
++					}
++					ui.startDate.setValue(new Date(cDate))
++				}
++			}
++		}
++	},
++	
 +	popTimezone: function popTimezone(inSender){
 +		var year, ui = this.$, curBtn = inSender.name;
 +		this.tzLastBtn = curBtn;
@@ -4114,7 +4216,7 @@ index e1dd533..3f62f7d 100644
 +				ui.startTime.setValue(cDate);
 +			} else { //changing start date & time
 +				//first change time, so it does not automatically change end date
-+				newDate = newDate(this.pickerStart);
++				newDate = new Date(this.pickerStart);
 +				newDate.setHours(cDate.getHours());
 +				newDate.setMinutes(cDate.getMinutes());
 +				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && this.convertedTS- oldDate.getTime() < oldDura)){this.pickerStart = newDate.getTime();}
@@ -4147,7 +4249,7 @@ index e1dd533..3f62f7d 100644
  	setupRepeatValue: function setupRepeatValue(sender, repeatType){
  		var	customType
  		,	event = this.event
-@@ -520,6 +1481,94 @@ enyo.kind({
+@@ -520,6 +1575,94 @@ enyo.kind({
  		selector.setValue(reminderValue);
  	},
  
@@ -4242,7 +4344,7 @@ index e1dd533..3f62f7d 100644
  	setupCalendarPicker: function setupCalendarPicker(calendarId){
  		var mgr = enyo.application.calendarsManager;
  		this.calendars = mgr.getCalendarsList({sorted: true, excludeReadOnly: true});
-@@ -541,6 +1590,35 @@ enyo.kind({
+@@ -541,6 +1684,35 @@ enyo.kind({
  		ui.calendarPicker.setValue (calendarId);	// calendarId will be undefined on accountsAndCalendarsChanged().
  	},
  
@@ -4278,7 +4380,7 @@ index e1dd533..3f62f7d 100644
  	ignoreNewLines: function ignoreNewLines (inSender, inResponse) {
  		if (inResponse && inResponse.keyCode === 13) {
  			enyo.stopEvent(inResponse);
-@@ -580,6 +1658,10 @@ enyo.kind({
+@@ -580,6 +1752,10 @@ enyo.kind({
  		,	end = new Date(timestamp);
  		ui.endTime.setValue (end);
  		ui.endDate.setValue (end);	
@@ -4289,7 +4391,7 @@ index e1dd533..3f62f7d 100644
  	},
  	 
  	//Rules for date and time changes:
-@@ -596,9 +1678,11 @@ enyo.kind({
+@@ -596,9 +1772,11 @@ enyo.kind({
  		,	event	= this.event
  		;
  		
@@ -4304,7 +4406,7 @@ index e1dd533..3f62f7d 100644
  
  		var duration = this.pickerEnd - this.pickerStart;
  		
-@@ -622,10 +1706,18 @@ enyo.kind({
+@@ -622,10 +1800,18 @@ enyo.kind({
  		var event	= this.event;
  		
  		this.changeStartTime();
@@ -4324,7 +4426,7 @@ index e1dd533..3f62f7d 100644
  		}
  		this.oldStartValue = this.$.startDate.getValue().getTime();
  	},
-@@ -638,9 +1730,10 @@ enyo.kind({
+@@ -638,9 +1824,10 @@ enyo.kind({
  		,	changedDate = false
  		;
  
@@ -4338,7 +4440,7 @@ index e1dd533..3f62f7d 100644
  		
  		if(time < this.pickerStart){			
  			//consider it as setting for next 12 hour clock
-@@ -664,9 +1757,13 @@ enyo.kind({
+@@ -664,9 +1851,13 @@ enyo.kind({
  		,	changedDate = false
  		;
  
@@ -4355,7 +4457,7 @@ index e1dd533..3f62f7d 100644
  		
  		if(time < this.pickerStart){
  			var startDate = new Date(this.pickerStart);
-@@ -731,7 +1828,9 @@ enyo.kind({
+@@ -731,7 +1922,9 @@ enyo.kind({
  		ui.startTime.setValue	(start);	
  		event.allDay = state;
  		ui.startTimeDrawer	.setOpen (!state);
@@ -4365,7 +4467,7 @@ index e1dd533..3f62f7d 100644
  		
  		this.setupReminder(event, true);
  	},
-@@ -1053,6 +2152,7 @@ enyo.kind({
+@@ -1053,6 +2246,7 @@ enyo.kind({
  	
  	editNote: function editNote (note) {
  		this.event.note = note && note.getText();
@@ -4373,7 +4475,7 @@ index e1dd533..3f62f7d 100644
  	},
  	
  	confirmSave: function confirmSave(){
-@@ -1120,6 +2220,67 @@ enyo.kind({
+@@ -1120,6 +2314,67 @@ enyo.kind({
  		this.doExit(this.event);
  	},
  
@@ -4783,7 +4885,7 @@ index fc46829..4f6ac87 100644
  				}
  				break;
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/header/CalendarList.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/header/CalendarList.js
-index fcb153f..fe57aa1 100644
+index fcb153f..6d1ad5f 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/header/CalendarList.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/header/CalendarList.js
 @@ -14,12 +14,22 @@ enyo.kind({
@@ -4810,7 +4912,7 @@ index fcb153f..fe57aa1 100644
  	},
  
  	G11N: // Cached Globalization strings:
-@@ -32,10 +42,15 @@ enyo.kind({
+@@ -32,10 +42,17 @@ enyo.kind({
  		{name:"calendarScroller", className:"toggles", kind: enyo.Scroller, autoVertical: false, vertical: false, flex: 1, components: [
  			{name:"toggles", className:"container", kind: enyo.HFlexBox, defaultKind: enyo.VFlexBox, defaultLayoutKind: enyo.VFlexLayout}
  		]},
@@ -4819,6 +4921,8 @@ index fcb153f..fe57aa1 100644
  		{kind:"ApplicationEvents"
  		,	onWindowDeactivated: "windowDeactivatedHandler"
 -		}
++		,	onWindowHidden			: "windowHiddenHandler"
++		,	onWindowShown			: "windowShownHandler"
 +		},
 +		{name:"groupPopup", kind:enyo.PopupList, onSelect:"uberGroupChosen",
 +				items: [{caption: $L("Show All"), value: "all"}
@@ -4827,12 +4931,13 @@ index fcb153f..fe57aa1 100644
  		
  	],
  
-@@ -46,11 +61,13 @@ enyo.kind({
+@@ -46,11 +63,14 @@ enyo.kind({
  	create: function create () {
  		this.inherited (arguments);
  		this.$.toggleAllButton.caption = this.G11N.hideAll;
 -		enyo.application.watch ({accountsAndCalendars: this});
 +		this.settingIncludes = false;
++		this.firstLoad = true;
 +		this.calendarMap = {};
 +		if(!this.editingGroups){enyo.application.watch ({accountsAndCalendars: this});}
  	},
@@ -4843,12 +4948,25 @@ index fcb153f..fe57aa1 100644
  		this.inherited (arguments);
  	},
  
-@@ -62,68 +79,265 @@ enyo.kind({
+@@ -62,68 +82,278 @@ enyo.kind({
  
  	windowDeactivatedHandler: function windowDeactivatedHandler(){
  		// As we leave the app, save the calendar toggle state.
 -		enyo.application.calendarsManager.saveCalendarOnOffState(this.calendarMap);
 +		if(!this.editingGroups){enyo.application.calendarsManager.saveCalendarOnOffState(this.calendarMap);}
++	},
++	
++	windowHiddenHandler: function windowHiddenHandler () {
++		this.firstLoad = true;
++		//console.error ("======= hidden agenda\t");
++	},
++	
++	windowShownHandler: function windowShownHandler () {
++		//console.error ("======= SHOWN agenda\t");
++		this.firstLoad = true;
++		if(!this.editingGroups && this.enableUcGroups && enyo.application.prefsManager.prefs.startUpGroup !== "none"){
++			this.settingStartUpGroup();
++		}
  	},
  //-------------------------------	
  
@@ -4903,7 +5021,7 @@ index fcb153f..fe57aa1 100644
  
  	shareCalendars: function shareCalendars (calendarMap) {
 -		!calendarMap		&&	(calendarMap = this.calendarMap);
-+		//console.error("Share Calendars :  "+ JSON.stringify(this.calendarMap) + "rId:  " + this.groupRId);}
++		console.error("Share Calendars :  "+ JSON.stringify(calendarMap) );
 +		if(!calendarMap){var calendarMap = this.calendarMap;}
  		var cals 			= JSON.parse(JSON.stringify(calendarMap));
 -		
@@ -4986,7 +5104,7 @@ index fcb153f..fe57aa1 100644
 +						inc.push(id);
 +					}
 +				}
- 			}
++			}
 +			if(this.editingGroups){this.setGroupIncludes(inc);}
 +			if (this.showToggleAll) {
 +				if (on) {													// Change the button caption and reset numShowingCalendars to the new count
@@ -4996,7 +5114,7 @@ index fcb153f..fe57aa1 100644
 +					this.numShowingCalendars = 0;
 +					this.$.toggleAllButton.setCaption (this.G11N.ShowAll);
 +				}
-+			}
+ 			}
 +			this.shareCalendars();
  		}
 -		this.shareCalendars();
@@ -5144,7 +5262,7 @@ index fcb153f..fe57aa1 100644
  			this.toggleAllOn = true;
  			this.$.toggleAllButton.setCaption (this.G11N.HideAll);		//		Display "Hide All".
  		} else {														// Otherwise:
-@@ -131,19 +345,102 @@ enyo.kind({
+@@ -131,19 +361,147 @@ enyo.kind({
  			this.$.toggleAllButton.setCaption (this.G11N.ShowAll);		//		Display "Show All".
  		}
  	},
@@ -5187,6 +5305,51 @@ index fcb153f..fe57aa1 100644
 +			var grp = [{rId: "default", groupname: $L('Default Group'),includes: [defCal] , workweek: false}];
 +			prefsMgr.setUberCalendarPrefs({name:"userUberCalGroups", values: grp});
 +			this.userUberCalGroups = grp;
++		}
++	},
++	
++	settingStartUpGroup: function settingStartUpGroup(){
++		if(!this.enableUcGroups || this.editingGroups){return;}
++		
++		var prefsMgr = enyo.application.prefsManager;
++		startUpGroup = prefsMgr.prefs.startUpGroup || "none";
++		if(startUpGroup !== "none" && this.userUberCalGroups.length > 0){
++			for(var grp, len = this.userUberCalGroups.length, i=0;i<len;i++){
++				grp = this.userUberCalGroups[i];
++				if(grp && grp.rId === startUpGroup){
++					this.startGrpIdx = i;
++					var includes = grp.includes;
++					if(includes){
++						var calendarMap	= this.calendarMap
++						,	toggleMap	= this.toggleMap
++						,	toggle
++						;
++						for(var id in calendarMap) {									// TODO: Set current calendarId to single-selected writeable calendar or default cal.
++							if (calendarMap.hasOwnProperty (id)) {
++								toggle		= toggleMap	[id];
++								toggle.on	= calendarMap [id].on = (includes.indexOf(id) !== -1);
++								this.updateLegend (toggle);
++							}
++						}
++						toggle = toggleMap["workWeek"];
++						this.workWeekOnly = this.toggleMap["workWeek"].on = grp.workweek;
++						this.updateLegend(toggle);
++						this.$.toggleAllButton.setCaption(grp.groupname);
++						this.numShowingCalendars = includes.length;
++					}
++					this.firstLoad = false;
++					//enyo.application.calendarsManager.saveCalendarOnOffState(this.calendarMap)
++					//setTimeout(enyo.bind(this, this.shareCalendars), 500);
++					this.shareCalendars(JSON.parse(JSON.stringify(calendarMap)));
++					return;
++				}
++			}
++		} else {
++			this.firstLoad = false;
++			var uberWorkWk = (this.workWeekOnly === null ? workWeekOnly : this.workWeekOnly)
++			enyo.application.share	({ uberWorkWeek: {data: uberWorkWk, keep: true}});
++			enyo.application.uberWorkView = uberWorkWk;
++			this.shareCalendars();
 +		}
 +	},
 +	
@@ -5233,7 +5396,7 @@ index fcb153f..fe57aa1 100644
 +			var calendars = enyo.application.calendarsManager.getCalendarsList ({sorted: true});
 +		}
 +		
-+		if(this.editingGroups){calendars = JSON.parse(JSON.stringify(calendars));}
++		//if(this.editingGroups){calendars = JSON.parse(JSON.stringify(calendars));}
  		!this.toggleAllOn	&& (this.toggleAllOn = true); 					// Set the default toggle all state if it isn't already set
  
  		var	erasedCalendars	= this.calendarMap								// Create a map of erased calendars using the old calendar map.
@@ -5249,7 +5412,7 @@ index fcb153f..fe57aa1 100644
  		,	toggleParts
  		;
  		this.totalCalendars	= calendarCount;
-@@ -181,8 +478,26 @@ enyo.kind({
+@@ -181,8 +539,26 @@ enyo.kind({
  			calendarMap [id]	= { color:color, on:!!toggle.on };
  			this.updateLegend (toggle);
  		}
@@ -5277,7 +5440,7 @@ index fcb153f..fe57aa1 100644
  		this.showToggleAll			= showToggleAll
  		this.$.toggleAllButton.setShowing (showToggleAll); 						// Show the toggle all button if there are enough calendars.
  
-@@ -193,13 +508,383 @@ enyo.kind({
+@@ -193,13 +569,387 @@ enyo.kind({
  		}
  		for (var calId in erasedCalendars) {	// Iterate over all erased calendars and:
  			toggleMap [calId].destroy();		//	destroy each one's toggle
@@ -5297,6 +5460,10 @@ index fcb153f..fe57aa1 100644
  		if(oldMap != JSON.stringify(this.calendarMap)){	//TODO: Maybe write a calendar map comparison function instead of using stringify
 -			this.shareCalendars();	
 +			if(!this.editingGroups) {
++				if(this.firstLoad){
++					this.settingStartUpGroup();
++					return;
++				}
 +				var uberWorkWk = (this.workWeekOnly === null ? workWeekOnly : this.workWeekOnly)
 +				enyo.application.share	({ uberWorkWeek: {data: uberWorkWk, keep: true}});
 +				enyo.application.uberWorkView = uberWorkWk;
@@ -5941,7 +6108,7 @@ index 592cb6e..decd2c8 100644
  		}
  		this.startOfWeekChanged();
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
-index d06f5ca..995d265 100644
+index d06f5ca..a3a6042 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 @@ -12,6 +12,39 @@ enyo.kind(
@@ -6351,7 +6518,7 @@ index d06f5ca..995d265 100644
  	name		: "calendar.prefs.PreferencesView",
  	kind		: enyo.VFlexBox,
  	className	: "prefs enyo-bg",
-@@ -183,30 +540,209 @@ enyo.kind({
+@@ -183,30 +540,219 @@ enyo.kind({
  					{kind: enyo.RowGroup, caption: $L("First Day of Week"), components:[
  						{kind: "calendar.day.DayPicker", name: "startOfWeek", onChange: "chooseStartOfWeek"}
  					]},
@@ -6401,6 +6568,10 @@ index d06f5ca..995d265 100644
 +							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
 +								{flex: 1, content: $L("Peek at agenda list")},
 +								{name:"showPeek", kind: enyo.ToggleButton, state: false, onChange:"chooseShowPeek"}
++							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++								{flex: 1, content: $L("Shrink agenda list")},
++								{name:"shrinkAgenda", kind: enyo.ToggleButton, state: false, onChange:"chooseShrinkAgenda"}
 +							 ]},
 +							 {kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
 +								{flex: 1, content: $L("Stop auto close")},
@@ -6532,6 +6703,12 @@ index d06f5ca..995d265 100644
 +								{flex: 1, content: $L("Enable UC Groups")},
 +								{name:"enableUcGroups", kind: enyo.ToggleButton, state: true, onChange:"chooseEnableUcGroups"}
 +							 ]},
++							 {kind: enyo.RowItem, tapHighlight: false, components:[
++								{name:"startUpGroup", kind: enyo.ListSelector, label: $L("Start up group"), value: "none", onChange:"chooseStartUpGroup",
++									items: [{caption: $L("None"), value: "none"}
++											]
++								}
++							 ]},
 +							{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
 +								{name:"weekModulusNum", kind: enyo.IntegerPicker, label: $L("Week-Number Modulo"), value:1, min: 1, max: 52, onChange: "chooseWeekModulusNum"}
 +							]},
@@ -6573,7 +6750,7 @@ index d06f5ca..995d265 100644
  					{kind: enyo.Group, caption: $L("Calendar Colors"), components: [
  						{name: "calendarList", kind: enyo.VirtualRepeater, onSetupRow: "getCalendar", components: [
  							{kind: enyo.Item, name: "calendarItem", onclick: "calendarClick", layoutKind: enyo.HFlexLayout, className:"accounts-list-item", components: [
-@@ -242,6 +778,7 @@ enyo.kind({
+@@ -242,6 +788,7 @@ enyo.kind({
  	},
  
  	ready: function ready (){
@@ -6581,7 +6758,7 @@ index d06f5ca..995d265 100644
  		this.$.accountsList.getAccountsList("CALENDAR", []);
  	},
  
-@@ -298,18 +835,61 @@ enyo.kind({
+@@ -298,18 +845,64 @@ enyo.kind({
  		var ui = this.$;
  		ui.startOfWeek		.setValue (this.prefs.startOfWeek);
  		ui.reminder			.setValue (this.prefs.defaultEventReminder);
@@ -6591,6 +6768,7 @@ index d06f5ca..995d265 100644
  		ui.alertSelector	.setValue (this.prefs.alarmSoundOn);
 +		ui.showWkNumber		.setState (this.prefs.showWkNumber);
 +		ui.showPeek			.setState (this.prefs.showPeek);
++		ui.shrinkAgenda		.setState (this.prefs.shrinkAgenda);
 +		ui.stopAutoClose	.setState (this.prefs.stopAutoClose);
 +		ui.snoozeThrob		.setState (this.prefs.snoozeThrob);
 +		ui.disableReminders	.setState (this.prefs.disableReminders);
@@ -6619,6 +6797,8 @@ index d06f5ca..995d265 100644
 +		ui.useParens		.setState (this.prefs.useParens);
 +		ui.workWeekOnly		.setState (this.prefs.workWeekOnly);
 +		ui.enableUcGroups	.setState (this.prefs.enableUcGroups);
++		this.setupUberGroups();
++		ui.startUpGroup		.setValue(this.prefs.startUpGroup || "none");
 +		ui.openInView		.setValue (this.prefs.openInView);
 +		ui.linkOffAfterLoad	.setState (this.prefs.linkOffAfterLoad);
 +		ui.autoConfirmAgendaSwipe	.setState (this.prefs.autoConfirmAgendaSwipe);
@@ -6650,7 +6830,7 @@ index d06f5ca..995d265 100644
  		this.setupDefaultCalendar();
  	},
  
-@@ -359,25 +939,25 @@ enyo.kind({
+@@ -359,25 +952,25 @@ enyo.kind({
  	},
  
  //	Commenting out the following but keeping it in case it is needed again.
@@ -6695,7 +6875,7 @@ index d06f5ca..995d265 100644
  	chooseReminder: function chooseReminder () {
  		this.prefs.defaultEventReminder = this.$.reminder.getValue();
  	},
-@@ -389,6 +969,10 @@ enyo.kind({
+@@ -389,6 +982,10 @@ enyo.kind({
  	chooseDuration: function chooseDuration () {
  		this.prefs.defaultEventDuration = this.$.durationSelector.getValue();
  	},
@@ -6706,7 +6886,7 @@ index d06f5ca..995d265 100644
  
  	syncNow: function syncNow () {
  		enyo.application.calendarsManager.syncAllCalendars();
-@@ -408,6 +992,177 @@ enyo.kind({
+@@ -408,6 +1005,185 @@ enyo.kind({
  		}
  	},
  
@@ -6716,6 +6896,10 @@ index d06f5ca..995d265 100644
 +	
 +	chooseShowPeek: function chooseShowPeek(inSender, inState) {
 +		this.prefs.showPeek = inState;
++	},
++	
++	chooseShrinkAgenda: function chooseShrinkAgenda(inSender, inState) {
++		this.prefs.shrinkAgenda = inState;
 +	},
 +	
 +	chooseStopAutoClose: function chooseStopAutoClose(inSender, inState) {
@@ -6851,6 +7035,10 @@ index d06f5ca..995d265 100644
 +		this.prefs.openInView = this.$.openInView.getValue();
 +	},
 +	
++	chooseStartUpGroup: function chooseStartUpGroup() {
++		this.prefs.startUpGroup = this.$.startUpGroup.getValue();
++	},
++	
 +	chooseLinkOffAfterLoad: function chooseLinkOffAfterLoad(inSender, inState) {
 +		this.prefs.linkOffAfterLoad = inState;
 +	},
@@ -6884,6 +7072,44 @@ index d06f5ca..995d265 100644
  	calendarClick: function calendarClick(inSender, inEvent) {
  		var calendar = this.calendars[inEvent.rowIndex];
  		this.$.colorPicker.setCalendarId(calendar._id);
+@@ -427,7 +1203,36 @@ enyo.kind({
+ 		this.templates = templates;
+ 	},
+ 
+-
++	setupUberGroups: function setupUberGroups(){
++		if(!this.prefs){ return;}
++		this.userUberCalGroups = [];
++		var ui = this.$;
++		var prefsMgr = enyo.application.prefsManager;
++		var grpsCookie = prefsMgr && prefsMgr.getUberCalendarPrefs({name:"userUberCalGroups"});
++		var len = grpsCookie && grpsCookie.length;
++		if(grpsCookie && len >0){
++			for(var i = 0; i<len; i++){
++				this.userUberCalGroups.push(grpsCookie[i]);
++			}
++			//console.error("prefs  userUberCalGroups:  "+ JSON.stringify(this.userUberCalGroups));
++		} else {
++			var defCal = prefsMgr.getDefaultCalendar();
++			var grp = [{rId: "default", groupname: $L('Default Group'),includes: [defCal] , workweek: false}];
++			prefsMgr.setUberCalendarPrefs({name:"userUberCalGroups", values: grp});
++			this.userUberCalGroups = grp;
++		}
++		if(this.userUberCalGroups && this.userUberCalGroups.length >0){
++			var items = [];
++			items.push({caption: $L('None'), value:'none'});
++			for(var grp, len = this.userUberCalGroups.length, i=0; i<len;i++){
++				grp = this.userUberCalGroups[i];
++				items.push({caption: grp.groupname, value: grp.rId});
++			}
++			if(ui.startUpGroup && items && items.length > 1){
++				ui.startUpGroup.setItems(items);
++			}
++		}
++	},
+ 	// "Add Account" button was tapped
+ 	addAccount: function addAccount(button) {
+ 		this.$.AccountsView.AddAccount(this.templates);
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/reminders/MissedRemindersView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/reminders/MissedRemindersView.js
 index d42166c..883b6c1 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/reminders/MissedRemindersView.js
@@ -7512,7 +7738,7 @@ index 10d7efa..9227859 100644
  	exitView: function exitView () {
  		DEBUG && this.log ("########## Exit JumpTo view.");
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
-index 7d54e34..b23c884 100644
+index 7d54e34..cc80128 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/PrefsManager.js
 @@ -11,6 +11,7 @@ function PrefsManager () {
@@ -7584,7 +7810,7 @@ index 7d54e34..b23c884 100644
  PrefsManager.prototype.alarmSoundOptions =
  {	mute		: 0
  ,	systemSound	: 1
-@@ -280,10 +335,48 @@ PrefsManager.prototype.defaultPrefs =
+@@ -280,10 +335,52 @@ PrefsManager.prototype.defaultPrefs =
  ,	defaultCalendarID			: 0
  ,	defaultEventDuration		: 60
  ,	defaultEventReminder		: "-PT15M"
@@ -7633,6 +7859,10 @@ index 7d54e34..b23c884 100644
 +,	tapInUberAgenda				: "view"		//setting for whether to edit or view
 +,	workWeekOnly				: false			//work week default setting
 +,	enableUcGroups				: true			// enables UC groups
++,	startUpGroup				: "none"
++,	ucAgendaAllCals				: false
++,	ucAgendaAllDay				: true
++,	shrinkAgenda				: false
  };
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/ReminderManager.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/ReminderManager.js
 index 866fea0..f722963 100644
