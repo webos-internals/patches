@@ -1,0 +1,111 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/phoneApp/source/CallLogView.js b/usr/palm/applications/com.palm.app.phone/phoneApp/source/CallLogView.js
+index 65889bf..874a5e6 100644
+--- a/usr/palm/applications/com.palm.app.phone/phoneApp/source/CallLogView.js
++++ b/usr/palm/applications/com.palm.app.phone/phoneApp/source/CallLogView.js
+@@ -199,6 +199,18 @@ enyo.kind({
+ 			});
+ 	},
+ 	
++	createReverseLookupSubItem: function(bAddViewContact, person, address) {
++		this.callOptionsDataArray.push({
++			'itemText': $L("Reverse Lookup"),
++			'clickAction': DrawerSubItemAction.DoReverseLookup,
++			'rawPhoneNumber': address.addr ? address.addr : "",
++			'personId': person ? person._id : "",
++			'bShowSeparator1': true,
++			'bShowSeparator2': false,
++			'service': address.service
++			});
++	},
++	
+ 	listDisplayName: function(address) {
+ 		if (enyo.application.Utils.isVoicemailNumber(address.addr))
+ 			return enyo.application.Messages.voicemailContact;
+@@ -399,6 +411,7 @@ enyo.kind({
+ 			
+ 				if (!bIsVoicemailNumber && !bIsEmergencyNumber) {
+ 					this.createViewOrAddContactSubItem(false, null, callLog.recentcall_address);
++					this.createReverseLookupSubItem(false, null, callLog.recentcall_address);
+ 				}
+ 			}
+ 			
+diff --git a/usr/palm/applications/com.palm.app.phone/phoneApp/source/SubItems.js b/usr/palm/applications/com.palm.app.phone/phoneApp/source/SubItems.js
+index 75742b1..e325a99 100644
+--- a/usr/palm/applications/com.palm.app.phone/phoneApp/source/SubItems.js
++++ b/usr/palm/applications/com.palm.app.phone/phoneApp/source/SubItems.js
+@@ -263,6 +263,9 @@ enyo.kind({
+ 			case DrawerSubItemAction.AddToContacts:
+ 				this.addToContacts(inData.rawPhoneNumber, inData.service);
+ 				break;
++			case DrawerSubItemAction.DoReverseLookup:
++				this.doReverseLookup(inData.rawPhoneNumber, inData.service);
++				break;
+ 			case DrawerSubItemAction.DialPhoneNumber:  
+ 				enyo.application.CallSynergizer.dial(inData.rawPhoneNumber, undefined, undefined, undefined, inData.personId, true);
+ 				break;
+@@ -324,5 +327,65 @@ enyo.kind({
+ 			contact.params.contact["phoneNumbers"] = [{"value":rawPhoneNumber}];
+ 		}
+ 		this.$.addToContactsService.call(contact);		
++	},
++
++	doReverseLookup: function(rawPhoneNumber, service) {
++		
++		var mcc = enyo.application.TelephonyStatusInterface.mcc;
++		var phone = new enyo.g11n.PhoneNumber(rawPhoneNumber, {mcc: mcc});
++		var geoLoc = new enyo.g11n.GeoLocator({mcc: mcc});
++		var geo = geoLoc.locate(phone);
++		var isIntlNumber = enyo.application.Utils.isInternationalNumber(rawPhoneNumber);
++		
++		switch (geo.country.code) {
++			case "at":
++				myURL = "http://www.herold.at/telefonbuch/telefon_" + rawPhoneNumber+"/";
++				//myURL2 = "http://www.telefonabc.at/result.aspx?what=" + rawPhoneNumber;
++				break;
++			case "be":
++				myURL = "http://www.infobel.com/nl/belgium/inverse.aspx?qphone=" + rawPhoneNumber;
++				//myURL2 = "http://www.skynet.be/services/pages-blanches?nameOrActivity=" + rawPhoneNumber;
++				break;
++			case "ch":
++					myURL = "http://tel.search.ch?was=" + rawPhoneNumber;
++				break;
++			case "de":
++				myURL = "http://mobil.dasoertliche.de/oe/go_rueckwaertssuche?number=" + rawPhoneNumber.replace("+","00");
++				break;
++			case "fr":
++				if (isIntlNumber)
++				{
++					myURL = "http://www.118000.fr/search?sb_Phone=" + rawPhoneNumber.replace("+33", "0");
++				}				
++				else
++				{
++					myURL = "http://www.118000.fr/search?sb_Phone=" + rawPhoneNumber;
++				}
++				break;
++			//case "il":  
++				//myURL = "http://tel.search.ch?was=" + rawPhoneNumber;
++				//break;
++			case "nl":
++				if (isIntlNumber)
++				{
++					myURL = "http://www.telefoondetective.nl/telefoonnummer/" + rawPhoneNumber.replace("+31", "0")+"/";
++				}				
++				else
++				{
++					myURL = "http://www.telefoondetective.nl/telefoonnummer/" + rawPhoneNumber+"/";
++				}
++				break;
++			default:
++				myURL = "http://www.google.com";
++				break; 
++		}
++
++		request = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++			method: 'open',
++			parameters: {
++				'id': 'com.palm.app.browser',
++				'params': {scene: 'page', url: myURL}
++			}
++		});
+ 	}
+ });
