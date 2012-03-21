@@ -1,0 +1,71 @@
+diff --git a/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js b/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
+index c106b35..87a2243 100644
+--- a/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
++++ b/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
+@@ -10,6 +10,11 @@ enyo.kind({
+ 	},
+ 	components: [
+ 		{name: "editMenu", kind: enyo.EditMenu, selectAllDisabled: true, className: 'edit-label', onCopy: "doCopy", onPaste: "doPaste", showShortcuts:true},
++		{name: "exportCallHistory", caption: $L("Export Call History"), className: 'item-label', onclick: "exportCallHistory", showing: false},
++		{name: "exportCallHistoryPrompt", kind: "DialogPrompt", 
++			message: $L("History exported to 'calllog.csv'."),
++			acceptButtonCaption: $L("OK"),
++			cancelButtonCaption: null},
+ 		{name: "clearCallHistory", caption: $L("Clear Call History"), className: 'item-label', onclick: "clearCallHistory", showing: false},
+ 		{name: "checkSkypeCredit", caption: $L("Check Skype Credit"), className: 'item-label', onclick: "checkSkypeCredit", showing: false},
+ 		{name: "voicemailGreeting", caption: $L("Voicemail Greeting"), className: 'item-label', onclick: "voicemailGreeting", showing: false},
+@@ -31,6 +36,8 @@ enyo.kind({
+ 			onAccept: "clearCallHistoryConfirm",
+ 		},
+ 		{name:"purgeCallHistory", kind:"PalmService", service: enyo.palmServices.database, method: "del"},
++		{name:"queryCallHistory", kind:"PalmService", service: enyo.palmServices.database, method: "find"},
++		{name:"filemgr", kind:"PalmService", service: "palm://ca.canucksoftware.filemgr", method: "write"},
+ 		{name:"noVoicemailNumberPrompt", kind: "NoVoicemailNumberPrompt",},
+ 		{name:"noVoicemailGreetingNumberPrompt", kind: "DialogPrompt", 
+ 			message: $L("Unable to find voicemail greeting number."),
+@@ -104,6 +111,37 @@ enyo.kind({
+ 			"query":{"from":"com.palm.phonecall:1"},"purge":false
+ 		});
+ 	},
++	exportCallHistory: function() {
++		this.$.queryCallHistory.call({
++			"query":{"from":"com.palm.phonecall:1"},"watch":false,"count":false
++		}, {
++			onSuccess: "_onGetCallHistorySuccess"
++		});
++	},
++	_onGetCallHistorySuccess: function(inSender, inResponse) {
++		var line = "Type\tDate/Time\tDuration [s]\tFrom\tService\t\To\tName\tService\n";
++
++		var results = inResponse.results;
++		for (var i=0; i<results.length; i++) {
++			enyo.error("response " + enyo.json.stringify(results[i]));
++			line += results[i].type + "\t";
++			line += new enyo.g11n.DateFmt({format: "medium"}).format(new Date(results[i].timestamp)) + "\t";
++			line += results[i].duration + "\t";
++			line += results[i].from.addr + "\t";
++			line += results[i].from.service + "\t";
++			for (var j=0; j<results[i].to.length; j++) {
++				line += results[i].to[j].addr + "\t";
++				line += results[i].to[j].name + "\t";
++				line += results[i].to[j].service + "\t";
++			}
++			line += "\n";
++			//this.$.filemgr.call({"file":"/media/internal/agendaz.html","str":line,"append":true});
++		}
++		this.$.filemgr.call({"file":"/media/internal/calllog.csv","str":line,"append":false},{onSuccess:"_onExportCallHistorySuccess"});
++	},
++	_onExportCallHistorySuccess: function(inSender, inResponse) {
++		this.$.exportCallHistoryPrompt.open();
++	},
+ 	checkSkypeCredit: function() {
+         if(this.accounts == undefined) {
+     		this.accounts = this.createComponent({name: "accounts", kind: "DBModel.Accounts",}, {"owner": this});
+@@ -112,6 +150,7 @@ enyo.kind({
+ 	},
+ 	openMenu : function(bShowCallHistory, isVoicemail) {		
+ 		this.$.clearCallHistory.setShowing(bShowCallHistory);
++		this.$.exportCallHistory.setShowing(bShowCallHistory);
+ 		this.$.checkSkypeCredit.setShowing(enyo.application.Cache.hasSkypeAcct === true);
+ 		if (isVoicemail) {
+ 			var carrierName = enyo.application.VoicemailService.getCarrierName();
