@@ -1,5 +1,5 @@
 diff --git a/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js b/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
-index c106b35..87a2243 100644
+index c106b35..d83185b 100644
 --- a/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
 +++ b/usr/palm/applications/com.palm.app.phone/phoneApp/source/AppMenu.js
 @@ -10,6 +10,11 @@ enyo.kind({
@@ -23,26 +23,32 @@ index c106b35..87a2243 100644
  		{name:"noVoicemailNumberPrompt", kind: "NoVoicemailNumberPrompt",},
  		{name:"noVoicemailGreetingNumberPrompt", kind: "DialogPrompt", 
  			message: $L("Unable to find voicemail greeting number."),
-@@ -104,6 +111,37 @@ enyo.kind({
+@@ -104,6 +111,63 @@ enyo.kind({
  			"query":{"from":"com.palm.phonecall:1"},"purge":false
  		});
  	},
 +	exportCallHistory: function() {
++		var line = "Type\tDate/Time\tDuration [s]\tFrom\tService\t\To\tName\tService\n";
++		this.$.filemgr.call({"file":"/media/internal/calllog.csv","str":line,"append":false},{onSuccess:"_onExportCallHistorySuccess"});
++
 +		this.$.queryCallHistory.call({
-+			"query":{"from":"com.palm.phonecall:1"},"watch":false,"count":false
++			"query":{"from":"com.palm.phonecall:1"},
++			"watch":false,
++			"count":true
 +		}, {
 +			onSuccess: "_onGetCallHistorySuccess"
 +		});
 +	},
 +	_onGetCallHistorySuccess: function(inSender, inResponse) {
-+		var line = "Type\tDate/Time\tDuration [s]\tFrom\tService\t\To\tName\tService\n";
++		var line = "";
 +
 +		var results = inResponse.results;
 +		for (var i=0; i<results.length; i++) {
 +			enyo.error("response " + enyo.json.stringify(results[i]));
++			var secs = Math.round(results[i].duration / 1000);
 +			line += results[i].type + "\t";
 +			line += new enyo.g11n.DateFmt({format: "medium"}).format(new Date(results[i].timestamp)) + "\t";
-+			line += results[i].duration + "\t";
++			line += this.formatNumber(Math.floor(secs / 60)) + ":" + this.formatNumber(secs % 60) + "\t";
 +			line += results[i].from.addr + "\t";
 +			line += results[i].from.service + "\t";
 +			for (var j=0; j<results[i].to.length; j++) {
@@ -53,15 +59,35 @@ index c106b35..87a2243 100644
 +			line += "\n";
 +			//this.$.filemgr.call({"file":"/media/internal/agendaz.html","str":line,"append":true});
 +		}
-+		this.$.filemgr.call({"file":"/media/internal/calllog.csv","str":line,"append":false},{onSuccess:"_onExportCallHistorySuccess"});
++
++		this.$.filemgr.call({"file":"/media/internal/calllog.csv","str":line,"append":true},{onSuccess:"_onExportCallHistorySuccess"});
++
++		enyo.error("inResponse.next " + inResponse.next);
++		if (inResponse.next != undefined) {
++			this.$.queryCallHistory.call({
++				"query":{"from":"com.palm.phonecall:1"},
++				"watch":false,
++				"count":true,
++				"page":inResponse.next,
++			}, {
++				onSuccess: "_onGetCallHistorySuccess"
++			});
++		} else {
++			this.$.exportCallHistoryPrompt.open();
++		}
 +	},
 +	_onExportCallHistorySuccess: function(inSender, inResponse) {
-+		this.$.exportCallHistoryPrompt.open();
++	},
++	formatNumber: function(number) {
++		if (("" + number).length < 2) {
++			return "0" + number;
++		}
++		return number;
 +	},
  	checkSkypeCredit: function() {
          if(this.accounts == undefined) {
      		this.accounts = this.createComponent({name: "accounts", kind: "DBModel.Accounts",}, {"owner": this});
-@@ -112,6 +150,7 @@ enyo.kind({
+@@ -112,6 +176,7 @@ enyo.kind({
  	},
  	openMenu : function(bShowCallHistory, isVoicemail) {		
  		this.$.clearCallHistory.setShowing(bShowCallHistory);
