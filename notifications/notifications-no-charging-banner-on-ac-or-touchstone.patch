@@ -1,13 +1,4696 @@
-diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-index 786f7ae..5508210 100644
---- a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-+++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
-@@ -1881,7 +1881,7 @@ handlePowerNotifications: function(payload) {
- 				stageController.delegateToSceneAssistant("close");
- 			}
- 			
--			if(!this.chargingBannerShown && payload.name && (payload.name == "wall" || payload.name == "puck")) {
-+			if(false) {
- 				var batteryalert = this.$L("Charging Battery");
- 				var soundClassName = this.onActiveCall ? "none" : "notifications";			
- 				this.controller.showBanner({
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.rej b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.rej
+new file mode 100644
+index 0000000..017b39f
+--- /dev/null
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.rej
+@@ -0,0 +1,11 @@
++--- usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
+++++ usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js
++@@ -2156,7 +2156,7 @@
++ 				stageController.delegateToSceneAssistant("close");
++ 			}
++ 			
++-			if(!this.chargingBannerShown && payload.name && (payload.name == "wall" || payload.name == "puck")) {
+++			if(false) {
++ 				var batteryalert = $L("Charging Battery");
++ 				var soundClassName = this.onActiveCall ? "none" : "notifications";			
++ 				this.controller.showBanner({
+diff --git a/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.~1~ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.~1~
+new file mode 100644
+index 0000000..786f7ae
+--- /dev/null
++++ b/usr/lib/luna/system/luna-systemui/app/controllers/bar-assistant.js.~1~
+@@ -0,0 +1,4673 @@
++/* Copyright 2009 Palm, Inc.  All rights reserved. */
++
++var BarAssistant = Class.create({
++	
++	setup: function() {
++						
++		this.showMSMWarning = false;
++		this.showMediaWarning = false;	
++		this.isUSBConnected = false;
++		this.disableImasq = true;
++		this.inBrickMode = false;
++		this.isInitialQuery = false;
++		this.airplaneModeInitialQueryDone = false;
++		this.carrierText = "Palm";
++		this.airplaneModeTriggered = false;
++		this.show3GForEvdo = false;
++		this.carrierTextEnglish = "Palm";
++		this.stringTable = null;
++		this.minBatThresholdForUpdate = 5;
++		
++		this.bluetoothState = 'Off';
++		this.wifiState = 'Off';	
++		this.wifiRadio = false;	
++		
++		$('rssi').className = 'nobars';
++		$('datanet').className = 'off';
++		$('wifi').className = 'off';
++		$('bluetooth').className = 'off';
++		$('roaming').hide();
++		$('tty').hide();
++		$('hac').hide();
++		$('callforward').hide();
++		
++		this.getBuildName();
++						
++		// Initialize the Battery Power Nofication and get the initial value
++		this.initOnServerStart("com.palm.power", this.powerInitialize.bind(this), this.powerDeInit.bind(this));
++		
++		// Initialize System Services once the service is running
++		this.initOnServerStart("com.palm.systemservice", this.sysServiceInit.bind(this), this.sysServiceDeInit.bind(this));
++		
++		// Initialize telephony once the service is running
++		this.initOnServerStart("com.palm.telephony", this.phoneInit.bind(this), this.phoneDeinit.bind(this));
++		
++		//Get the Carrier Name by querying the Carrier DB
++		this.getCarrierName();
++		
++		// Initialize the Bluetooth icon once the service is running
++		this.initOnServerStart("com.palm.btmonitor", this.btMonitorInit.bind(this), this.btMonitorDeinit.bind(this));
++		this.initOnServerStart("com.palm.bluetooth", this.btInit.bind(this), this.btDeInit.bind(this));
++				
++		// Initialize and Subscribe for WAN Status Notification
++		this.initOnServerStart("com.palm.wan", this.wanInit.bind(this),this.wanDeInit.bind(this));
++		
++		// Initialize and Subscribe for ConnectionManager Status Notification
++		this.initOnServerStart("com.palm.connectionmanager", this.cmInit.bind(this));
++			
++		// Initialize and Subscribe for WiFi Status Notification
++		if(Mojo.Environment.DeviceInfo.wifiAvailable)
++			this.initOnServerStart("com.palm.wifi", this.wifiInit.bind(this), this.wifiDeInit.bind(this));
++		
++		// Initialize and Subscribe for audio Status Notification
++		//this.initOnServerStart("com.palm.audio", this.audioInit.bind(this));
++				
++		// Initialize and Subscribe for Update Notification
++		this.initOnServerStart("com.palm.update", this.updateInit.bind(this));
++		
++		//Initialize and Subscribe for Storage / Media Mode Notification.			
++		this.storageInit();
++		
++		//Initialize and Subscribe for Power Off Notification.
++		this.powerOffInit();
++		
++		//Subscribe to Powerd Notification.
++		this.powerInit();
++		
++		//Subscribe to Application Manager 
++		this.initOnServerStart("com.palm.applicationManager", this.appMgrInit.bind(this));
++		
++		//Subscribe to Application Installer
++		this.initOnServerStart("com.palm.appinstaller", this.appInstallerInit.bind(this));
++		
++		//Subscribe to Applocation Installer Service
++		this.initOnServerStart("com.palm.appInstallService", this.appInstallServiceInit.bind(this));
++		
++		//Subscribe to Pubsub service.
++		this.initOnServerStart("com.palm.pubsubservice", this.pubsubServiceInit.bind(this));
++				
++		Mojo.Event.listen($('appmenu'),'mojo-tap', this.appMenuHandleTap.bindAsEventListener(this));
++		Mojo.Event.listen($('devicemenu'),'mojo-tap', this.deviceMenuHandleTap.bindAsEventListener(this));
++						
++		this.registerForeGroundApp();
++		this.registerStatusSettings();		
++		
++		//Create the Device Menu Window. But do not do this if this is a frist use run.
++		if(!PalmSystem.isMinimal)
++			this.showDeviceMenu();
++		
++		this.setStageControllerActiveToFalse.bind(this).delay(5);	
++		
++		this.currentLocale = Mojo.Locale.getCurrentLocale();				
++},
++
++refreshCarrierText: function() {
++	$('carrier').innerHTML = this.$L(this.carrierTextEnglish);
++},
++
++//Overload localization to fix first-use issues
++$L: function(str){
++
++	//Mojo.Log.error("Locale. localizeString function. loc:  "+ Mojo.Locale.getCurrentLocale() + "str: " + str);
++	if ((this.stringTable==null) || (this.currentLocale !== Mojo.Locale.getCurrentLocale())){
++		//Mojo.Log.error("Reading string table. Locale =  "+ Mojo.Locale.getCurrentLocale());
++		this.stringTable = Mojo.Locale.readStringTable("strings.json",Mojo.Locale.getCurrentLocale(),sysUIResources);
++		this.currentLocale = Mojo.Locale.getCurrentLocale();
++	}
++	
++	return Mojo.Locale.localizeString(str, this.stringTable);
++},
++
++setStageControllerActiveToFalse: function() {
++	this.controller.stageController.active = false;	
++},
++
++getBuildName: function() {
++	this.getBuildNameReq = new Mojo.Service.Request('palm://com.palm.preferences', {
++		method: 'systemProperties/Get',
++		parameters: {key: "com.palm.properties.buildName"},
++		onSuccess: this.getBuildNameQueryDone.bind(this),				
++    });	
++},
++
++getBuildNameQueryDone: function(payload) {	
++	
++	if(!payload) {
++		this.demoBuild = false;
++		this.getBuildNameReq.cancel();
++		return;
++	}
++	
++	if(payload.returnValue !== undefined && !payload.returnValue) {
++		this.demoBuild = false;
++		this.getBuildNameReq.cancel();
++		return;
++	}
++	
++	if ("com.palm.properties.buildName" in payload) {
++		var buildName = payload["com.palm.properties.buildName"];	
++		
++		if(buildName.toLowerCase() === "nova-demo") 
++			this.demoBuild = true;	
++		else
++			this.demoBuild = false;		
++	}
++	this.getBuildNameReq.cancel();
++},
++
++getMSMWarningPref: function() {
++	this.getMSMWaringRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
++		method: 'getPreferences',
++		parameters: {"keys":["showMSMWarning", "showMediaWarning"],"subscribe":true},
++		onSuccess: this.getMSMWarningPrefDone.bind(this)
++		});
++},
++
++getMSMWarningPrefDone: function(payload) {	
++	
++	if(payload && payload.showMSMWarning != undefined) {
++		this.showMSMWarning = payload.showMSMWarning;
++	}
++	
++	if(payload && payload.showMediaWarning != undefined) {
++		this.showMediaWarning = payload.showMediaWarning;
++	}
++	
++	if(!this.isInitialQuery) {
++		//Check to see if USB is connected
++		this.isUSBCableConnected();
++	}	
++	this.isInitialQuery = true;		
++},
++
++getCarrierName: function() {
++	this.carrierName = 'Carrier';
++	this.getCarrierNameReq = new Mojo.Service.Request('palm://com.palm.data.carriernetworksettings', {
++		method: 'getCarrierName',
++		parameters: {},
++		onSuccess: this.getCarrierNameQueryDone.bind(this),				
++    });	
++},
++
++getCarrierNameQueryDone: function(payload) {
++	if(!payload)
++		return;
++	if(payload.returnValue && payload.returnValue == true) {
++		this.carrierName = payload.longName;
++	}
++},
++
++registerForSystemTimeUpdate: function() {
++	this.registerForSystemTimeReq = new Mojo.Service.Request('palm://com.palm.systemservice/time', {
++			method: 'getSystemTime',
++			parameters:{subscribe: true},			
++			onSuccess: this.handleSystemTimeUpdate.bind(this)			
++	});
++},
++
++handleSystemTimeUpdate: function(payload) {
++	if(!payload)
++		return;
++	this.startClock();	
++	
++	 if(payload.NITZValid != undefined && payload.NITZValid === false) {                         
++     	if(payload.NITZValidTime == undefined && payload.NITZValidZone == undefined)
++          return;                                                                             
++                                                                                                                  
++       if((payload.NITZValidTime != undefined && payload.NITZValidTime === false) && (payload.NITZValidZone != undefined && payload.NITZValidZone == false))
++          this.showTimezoneErrorAlert(false, "showDateTimeTimezonePicker");                              
++       else if (payload.NITZValidZone != undefined && payload.NITZValidZone == false)                        
++          this.showTimezoneErrorAlert(true, "showTimezones");
++       else if (payload.NITZValidTime != undefined && payload.NITZValidTime === false)                                                                          
++          this.showTimezoneErrorAlert(false, "showDateTimePicker");
++        }             
++},
++
++registerTimeFormat:function(){
++		this.registerTimeFormatRequest = new Mojo.Service.Request('palm://com.palm.systemservice', {
++		method: 'getPreferences',
++		parameters: {"subscribe":true, "keys":["timeFormat"]},
++		onSuccess: this.handleTimeFormatSetting.bind(this)
++		});
++},
++
++handleTimeFormatSetting:function(payload){
++	if (payload && payload.timeFormat) {
++		if (payload.timeFormat == "HH12") {
++			this.timeAMPM = true;
++		}
++		else {//HH24
++			this.timeAMPM = false;
++		}
++		this.updateClockEveryMinute();
++	}
++},
++
++registerForeGroundApp:function(){
++		this.registerForeGroundAppRequest = new Mojo.Service.Request('palm://com.palm.systemmanager', {
++		method: 'getForegroundApplication',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleAppName.bind(this)
++		});
++		
++		//Subscribe for App Migration Status.
++		this.registerForAppMigrationStatus = new Mojo.Service.Request('palm://com.palm.systemmanager', {
++		method: 'getMigrationStatus',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleAppMigrationStatus.bind(this)
++		});
++		
++		//Subscribe for App Terminated Status.
++		this.registerForAppQuitStatus = new Mojo.Service.Request('palm://com.palm.systemmanager', {
++		method: 'applicationHasBeenTerminated',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleAppQuitStatus.bind(this)
++		});
++		
++		//Subscribe for App Restore Needed 
++		this.registerForAppRestoreStatus = new Mojo.Service.Request('palm://com.palm.systemmanager', {
++		method: 'getAppRestoreNeeded',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleAppRestoreStatus.bind(this)
++		});
++},
++
++handleAppName:function(payload) {
++	
++	//If it is First Use, Do not change the App Name.
++	if(PalmSystem.isMinimal) {
++		this.foregroundAppID = payload.id;
++		$('appname').hide();
++		$('carrier').show();
++		return;
++	}
++	
++	if(this.delayedUpdateAppMenuTitle) {
++		this.controller.window.clearTimeout(this.delayedUpdateAppMenuTitle);
++		this.delayedUpdateAppMenuTitle = undefined;
++	}
++	this.delayedUpdateAppMenuTitle = this.controller.window.setTimeout(this.updateAppMenuTitle.bind(this, payload), 500);
++},
++
++updateAppMenuTitle: function(payload) {
++
++	this.phoneIsForeground = false;
++	this.updateIsForeground = false;
++	
++	if (payload.title) {
++		$('carrier').hide();
++		if (payload.id == "com.palm.app.phone" || payload.id == "com.palm.app.firstuse"){ 
++			$('appname').innerHTML = this.carrierText;
++			this.phoneIsForeground = true;
++		}
++		else if (this.isPreferences(payload))  {
++			if(payload.id == "com.palm.app.updates") {
++				this.updateIsForeground = true;
++			}
++			$('appname').innerHTML = this.$L("Preferences");
++		}
++		else 
++			$('appname').innerHTML = payload.appmenu || payload.title;
++		$('appname').show();
++		this.foregroundAppID = payload.id;
++	}
++	else{
++		$('appname').hide();
++		$('carrier').show();
++		this.foregroundAppID=null;
++	}
++},
++
++updatePhoneAppName: function(){
++	if (this.phoneIsForeground == true) {
++		if ($('appname').innerHTML !== this.carrierText) 
++			$('appname').innerHTML = this.carrierText;
++	}
++},
++
++handleAppMigrationStatus: function(payload) {
++	if(payload.migrationNeeded) 
++		this.showMigrationFailureAlert();
++},
++
++handleAppQuitStatus: function(payload) {
++	var appName = undefined;
++	if(payload)
++		appName = payload.appmenu || payload.title;
++	
++	if(!appName)
++		return;
++	
++	this.showAppQuitAlert(appName);
++},
++
++handleAppRestoreStatus: function(payload) {
++	Mojo.Log.error("SystemUI-App Restore Needed "+ Object.toJSON(payload));
++	if(payload && payload.appRestoreNeeded) {
++		//App Restore is needed. Save it in a cookie first.
++		var cookieObj = new Mojo.Model.Cookie("AppRestoreNeeded");
++		if(cookieObj) {
++			cookieObj.put("true");
++			this.appRestoreNeeded = true;
++		}
++		this.showAppRestoreNeededAlert();
++		if(this.isInternetConnectionAvailable) {
++			//Get the List of Installed Apps.
++			this.getInstalledAppsList();
++		}
++	}
++},
++
++showAppRestoreNeededAlert: function() {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("AppRestoreNeededAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popup alert
++		    var f = function(stageController){
++		      stageController.pushScene('apprestorealert');
++		    }.bind(this);
++		    var params = {name: 'AppRestoreNeededAlert', height: 150, lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }
++},
++ 
++registerStatusSettings: function() {
++
++	this.getLockStatusRequest = new Mojo.Service.Request('palm://com.palm.systemmanager', {
++		method: 'getLockStatus',
++		parameters: {'subscribe':true},
++		onSuccess: this.handleStatusChange.bind(this)
++	});
++},
++
++handleStatusChange: function(payload) {
++	
++	//Ignore this notification if FirstUse is running foreground.
++	if(this.foregroundAppID == "com.palm.app.firstuse")
++		return;
++		
++	if (payload.locked != null) {
++		if (payload.locked) {
++			$('clock').hide();
++			$('date').show();
++			this.deviceLocked = true;
++		}
++		else {
++			$('date').hide();
++			$('clock').show();
++			this.deviceLocked = false;
++		}
++		if (payload.locked || this.foregroundAppID == null) {
++			$('carrier').show();
++			$('appname').hide();
++		}
++		else {
++			$('carrier').hide();
++			$('appname').show();
++		}
++	}	
++	
++	if(!this.deviceLocked) {
++		var appController = Mojo.Controller.getAppController();
++		var stageController = appController.getStageProxy("PowerOffAlert");
++		if(stageController)
++			stageController.delegateToSceneAssistant("cancelTimer");
++	}
++},
++
++isDeviceLocked: function() {
++	return this.deviceLocked;
++},
++
++isPreferences:function(payload){
++	if(!SystemPreferences)
++		return false;
++	for (var i=0; i<SystemPreferences.length; i++){
++		if (payload.id === SystemPreferences[i]) 
++			return true;		
++	}
++	return false;
++},
++
++appMenuHandleTap: function(event){//make service call here to show app's menu
++	
++	//No App Menu for FirstUse.
++	if(PalmSystem.isMinimal)
++		return;
++	
++	var target = event.target;	
++	while(target) {		
++		if (target.id && target.id == 'appmenu' && this.foregroundAppID) {
++			    this.serviceRequest = new Mojo.Service.Request('palm://com.palm.applicationManager', {
++				method: 'open',
++				parameters: {'id': this.foregroundAppID, 'params': {'palm-command':'open-app-menu'}}
++			});
++			break;				
++		}
++		target = target.parentNode;
++	}	
++},
++
++deviceMenuHandleTap: function(event){//show/hide devicemenu
++	
++	//Ignore the notification if it's in First Use.
++	 if(PalmSystem.isMinimal)
++	 	return;
++		
++	//Query the powerd to get the current battery percentage.
++	this.queryBatteryStatus();
++	
++	var target = event.target;
++	var i=0;
++	var level = 2; //up to 2 level, for hour, minute
++	while (target.getAttribute('id') != 'devicemenu' && i<level) {
++    	target = target.up();
++		i++;
++    }	 
++    if (target) {
++		if(target.getAttribute('id') == 'devicemenu'){//show/hide deviceMenu
++ 			this.showDeviceMenu();												
++ 		}     			
++    }		
++},
++
++showDeviceMenu: function() {			
++		
++		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++		if (stageController) {
++			stageController.delegateToSceneAssistant("toggleDeviceMenu");			
++		} else {
++			this.deviceMenuCreatedHandler = this.deviceMenuCreated.bind(this);
++			Mojo.Controller.getAppController().createStageWithCallback({name:"DeviceMenu",lightweight: true}, 
++				this.deviceMenuCreatedHandler, "menu");
++		}								
++},
++
++deviceMenuCreated: function(stageController) {
++		stageController.pushScene('devicemenu',this, this.btProfileStatus)
++},
++/*
++ * Once the service is running then call the service callback
++ */
++initOnServerStart: function(serviceName, initCb, deinitCb) {
++	
++	// Verify parameters
++	if (!serviceName || !initCb)
++		return;
++
++	// Add the service to the hash
++	this.serviceInitMethod[serviceName] = initCb;
++	if (deinitCb)
++		this.serviceDeinitMethod[serviceName] = deinitCb;
++	
++	if(this.serviceSessionHash[serviceName]!=null)
++		this.serviceSessionHash[serviceName].cancel();
++	// Register to receive a callback when the service starts
++	this.serviceSessionHash[serviceName] = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'registerServerStatus',
++		parameters: {'serviceName':serviceName},
++		onSuccess: this.handleServerStatus.bind(this)
++	});
++},
++
++handleServerStatus: function(payload) {	
++	var callback;
++	if (payload.connected == true)
++		callback = this.serviceInitMethod[payload.serviceName];
++	else
++		callback = this.serviceDeinitMethod[payload.serviceName];
++	// Call the callback method, if it exists
++	if (callback)
++		callback();
++},
++
++sysServiceInit: function() {
++	Mojo.Log.info("SystemUI - System Service is available on the bus");
++	
++	this.getRoamingPreference();
++		
++	//Get the Airplane Mode initial values
++	this.isAirplaneModeEnabled();
++						
++	//Show MSM Waring 
++	this.getMSMWarningPref();
++	
++	this.registerForSystemTimeUpdate();
++	this.registerTimeFormat();
++
++},
++
++sysServiceDeInit: function() {
++	Mojo.Log.error("SystemUI - System Service not available");
++	//System Service gone down. Set this to false to avoid flipping the radio unnecessarily. 
++	this.airplaneModeInitialQueryDone = false; 	
++},
++
++handlePlatformQuery: function(payload) {
++	if (payload.returnValue) {
++		this.phoneType = payload.extended.platformType;
++		if (this.rssi_orginalPayload) {
++			this.handletelephonyNotifications(this.rssi_orginalPayload);
++		}
++		this.constructAccountToken(payload);
++	}
++	this.platformQueryRequest.cancel();
++},
++
++handlePowerQueryNotifications: function(payload){
++	if (payload.returnValue && payload.extended) {
++		if (payload.extended.powerState && payload.extended.powerState == 'on') {
++			this.phoneRadioState = true;
++			if (this.phoneType == 'gsm') {
++				this.carrierText = this.$L("Network search...");
++				this.carrierTextEnglish = "Network search...";
++			}
++			else {
++				this.carrierText = this.$L("Searching...");
++				this.carrierTextEnglish = "Searching...";
++			}
++					
++			$('carrier').innerHTML = this.carrierText;
++			$('rssi').className = "bars-0";
++			this.phoneInitStateQuery();			
++		}			
++		else {
++			this.phoneRadioState = false;
++			$('rssi').className = "nobars";
++			
++			if (this.airplaneMode) {
++				this.carrierText = this.$L("Airplane Mode");
++				this.carrierTextEnglish = "Airplane Mode";
++				$('carrier').innerHTML = this.carrierText;
++				$('rssi').className = "flight-mode";
++			}
++			else {
++				this.carrierText = this.$L("Phone offline");
++				this.carrierTextEnglish = "Phone offline";
++				$('carrier').innerHTML = this.carrierText;
++			}							
++			$('roaming').hide();
++			$('callforward').hide();
++			this.callForwardNotificationSession.cancel();
++			this.callForwardNotificationSession = null;					
++		}													
++		this.updatePhoneAppName();
++	}
++	this.handlePower.cancel();
++},							
++
++handleNetworkStatusQueryNotification: function(payload) {
++	if (!payload.returnValue) {
++		this.handleNetworkStatus.cancel();
++		return;
++	}
++	if(!this.phoneRadioState)
++		return;	
++	this.phoneInLimitedService = false;	
++	switch (payload.extended.state) {
++		case 'service':
++			if (this.demoBuild) {
++				this.carrierText = "Palm";
++				this.carrierTextEnglish = "Palm";
++			}
++			else{
++				this.carrierText = this.$L(payload.extended.networkName.escapeHTML());
++				this.carrierTextEnglish = payload.extended.networkName.escapeHTML();
++			} 
++				
++			$('carrier').innerHTML = this.carrierText;	   	
++			if(payload.extended.registration == 'home') {			
++				$('roaming').hide();
++			}								
++			else if(payload.extended.registration == 'roaming' || payload.extended.registration == 'roamblink') {
++				$('roaming').show();
++			}
++			if(!this.callForwardNotificationSession)
++					this.callForwardQueryInit();
++			this.simlocked = false;					
++			break;
++		case 'noservice':
++			if (this.simlocked) {
++				this.carrierText = this.$L("SIM lock");
++				this.carrierTextEnglish = "SIM lock";
++				$('carrier').innerHTML = this.carrierText;
++			}
++			else if (payload.extended.registration == 'searching') {
++				if(this.phoneType && this.phoneType == 'gsm'){
++					this.carrierText = this.$L("Network search...");
++					this.carrierTextEnglish = "Network search...";
++				}
++				else{
++					this.carrierText = this.$L('Searching...');
++					this.carrierTextEnglish = "Searching...";
++				}
++					
++				
++				$('carrier').innerHTML = this.carrierText;
++			}
++			else {
++				this.carrierText = this.$L('No service');
++				this.carrierTextEnglish = "No service";
++				$('carrier').innerHTML = this.carrierText;
++			}
++			$('roaming').hide();
++			$('callforward').hide();
++			this.callForwardNotificationSession.cancel();
++			this.callForwardNotificationSession = null;	
++			break;
++		case 'limited':
++			if (this.simbad) {
++				this.carrierText = this.$L('Check SIM-SOS only');
++				this.carrierTextEnglish = "Check SIM-SOS only";
++				$('carrier').innerHTML = this.carrierText;
++			}
++			else {
++				this.carrierText = this.$L('SOS Only');
++				this.carrierTextEnglish = "SOS Only";
++				$('carrier').innerHTML = this.carrierText;
++				if(this.simlocked) {
++					this.carrierText = this.$L("SIM lock-SOS only");
++					this.carrierTextEnglish = "SIM lock-SOS only";
++					$('carrier').innerHTML = this.carrierText;
++				}
++			}
++			if (payload.extended.registration == 'denied') {
++				var causeCode = parseInt(payload.extended.causeCode);
++				if(causeCode && this.SIMRejectCodes.indexOf(causeCode) != -1)
++					this.showSIMDeniedAlert(causeCode);
++			}
++			$('roaming').hide();
++			this.phoneInLimitedService = true;
++			$('rssi').className = "bars-0";
++			break;
++		default:
++			this.carrierText = this.$L('No service');
++			this.carrierTextEnglish = "No service";
++			$('carrier').innerHTML = this.carrierText;
++			$('roaming').hide();
++			break;			
++	}
++	this.updatePhoneAppName();
++	this.handleNetworkStatus.cancel();
++},
++
++handleSIMStatusQueryNotification: function(payload) {
++	if (!payload.returnValue) {
++		this.handleSIMStatus.cancel();   	
++		return;
++	}
++	if(!this.phoneRadioState)
++		return;
++			
++	this.simbad = false;
++	switch (payload.extended.state) {
++		case 'simnotfound':
++		case 'siminvalid':
++			this.carrierText = this.$L("Check SIM");
++			this.carrierTextEnglish = "Check SIM";
++			$('carrier').innerHTML = this.carrierText;
++			this.simbad = true;
++			this.updatePhoneAppName();
++			break;
++		case 'pinrequired':
++		case 'pukrequired':
++			if(this.phoneInLimitedService){
++				this.carrierText = this.$L("SIM lock-SOS only");
++				this.carrierTextEnglish = "SIM lock-SOS only";
++			} 
++			else{
++				this.carrierText = this.$L("SIM lock");
++				this.carrierTextEnglish = "SIM lock";
++			}
++				
++			$('carrier').innerHTML = this.carrierText;
++			this.simlocked = true;
++			this.updatePhoneAppName();
++			break;
++		default: 
++			if(this.phoneInLimitedService) {
++				this.carrierText = this.$L('SOS Only');
++				this.carrierTextEnglish = "SOS Only";
++				$('carrier').innerHTML = this.carrierText;
++				this.updatePhoneAppName();
++			}
++	}	
++	this.handleSIMStatus.cancel();   	
++},
++
++handleSignalStrengthQueryNotification: function(payload) {
++	if (payload.returnValue && this.phoneRadioState) {
++		if(payload.extended) {
++			var rssi = payload.extended.value;
++			
++			if(this.phoneInLimitedService) {
++				$('rssi').className = "bars-0";
++				return;
++			}
++			
++			if(this.demoBuild) {
++				if (this.phoneType == 'gsm')
++					rssi = 50;
++				else 
++					rssi = 5;
++			}		
++					
++			if (this.phoneType == 'gsm') {
++				for (var i = 0; i<this.GSM_RSSI.length; i++) {
++					if (rssi >= this.GSM_RSSI[i]) {
++						$('rssi').className="bars-"+i;						
++						return;
++					}						
++				}
++			}			
++			else if (this.phoneType == 'cdma') {				
++				if (rssi >= 0) {
++					// we display at most 5 bars
++					if (rssi > 5)
++						rssi = 5;						
++					$('rssi').className="bars-"+rssi;					
++				}
++				else {
++					$('rssi').className="error";	
++				}							
++			}										
++		}
++	}
++	this.handleSignalStatus.cancel();
++},
++/*
++ * Initialize telephony
++ */
++phoneInit: function() {
++	// Get the Phone Type
++	this.getPhoneType();
++	
++	//Flag to hold the SIM Status
++	this.simbad = true;
++	this.simlocked = false;
++	
++	//Flag to hold the limited service status
++	this.phoneInLimitedService = false;
++	
++	// Subscribe to Power Modem Notifications
++	this.phoneRadioNotificationSession = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'subscribe',
++		parameters: {"events":"power"},
++		onSuccess: this.handletelephonyNotifications.bind(this)});
++								
++	// Subscribe for Telephony Signal notifications
++	this.signalNotificationSession = new Mojo.Service.Request('palm://com.palm.telephony/',{
++		method:'subscribe',
++		parameters: {"events":"signal"},
++		onSuccess: this.handletelephonyNotifications.bind(this)});
++	
++	// Subscribe for Telephony Network notifications
++	this.networkNotificationSession = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'subscribe',
++		parameters: {
++			"events": "network"
++		},
++		onSuccess: this.handletelephonyNotifications.bind(this)});
++		
++	// Subscribe for Telephony MacroEventCalls notifications
++	this.macroCallsNotificationSession = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'subscribe',
++		parameters: {
++			"events": "macrocalls"
++		},
++		onSuccess: this.handletelephonyNotifications.bind(this)});
++	
++	// Subscribe for Telephony Security notifications
++	this.securityNotificationSession = new Mojo.Service.Request('palm://com.palm.telephony/',{
++		method:'subscribe',
++		parameters: {"events":"security"},
++		onSuccess: this.handletelephonyNotifications.bind(this)});
++			
++	// Get the Initial Power Radio State
++	this.handlePower = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'powerQuery',
++		onSuccess: this.handlePowerQueryNotifications.bind(this),
++		});	
++	
++	// Get the Initial Values for TTY Mode
++	this.handleTTYStatus = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'ttyQuery',
++		parameters: {subscribe: true}, 
++		onSuccess: this.handleTTYModeQueryNotification.bind(this),
++		});
++	
++	//Get the initial value for hac mode and subscribe
++	this.handleHACStatus = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'hacQuery',
++		parameters: {subscribe: true}, 
++		onSuccess: this.handleHACQueryNotification.bind(this),
++		});
++	
++	//Get the initial value for manual network selection required(MNSR) query
++	this.handleMNSR = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'manualNetworkSelectionRequiredQuery',
++		parameters: {subscribe: true}, 
++		onSuccess: this.handleMNSRQueryNotification.bind(this),
++		});
++		
++	this.callForwardNotificationSession = null;	
++	
++	//Subscribe to other Java Services.
++	
++	//Initialize and Subscribe for Backup Service.
++	this.backupInit();
++	
++	// Initialize and Subscribe for Account Sync Notifications
++	this.accountSyncInit();
++	
++	//Register for Location Service
++	this.locationServiceInit();
++	
++	// Initialize DataImport once the service is running		
++	this.dataImportInit();	
++	
++	//Initialize account services - 
++	this.accountServiceInit();
++},
++
++/*
++ * Telephony and other Java Services down. Do cleanup.
++ */
++phoneDeinit: function() {
++	Mojo.Log.error("SystemUI - Telephony Service not available on the bus!");
++	//Simulate Power Off Notification.
++	this.handletelephonyNotifications({eventPower:"off"});
++	
++	// Check to see if we have any sync notifications in the dashboard.  If we
++	// do, remove them since we're not syncing any longer
++	if (this.accountSyncTracker) {
++		// Walk through the sync tracker (hash table of accounts being
++		// synced) and check to see if any of the accounts have sync dashboard stages
++		this.accountSyncTracker.each(function(acct){
++			if(Mojo.Controller.getAppController().getStageProxy(acct.key)) {
++				// Remove the syncing dashboard entry for the account
++				//Mojo.Log.info("VM DIED Removing sync dashboard for " + acct.key);
++				Mojo.Controller.getAppController().closeStage(acct.key);	
++			}
++			// Set the syncing setting to false since syncing has stopped
++			var acctEntry = acct.value;
++			if (acctEntry)
++				acctEntry.syncing = false;
++		})
++	}
++	
++	//Check to see if there is a Data Transfer Dashboard. If so, close it.
++	if(Mojo.Controller.getAppController().getStageProxy("DataSyncDash")) {
++		Mojo.Controller.getAppController().closeStage("DataSyncDash");
++	}
++},
++
++/*
++ * Phone Init state query
++ */
++phoneInitStateQuery: function() {
++	// Get the Initial Values for SIM Status
++	this.handleSIMStatus = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'simStatusQuery',
++		onSuccess: this.handleSIMStatusQueryNotification.bind(this),
++		});
++		
++	// Get the Initial Values for NetworkStatus
++	this.handleNetworkStatus = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'networkStatusQuery',
++		onSuccess: this.handleNetworkStatusQueryNotification.bind(this),
++		});
++		
++		
++	// Get the Initial Values for Signal Strength
++	this.handleSignalStatus = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'signalStrengthQuery', 
++		onSuccess: this.handleSignalStrengthQueryNotification.bind(this),
++		});
++},
++
++//Init function for Call Forward Query
++callForwardQueryInit: function() {
++	// Subscribe for Telephony Call Forward Query Notifications
++	this.callForwardNotificationSession = new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'forwardQuery',
++		parameters: {
++		    "condition": "unconditional",
++		    "bearer": "defaultbearer",
++			"subscribe":true,
++			"network":false
++		},
++		onSuccess: this.handleCallForwardQueryNotifications.bind(this)});
++},
++
++/*
++ * Handle Telephony notifications
++ */
++handletelephonyNotifications: function(payload) {
++	Mojo.Log.info("SystemUI - Phone Notification "+ Object.toJSON(payload));
++	
++	if(!this.phoneRadioState && payload.eventNetwork) {
++		Mojo.Log.error("SystemUI - Phone Notification out of order "+ Object.toJSON(payload));
++		//Save the payload and repost it when we get eventPower on
++		this.phoneEventNetworkPayload = payload;
++		return;
++	}
++	// Get the payload
++	if (payload.eventPower) {
++		if (payload.eventPower == 'on') {
++			if(this.phoneRadioState) {
++				Mojo.Log.error("SystemUI - Phone Notification - Duplicate eventPower? - " + Object.toJSON(payload));
++				return;
++			}
++			this.phoneRadioState = true;
++			if(this.phoneType == 'gsm'){
++				this.carrierText = this.$L("Network search...");
++				this.carrierTextEnglish = "Network search...";
++			}
++			else{
++				this.carrierText = this.$L("Searching...");
++				this.carrierTextEnglish = "Searching...";	
++			}
++				
++			$('carrier').innerHTML = this.carrierText;
++			$('rssi').className = "bars-0";	
++			if(this.phoneEventNetworkPayload) {
++				this.handletelephonyNotifications(this.phoneEventNetworkPayload);
++				this.phoneEventNetworkPayload = null;
++			}
++			this.updateAirplaneModeProgress('phone');			
++		}			
++		else {
++			this.phoneRadioState = false;
++			$('rssi').className = "nobars";	
++			if (this.airplaneMode) {
++				this.carrierText = this.$L("Airplane Mode");
++				this.carrierTextEnglish = "Airplane Mode";
++				$('carrier').innerHTML = this.carrierText;
++				$('rssi').className = "flight-mode";
++				this.updateAirplaneModeProgress('phone');
++			}
++			else {
++				this.carrierText = this.$L("Phone offline");
++				this.carrierTextEnglish = "Phone offline";
++				$('carrier').innerHTML = this.carrierText;
++			}
++			$('datanet').className = 'off';
++			$('roaming').hide();
++			$('callforward').hide();
++			if(this.callForwardNotificationSession) {
++				this.callForwardNotificationSession.cancel();
++				this.callForwardNotificationSession = null;	
++			}
++			//Close all phone related / NITZ alerts.
++			this.closePhoneAlerts();				
++		}
++	}
++	else if (payload.eventNetwork && this.phoneRadioState) {
++		var networkMsg = payload.eventNetwork;
++		this.phoneInLimitedService = false;
++		switch(networkMsg.state) {
++			case 'service':
++				this.phoneService = "service";
++				if(this.demoBuild){
++					this.carrierText = "Palm";
++					this.carrierTextEnglish = "Palm";
++				}
++					
++				else{
++					this.carrierText = this.$L(networkMsg.networkName.escapeHTML());
++					this.carrierTextEnglish = networkMsg.networkName.escapeHTML();
++				}	
++					
++				$('carrier').innerHTML = this.carrierText;
++				this.simlocked = false;
++				
++				if(networkMsg.registration == 'home') {					
++					$('roaming').hide();					
++				}								
++				else if(networkMsg.registration == 'roaming' || networkMsg.registration == 'roamblink') {
++					$('roaming').show();
++				}
++				if(!this.callForwardNotificationSession && this.phoneType == "gsm")
++					this.callForwardQueryInit();
++					
++				if(Mojo.Controller.getAppController().getStageProxy("phoneNetworkDashboard"))
++					Mojo.Controller.getAppController().closeStage("phoneNetworkDashboard");			
++				break;
++			case 'noservice':
++				if (this.simlocked) {
++					this.carrierText = this.$L("SIM lock"); 
++					this.carrierTextEnglish = "SIM lock";
++					$('carrier').innerHTML = this.carrierText;
++				}
++				else if (networkMsg.registration == 'searching') {
++					if(this.phoneType && this.phoneType == 'gsm'){
++						this.carrierText = this.$L("Network search...");
++						this.carrierTextEnglish = "Network search...";
++					}
++					else{
++						this.carrierText = this.$L('Searching...');
++						this.carrierTextEnglish = "Searching...";
++					}
++					
++						
++					$('carrier').innerHTML = this.carrierText;
++				}
++				else {
++					this.phoneService = "noservice";
++					if(this.simbad && this.phoneType == 'gsm'){
++						this.carrierText = this.$L("Check SIM");
++						this.carrierTextEnglish = "Check SIM";
++					}
++						
++					else{
++						this.carrierText = this.$L('No service');
++						this.carrierTextEnglish = "No service";
++					}
++						
++					$('carrier').innerHTML = this.carrierText;
++				}
++				$('roaming').hide();
++				$('callforward').hide();
++				if(this.callForwardNotificationSession) {
++					this.callForwardNotificationSession.cancel();
++					this.callForwardNotificationSession = null;	
++				}				
++				break;
++			case 'limited':
++				this.phoneService = "limited";
++				if (this.simbad) {
++					this.carrierText = this.$L('Check SIM-SOS only');
++					this.carrierTextEnglish = "Check SIM-SOS only";
++					$('carrier').innerHTML = this.carrierText;
++				}
++				else {
++					this.carrierText = this.$L('SOS Only');
++					this.carrierTextEnglish = "SOS Only";
++					$('carrier').innerHTML = this.carrierText;
++					if(this.simlocked) {
++						this.carrierText = this.$L("SIM lock-SOS only");
++						this.carrierTextEnglish = "SIM lock-SOS only";
++						$('carrier').innerHTML = this.carrierText;
++					}
++				}
++				if (networkMsg.registration == 'denied') {
++					var causeCode = parseInt(networkMsg.causeCode);
++					if(causeCode && this.SIMRejectCodes.indexOf(causeCode) != -1)
++						this.showSIMDeniedAlert(causeCode);
++				}
++				$('roaming').hide();
++				this.phoneInLimitedService = true;
++				$('rssi').className = "bars-0";
++				break;			
++		}		
++	}		
++	else if (payload.eventSignal && this.phoneRadioState) {
++		
++		var signalMsg = payload.eventSignal;		
++		
++		 if (signalMsg.value != undefined) {
++			var rssi = signalMsg.value;
++	
++			if (!this.phoneType) {
++				$('rssi').className = "bars-0";
++				this.rssi_orginalPayload = payload;
++				this.getPhoneType(this.rssi_orginalPayload);
++				return;			
++			}
++			
++			if(this.phoneInLimitedService) {
++				$('rssi').className = "bars-0";
++				return;
++			}
++			
++			if(this.demoBuild) {
++				if (this.phoneType == 'gsm')
++					rssi = 50;
++				else 
++					rssi = 5;
++			}	
++			
++			if (this.phoneType == 'gsm') {
++				for (var i = 0; i<this.GSM_RSSI.length; i++) {
++					if(rssi >= this.GSM_RSSI[i]) {
++						$('rssi').className="bars-"+i;
++						return;
++					}						
++				}
++			}
++			else if (this.phoneType == 'cdma') {				
++				if (rssi >= 0) {
++					// we display at most 5 bars
++					if (rssi > 5) 
++						rssi = 5;					
++					$('rssi').className = "bars-" + rssi;
++				}
++				else {
++					$('rssi').className = "error";
++				}						
++			}
++			else 
++				Mojo.Log.error("Unknown Phone Type "+ this.phoneType);
++		}
++	}
++	else if(payload.eventSecurity && this.phoneRadioState) {
++		this.simbad = false;
++		var security = payload.eventSecurity;		
++		if(security.simbad != undefined || security.simnotfound != undefined || security.simready != undefined) {
++			if(security.simbad || security.simnotfound) {
++				this.simbad = true;	
++				if(this.phoneService == "noservice"){
++					this.carrierText = this.$L("Check SIM");
++					this.carrierTextEnglish = "Check SIM";
++				} 
++					
++				else if(this.phoneService == "limited"){
++					this.carrierText = this.$L('Check SIM-SOS only');
++					this.carrierTextEnglish = "Check SIM-SOS only";
++				}
++					
++				$('carrier').innerHTML = this.carrierText;
++								
++			}
++			else if(security.simready) {
++				if(this.phoneService == "limited") {
++					this.carrierText = this.$L('SOS Only');
++					this.carrierTextEnglish = "SOS Only";
++					$('carrier').innerHTML = this.carrierText;
++				}
++				else if(this.phoneService == "noservice") {
++					this.carrierText = this.$L('No service');
++					this.carrierTextEnglish = "No service";
++					$('carrier').innerHTML = this.carrierText;
++				}
++			}				
++		}
++		else {
++			if (security.pin1Boot && (security.pin1 || security.puk1)) {
++				this.simlocked = true;
++				if(this.phoneService == "limited"){
++					this.carrierText = this.$L("SIM lock-SOS only");
++					this.carrierTextEnglish = "SIM lock-SOS only";
++				} 
++				
++				else{
++					this.carrierText = this.$L("SIM lock"); 
++					this.carrierTextEnglish = "SIM lock";
++				}
++					
++				$('carrier').innerHTML = this.carrierText;
++			}
++			else if (security.pin1Boot != undefined && (security.pin1Boot == true || security.pin1Boot == false)) {
++				this.simlocked = false;
++				if(this.phoneService == "limited") {
++					this.carrierText = this.$L('SOS Only');
++					this.carrierTextEnglish = "SOS Only";
++					$('carrier').innerHTML = this.carrierText;
++				}
++				else if(this.phoneService == "noservice") {
++					this.carrierText = this.$L('No service');
++					this.carrierTextEnglish = "No service";
++					$('carrier').innerHTML = this.carrierText;
++				}
++			}						
++		}			
++	}
++	else if(payload.macroEventCalls) {
++		var macroCallEvent = payload.macroEventCalls;
++		
++		if(!macroCallEvent)
++			return;
++		
++		if(macroCallEvent.event == 'dialing' || macroCallEvent.event == 'active' || macroCallEvent.event == 'incoming') {
++			this.onActiveCall = true;
++		}
++		else if(macroCallEvent.event == 'disconnected') {			
++			if(macroCallEvent.singleActive || macroCallEvent.conferenceActive || macroCallEvent.singleHold || macroCallEvent.conferenceHold)
++				this.onActiveCall = true;
++			else {
++				this.onActiveCall = false;
++				if(this.accountServicePayload) {
++					this.handleAccountServiceNotifications(this.accountServicePayload);
++					this.accountServicePayload = null;
++				}
++			}				
++		}
++		
++		if(this.onActiveCall) {
++			if (Mojo.Controller.getAppController().getStageProxy("StorageModeAlert")) {
++				Mojo.Controller.getAppController().closeStage("StorageModeAlert");
++			}
++			if (Mojo.Controller.getAppController().getStageProxy("usb-dashboard")){
++				Mojo.Controller.getAppController().closeStage("usb-dashboard");
++			}
++			this.closeAllUpdateAlerts();
++		}
++		else {
++			if(this.isUSBConnected) {
++				this.createUSBDashboard();
++			}
++		} 		
++		
++	}
++	this.updatePhoneAppName();
++},
++
++closePhoneAlerts: function() {
++	//If Timezone Alert is being displayed, close it.
++	if(Mojo.Controller.getAppController().getStageProxy("TimezoneErrorAlert"))
++		Mojo.Controller.getAppController().closeStage("TimezoneErrorAlert");	
++		
++	//Close the SIM Alerts.
++	if(Mojo.Controller.getAppController().getStageProxy("phoneSIMDeniedAlert"))
++		Mojo.Controller.getAppController().closeStage("phoneSIMDeniedAlert");	
++
++	if(Mojo.Controller.getAppController().getStageProxy("phoneSIMDeniedDashboard"))
++		Mojo.Controller.getAppController().closeStage("phoneSIMDeniedDashboard");	
++},
++
++/*
++ * Handler function for call forward query notifications
++ */
++handleCallForwardQueryNotifications: function(payload) {
++	
++	//For CDMA, do not show the Call Forwarding Icon.
++	if(this.phoneType == 'cdma')
++		return;
++		
++	if(!payload.returnValue) {		
++		return;
++	}
++		
++	if(!payload.extended)
++		return;
++	
++	// only update icon for unconditional and all forwarding;
++	// others aren't interesting
++	switch (payload.extended.condition) {
++		case 'unconditional':
++		case 'allforwarding':
++			var status = payload.extended.status;
++			var found = false;
++			for (var i = 0; i < status.length; i++) {
++				switch (status[i].bearer) {
++					// we only care about voice/default bearers
++					case 'voice':
++					case 'default':
++					case 'defaultbearer': {
++						if (status[i].activated) {
++							$('callforward').show();					
++						} else {
++							$('callforward').hide();
++						}
++						found = true;
++					}
++					default: break;
++				}
++				if (found) break;
++			}
++		default: break;
++	}
++},
++
++/*
++ * Handle TTY Mode Settings 
++ */
++handleTTYModeQueryNotification: function(payload) {
++	
++	if(!payload.returnValue) {		
++		return;
++	}
++		
++	if(!payload.extended)
++		return;
++		
++	if(payload.extended.mode === 'full')
++		$('tty').show();
++	else
++		$('tty').hide();		
++},
++
++handleMNSRQueryNotification: function(payload) {
++	if (payload.extended && payload.extended.required) {
++		this.showNetworkDeniedAlert();
++	}
++},
++
++/*
++ * Handle HAC Mode Settings 
++ */
++handleHACQueryNotification: function(payload) {
++	
++	if(!payload.returnValue) {		
++		return;
++	}
++		
++	if(!payload.extended)
++		return;
++		
++	if(payload.extended.enabled)
++		$('hac').show();
++	else
++		$('hac').hide();		
++},
++/*
++ * Get the phone type
++ */
++getPhoneType: function() {
++	if(this.platformQueryRequest)
++		this.platformQueryRequest.cancel();
++	this.platformQueryRequest= new Mojo.Service.Request('palm://com.palm.telephony/', {
++		method: 'platformQuery', 
++		onSuccess: this.handlePlatformQuery.bind(this)		
++		});
++},
++
++/*
++ * Network Registration Error pop up alert
++ */
++showNetworkDeniedAlert: function() {
++	
++	if (this.phoneType == 'cdma')
++		return;
++	
++	if(Mojo.Controller.getAppController().getStageProxy("phoneNetworkDashboard"))
++		return;
++		
++	this.manualNetworkRequest = new Mojo.Service.Request('palm://com.palm.telephony/', {
++			method: 'networkSelectionModeQuery',
++			onSuccess: this.handleNetworkSelectionQuery.bind(this),
++		});
++},
++
++handleNetworkSelectionQuery: function(payload) {
++	if (payload.returnValue != undefined && payload.returnValue) {
++		if(payload.automatic === false) {
++			this.showNetworkDeniedAlertNow();						
++		}
++	}
++},
++
++showNetworkDeniedAlertNow: function() {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("phoneNetworkDashboard");
++	
++	if (stageController) {
++			stageController.delegateToSceneAssistant("update");
++	} else {
++			var bannerParams = {
++				icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-error.png',
++				messageText: this.$L("Unable to connect to network")
++			}
++			appController.showBanner(bannerParams, {action:"launchPhoneprefs"},'phoneNetworkErrorBanner');
++			var f = function(stageController){
++		      stageController.pushScene('phonenetworkalert');
++		    }.bind(this);
++			appController.createStageWithCallback({name: "phoneNetworkDashboard", lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-error.png"},//small icon at right corner 
++				f, "dashboard");			
++		}       
++},
++
++showSIMDeniedAlert: function(causeCode) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("phoneSIMDeniedAlert");
++	
++	if (!stageController) {
++		var f = function(stageController){
++		     stageController.pushScene('networkdeniedalert',causeCode);
++		}.bind(this);
++		appController.createStageWithCallback({name: "phoneSIMDeniedAlert", lightweight: true, height:150}, f, "popupalert");			
++	}       
++	
++},
++
++createSIMDeninedDashboard: function(causeCode) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("phoneSIMDeniedDashboard");
++	
++	if (!stageController) {
++		var f = function(stageController){
++		     stageController.pushScene('networkdenieddashboard',causeCode);
++		}.bind(this);
++		appController.createStageWithCallback({name: "phoneSIMDeniedDashboard", lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-error.png"},//small icon at right corner 
++			f, "dashboard");			
++	}       
++},
++
++btMonitorInit:function(payload) {
++	//Initial value 
++	this.bluetoothState = 'Off';
++	this.btRadioTurningOn = false;
++	
++	this.subscribeToBTMonitorNotifications();
++},
++
++btMonitorDeinit: function(payload) {
++	// BT Monitor Service is down. Simulate Radio off notification to do the cleanup.
++	Mojo.Log.error("SystemUI -- BT Monitor Service is down!!!");
++	this.btHandleNotifications({notification: 'notifnradiooff'});
++},
++
++subscribeToBTMonitorNotifications: function() {
++	if (this.btMonitorNotificationRequest != null) {
++			this.btMonitorNotificationRequest.cancel();
++	}
++		this.btMonitorNotificationRequest = new Mojo.Service.Request('palm://com.palm.btmonitor/monitor/', {
++			method: 'subscribenotifications',
++			parameters: {'subscribe':true},
++			onSuccess: this.handleBtMonitorNotifications.bind(this)
++		});
++},
++
++handleBtMonitorNotifications: function(payload) {
++	Mojo.Log.info("Bluetooth Monitor Notification "+ Object.toJSON(payload));
++	
++	if(!payload)
++		return;
++	
++	switch(payload.radio) {
++			case 'on': 	// For now, show that the radio is on and assume nothing is connected
++						$('bluetooth').className = 'on';
++						
++						this.bluetoothState = 'On';
++						this.btRadio = true;
++			
++						//Update the Device Menu
++						var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++						if (stageController) {
++							stageController.delegateToSceneAssistant("updateBluetooth", "radio","On");			
++						} 
++						// Determine if any profiles are connected
++						this.btGetConnectedStateOfAllProfiles();
++						break;
++			case 'turningon': this.btRadioTurningOn = true;
++							  var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++							  if (stageController) {
++								stageController.delegateToSceneAssistant("updateBluetooth", "radio","turningon");
++						      }
++							 break;
++			case 'turningoff':
++			case 'off': 	this.bluetoothState = 'Off';
++							this.btRadio = false;
++							// All profiles must be disconnected
++							for (var i=0; i<this.btProfiles.length; i++) {
++								this.btProfileStatus[this.btProfiles[i]] = {status:"disconnected",address:undefined};
++							}
++	}
++	
++	switch(payload.notification) {
++		case 'notifnradioturningon': this.btRadioTurningOn = true;
++									var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++									if (stageController) {
++										stageController.delegateToSceneAssistant("updateBluetooth", "radio","turningon");
++									}
++									break;
++		case 'notifnradioon':	// Radio is on, but notification can be sent even when connections are present
++								updateConnectedIcon = true;
++								$('bluetooth').className = 'on';
++								this.btRadio = true;
++								this.updateAirplaneModeProgress('bluetooth');
++								this.updateBTIcon(true, payload);				 						
++								break;
++		case 'notifnradiooff': 	// Radio is off.  Remove the Bluetooth icon from the status bar
++								$('bluetooth').className = 'off';
++								this.bluetoothState = 'Off';
++								this.btRadio = false;			
++
++								// All profiles must be disconnected
++								for (var i=0; i<this.btProfiles.length; i++)
++									this.btProfileStatus[this.btProfiles[i]] = {status:"disconnected",address:undefined};
++								this.closePbapAlert();
++								this.updateAirplaneModeProgress('bluetooth');
++								this.btPanAlertShown = false;
++								this.updateBTIcon(false, payload);	
++								break;
++								
++	}
++	
++},
++
++/*
++ * Get the connected state of all supported profiles, one after the other
++ */
++btGetConnectedStateOfAllProfiles: function() {
++	// Iterate through all the profiles, and get the status of those that aren't known
++	for (var i=0; i<this.btProfiles.length; i++) {
++		if (!this.btProfileStatus[this.btProfiles[i]]) {
++			this.btProfgetstateRequest= new Mojo.Service.Request('palm://com.palm.bluetooth/prof/',{
++				method:'profgetstate',
++				parameters:{'profile':this.btProfiles[i]},
++				onSuccess: this.btHandleProfgetState.bind(this)
++			});
++			break;
++		}
++	};
++},
++
++btHandleProfgetState:function(payload) {
++	// Save the profile connected status
++	this.btProfileStatus[payload.profile] = {status: payload.status,address:payload.address, name:payload.name};
++						
++	// If the profile is connected then update the icon
++	if (payload.status == "connected") {
++		$('bluetooth').className = "connected";
++		
++		if(payload.profile == 'hfg' || payload.profile == 'a2dp') {
++			this.bluetoothState = payload.name;
++			//Update the Device Menu
++			var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++			if (stageController) {
++				stageController.delegateToSceneAssistant("updateBluetooth", "device",this.bluetoothState);			
++			}			
++		}
++	}
++	// Get the next profile now
++	this.btGetConnectedStateOfAllProfiles();				
++},
++
++/*
++ * Initialize Bluetooth icon on status bar 
++ */
++btInit:function(payload){
++	this.subscribeToBluetoothNotifications();
++	this.updateAirplaneModeProgress('bluetooth');
++},
++
++btDeInit: function(payload) {
++	if(this.btRadio)
++		this.handleBtMonitorNotifications({notification: 'notifnradiooff'});
++},
++
++// Subscribe for Bluetooth notifications
++subscribeToBluetoothNotifications: function() {
++		if (this.btNotificationRequest != null) {
++			this.btNotificationRequest.cancel();
++		}
++		if (this.btGapNotificationRequest != null) {
++			this.btGapNotificationRequest.cancel();
++		}
++		this.btNotificationRequest = new Mojo.Service.Request('palm://com.palm.bluetooth/prof/', {
++			method: 'subscribenotifications',
++			parameters: {'subscribe':true},
++			onSuccess: this.btHandleNotifications.bind(this)
++		});
++		//Subscribe to bluetooht/gap notifications
++		this.btGapNotificationRequest = new Mojo.Service.Request('palm://com.palm.bluetooth/gap/', {
++			method: 'subscribenotifications',
++			parameters: {'subscribe':true},
++			onSuccess: this.btHandleNotifications.bind(this)
++		});
++},
++
++showNotifyPopupalert: function(deviceName,addr) {
++		var appController = Mojo.Controller.getAppController();
++		
++		var pushPbapScene = function(stageController) {
++			stageController.pushScene('pbapalert', deviceName, addr);
++		};		
++		var stageController = Mojo.Controller.getAppController().getStageProxy(this.kDashboardStageName);
++		if (stageController) {
++			stageController.delegateToSceneAssistant("update", deviceName,addr);
++		} else {
++			Mojo.Controller.getAppController().createStageWithCallback({name:this.kDashboardStageName,height:192,lightweight:true}, 
++				pushPbapScene, "popupalert");
++		}	
++},
++	
++/*
++ * Bluetooth notification handler
++ */
++btHandleNotifications: function(payload) {
++	Mojo.Log.info("Bluetooth Notificaiton "+ Object.toJSON(payload));
++	var updateConnectedIcon = false;
++	if (!payload)
++		return;
++	
++		
++	// Show BT off is service goes down
++	if (payload.returnValue == false)
++		payload.notification = 'notifnradiooff';
++		
++	this.btRadioTurningOn = false;
++	
++	// Update the icon based on the notification received
++	switch (payload.notification) {
++		case 'notifndevremoved':
++			var stageController = Mojo.Controller.getAppController().getStageProxy(this.kDashboardStageName);
++			if (stageController) {
++				stageController.delegateToSceneAssistant("deviceRemoved",payload.name,payload.address);
++			}
++			break;
++			
++		case 'notifnconnecting':
++			// Is this a profile that is reflected in the connected icon?
++			if (payload.profile == undefined)
++				break;
++			
++			//Ignore all profiles other than hfg, a2dp and pan
++			if(this.btProfiles.indexOf(payload.profile) == -1)
++				break;
++
++			// Show that a connection is in progress.  This takes priority over "connected"
++			$('bluetooth').className = 'connecting';
++			
++			this.btProfileStatus[payload.profile] = {status:"connecting",address:payload.address};
++			if(payload.profile == 'hfg' || payload.profile == 'a2dp')
++				this.bluetoothState = payload.name;	
++			this.updateBTIcon(false, payload);			
++			break;
++			
++		case 'notifnconnected':
++			// Is this a profile that is reflected in the connected icon?
++			if (payload.profile == undefined)
++				break;
++			
++			//Ignore all profiles other than hfg, a2dp and pan
++			if (this.btProfiles.indexOf(payload.profile) == -1) 				
++				break;
++					
++			// If there isn't an error then this profile is connected
++			if (payload.error == 0)
++				this.btProfileStatus[payload.profile] = {status:"connected",address:payload.address,name:payload.name};
++			else if(payload.alreadyconnectedaddr) 
++				this.btProfileStatus[payload.profile] = {status:"connected",address:payload.alreadyconnectedaddr};
++			else
++				this.btProfileStatus[payload.profile] = {status:"disconnected",address:payload.address};
++			
++			// Update the icon
++			updateConnectedIcon = true;						
++			break;
++		case 'notifndisconnecting':	
++			// Is this a profile that is reflected in the connected icon?
++			if (payload.profile == undefined)
++				break;
++			
++			//Ignore all profiles other than hfg, a2dp and pan
++			if(this.btProfiles.indexOf(payload.profile) == -1) 
++				break;
++					
++			this.btProfileStatus[payload.profile] = {status:"disconnecting",address:payload.address};
++			
++			// Update the icon
++			updateConnectedIcon = true;			
++			break;
++		case 'notifndisconnected':
++			// Is this a profile that is reflected in the connected icon?
++			if (payload.profile == undefined)
++				break;
++			
++			//Ignore all profiles other than hfg, a2dp and pan
++			if(this.btProfiles.indexOf(payload.profile) == -1)
++				break;
++				
++			this.btProfileStatus[payload.profile] = {status:"disconnected",address:payload.address};
++			
++			// Update the icon
++			updateConnectedIcon = true;
++					
++			//If the profile is Pbap and Popup alert is open, close it.
++			if(payload.profile == 'pbap') {
++				this.closePbapAlert();					
++			}			
++			//If the profile is PAN then reset the PANAlert flag.
++			if(payload.profile == 'pan')
++				this.btPanAlertShown = false;				
++			break;
++		case 'notifnconnectacceptrequest':
++			if(payload.error === 0)
++				this.showNotifyPopupalert(payload.name, payload.address);
++			break;
++		case 'notifndevrenamed' :
++			this.updateProfileStatus(payload.address,payload.name);
++			// Update the icon
++			updateConnectedIcon = true;			
++			break;
++	}
++	
++	if(updateConnectedIcon)
++		this.updateBTIcon(updateConnectedIcon, payload);
++	
++},
++
++updateBTIcon: function(updateConnectedIcon,payload) {
++	// Update the icon to show connections, if necessary
++	if (updateConnectedIcon) {		
++		var iconClass = 'on';
++		this.bluetoothState = 'On';		
++		for (var i = 0; i < this.btProfiles.length; i++) {
++			if (this.btProfileStatus[this.btProfiles[i]] && this.btProfileStatus[this.btProfiles[i]].status == "connected") {
++				iconClass = 'connected';	
++				if(this.btProfiles[i] == 'hfg' || this.btProfiles[i] == 'a2dp')
++					this.bluetoothState = this.btProfileStatus[this.btProfiles[i]].name;								
++				break;
++			}
++		}
++		$('bluetooth').className = iconClass;		
++	}
++	
++	if(!this.btRadio)
++		this.bluetoothState = 'Off';	
++	
++	//Update the System Menu
++	var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++	if (stageController) {
++		stageController.delegateToSceneAssistant("bluetoothNotification", payload);			
++	}	
++},
++
++updateProfileStatus: function(btaddress,btname) {
++	for (var i = 0; i < this.btProfiles.length; i++) {
++			if (this.btProfileStatus[this.btProfiles[i]].status == "connected" && this.btProfileStatus[this.btProfiles[i]].address == btaddress) {
++				this.btProfileStatus[this.btProfiles[i]] = {status:"connected",address:btaddress,name:btname};	
++				break;
++			}
++	}
++},
++
++closePbapAlert: function() {
++	var stageController = Mojo.Controller.getAppController().getStageProxy(this.kDashboardStageName);
++	if (stageController) {
++		stageController.delegateToSceneAssistant("close");
++	}	
++},
++
++/*
++ * Handle power and charging notifications
++ */
++handlePowerNotifications: function(payload) {
++	
++	Mojo.Log.info("SystemUI Power Payload "+ Object.toJSON(payload));
++	if(!this.powerdServiceUp) {
++		Mojo.Log.error("SystemUI PowerD down -- ignoring the notification");
++		return;
++	}	
++	// Is the battery level provided?
++	if (payload.percent_ui != undefined) {
++		
++		if(this.demoBuild) 
++			payload.percent_ui = 100;
++	
++		//Save the Battery Percentage
++		this.batteryLevel = payload.percent_ui;	
++		for (var i = 0; i < this.powerIndicator.length; i++) {
++			if (payload.percent_ui > this.powerIndicator[i]) 
++				continue;
++			this.lastBatteryLevel = i;
++			this.lastBatteryLevelPayload = payload;
++			
++			// Show the battery level if not charging
++			if (!this.isCharging) {
++				Mojo.Log.info("SystemUI- Is Charging "+ this.isCharging + " Battery level "+ i);
++				$('power').className = 'battery-' + i;
++				
++				//Show Banner Message if the Battery level is below 20%
++				var batteryalert = this.$L("#{percent_ui}% battery remaining").interpolate(payload);	
++				if(this.batteryLevel <= 5 && !this.batteryLevel5Shown) {
++					this.batteryLevel5Shown = true;
++					this.showLowBatteryAlert();
++				}
++				else if(this.batteryLevel > 5 && this.batteryLevel <= 10 && !this.batteryLevel10Shown) {
++					Mojo.Log.info("SystemUI- show 10% warning - Battery level "+ i);
++					this.batteryLevel10Shown = true;					
++					this.controller.showBanner({
++						messageText: batteryalert,
++						icon: "/usr/lib/luna/system/luna-systemui/images/battery-"+i+'.png',
++						soundClass: "notifications"
++					},{}, 'batteryAlert');
++				}				
++				else if(this.batteryLevel > 10 && this.batteryLevel <= 20 && !this.batteryLevel20Shown) {
++					Mojo.Log.info("SystemUI- show 20% warning - Battery level "+ i);
++					this.batteryLevel20Shown = true;					
++					this.controller.showBanner({
++						messageText: batteryalert,
++						icon: "/usr/lib/luna/system/luna-systemui/images/battery-"+i+'.png',
++						soundClass: "notifications"
++					},{}, 'batteryAlert');	
++				}
++				
++				if(this.batteryLevel < this.minBatThresholdForUpdate)
++					this.closeAllUpdateAlerts();														
++			}
++			else {
++				Mojo.Log.info("SystemUI- Is Charging "+ this.isCharging );
++				if(payload.percent_ui == 100)
++					$('power').className = 'battery-charged';
++				else
++					$('power').className = 'battery-charging-' + i;
++					
++			}
++			
++			if(this.batteryLevel > 5 && this.batteryLevel <= 10) {				
++				this.batteryLevel5Shown = false;
++			}
++			else if(this.batteryLevel > 10 && this.batteryLevel <= 20) {
++				this.batteryLevel10Shown = false;
++			}
++			else if(this.batteryLevel > 20) {
++				this.batteryLevel20Shown = false;
++			}
++			//Update the System Menu
++			var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++			if (stageController) {
++				stageController.delegateToSceneAssistant("updateBatteryLevel", this.batteryLevel);			
++			}					
++			return;
++		}		 
++	}
++	
++	// Is this a charger notification?
++	if (payload.type) {
++		this.powerSource[payload.type] = payload.connected;
++		
++		// Assume not charging
++		this.isCharging = false;
++		
++		// See if any power source is connected (and presumably charging)
++		['usb','inductive'].each(function(source){
++			if (this.powerSource[source] == true)
++				this.isCharging = true;			
++		}.bind(this));
++						
++		if (this.isCharging) {
++			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
++			if(this.batteryLevel == 100)
++				$('power').className = 'battery-charged';
++			else
++				$('power').className = 'battery-charging-' + this.lastBatteryLevel;
++						
++			var stageController = Mojo.Controller.getAppController().getStageProxy("LowBatteryAlert");
++			if (stageController) {
++				stageController.delegateToSceneAssistant("close");
++			}
++			
++			if(!this.chargingBannerShown && payload.name && (payload.name == "wall" || payload.name == "puck")) {
++				var batteryalert = this.$L("Charging Battery");
++				var soundClassName = this.onActiveCall ? "none" : "notifications";			
++				this.controller.showBanner({
++						messageText: batteryalert,
++						icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-charging.png",
++						soundClass: soundClassName
++					},{}, 'chargingAlert'); 				
++			}
++			this.chargingBannerShown = true;			
++		}
++		else {
++			this.chargingBannerShown = false;			
++			Mojo.Log.info("SystemUI- Charger Notification "+ this.isCharging + " Last battery level "+ this.lastBatteryLevel);
++			$('power').className = 'battery-' + this.lastBatteryLevel;	
++			Mojo.Controller.getAppController().removeBanner('chargingAlert');		
++		}	
++	}
++},
++
++handleCriticalPowerNotifications: function(payload) {
++	if(payload.cause) {
++		Mojo.Log.error("SystemUI - Battery Level is critical. Shutting down the phone ");
++		//Shutdown the Telephony Radio before power off the phone completely.
++	 	this.telephonyservicetemppoweroff = TelephonyService.tempPowerSet('off',false,null,null);
++		this.sendShutdownMessage.bind(this).delay(2);
++	}	
++},
++
++sendShutdownMessage: function() {	
++	this.sendShutDownMsgReq = new Mojo.Service.Request('palm://com.palm.power/shutdown/', {
++		method: 'machineOff',
++		parameters: {"reason":"Critical battery level UI 30s timeout"},
++		});
++},
++
++showLowBatteryAlert: function() {	
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("LowBatteryAlert");
++		if (!stageController)  {
++			 var f = function(stageController){
++		      stageController.pushScene('lowbatteryalert');
++		    }.bind(this);
++		    var params = {name: 'LowBatteryAlert', height: 150,lightweight:true,soundclass:'alerts'};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++		}
++},
++
++handlePowerResumeNotifications: function(payload) {
++    Mojo.Log.info("SystemUI --- Power Resume Notifications "+ Object.toJSON(payload));
++	
++    if(payload.returnValue)
++        return;
++   
++    //Start the clock
++    this.startClock();
++},
++
++getBatteryLevel: function() {
++	return this.batteryLevel;
++},
++
++queryBatteryStatus: function() {
++	this.queryBatteryStatusReq = new Mojo.Service.Request('palm://com.palm.power/com/palm/power/', {
++		method: 'batteryStatusQuery',});
++},
++
++/*
++ * Initialize power
++ */
++powerInit:function() {
++	
++	this.lastBatteryLevel = 0;
++	this.chargingBannerShown = false;
++	this.batteryLevel = 0;
++	// Subscribe to Battery Power Notifications
++	this.powerNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {"category":"/com/palm/power","method":"batteryStatus"},
++		onSuccess: this.handlePowerNotifications.bind(this)});
++		
++	// Subscribe to Critical Battery Level Notifications.
++	this.criticalPowerNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {"category":"/com/palm/power","method":"criticalBatteryShutdownWarning"},
++		onSuccess: this.handleCriticalPowerNotifications.bind(this)});
++		
++	
++	// Subscribe to Charger Notifications
++	this.chargerNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {"category":"/com/palm/power","method":"chargerStatus"},
++		onSuccess: this.handlePowerNotifications.bind(this)});
++		
++	
++	//Subscribe to Resume Notifications
++    this.powerResumeRequest = new Mojo.Service.Request('palm://com.palm.bus/signal', {
++        method: 'addmatch',
++        parameters: {"category" : "/com/palm/power", "method" :"resume"},
++        onSuccess: this.handlePowerResumeNotifications.bind(this)});
++				
++	// Get the Initial Value for Battery Power and charger (returned as signals)
++	this.chargerStatusReq = new Mojo.Service.Request('palm://com.palm.power/com/palm/power/', {
++		method: 'chargerStatusQuery', });
++		
++	//Get the Battery Level
++	this.queryBatteryStatus.delay(2);
++},
++
++powerDeInit: function() {
++	Mojo.Log.error("SystemUI - Power service not available on the bus!");
++	$('power').className = 'error';
++	this.powerSource['usb'] = false;
++	this.powerSource['inductive'] = false;
++	this.powerdServiceUp = false;
++	return;
++},
++
++powerInitialize: function() {
++	Mojo.Log.info("SystemUI - Power service online!");
++	this.powerdServiceUp = true;
++},
++
++/*
++ * Handle WAN notifications
++ */
++handleWANNotifications: function(payload) {
++	
++	 Mojo.Log.info("SystemUI -WAN Notification "+ Object.toJSON(payload));
++	 
++	 if(payload.returnValue != undefined && payload.returnValue)
++	 	return;
++		
++	 var mipFailureCode, causeCode;	
++			
++	 if (payload.networkstatus == "attached" && payload.connectedservices && payload.connectedservices.length > 0) { 
++	 	 
++	 	//If WAN is successful then clear the last error codes and pop up alerts.
++	 	for (var i = 0; i < payload.connectedservices.length; i++) {
++			if(payload.connectedservices[i].service.indexOf("internet") != -1) {
++				this.cmPayload = payload;
++				
++				if(this.wifiConnected) {					
++					return;
++				}
++				
++				mipFailureCode = payload.connectedservices[i].mipFailureCode;	
++				causeCode = payload.connectedservices[i].causeCode;
++				
++				//Icon custmization
++				if(payload.networktype === 'evdo' && this.show3GForEvdo)
++					payload.networktype = 'evdo3g';
++				
++				if(payload.connectedservices[i].connectstatus == 'active' && payload.dataaccess == "usable") {
++					$('datanet').className = 'connected-'+payload.networktype;
++					Mojo.Log.info("SystemUI - Updating WAN Icon - Status - active");
++					if(mipFailureCode == 0 && causeCode == 0)
++						this.wanCleanup();					
++				}
++				else if(payload.connectedservices[i].connectstatus == 'dormant' && payload.dataaccess == "usable") {
++					$('datanet').className = 'dormant-'+payload.networktype;
++					Mojo.Log.info("SystemUI - Updating WAN Icon - Status - dormant");
++					if(mipFailureCode == 0 && causeCode == 0)
++						this.wanCleanup();					
++				}
++				else {
++					$('datanet').className = 'off';
++					Mojo.Log.error("SystemUI - Updating WAN Icon - Status - Removed " + Object.toJSON(payload));
++				}									 
++				break;			
++			}			
++		}        
++				
++        if(mipFailureCode) { 
++					
++			 if(this.phoneType == 'gsm')
++	 			return;
++			
++			if(payload.connectedservices[i].service.indexOf("tethered") != -1) 
++				return;
++			
++			//Hide WAN Error Alert?
++			if(this.hideWANErrorAlert)
++				return;
++			
++			//Find out the error code from the array 
++            if(this.wanErrorCodesWithHelp.indexOf(mipFailureCode) != -1) { 
++               	this.showWANAlert(true,mipFailureCode,this.carrierName); 
++				//This is to avoid showing duplicate Error 67 alert.
++				this.cmPayload = null;
++            } 
++           	else if(this.wanErrorCodes.indexOf(mipFailureCode) != -1 ) { 
++               	this.showWANAlert(false,mipFailureCode,this.carrierName);
++				this.cmPayload = null; 
++            }			                 
++        }          
++    }
++	else {
++		$('datanet').className = 'off';
++		this.cmPayload = null;
++		Mojo.Log.error("SystemUI - Updating WAN Icon - Status - Removed " + Object.toJSON(payload));
++	}          
++		
++},
++
++/*
++ * Initialize WAN
++ */
++wanInit: function() {
++	//Subscribe to wan status Notifications.
++	this.wanStatusNotificationSession = new Mojo.Service.Request('palm://com.palm.wan/', {
++		method: 'getstatus',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleWANNotifications.bind(this)});	
++},
++
++wanDeInit: function() {
++	$('datanet').className = 'off';
++	this.cmPayload = null;
++},
++
++/*
++ * WAN Cleanup stuff
++ */
++wanCleanup: function() {		
++	var appController = Mojo.Controller.getAppController();
++	var stageController = Mojo.Controller.getAppController().getStageProxy(this.kDashboardWANStageName);
++	if (stageController) {
++		stageController.delegateToSceneAssistant("onClose");
++	}
++},
++
++/*
++ * Show WAN Error Alerts.
++ */
++
++showWANAlert: function(showHelp,errCode,networkname) {
++	    
++		var appController = Mojo.Controller.getAppController();
++		
++		var pushWANAlertScene = function(stageController) {
++				stageController.pushScene('wanderror',showHelp,errCode,networkname);
++		};			
++		var stageController = Mojo.Controller.getAppController().getStageProxy(this.kDashboardWANStageName);
++		if (!stageController) {
++			if(showHelp) {
++				Mojo.Controller.appController.createStageWithCallback({name:this.kDashboardWANStageName,height:180,lightweight:true}, 
++					pushWANAlertScene, "popupalert");
++			}	
++			else {
++				Mojo.Controller.appController.createStageWithCallback({name:this.kDashboardWANStageName,height:125,lightweight:true}, 
++					pushWANAlertScene, "popupalert");
++			}				
++		}			
++},
++
++/*
++ * Create a Timer Task that will be fired in 15 minutes.
++ */
++createTimerTask: function() {
++	
++	if(this.createTimerTaskReq)
++		return;
++	
++	if(Mojo.Controller.getAppController().getStageProxy(this.kDashboardWANStageName))
++		return;
++	
++	this.createTimerTaskReq = new Mojo.Service.Request('palm://com.palm.taskScheduler/', {
++		method: 'setTimeoutTask',
++		parameters: {uri: 'palm://com.palm.applicationManager/open',
++					 arguments: {'id': 'com.palm.systemui',
++					 			 'params': {'action': 'launchWANErrorAlert'}},
++					 timeout: 900
++					 },
++		onSuccess: function(payload) {
++				if(payload.returnValue) 
++					this.wanTimerId = payload.taskId;				
++		}.bind(this),
++		onComplete: function() {
++			this.createTimerTaskReq.cancel();
++			this.createTimerTaskReq = null;
++		}.bind(this),
++		}); 
++},
++
++clearTimerTask: function() {
++	
++	if(!this.wanTimerId)
++		return;
++	new Mojo.Service.Request('palm://com.palm.taskScheduler/', {
++		method: 'clearTimeoutTask',
++		parameters: {taskId: this.wanTimerId},
++		});	
++},
++
++allowWANAlert: function() {
++	this.showWANAlertNow = true;
++	this.wanTimerId = null;
++},
++
++/*
++ * Initialize Connection Manager
++ */
++cmInit: function() {
++	
++	//Subscribe to Connection Manager Route Status Notifications.
++	this.cmPanStatusNotificationSession = new Mojo.Service.Request('palm://com.palm.connectionmanager/', {
++		method: 'getbtpanroutestatus',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleCMBTPANNotifications.bind(this)});
++	
++	//Subscribe to Connection Manager Status update.
++	this.cmConnectionStatusNotificationSession = new Mojo.Service.Request('palm://com.palm.connectionmanager/', {
++		method: 'getstatus',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleCMStatusNotifications.bind(this)});
++},
++
++CWSuccess: function(msg) {
++	Mojo.Log.info("Message Received from CW "+ msg);
++},
++
++handleCMBTPANNotifications: function(payload) {
++	
++	
++	//Ignore all these notifications if BT Engine is off.
++	if(!this.btRadio)
++		return;
++		
++	if(payload.isPanClientConnected == undefined || payload.networkPath == undefined || payload.isBtPanToInternetRouteUp == undefined)
++		return;
++	
++	//PAN is connected. Check for WiFi or WAN availabilty.
++	if(payload.isPanClientConnected && !this.btPanAlertShown) {		
++		if(payload.networkPath === 'none') {
++			this.btPanAlertShown = true;
++			var params = {"type": "data","onSuccess":this.CWSuccess.bind(this)};
++			ConnectionWidget.connect(params,Mojo.Controller.stageController);
++		}			
++		else if (payload.networkPath === 'autherror') {
++			this.btPanAlertShown = true;
++			var params = {"type": "panautherror","carrier": this.carrierName,"onSuccess":this.CWSuccess.bind(this)};
++			ConnectionWidget.connect(params,Mojo.Controller.stageController);
++			
++		}
++		
++	}
++},
++
++handleCMStatusNotifications: function(payload) {
++	if (payload && payload.isInternetConnectionAvailable) {
++		this.isInternetConnectionAvailable = true;
++		if(this.appRestoreNeeded) {
++			this.getInstalledAppsList();
++		}
++	}
++	else 
++		this.isInternetConnectionAvailable = false;
++},
++/*
++ * Handle WiFi notifications
++ */
++handleWIFINotifications: function(payload) {
++	Mojo.Log.info("SystemUI - WiFi Notification "+ Object.toJSON(payload));
++	if (payload.status == 'connectionStateChanged') {
++		this.wifiRadio = true;		
++		switch(payload.networkInfo.connectState) {
++			case 'associating':
++			case 'associated': 
++				$('wifi').className = 'connecting';				
++				this.wifiState = payload.networkInfo.ssid;
++			 	break;
++			case 'ipFailed':			
++			case 'notAssociated':
++			case 'associationFailed':
++				this.wifiState = 'On';				
++				this.wifiConnected = false;				
++				$('wifi').className = 'on';			
++				break;
++			case 'ipConfigured':
++				this.wifiConnected = true;
++				this.wifiState = payload.networkInfo.ssid;
++				if(payload.networkInfo.signalBars != undefined){
++					$('wifi').className = 'bar-'+payload.networkInfo.signalBars;					
++				}
++				$('datanet').className = 'off';				
++				break;		
++		}
++		//Update the System Menu
++		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++		if (stageController) {
++			stageController.delegateToSceneAssistant("wifiNotification","connection", payload);			
++		}		
++	}
++	else if (payload.status == 'signalStrengthChanged') {
++		if (this.wifiConnected && payload.signalBars) {
++			$('wifi').className = 'bar-'+payload.signalBars;
++		}
++	}
++	else if (payload.status == 'serviceEnabled') {
++		this.wifiConnected = false;
++		$('wifi').className = 'on';
++		this.wifiState = 'On';
++		this.wifiRadio = true;
++		this.updateAirplaneModeProgress('wifi');
++		//Update the System Menu
++		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++		if (stageController) {
++			stageController.delegateToSceneAssistant("wifiNotification", "service", "On");			
++		}		
++	}
++	else if (payload.status == 'serviceDisabled') {
++		this.wifiConnected = false;
++		$('wifi').className = 'off';
++		this.wifiState = 'Off';
++		this.wifiRadio = false;	
++		this.updateAirplaneModeProgress('wifi');	
++		//Update the System Menu
++		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++		if (stageController) {
++			stageController.delegateToSceneAssistant("wifiNotification", "service", "Off");			
++		}
++	}
++	if(this.cmPayload && !this.wifiConnected)
++		this.handleWANNotifications(this.cmPayload);
++},
++
++/*
++ * Initialize WiFi
++ */
++wifiInit: function() {
++	//Subscribe to wifi status Notifications.
++	this.wifiStatusNotificationSession = new Mojo.Service.Request('palm://com.palm.wifi/', {
++		method: 'getstatus',
++		parameters: {
++			"subscribe": true
++		},
++		onSuccess: this.handleWIFINotifications.bind(this)
++	});
++	this.wifiState = 'Off';
++},
++
++wifiDeInit: function() {
++	if(this.wifiState === 'Off')
++		return;
++	//Simulate WiFi Service Disabled Notification.
++	this.handleWIFINotifications({status:'serviceDisabled'});
++},
++
++/*
++ * Register to receive storage notifications
++ */
++storageInit: function() {
++    this.storageNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {
++			"category": "/storaged",
++			"method": "MSMAvail"
++		},
++		onSuccess: this.storageHandleNotifications.bind(this)
++	});
++	
++	//Subscribe to MSMError Notifications
++	this.storageErrorNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {
++			"category": "/storaged",
++			"method": "PartitionAvail"
++		},
++		onSuccess: this.storageHandleErrorNotifications.bind(this)
++	});
++	
++	//Subscribe to MSMEntry Notifications
++	this.storageMSMEntryNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {
++			"category": "/storaged",
++			"method": "MSMEntry"
++		},
++		onSuccess: this.storageHandleMSMEntryNotifications.bind(this)
++	});
++	
++	//Subscribe to MSMProgress Notifications
++	this.storageMSMProgressNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {
++			"category": "/storaged",
++			"method": "MSMProgress"
++		},
++		onSuccess: this.storageHandleMSMProgressNotifications.bind(this)
++	});		
++},
++
++/*
++ * Handle storage(mode-avail) notifications
++ */
++storageHandleNotifications: function(payload) {
++	Mojo.Log.info("SystemUI - Storaged MSM Notification "+ Object.toJSON(payload));	
++    if (!payload || payload["mode-avail"] === undefined)
++        return;
++   
++    if (payload["mode-avail"]) {
++		this.isUSBConnected = true;
++		if(payload["canIMasquerade"])
++			this.disableImasq = false;
++		else
++			this.disableImasq = true;
++	 	if (!this.onActiveCall) {
++			if (this.canUSBAlertDisplayed()) 
++				this.showStorageModeAlert();
++			else 
++				this.createUSBDashboard();
++		}
++	}
++    else {
++		this.isUSBConnected = false;
++    	this.msmTurnOnHiddServices();
++		this.msmStartOtherRadios();
++		
++		if (Mojo.Controller.getAppController().getStageProxy("StorageModeAlert")) {
++			Mojo.Controller.getAppController().closeStage("StorageModeAlert");
++		}
++		if (Mojo.Controller.getAppController().getStageProxy("usb-dashboard")){
++			Mojo.Controller.getAppController().closeStage("usb-dashboard");
++		}
++		if (Mojo.Controller.getAppController().getStageProxy("StorageModeWarning")){
++			Mojo.Controller.getAppController().closeStage("StorageModeWarning");
++		}	
++		if (!payload["mode-avail"])//clear banner message
++		{
++			Mojo.Controller.getAppController().removeBanner('chargingAlert');
++		}		
++    }
++},
++
++/*
++ * Show Storage Mode Alert
++ */
++showStorageModeAlert: function() {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("StorageModeAlert");
++	
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popup alert
++		    var f = function(stageController){
++		      stageController.pushScene('storagealert',this.showMSMWarning,this.showMediaWarning,this.disableImasq);
++		    }.bind(this);
++			var params;
++			if(this.disableImasq)
++				params = {name: 'StorageModeAlert', height: 120, lightweight:true,soundclass:'none'};
++			else 
++				params = {name: 'StorageModeAlert', height: 170, lightweight:true,soundclass:'none'};
++						    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }
++},
++
++/*
++ * Handler for MSMEntry Notifications.
++ */
++storageHandleMSMEntryNotifications: function(payload) {
++	Mojo.Log.info("SystemUI - Storaged MSMEntry Notification "+ Object.toJSON(payload));
++	if(!payload)
++		return;
++	
++	//Check to see if this is a Phone Mode. If yes then turn on all radios.
++	if(payload["new-mode"] && payload["new-mode"] == "phone" ) {		
++		this.msmTurnOnHiddServices();		
++		this.msmStartOtherRadios();	
++	}
++},
++
++/*
++ * Handler for Storaged MSM Progress Notification
++ */
++storageHandleMSMProgressNotifications: function(payload) {
++	if(!payload)
++		return;
++		
++	if (payload["stage"]) {
++		if (payload["stage"] == "attempting") {
++			this.msmShutdownOtherRadios();
++			this.msmTurnOffHiddServices();
++		}
++		else if(payload["stage"] == "failed") {
++			this.msmTurnOnHiddServices();
++			this.msmStartOtherRadios();
++		}	
++	}
++},
++
++/*
++ * Handler for Storaged MSM Error Notification
++ */
++storageHandleErrorNotifications: function(payload) {	
++	 if (!payload)
++        return;
++	
++	if(payload.reformatted != undefined && payload.reformatted) {
++		this.showMSMErrorAlert(true);
++	}
++	else if(payload.fscked != undefined && payload.fscked) {
++		this.showMSMErrorAlert(false);
++	}
++	
++},
++
++showMSMErrorAlert: function(showFormatError) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("StorageModeErrorAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popup alert
++		    var f = function(stageController){
++		      stageController.pushScene('storageerroralert',showFormatError);
++		    }.bind(this);
++		    var params = {name: 'StorageModeErrorAlert', height: 165, lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }
++},
++/*
++ * Check to see if USB is connected. If so, put a dashboard usb icon.
++ */
++isUSBCableConnected: function() {
++	this.isHostConnectedReq = new Mojo.Service.Request('palm://com.palm.storage/diskmode/',{
++		method:'hostIsConnected',
++		onSuccess: function(payload) {
++			if(payload.result == true && payload.hostIsConnected) {
++				Mojo.Log.info("SystemUI - USB Is connected(During Init)" + Object.toJSON(payload));
++				this.isUSBConnected = true;
++				if(payload["canIMasquerade"])
++					this.disableImasq = false;
++				else 
++					this.disableImasq = true;
++				if (!this.onActiveCall) {
++					if (this.updateAvailable) 
++						this.createUSBDashboard();
++					else 
++						this.showStorageModeAlert();
++				}							
++			}
++		}.bind(this),	
++		});
++},
++
++/*
++ * Create a USB Dashboard Item
++ */
++createUSBDashboard: function(showChargingBanner) {
++	
++		if(!this.isUSBConnected)
++			return;
++		
++		if(this.onActiveCall)
++			return;
++			
++		if(showChargingBanner) {
++			var bannerParams = {
++			icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-usb.png',
++			messageText: this.$L("Charging battery"),			
++			}	
++			Mojo.Controller.getAppController().showBanner(bannerParams, {},'chargingAlert');
++		}
++		
++		var stageController = Mojo.Controller.getAppController().getStageProxy("usb-dashboard");
++		if (!stageController) {
++			var f = function(stageController){
++		      stageController.pushScene('usbdashboard',this.showMSMWarning,this.showMediaWarning,this.disableImasq);
++		    }.bind(this);
++			
++			Mojo.Controller.getAppController().createStageWithCallback({name: "usb-dashboard", lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-usb.png"},//small icon at right corner 
++				f, "dashboard");			
++		}
++},
++
++/* 
++ * Close the USB Dashboard and Storage Alert
++ */
++closeUSBDashboard: function() {
++	if (Mojo.Controller.getAppController().getStageProxy("StorageModeAlert")) {
++		Mojo.Controller.getAppController().closeStage("StorageModeAlert");
++	}
++	if (Mojo.Controller.getAppController().getStageProxy("usb-dashboard")){
++		Mojo.Controller.getAppController().closeStage("usb-dashboard");
++	}
++},
++
++/*
++ * Check the conditions and make sure USB Alert can be displayed
++ */
++canUSBAlertDisplayed: function() {
++	if (this.updateAvailable) 
++			return false;
++	else {
++		var appController = Mojo.Controller.getAppController();
++		if(appController.getStageProxy("PowerOffAlert"))
++			return false;
++		else if(appController.getStageProxy("ResetOptionAlert")) 
++			return false;
++		else if(appController.getStageProxy("SwapBatteryStage"))
++			return false;
++	}
++	return true;
++},
++
++/*
++ * Register to receive power off notifications
++ */
++powerOffInit: function() {
++    this.powerOffNotificationSession = new Mojo.Service.Request('palm://com.palm.bus/signal/', {
++		method: 'addmatch',
++		parameters: {
++			"category": "/com/palm/display",
++			"method": "powerKeyPressed"
++		},
++		onSuccess: this.powerOffHandleNotifications.bind(this)
++	});
++},
++
++
++/*
++ * Handle power off notifications
++ */
++powerOffHandleNotifications: function(payload) {	
++    if (payload["showDialog"])
++    {
++		var appController = Mojo.Controller.getAppController();
++		var resetOptionStageController = appController.getStageProxy("ResetOptionAlert");
++		if(resetOptionStageController)
++			return;
++		var swapBatteryStageController = appController.getStageProxy("SwapBatteryStage");
++		if (swapBatteryStageController) {
++			swapBatteryStageController.window.focus();
++			return;
++		}
++       this.showPowerOffAlert(); 
++    }
++},
++
++/*
++ * Show Power Off Alert
++ */
++showPowerOffAlert: function() {
++	
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("PowerOffAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('poweroffalert',this);
++		    }.bind(this);
++		    var params = {name: 'PowerOffAlert', height: 175,lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }
++	//Close the Storage Alert and create a USB dashboard.
++	var storageAlertStageController = appController.getStageProxy('StorageModeAlert');
++	if(storageAlertStageController) {
++		storageAlertStageController.delegateToSceneAssistant("closeAndCreateDashboard");
++		this.createUSBDashboard.bind(this).delay(0.5,false);
++	}
++			
++},
++    
++/*
++ * Register to receive Meta Mode status changes
++ */
++metaModeInit: function() {
++    this.metaModeNotificationSession = new Mojo.Service.Request('palm://com.palm.systemmanager/', {
++		method: 'getMetaModeStatus',
++		parameters: { 'subscribe': true },
++		onSuccess: this.metaModeHandleNotifications.bind(this)
++	});
++},
++
++metaModeWindowOpen: function(showCursorText) {
++  //  this.metaModeAlertWindow = window.open("sysui_texthint.html?window=banneralert", "metamode", "soundclass=none", "height=48");
++   var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("MetaModeBanner");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popup alert
++		    var f = function(stageController){
++		      stageController.pushScene('texthint',showCursorText);
++		    }.bind(this);
++		    var params = {name: 'MetaModeBanner', height: 48, lightweight:true, soundclass:'none'};		    	    
++		    appController.createStageWithCallback(params,f,'banneralert');
++        }
++		else {
++			Mojo.Log.info("Meta Mode Stage Exist");
++			stageController.delegateToSceneAssistant("update",showCursorText);
++		}			
++},            
++
++/*
++ * Handle storage notifications
++ */
++metaModeHandleNotifications: function(payload) {
++
++    if (!payload)
++        return;
++    
++    if (payload.enabled == true) {
++		clearTimeout(this.metaModeAlertWindowTimer);
++		if(payload.shiftKeyDown == true)
++			this.metaModeAlertWindowTimer = window.setTimeout(this.metaModeWindowOpen.bind(this,false), 1000);
++		else
++			this.metaModeAlertWindowTimer = window.setTimeout(this.metaModeWindowOpen.bind(this,true), 1000);
++    }
++    else {
++		try {
++            clearTimeout(this.metaModeAlertWindowTimer);
++        } catch(e) {}
++       var appController = Mojo.Controller.getAppController();
++	   var stageController = appController.getStageProxy("MetaModeBanner");
++	   if(stageController) {
++	   		stageController.delegateToSceneAssistant("close");	   	    
++	   }
++    }
++},
++    
++startClock: function() {
++	
++	if(this.setTimeoutTimer) {                                                                                        
++		try {                                                                                                     
++               this.controller.window.clearTimeout(this.setTimeoutTimer);                                               
++            } catch(e) {}                                                                                             
++       this.setTimeoutTimer = null;                                                                                                                                                                                                   
++    }   
++	                                                                                                              
++    this.updateClockEveryMinute();                                                                                    
++    var date = new Date();                                                                                            
++                                                      
++    //Cancel the timer to update the clock for every second instead create a timer with 60 interval.                  
++    var secs = 60 - date.getSeconds();                                                                                
++                                                                                                                          
++    if(secs < 60) {                                                                                                   
++        this.setTimeoutTimer = this.controller.window.setTimeout(this.updateClock.bind(this),secs*1000);                  
++    }                                                                                                                     
++    else {                                                                                                                     
++       try {                                                                                                     
++               this.controller.window.clearInterval(this.clockUpdateTimer);                                              
++         } catch(e) {}                                                                                             
++       this.clockUpdateTimer = this.controller.window.setInterval(this.updateClockEveryMinute.bind(this), 60000);
++     } 
++	                                                                                                                 
++     this.queryBatteryStatus();        
++},
++
++/*
++ * Update the clock every second
++ */
++updateClock: function() {
++	
++	this.setTimeoutTimer = null;
++	
++	this.updateClockEveryMinute();
++	
++	try {
++           	this.controller.window.clearInterval(this.clockUpdateTimer);
++     } catch(e) {}
++	
++	this.clockUpdateTimer = this.controller.window.setInterval(this.updateClockEveryMinute.bind(this), 60000);	
++},
++
++updateClockEveryMinute: function() {	
++	var date = new Date();
++	var format;
++	
++	if(Mojo.Format.using12HrTime()) 
++		format = Mojo.Format.getFormatHash()['shortTime12'];
++	else
++		format = Mojo.Format.getFormatHash()['shortTime24'];
++		 
++	format = format.replace(/\s?a\s?/,"");	
++	$('clock').innerHTML = Mojo.Format.formatDate(date, {time: format});				
++	$('today').innerHTML = Mojo.Format.formatDate(date,{date:'short'});
++},
++
++/*
++ * Query the System Service to get the value of Airplane Mode key.
++ */
++isAirplaneModeEnabled: function() {
++	
++	this.airplaneModerequest = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'getPreferences', 
++			parameters: {"subscribe":true,"keys":["airplaneMode"]},
++			onSuccess: this.saveAirplaneMode.bind(this),
++			onFailure: this.saveAirplaneMode.bind(this),
++		});
++},
++
++//Call back function for Airplane Mode Query. Based on the value, it calls enable / disable airplane mode functions.
++//It doesn't call the enalbe /disable Airplane Mode function when it makes first time query(phone boots).
++saveAirplaneMode: function(payload) {
++	Mojo.Log.info("SystemUI - Callback function for Airplane Mode "+ Object.toJSON(payload));
++	
++	if(payload.returnValue != undefined && payload.returnValue == false)
++		return;
++		
++	if(payload.airplaneMode != undefined)
++		this.airplaneMode = payload.airplaneMode;
++	else
++		this.airplaneMode = false;
++	
++	if(this.airplaneModeInitialQueryDone) {
++		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");	
++		if (stageController) {
++			stageController.delegateToSceneAssistant("updateAirplaneModeProgress");
++		}	
++		if (this.airplaneMode === false) 
++			this.disableFlightMode();
++		else {
++			this.enableFlightMode();
++		}
++	}
++	else {
++		var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");	
++		if (stageController) {
++			stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
++		}	
++	}  	
++	this.airplaneModeInitialQueryDone = true;
++},
++
++//Returns the Airplane Mode settings. Called by DeviceMenu.
++getAirplaneMode: function() {	
++	return this.airplaneMode;
++},
++
++//Turn on the Airplane Mode. Makes service call to update the AirplaneMode key.
++setAirplaneMode: function(mode) {
++	Mojo.Log.info("SystemUI - Setting Airplane Mode ");
++	this.airplaneMode = mode;
++	this.controller.serviceRequest("palm://com.palm.systemservice/", {
++			method: 'setPreferences', 
++			parameters: {"airplaneMode":mode},
++		});	
++},
++
++//Disable Airplane Mode by turning on Phone and other radios.
++disableFlightMode: function() {
++	Mojo.Log.info("System UI - Disabling Airplane Mode");
++	this.airplaneModeTriggered = true;
++	this.clearAPModeRadioStatus();
++	var phoneRadioFailure = this.phoneRadioFailure.bind(this);	
++	Mojo.Log.info("System UI - Turning on phone radio");
++	this.telephonyservicepoweronreq = TelephonyService.powerSet('on',null,phoneRadioFailure);
++	//If Radio was turned on while in Airplane Mode, update the airplane progress
++	if(this.phoneRadioState) {
++		this.updateAirplaneModeProgress('phone');
++	}
++	//Turn on Wifi Bt and Phone
++	this.turnOnOtherRadios();	
++},
++
++// Turn on the WiFi and Bluetooth radios if they were on when airplane mode was enabled.
++turnOnOtherRadios: function() {
++		var updateAirplaneModeProgress = this.updateAirplaneModeProgress.bind(this);
++		var btRadioFailure = this.btRadioFailure.bind(this);
++		var wifiRadioFailure = this.wifiRadioFailure.bind(this);
++		var phoneRadioFailure = this.phoneRadioFailure.bind(this);
++		//Get the WiFi & Bluetooth State
++		this.turnOnOtherRadiosReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'getPreferences', 
++			parameters: {"keys":["wifiRadio","bluetoothRadio"]},
++			onSuccess: function(a){
++				if (a.wifiRadio != undefined && a.wifiRadio) {
++					Mojo.Log.info("SystemUI - Turning on WiFi");
++					this.wifiserviceenablereq = WiFiService.setState("enabled",null,wifiRadioFailure);
++				}
++				else
++					updateAirplaneModeProgress('wifi');
++					
++				if (a.bluetoothRadio != undefined && a.bluetoothRadio) {
++					Mojo.Log.info("SystemUI - Turning on BT");
++					this.btserviceenablereq = BtService.radioon(null,btRadioFailure);	
++				}
++				else
++					updateAirplaneModeProgress('bluetooth');
++			}.bind(this),
++			onComplete: function(a) {
++				this.turnOnOtherRadiosReq.cancel();
++				this.turnOnOtherRadiosReq = null;
++			}.bind(this)
++		});        		 
++},
++
++btRadioFailure: function(payload) {
++	if(payload.returnValue === false) {
++		Mojo.Log.info("SystemUI - Error Bluetooth Radio " + Object.toJSON(payload));
++		this.updateAirplaneModeProgress('bluetooth');
++	}	
++},
++
++wifiRadioFailure: function(payload) {
++	if(payload.returnValue === false) {
++		Mojo.Log.info("SystemUI - Error WiFi Radio " + Object.toJSON(payload));
++		this.updateAirplaneModeProgress('wifi');
++	}	
++},
++
++phoneRadioFailure: function(payload) {
++	if(payload.returnValue === false) {
++		Mojo.Log.info("SystemUI - Error Phone Radio " + Object.toJSON(payload));
++		this.updateAirplaneModeProgress('phone');
++	}	
++},
++
++//Enable Airplane Mode by Turning off all radios.
++enableFlightMode: function() {
++	Mojo.Log.info("SystemUI - Enabling Airplane Mode");
++	this.airplaneModeTriggered = true;
++	this.clearAPModeRadioStatus();
++	this.saveRadioState();
++	var btRadioFailure = this.btRadioFailure.bind(this);
++	var wifiRadioFailure = this.wifiRadioFailure.bind(this);
++	var phoneRadioFailure = this.phoneRadioFailure.bind(this);
++		
++	//Turn off Wifi BT and Phone
++	if (this.btRadio || this.btRadioTurningOn) {
++		this.btRadio = false;
++		Mojo.Log.info("SystemUI - BT is on. Turning it off");
++		this.btservicedisablereq = BtService.radiooff(null, btRadioFailure);		
++	}
++	else {
++		Mojo.Log.info("SystemUI - BT is off.");
++		this.updateAirplaneModeProgress('bluetooth');		
++	}
++	
++	Mojo.Log.info("SystemUI - Phone is on. Turning it off");	
++	this.telephonyservicepoweroffreq = TelephonyService.powerSet('off',null,phoneRadioFailure);
++	
++	if (this.wifiRadio) {
++		Mojo.Log.info("SystemUI - WiFi is on. Turning it off");
++		this.wifiservicedisablereq = WiFiService.setState("disabled", null, wifiRadioFailure);
++	}
++	else {
++		Mojo.Log.info("SystemUI - WiFi is off");
++		this.updateAirplaneModeProgress('wifi');
++	}
++	
++	this.wanCleanup();		
++		
++},
++
++//Save the Current State of Bluetooth and WiFi radio state before entering into airplane mode.
++saveRadioState: function() {
++	this.controller.serviceRequest("palm://com.palm.systemservice/", {
++		method: 'setPreferences', 
++		parameters: {"wifiRadio":this.wifiRadio},
++	});
++		
++	this.controller.serviceRequest("palm://com.palm.systemservice/", {
++		method: 'setPreferences', 
++		parameters: {"bluetoothRadio":(this.btRadio || this.btRadioTurningOn) ? true : false},
++	});
++},
++
++//Check to see all radio notification were recieved. If yes, then update the Device Menu so that it would display the correct string for 'Airplane Mode'
++updateAirplaneModeProgress: function(radioName) {
++	if(!this.airplaneModeTriggered)
++		return;
++	Mojo.Log.info("SystemUI - Updating Airplane Mode Progress "+ radioName);
++	this.apModeRadioStatus.set(radioName, true);
++	
++	var apModeDone = this.apModeRadioStatus.get('phone') & this.apModeRadioStatus.get('bluetooth') & this.apModeRadioStatus.get('wifi');
++	var stageController = Mojo.Controller.getAppController().getStageProxy("DeviceMenu");
++		
++	if (apModeDone && stageController) {
++		Mojo.Log.info("SystemUI - Enable / Disable Airplane Mode complete - Updating Device Menu");
++		this.airplaneModeTriggered = false;
++		stageController.delegateToSceneAssistant("updateAirplaneModeSettings");
++	}	
++},
++
++//Clear the Hash before enable / disable the Airplane mode
++clearAPModeRadioStatus: function() {
++	this.apModeRadioStatus.set('phone', false);
++	this.apModeRadioStatus.set('bluetooth', false);
++	this.apModeRadioStatus.set('wifi', false);
++},
++
++msmStartOtherRadios: function() {
++	
++	if(this.msmStartingOtherRadiosInProgress)
++		return;
++	this.msmStartingOtherRadiosInProgress = true;
++	
++	if(!this.airplaneMode) {
++		if(this.msmModeRadioStatus.get('phone')) {			
++			this.telephonyservicetemppoweron = TelephonyService.tempPowerSet('on',false,null,null);			
++		}
++	}
++	
++	if(this.msmModeRadioStatus.get('bluetooth')) {
++		this.btserviceenablereq = BtService.radioon(null,null);	
++	}
++	
++	if(this.msmModeRadioStatus.get('wifi')) {
++		this.wifiserviceenablereq = WiFiService.setState("enabled",null,null);	
++	}
++	
++	this.msmModeRadioStatus.set('bluetooth',false);
++	this.msmModeRadioStatus.set('wifi',false);
++	this.msmModeRadioStatus.set('phone',false);
++},
++
++msmShutdownOtherRadios: function() {
++	this.msmStartingOtherRadiosInProgress = false;
++	
++	if(!this.airplaneMode) {
++		if(this.phoneRadioState) {
++			this.msmModeRadioStatus.set('phone',true);
++			this.telephonyservicetemppoweroff = TelephonyService.gotoDefaultState(null,null);
++		}
++		else 
++			this.msmModeRadioStatus.set('phone',false);
++	}
++	if (this.btRadio || this.btRadioTurningOn) {
++		this.msmModeRadioStatus.set('bluetooth',true);
++		this.btRadio = false;		
++		this.btservicedisablereq = BtService.radiooff(null, null);		
++	}
++	else
++		this.msmModeRadioStatus.set('bluetooth',false);
++		
++	if (this.wifiRadio) {
++		this.msmModeRadioStatus.set('wifi',true);		
++		this.wifiservicedisablereq = WiFiService.setState("disabled", null, null);
++	}	
++	else
++		this.msmModeRadioStatus.set('wifi',false);
++		
++	this.callMSMEntryComplete.bind(this).delay(2);
++},
++
++callMSMEntryComplete: function() {
++	PalmSystem.msmEntryComplete();
++},
++
++msmTurnOffHiddServices: function() {
++	this.inBrickMode = true;
++	this.controller.serviceRequest("palm://com.palm.hidd/HidTouchpanel", {
++		method: 'State', 
++		parameters: {"mode":"set","value":"off"}
++	});
++	this.controller.serviceRequest("palm://com.palm.hidd/HidLight", {
++		method: 'State', 
++		parameters: {"mode":"set","value":"off"}		
++	});
++	this.controller.serviceRequest("palm://com.palm.hidd/HidAccelerometer", {
++		method: 'State', 
++		parameters: {"mode":"set","value":"off"}		
++	});
++	
++},
++
++msmTurnOnHiddServices: function() {
++	
++	if(!this.inBrickMode)
++		return;
++	
++	this.inBrickMode = false;
++	
++	this.controller.serviceRequest("palm://com.palm.hidd/HidTouchpanel", {
++		method: 'State', 
++		parameters: {"mode":"set","value":"on"}	
++	});
++	this.controller.serviceRequest("palm://com.palm.hidd/HidLight", {
++		method: 'State', 
++		parameters: {"mode":"set","value":"on"}		
++	});
++	this.controller.serviceRequest("palm://com.palm.hidd/HidAccelerometer", {
++		method: 'State', 
++		parameters: {"mode":"set","value":"on"}		
++	});	
++},
++
++
++setKeepFlightModeOn: function(keepon) {
++	this.keepFlightModeDisabled = keepon;	
++	if(keepon)
++		this.showEnableWiFiAlert();
++			
++},
++
++getCurrentBluetoothState: function() {
++	return this.bluetoothState;
++},
++
++getCurrentWiFiState: function() {
++	return this.wifiState;
++},
++
++setDeviceMenuAssistant: function(menuassistant) {
++	this.deviceMenuAssistant = menuassistant;
++},
++
++audioInit: function() {
++	
++	//Subscribe to Audio Manager for Phone status Notifications.
++	this.audioPhoneNotificationSession = new Mojo.Service.Request('palm://com.palm.audio/phone', {
++		method: 'status',
++		parameters: {"subscribe":true},
++		onSuccess: this.handlePhoneAudioNotifications.bind(this)});
++	
++	this.audioMediaNotificationSession = new Mojo.Service.Request('palm://com.palm.audio/media', {
++		method: 'status',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleMediaAudioNotifications.bind(this)});
++	
++	this.audioRingtoneNotificationSession = new Mojo.Service.Request('palm://com.palm.audio/ringtone', {
++		method: 'status',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleRingtoneAudioNotifications.bind(this)});
++		
++	this.audioVoiceDialingNotificationSession = new Mojo.Service.Request('palm://com.palm.audio/voiceDialing', {
++		method: 'status',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleVoiceDialingAudioNotifications.bind(this)});
++},
++
++handlePhoneAudioNotifications: function(payload) {
++	
++	if(!payload)
++		return;
++	
++	if(!payload.action || !payload.changed)
++		return;
++			
++	this.handleAudioNotifications(payload,'phone');
++},
++
++handleMediaAudioNotifications: function(payload) {
++	if(!payload)
++		return;
++	
++	if(!payload.action || !payload.changed)
++		return;
++	
++	this.handleAudioNotifications(payload,'media');
++},
++
++handleRingtoneAudioNotifications: function(payload) {
++	if(!payload)
++		return;
++	
++	if(!payload.action || !payload.changed)
++		return;
++	
++	this.handleAudioNotifications(payload,'ringtone');
++},
++
++handleVoiceDialingAudioNotifications: function(payload) {
++	if(!payload)
++		return;
++	
++	if(!payload.action || !payload.changed)
++		return;	
++	this.handleAudioNotifications(payload,'voiceDialing');
++},
++
++handleAudioNotifications: function(payload,audioTarget) {
++	
++	//Ignore the notification if it's in First Use.
++	 if(PalmSystem.isMinimal)
++	 	return;
++		
++	var audioURI = 'palm://com.palm.audio/'+ audioTarget;	
++		
++	if(payload.action == 'changed' && payload.changed.length == 1 && (payload.changed.indexOf('volume') != -1)) {
++		if(payload.volume != undefined) {
++			//Call the lock API to lock the volume control to phone
++			if (!this.audioLockRequestSession) {
++				this.audioLockRequestSession = new Mojo.Service.Request(audioURI, {
++					method: 'lockVolumeKeys'					
++				});
++			}			
++			this.showAudioAlert(payload.volume,false,audioTarget);					
++		}
++	}	
++	if (payload.changed.indexOf('event') != -1) {
++		if(payload.event != undefined && (payload.event == 'minVolume' || payload.event == 'maxVolume')) {
++			//Call the lock API to lock the volume control to phone
++			if(!this.audioLockRequestSession)
++				this.audioLockRequestSession = new Mojo.Service.Request(audioURI, {
++				method: 'lockVolumeKeys'				
++				});
++			this.showAudioAlert(payload.volume,false,audioTarget);					
++		}
++		else if(payload.event != undefined && payload.event == 'currentlyMuted' && payload["ringer switch"] === false) {
++			this.showAudioAlert(0, true,audioTarget);
++		}
++	}
++	
++	if(payload.changed.indexOf('ringer switch') != -1 && audioTarget == 'ringtone') {
++		if (payload["ringer switch"] != undefined) {
++			if (payload["ringer switch"] === false) 
++				this.showAudioAlert(0, true,audioTarget);
++			else 
++				this.showAudioAlert(payload.volume, false,audioTarget);			
++		}
++	}
++	
++},
++
++clearAudioLock: function() {	
++	if (this.audioLockRequestSession)
++		this.audioLockRequestSession.cancel();
++	this.audioLockRequestSession = null;
++},
++
++showAudioAlert: function(volume,showringer,audioTarget) {
++	    
++		var appController = Mojo.Controller.getAppController();
++		var that = this;
++		var pushAudioAlert = function(stageController) {
++			stageController.pushScene('volumealert', volume,showringer,audioTarget,that);
++		};		
++		var stageController = Mojo.Controller.getAppController().getStageProxy(this.kDashboardAudioStageName);
++		if (stageController) {			
++			stageController.delegateToSceneAssistant("update", volume,showringer,audioTarget);			
++		} else {			
++			Mojo.Controller.appController.createStageWithCallback({name:this.kDashboardAudioStageName,height:48, lightweight: true, soundclass: 'none'}, 
++				pushAudioAlert, "banneralert");
++		}	
++},
++
++dataImportInit: function() {
++	//Subscribe to Data Srevice status Notifications.
++	this.dataImportNotificationSession = new Mojo.Service.Request('palm://com.palm.dataimport/', {
++		method: 'getStatus',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleDataImportNotifications.bind(this)});
++	
++	//Subscribe to Data Srevice status Notifications.
++	this.dataSyncNotificationSession = new Mojo.Service.Request('palm://com.palm.dataimport/', {
++		method: 'getDataTransferStatus',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleDataSyncNotifications.bind(this)});		
++},
++
++handleDataImportNotifications: function(payload) {
++	
++	if(!payload.returnValue)
++		return;
++	
++	if(payload.dataReady != undefined && payload.dataReady) {
++		this.showDataImportAlert();
++	}
++},
++
++showDataImportAlert: function() {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("DataImportDash");
++	
++	var bannerParams = {
++			icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png',
++			messageText: this.$L("Data ready for transfer")
++		}
++	appController.showBanner(bannerParams, {action:"launchDataImport"},'dataImportBanner');
++
++		if (stageController) {
++			stageController.delegateToSceneAssistant("update");
++		} else {
++			var f = function(stageController){
++		      stageController.pushScene('dataimportalert');
++		    }.bind(this);
++			appController.createStageWithCallback({name: "DataImportDash", lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"},//small icon at right corner 
++				f, "dashboard");			
++		}       
++},
++
++handleDataSyncNotifications: function(payload) {
++	
++	if(!payload || !payload.returnValue)
++		return;
++	
++	if(payload.doneTransfer == undefined && payload.errorCode == undefined)	
++		return;
++		
++	this.showDataSyncAlert(payload);
++},
++
++showDataSyncAlert: function(dataSyncPayload) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("DataSyncDash");
++	
++	if (stageController) {
++		stageController.delegateToSceneAssistant("update",dataSyncPayload);
++	} 
++	else {
++		//Show Banner Message.
++		var bannerParams = {
++			icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png',
++			messageText: this.$L("Transferring Data")
++		}
++		appController.showBanner(bannerParams,{},'dataSyncBanner');
++		
++		var f = function(stageController){
++		     stageController.pushScene('datasyncalert',dataSyncPayload);
++		}.bind(this);
++		
++		appController.createStageWithCallback({name: "DataSyncDash", lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"},//small icon at right corner 
++			f, "dashboard");			
++	}       
++},
++
++
++accountServiceInit: function() {
++	//Subscribe to Account Service status Notifications.
++	this.acctServiceNotificationSession = new Mojo.Service.Request('palm://com.palm.accountservices/', {
++		method: 'showTokenError',
++		onSuccess: this.handleAccountServiceNotifications.bind(this)});
++	
++	//this.accountServiceAlertTimer = null;
++	this.accountServicePayload = null;
++	this.dbError = false;
++	this.fsckError = false;
++},
++
++getAccountTokenValues: function() {
++	this.controller.serviceRequest('palm://com.palm.accountservices/', {
++		method: 'getAccountToken',
++		onSuccess: this.constructAccountToken.bind(this),
++		onFailure: this.constructAccountToken.bind(this)});
++},
++
++getAppServerURL: function() {
++	this.controller.serviceRequest('palm://com.palm.accountservices/', {
++		method: 'getServerUrl',
++		onSuccess: this.constructAccountToken.bind(this),
++		onFailure: this.constructAccountToken.bind(this)});
++},
++
++handleAccountServiceNotifications: function(payload) {
++	
++	if(!payload)
++		return;
++	
++	if(payload.returnValue == true && payload.errorType) {
++		
++		if (!this.onActiveCall) {
++			
++			switch(payload.errorType) {
++				case 'tokenError':
++						this.dbError = false;
++						this.fsckError = false; 
++					  	break;
++				case 'dbError': 
++						this.dbError = true;
++						this.fsckError = false; 
++					  	break;
++				case 'fsckError': 
++						this.dbError = true; 
++						this.fsckError = true;
++					  	break;
++				case 'passwordError':
++						this.showBackupFailureAlert({"passwordRequired": true});
++						return;
++				default: return;
++			}
++			this.showAccountServiceAlert();
++		}
++		else 
++			this.accountServicePayload = payload;
++	}
++},
++
++showAccountServiceAlert: function() {
++		
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("AccountServiceTokenAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('acctservicealert',this, this.dbError);
++		    }.bind(this);
++		    var params = {name: 'AccountServiceTokenAlert', height: 155,lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }			
++},
++
++machineRestartNow: function() {
++	if (this.fsckError) {
++		this.deviceEraseAllReq = new Mojo.Service.Request('palm://com.palm.storage/erase/', {
++			method: 'EraseVar',			
++		});
++	}
++	else {
++		this.machineReboot("Account Service Token Error");
++	}
++},
++
++machineReboot: function(reason) {
++	this.deviceRebootReq = new Mojo.Service.Request('palm://com.palm.power/shutdown/', {
++			method: 'machineReboot',
++			parameters: {
++				"reason": reason
++			},
++		});
++},
++
++clearAccountServiceTimer: function() {
++	try {
++            this.controller.window.clearTimeout(this.accountServiceAlertTimer);
++        } catch(e) {}
++	this.accountServiceAlertTimer = null;
++},
++
++machineOffNow: function() {
++	this.btRadio = false;
++	//Shutdown the Telephony Radio before power off the phone completely.
++	this.telephonyservicetemppoweroff = TelephonyService.tempPowerSet('off',false,null,null);
++			
++    this.serviceRequest = new Mojo.Service.Request('palm://com.palm.power/shutdown', {
++        method: 'machineOff',
++        parameters: {'reason': 'PowerOff Selected by User in PowerOff dialog'}
++	});
++	
++	this.startShutDownAnimation();
++},
++
++startShutDownAnimation: function() {
++	this.startShutDownAnimationReq = new Mojo.Service.Request('palm://com.palm.systemmanager/', {
++        method: 'runProgressAnimation',
++        parameters: {'state': 'start'}
++	});
++},
++
++showSwapBatteryScene: function() {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("SwapBatteryStage");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('swapbattery',this);
++		    }.bind(this);
++		    var params = {name: 'SwapBatteryStage', height:452, landscapeheight: 320, lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }		
++},
++
++updateInit: function() {
++	//Subscribe to Audio Manager for Phone status Notifications.
++	this.updateNotificationSession = new Mojo.Service.Request('palm://com.palm.update/', {
++		method: 'GetStatus',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleUpdateNotifications.bind(this)});
++	
++	this.updateFinalAlertTimer = null;
++	this.updateAvailable = false;
++},
++
++handleUpdateNotifications: function(payload) {
++		
++	if(!payload.status)
++		return;
++		
++	switch(payload.status) {
++		case 'Countdown' : 	this.minBatThresholdForUpdate = payload.minBattery || 5;
++							if(this.updateFinalAlertTimer == null) {
++								this.showFinalUpdateAlert(payload.showLaterButton, payload.version, payload.installTime, payload.countdownTime || 10);
++							}
++							break;
++							
++		case 'Available' :	this.minBatThresholdForUpdate = payload.minBattery || 5;
++							this.updateAvailable = true;
++							this.closeUpdateProgressDashboard();
++							//Ignore the Update Notifications if Update App is running 
++							if (this.updateIsForeground) {
++								this.controller.serviceRequest('palm://com.palm.update/',{
++								method:'InstallLater',
++								parameters:{},		
++								});	
++								break;
++							}
++							this.showUpdateAlert(payload.version,payload.installTime);
++							break;
++							
++		case 'Downloading'	:	this.closeUpdateAvailableAlert();
++								//Ignore the Update Notifications if Update App is running 
++								if(this.updateIsForeground)
++									break;	
++					
++								if(payload.spaceNeeded && payload.spaceNeeded > 0) {
++									this.showUpdateBannerAlert();
++								}
++								if(payload.lowSpeed && payload.percent < 95 && !this.updateProgressDashboardShown) {
++									this.showUpdateAvailableDashboard(payload.version);
++								}
++								if(payload.percent >= 99 || !payload.networkAvailable) {
++									this.closeUpdateProgressDashboard();
++								}
++								break;
++								
++		case 'CancelAlert' :	this.closeAllUpdateAlerts();
++								break;
++		
++		case 'Download2G' :		//Ignore the Update Notifications if Update App is running 
++								if(this.updateIsForeground)
++									break;
++								this.showUpdateAvailableAlert(payload.version);
++								break;
++								
++		case 'UserCanceled' :   this.closeUpdateProgressDashboard();
++								break;
++								
++		case 'InsufficientCharge' :   this.minBatThresholdForUpdate = payload.minBattery || 5;
++									  break;
++	}
++},
++
++showUpdateAlert: function(version, installTime) {
++	
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("SysUpdateFirstAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('updatealert',this, version, installTime);
++		    }.bind(this);
++			var windowHeight = Mojo.Locale.current === "en_us" ? 235 : 255;
++		    var params = {name: 'SysUpdateFirstAlert', height: windowHeight,lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }			
++
++},
++
++showUpdateBannerAlert: function() {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("UpdateBannerAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++        	// Create a dashboard
++		    var f = function(stageController){
++		      stageController.pushScene('updatebanneralert',this);
++		    }.bind(this);
++		    var params = {name: 'UpdateBannerAlert', height: 24, lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'banneralert');
++        }			
++},
++
++showUpdateLaterMessage: function() {
++	var appController = Mojo.Controller.getAppController();	
++	var bannerParams = {
++			icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-update.png',
++			messageText: this.$L("Update will install at next charge")
++		}
++	appController.showBanner(bannerParams,{},'updateLaterBanner');	
++},
++
++showFinalUpdateAlert: function(showlaterbutton,version,installTime, countTime) {
++	var appController = Mojo.Controller.getAppController();
++	var firstStageController = appController.getStageProxy("SysUpdateFirstAlert");
++	if(firstStageController)
++		firstStageController.delegateToSceneAssistant("close");
++	
++	var updateWaitingDashstage = Mojo.Controller.getAppController().getStageProxy('updateWaitingDashboard');
++	if(updateWaitingDashstage)
++		Mojo.Controller.getAppController().closeStage('updateWaitingDashboard');
++	
++	//Create the timer
++	this.callInstallNow = this.onInstallNow.bind(this);
++	this.updateFinalAlertTimer = this.controller.window.setTimeout(this.callInstallNow, (((countTime * 60) + 1) * 1000));
++		
++	var stageController = appController.getStageProxy("SysUpdateAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('updatefinalalert',showlaterbutton,this,version,installTime,countTime);
++		    }.bind(this);
++			var params;
++			var windowHeight = Mojo.Locale.current === "en_us" ? 250 : 270;
++			if(showlaterbutton)
++		    	params = {name: 'SysUpdateAlert', height: windowHeight,lightweight:true};	
++			else
++				params = {name: 'SysUpdateAlert', height: 250,lightweight:true};	    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }			
++},
++
++showUpdateAvailableDashboard: function(version) {
++	var appController = Mojo.Controller.getAppController();	
++	var stageController = Mojo.Controller.getAppController().getStageProxy('updateAvailDashboard');
++		
++	if (stageController) {
++		stageController.delegateToSceneAssistant("update");
++	} 
++	else 
++	{
++		var bannerParams = {
++			icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-update.png',
++			messageText: this.$L("Download in progress...")
++		}
++		appController.showBanner(bannerParams,{action:"launchUpdateApp"},'updateAvailBanner');		
++		var pushDashboard = function(stageController) {
++			stageController.pushScene('updateavaildashboard', version);
++		 }.bind(this);
++		Mojo.Controller.getAppController().createStageWithCallback({name: 'updateAvailDashboard', lightweight: true, icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-update.png'}, 
++											pushDashboard, "dashboard");
++		this.updateProgressDashboardShown = true;		
++	}
++},
++
++closeUpdateProgressDashboard: function() {
++	this.updateProgressDashboardShown = false;
++	var stageController = Mojo.Controller.getAppController().getStageProxy('updateAvailDashboard');
++	if(stageController)
++		Mojo.Controller.getAppController().closeStage('updateAvailDashboard');
++},
++
++showUpdateAvailableAlert: function(version) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("SysUpdateAvailAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('updateavailalert', version, this.allowIncomingCallsOver2G);
++		    }.bind(this);
++			var windowHeight = Mojo.Locale.current === "en_us" ? 250 : 270;
++		    var params = {name: 'SysUpdateAvailAlert', height: windowHeight,lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }			
++},
++
++showUpdateWaitingDashboard: function(version, installTime, alertType, countTime) {
++	var appController = Mojo.Controller.getAppController();	
++	var stageController = Mojo.Controller.getAppController().getStageProxy('updateWaitingDashboard');
++		
++	if (stageController) {
++		stageController.delegateToSceneAssistant("update");
++	} 
++	else 
++	{
++		this.showUpdateLaterMessage();
++		var pushDashboard = function(stageController) {
++			stageController.pushScene('updatewaitingdashboard', version, installTime, alertType, countTime);
++		 }.bind(this);
++		Mojo.Controller.getAppController().createStageWithCallback({name: 'updateWaitingDashboard', persistent: true, lightweight: true, icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-update.png'}, 
++											pushDashboard, "dashboard");		
++	}
++},
++
++closeUpdateAvailableAlert: function() {
++	var stageController = Mojo.Controller.getAppController().getStageProxy('SysUpdateAvailAlert');
++	if(stageController)
++		Mojo.Controller.getAppController().closeStage('SysUpdateAvailAlert');
++},
++
++onInstallNow: function() {
++	this.onInstallNowReq = new Mojo.Service.Request('palm://com.palm.update/',{
++		method:'InstallNow',
++		parameters:{},		
++		});
++	this.clearUpdateTimer();	
++},
++
++clearUpdateTimer: function() {
++	try {
++            this.controller.window.clearTimeout(this.updateFinalAlertTimer);
++        } catch(e) {}
++	this.updateFinalAlertTimer = null;
++},
++
++closeAllUpdateAlerts: function() {
++	var sysUpdateAlertController = Mojo.Controller.getAppController().getStageProxy("SysUpdateAlert");
++	if(sysUpdateAlertController)
++		sysUpdateAlertController.delegateToSceneAssistant("cancelAlert");
++	
++	var sysUpdateFirstAlertController = Mojo.Controller.getAppController().getStageProxy("SysUpdateFirstAlert");
++	if(sysUpdateFirstAlertController)
++		sysUpdateFirstAlertController.delegateToSceneAssistant("cancelAlert");
++	
++	var stageController = Mojo.Controller.getAppController().getStageProxy('updateWaitingDashboard');
++	if(stageController)
++		Mojo.Controller.getAppController().closeStage('updateWaitingDashboard');
++	
++	this.closeUpdateAvailableAlert();
++	
++},
++
++backupInit: function() {
++		//Subscribe to Backup Srevice status Notifications.
++	this.backupNotificationSession = new Mojo.Service.Request('palm://com.palm.backup/', {
++		method: 'subscribeToBackupStatus',		
++		onSuccess: this.handleBackupStatusNotifications.bind(this)});
++},
++
++handleBackupStatusNotifications: function(payload) {
++	
++	if(!payload.returnValue)
++		return;
++	
++	if(payload.notify == true) {
++		this.showBackupFailureAlert(payload);
++	}
++},
++
++showBackupFailureAlert: function(launchParam) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("BackupDash");
++	
++	var bannerParams = {
++			icon: '/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png',
++			messageText: this.$L("Backup failure")
++		}
++	appController.showBanner(bannerParams, {action:"launchBackupApp", backupParam: launchParam},'backupFailureBanner');
++
++		if (stageController) {
++			stageController.delegateToSceneAssistant("update");
++		} else {
++			var f = function(stageController){
++		      stageController.pushScene('backupalert',launchParam);
++		    }.bind(this);
++			appController.createStageWithCallback({name: "BackupDash", lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"},//small icon at right corner 
++				f, "dashboard");			
++		}       
++},
++
++// Init Account Sync
++accountSyncInit: function() {	
++	// accountDataTypeTracker keeps track of the data types that an account supports,
++	// as well as the accountDisplayName
++	this.accountDataTypeTracker = new Hash();
++	
++	// Register to be notified when accounts are added and keep track of the data types
++	// each account supports
++	this.accountDataTypesRequest = new Mojo.Service.Request('palm://com.palm.accounts', {
++			method: 'getSyncDataTypesForAccounts', 
++			parameters: {'subscribe':true},
++			onSuccess: this.handleAccountDataTypesNotification.bind(this)});
++	
++	// accountSyncTracker keeps track the syncing status of an account
++	this.accountSyncTracker = new Hash();
++			
++	// Register to be notified when accounts are synced for the first time
++	this.accountSyncRequest = new Mojo.Service.Request('palm://com.palm.accounts', {
++			method: 'registerForAccountSyncUpdates', 
++			parameters: {'subscribe':true},
++			onSuccess: this.handleAccountSyncNotification.bind(this)});
++},
++
++handleAccountDataTypesNotification: function(payload) {
++	if (payload) {
++		// Each time we get a response from getSyncDataTypesForAccounts we
++		// reset the hash table because some data types may have been removed from
++		// the account
++		this.accountDataTypeTracker = new Hash();
++		if (payload.list) {
++			payload.list.each(function(dataType){
++				if (dataType.dataType != "IM") {
++					var accountDataTypesModel = this.accountDataTypeTracker.get(dataType.accountTag);
++					
++					if (accountDataTypesModel) {
++						// The entry exists so we need to check if we've registered that 
++						// dataType
++						var accountDataTypeEntry = accountDataTypesModel.dataTypes.get(dataType.dataType);
++						if (accountDataTypeEntry) {
++							// There is already an entry for this data type so do nothing
++						} else {
++							accountDataTypesModel.dataTypes.set(dataType.dataType, 0);
++						}
++					} else {
++						// Create an entry for that account in the accountDataTypeTracker 
++						// has table
++						
++						// The value of each hash table entry is a model:
++						var dataTypesModel = {};
++						// - accountDisplayName
++						dataTypesModel.accountDisplayName = dataType.accountDisplayName;
++						dataTypesModel.domain = dataType.domain;
++						// - a hash table of data types
++						dataTypesModel.dataTypes = new Hash();
++						dataTypesModel.dataTypes.set(dataType.dataType, this.ACCT_NOT_SYNCING);
++						this.accountDataTypeTracker.set(dataType.accountTag, dataTypesModel);
++					}
++				}
++			}, this);
++		}
++	}
++},
++
++notificationCreated: function(domain, displayName, stageController) {
++	stageController.pushScene('acctsyncdashboard', domain, displayName);
++},
++
++notifySyncDone: function(accountTag, accountDisplayName) {
++	var appController =  Mojo.Controller.getAppController();
++	var now = new Date().getTime();
++	var accountEntry = this.accountSyncTracker.get(accountTag);
++	
++	// After each data type of an account completes, wait for a period of time
++	// defined by this timeout and see if there are any sync notifications for this
++	// account.  If there are no more notifications, we assume that the sync for an
++	// account is done.
++	if (now >= (accountEntry.timeout + (this.ACCT_SYNC_DONE_NOTIFY_TIMEOUT * 1000)) && 
++			accountEntry.syncing == false) {
++		// Remove the dashboard for this account
++    appController.closeStage(accountTag);
++	
++		// Construct the banner message
++		var template = new Template(this.$L("#{accountDisplayName} sync complete!"));
++		var templateModel = {};
++		templateModel.accountDisplayName = accountDisplayName;
++		var bannerMsg = template.evaluate(templateModel);
++		
++		// Show the banner for Sync Completed
++		appController.showBanner({
++			messageText: bannerMsg,
++			icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"},
++			{} /*launchArguments*/,
++			accountTag /*unique identifier for the account*/);
++		
++		// Remove the account entry since the accounts service only notifies
++		// us of an account sync when necessary
++		this.accountSyncTracker.set(accountTag, null);
++	}
++},
++
++handleAccountSyncNotification: function(payload) {
++	var appController = Mojo.Controller.getAppController();
++	
++	if (payload) {
++		var accountEntry = this.accountSyncTracker.get(payload.accountTag);
++		var accountDataTypesModel = this.accountDataTypeTracker.get(payload.accountTag);
++		
++		if (payload.queued == true) {
++			// A sync has been queued but NOT started.  For now, when a sync is queued,
++			// we put up a Syncing Account... banner message and dashboard so that
++			// the user knows that something is happening to the account
++			
++			// Check to see if we already have an entry in the accountSyncTracker.
++			if (accountEntry != undefined) {
++				accountModel.syncing = true;
++				// A notification has already been displayed so do not put up a banner nor
++				// add anything to the dashboard
++			} else {
++				// Add an entry in the accountSyncTracker for the account AND
++				// put up the banner
++				var accountModel = {};
++				accountModel.syncing = true;
++				// Keep track of how many data type syncs were started
++				accountModel.numDataTypesSyncStarted = 0;
++				// Keep track of how many data type syncs have ended
++				accountModel.numDataTypesSyncEnded = 0;
++				accountModel.timeout = new Date().getTime();
++				this.accountSyncTracker.set(payload.accountTag, accountModel);
++				
++				// Construct the banner message
++				var template = new Template(this.$L("#{accountDisplayName}: Syncing account..."));
++				var bannerMsg = template.evaluate(payload);
++				
++				// Show the banner
++				appController.showBanner({
++					messageText: bannerMsg,
++					icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"},
++					{} /*launchArguments*/,
++					payload.accountTag /*unique identifier for the account*/);
++					
++				// Create the dashboard for this account
++				this.notificationCreatedHandler = this.notificationCreated.bind(this, payload.domain, payload.accountDisplayName);
++				appController.createStageWithCallback({name: payload.accountTag, lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"}, 
++						this.notificationCreatedHandler, "dashboard");			
++			}
++		} else if (payload.syncing == true) {
++			// Check to see if we already have an entry in the accountSyncTracker.
++			if (accountEntry != undefined) {
++				// Keep track of state of each data type of the account
++				var dataTypes = accountDataTypesModel.dataTypes;
++				if (dataTypes.get(payload.dataType)) {
++					dataTypes.set(payload.dataType, this.ACCT_SYNCING);
++				}
++				
++				accountEntry.syncing = true;
++				// Another data type has started syncing
++				accountEntry.numDataTypesSyncStarted++;
++				// A notification has already been displayed so do not put up a banner nor
++				// add anything to the dashboard
++			} else {
++				// Add an entry in the accountSyncTracker for the account AND
++				// put up the banner
++				var accountModel = {};
++				accountModel.syncing = true;
++				// Keep track of how many data type syncs were started
++				accountModel.numDataTypesSyncStarted = 1;
++				// Keep track of how many data type syncs have ended
++				accountModel.numDataTypesSyncEnded = 0;
++				accountModel.timeout = new Date().getTime();
++				this.accountSyncTracker.set(payload.accountTag, accountModel);
++				
++				// Construct the banner message
++				var template = new Template(this.$L("#{accountDisplayName}: Syncing account..."));
++				var bannerMsg = template.evaluate(accountDataTypesModel);
++				
++				// Show the banner
++				appController.showBanner({
++					messageText: bannerMsg,
++					icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"},
++					{} /*launchArguments*/,
++					payload.accountTag /*unique identifier for the account*/);
++					
++				// Create the dashboard for this account
++				this.notificationCreatedHandler = this.notificationCreated.bind(this, accountDataTypesModel.domain, accountDataTypesModel.accountDisplayName);
++				appController.createStageWithCallback({name: payload.accountTag, lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"}, 
++						this.notificationCreatedHandler, "dashboard");			
++			}
++		} else if (payload.syncing == false && accountEntry != undefined) {
++			// The sync for the specified datatype is complete.
++			
++			// Keep track of the number of data types that have stopped syncing.
++			accountEntry.numDataTypesSyncEnded++;
++			
++			// If ALL of the data types have stopped syncing, THEN
++			// we put the notification up that Sync is complete
++			if (accountEntry.numDataTypesSyncEnded >= accountEntry.numDataTypesSyncStarted) {
++				// Grab the timestamp and store it in the account entry in the accountSyncTracker
++				accountEntry.syncing = false;
++				accountEntry.timeout = new Date().getTime();
++				
++				// Put up the complete banner message and remove the dashboard after a 
++				// specified timeout.  
++				this.notifySyncDone.bind(this).delay(this.ACCT_SYNC_DONE_NOTIFY_TIMEOUT, payload.accountTag, accountDataTypesModel.accountDisplayName);
++			}
++		} else if (payload.removing == true) {
++			// The specified account is being removed, show banner notification
++			// Construct the banner message
++			var template = new Template(this.$L("Removing #{accountDisplayName} account..."));
++			// The dataType string must match those defined in AccountType.java in Accounts service
++			if (payload.dataType == "CALENDAR") {	// Do NOT Localize
++				payload.acctDataTypeName = this.$L('Calendar');
++				template = new Template(this.$L("Removing #{accountDisplayName} #{acctDataTypeName} account..."));
++			} else if (payload.dataType == "CONTACTS") {	// Do NOT Localize
++				payload.acctDataTypeName = this.$L('Contacts');
++				template = new Template(this.$L("Removing #{accountDisplayName} #{acctDataTypeName} account..."));
++			}
++		
++			var bannerMsg = template.evaluate(payload);
++			
++			// Show the banner.  The unique identifier for this banner is the accountTag + "remove",
++			// to distinguish it from the syncing banner notification for the same account.  This
++			// is to handle the case in which the user tries to remove an account during a sync.
++			appController.showBanner({
++				messageText: bannerMsg,
++				icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-info.png"},
++				{} /*launchArguments*/,
++				payload.accountTag /*unique identifier for the account*/ + "remove");
++				
++		} else if (payload.removing == false) {
++			// The account has been completely removed: Show banner notification for Removed Account
++			// Construct the banner message
++			var template = new Template(this.$L("Removed #{accountDisplayName} account..."));
++			// The dataType string must match those defined in AccountType.java in Accounts service
++			if (payload.dataType == "CALENDAR") {	// Do NOT Localize
++				payload.acctDataTypeName = this.$L('Calendar');
++				template = new Template(this.$L("Removed #{accountDisplayName} #{acctDataTypeName} account..."));
++			} else if (payload.dataType == "CONTACTS") {	// Do NOT Localize
++				payload.acctDataTypeName = this.$L('Contacts');
++				template = new Template(this.$L("Removed #{accountDisplayName} #{acctDataTypeName} account..."));
++			}
++			
++			var bannerMsg = template.evaluate(payload);
++			
++			// Show the banner.  The unique identifier for this banner is the accountTag + "remove",
++			// to distinguish it from the syncing banner notification for the same account.  This
++			// is to handle the case in which the user tries to remove an account during a sync.
++			appController.showBanner({
++				messageText: bannerMsg,
++				icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-info.png"},
++				{} /*launchArguments*/,
++				payload.accountTag /*unique identifier for the account*/ + "remove");
++		}
++	}
++},
++
++//Init function for location service
++locationServiceInit: function() {
++		//Subscribe to Location serive Notifications.
++	this.locationServiceNotificationSession = new Mojo.Service.Request('palm://com.palm.location/', {
++		method: 'registerForLocationServiceNotifications',
++		parameters: {"subscribe":true},
++		onSuccess: this.handleLocationServiceNotifications.bind(this)});
++},
++
++handleLocationServiceNotifications: function(payload) {
++	if(payload.appId != undefined) {
++		var appInfo = this.getAppInfoObject(payload.appId);
++		if(appInfo)
++			this.showLocationServiceAlert(payload.appId,appInfo.title);
++		else
++			this.queryAppName(payload.appId);
++	}
++},
++
++queryAppName: function(appId) {
++	this.queryAppNameReq = new Mojo.Service.Request("palm://com.palm.applicationManager", {
++                        method: 'getAppInfo',
++                        parameters: {'appId':appId},
++                        onSuccess: this.readAppName.bind(this),
++                        onFailure: this.errorAppName.bind(this)
++          });
++},
++
++readAppName: function(payload) {
++	if(!payload)
++		return;
++		
++	if(payload.appInfo != undefined && payload.appInfo.title != undefined) {
++         this.showLocationServiceAlert(payload.appId,payload.appInfo.title);
++     } else {
++          this.errorAppName(payload.appId);
++     }
++},
++
++errorAppName: function(appId) {
++	this.showLocationServiceAlert(appId,"");
++},
++
++showLocationServiceAlert: function(appId,appName) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("LocationServiceAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('locationalert',appId,appName);
++		    }.bind(this);
++		    var params = {name: 'LocationServiceAlert', lightweight:true, height: 205};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }			
++
++},
++
++showTimezoneErrorAlert: function(showTimezoneAlert, launchParameter) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("TimezoneErrorAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popuo alert
++		    var f = function(stageController){
++		      stageController.pushScene('timezoneerroralert',showTimezoneAlert,launchParameter);
++		    }.bind(this);
++		    var params = {name: 'TimezoneErrorAlert', lightweight:true, height: 220};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }			
++},
++
++appMgrInit: function() {
++	//Get all launch points
++	this.getAppListServiceRequest = new Mojo.Service.Request('luna://com.palm.applicationManager', {
++	        method: 'listApps',
++	        onSuccess:  this.gotAppList.bind(this),
++	        onFailure:  this.gotAppListFailure.bind(this)
++	    });
++},
++
++gotAppList: function(payload) {
++	if(payload && payload.apps) {
++		this.installedApps = payload.apps;
++	}
++	this.getAppListServiceRequest.cancel();
++},
++
++gotAppListFailure: function(payload) {
++	this.installedApps = null;
++	this.getAppListServiceRequest.cancel();
++},
++
++appInstallerInit: function() {
++	//Subscribe to App Installer.
++	this.appChangeRequest = new Mojo.Service.Request('luna://com.palm.appinstaller', {
++	        method: 'notifyOnChange',
++	        parameters: {'subscribe' : true},
++	        onSuccess:  this.appChanged.bind(this),
++	 	});
++},
++
++appChanged: function(payload) {
++	if(!payload.statusChange)
++		return;
++	
++	if (payload.statusChange === "INSTALLED") {
++		Mojo.Log.info("New App Installed " + payload.appId);
++		this.getAppInfo(payload.appId);
++	}
++	else if (payload.statusChange === "REMOVED"){
++		Mojo.Log.error("App uninstalled " + Object.toJSON(payload));
++		var appName;
++		for (var i = 0; i < this.installedApps.length; i++) {
++			if (this.installedApps[i].id == payload.appId) {
++				appName = this.installedApps[i].title;
++				this.installedApps.splice(i, 1);
++				break;
++			}
++		}
++		//Is this removed by Palm?
++		if(payload.cause && payload.cause === "REVOKED" && appName) {
++			this.showAppRevokedAlert(appName);
++		}
++	}
++},
++
++getAppInfo: function(appId) {
++	this.getAppInfoReq = new Mojo.Service.Request("palm://com.palm.applicationManager", {
++                        method: 'getAppInfo',
++                        parameters: {'appId':appId},
++                        onSuccess: this.gotAppInfo.bind(this)
++          });
++},
++
++gotAppInfo: function(payload) {
++	if(!payload)
++		return;
++		
++	if(payload.appInfo != undefined) {
++         this.installedApps.push(payload.appInfo);
++     }
++	
++	this.getAppInfoReq.cancel();
++},
++
++pubsubServiceInit: function() {
++	
++	this.registerServiceRequest = new Mojo.Service.Request('luna://com.palm.pubsubservice', {
++	        method: 'registerOnClose',
++	        parameters: {"subscribe" : true},
++	        onSuccess:  this.handleRegisterOnClose.bind(this)
++	    });
++},
++
++handleRegisterOnClose: function(payload) {
++	
++	if(!payload || !payload.appid) 
++		return;
++		
++	if (payload.appid) {
++		if (payload.open) {
++			Mojo.Log.info("App came online, close stage " + payload.appid);
++			// Close the stage as the appid has been opened.
++			if (Mojo.Controller.getAppController().getStageProxy(payload.appid)) {		
++				Mojo.Controller.getAppController().closeStage(payload.appid);
++			}			
++		}
++		else {
++			Mojo.Log.info("Item arrived for app " + payload.appid);
++			// A new item has arrived, create stage and push dashboard scene
++			// Find appid and item
++			if (this.installedApps === undefined || this.installedApps === null) {
++				Mojo.Log.error("SystemUI - LaunchPoints not defined.")
++			}
++			else{
++				for (var i=0;i<this.installedApps.length;i++) {
++					if (this.installedApps[i].id == payload.appid) {
++						icon = this.installedApps[i].icon;
++						title = this.installedApps[i].title;
++						this.createPubSubStage(payload.appid, payload.item, icon, title, payload.params);
++						//Send an ack to the service on message arrival.
++						if (payload.node) {
++							this.activateNodeReq = new Mojo.Service.Request('luna://com.palm.pubsubservice', {
++								method: 'activateNode',
++								parameters: {
++									"node": payload.node
++								},
++								onSuccess: function(response) {this.activateNodeReq.cancel();}.bind(this),
++							});
++						}
++						break;
++					}
++				}
++			}
++		}
++	}
++},
++
++createPubSubStage: function(stageName,item,icon,title, params) {
++	Mojo.Log.info("SystemUI - Create Pub Sub stage called for stage " + stageName);	
++	var message;
++	var messageTemplate = new Template('#{title}: #{text}');
++	
++	try {
++	  var jsonItem = Mojo.parseJSON(item);
++	  if (jsonItem.text != undefined) {
++	     item = jsonItem;
++	  }
++	  else {
++	    Mojo.Log.error("item.text was not included in pubsub message");
++	    return;
++	  }
++	}
++	catch (err) {
++	   Mojo.Log.info("Malformed Json in pubsub message");
++	   return;
++	}
++			
++	var text = item.text;
++	message = {title: title, text: text};	
++	
++	/*var bannerParams = { 
++			icon: icon,
++			messageText: messageTemplate.evaluate(message) 
++	}
++	Mojo.Controller.getAppController().showBanner(bannerParams, {action:"launchApp",appId:stageName}, 'pubsubbanner');*/
++	
++	var stageController = Mojo.Controller.getAppController().getStageProxy(stageName);
++		
++	if (stageController) {
++		stageController.delegateToSceneAssistant("update", item);
++	} 
++	else 
++	{		
++		var pushDashboard = function(stageController) {
++			stageController.pushScene('pubsubdashboard', icon, title, item, stageName, params);
++		 }
++		Mojo.Controller.getAppController().createStageWithCallback({name: stageName, lightweight: true, icon: icon}, 
++											pushDashboard, "dashboard");		
++	}
++},
++
++showAppRevokedAlert: function(appName) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("AppRevocationAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popup alert
++		    var f = function(stageController){
++		      stageController.pushScene('apprevokedalert',appName);
++		    }.bind(this);
++		    var params = {name: 'AppRevocationAlert', height: 175, lightweight:true, soundclass:'none'};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }
++},
++
++getAppInfoObject: function(appId) {
++	for (var i=0;i<this.installedApps.length;i++) {
++		if (this.installedApps[i].id == appId) 
++			return this.installedApps[i];
++	}
++},
++
++getRoamingPreference: function() {
++	this.getRoamingPreferenceReq = new Mojo.Service.Request("palm://com.palm.systemservice/", {
++			method: 'getPreferences', 
++			parameters: {"keys":["hideWANAlert", "roamingIndicator", "RSSIValues", "allowIncomingCallsOver2G"]},
++			onSuccess: this.gotRoamingPreference.bind(this),
++			onFailure: this.gotRoamingPreference.bind(this),
++		});
++},
++
++gotRoamingPreference: function(payload) {
++	if (payload.roamingIndicator) {
++		if (payload.roamingIndicator === "triangle") {
++			$('roaming').addClassName('triangle');
++			this.show3GForEvdo = true;
++		}
++		else if (payload.roamingIndicator === "none") 
++				$('roaming').className = "none";
++	}  
++		
++	if(payload.hideWANAlert)
++		this.hideWANErrorAlert = true;
++	
++	if(payload.RSSIValues && payload.RSSIValues.length === 6)
++		this.GSM_RSSI = payload.RSSIValues;
++	
++	if(payload.allowIncomingCallsOver2G) 
++		this.allowIncomingCallsOver2G = true;
++},
++
++appInstallServiceInit: function() {
++	this.appInstallServiceStatusReq = new Mojo.Service.Request("palm://com.palm.appInstallService/", {
++			method: 'status', 
++			parameters: {"subscribe":true},
++			onSuccess: this.handleAppInstallServiceNotifications.bind(this),
++			onFailure: this.handleAppInstallServiceNotifications.bind(this),
++		});
++},
++
++handleAppInstallServiceNotifications: function(payload) {
++	Mojo.Log.info("SystemUI:: AppInstallService Stauts "+ Object.toJSON(payload));
++	if(!payload)
++		return;
++	
++	//Parse the Status Message.
++	if (payload.id) {
++		if (payload.details.client && payload.details.client.indexOf("com.palm.app.firstuse") != -1) {
++			if (payload.details.state === "ipk download current" || payload.details.state === "ipk download complete" || payload.details.state === "installing" || payload.details.state === "ipk download paused") 
++				return;
++			//Remove it from the local App List
++			if (this.restoringApps.indexOf(payload.id) != -1) 
++				this.restoringApps.splice(this.restoringApps.indexOf(payload.id), 1);
++			else 
++				return;
++			
++			if (this.restoringApps.length === 0) {
++				var bannerParams = {
++					icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png",
++					messageText: this.$L('All applications restored')
++				}
++				Mojo.Controller.getAppController().showBanner(bannerParams, {}, 'apprestorebanner');
++				var stageController = Mojo.Controller.getAppController().getStageProxy('AppRestoreDashboard');
++				if (stageController) 
++					Mojo.Controller.getAppController().closeStage('AppRestoreDashboard');
++			}
++		}
++		else {
++			switch(payload.details.state) {
++				case "installed" :
++					this.showAppDownloadBanner(payload.details.title, this.$L("Installed:"));
++					break;
++				case "install failed":
++				case "download failed":
++					this.showAppDownloadDashboard(payload.details.title, payload.details.state, payload.id);
++					break;
++			}
++		}
++		return;
++	}
++		
++	//Parse the payload for list of apps.
++	if(!payload.status || !payload.status.apps)
++		return;
++	
++	var apps = payload.status.apps;
++	
++	if(apps) {
++		for(var i = 0; i< apps.length; i++) {
++			if(apps[i].details.client && apps[i].details.client.indexOf("com.palm.app.firstuse") != -1 && (apps[i].details.state === "icon download complete" || apps[i].details.state === "ipk download current")) {
++				this.restoringApps.push(apps[i].id);
++			}
++			else {
++				if(apps[i].details.state === "install failed" || apps[i].details.state === "download failed")
++					this.showAppDownloadDashboard(apps[i].details.title, apps[i].details.state, apps[i].id);
++			}
++		}
++		if(this.restoringApps.length > 0)
++			this.createAppRestoreDashboard();		
++	}
++	
++},
++
++createAppRestoreDashboard: function() {
++	
++	var stageController = Mojo.Controller.getAppController().getStageProxy('AppRestoreDashboard');
++		
++	if (stageController) {
++		stageController.delegateToSceneAssistant("update");
++	} 
++	else 
++	{	
++		var bannerParams = { 
++			icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png",
++			messageText: this.$L('Restoring applications') 
++		}
++		Mojo.Controller.getAppController().showBanner(bannerParams, {}, 'apprestorebanner');	
++		var pushDashboard = function(stageController) {
++			stageController.pushScene('apprestoredashboard');
++		 }.bind(this);
++		Mojo.Controller.getAppController().createStageWithCallback({name: 'AppRestoreDashboard', lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-small-sync.png"}, 
++											pushDashboard, "dashboard");		
++	}
++},
++
++showAppDownloadBanner: function(title, msg) {
++	var bannerParams = { 
++			icon: "/usr/lib/luna/system/luna-systemui/images/notification-large-appcatalog.png",
++			messageText: msg + ' ' + title 
++		}
++	Mojo.Controller.getAppController().showBanner(bannerParams, {}, 'appdownloadbanner');
++},
++
++showAppDownloadDashboard: function(title, status, appId) {
++	var msg;
++	
++	if(status === "install failed")
++		msg = this.$L("Install Failed");
++	else 
++		msg = this.$L("Download Failed");
++		
++	var bannerParams = { 
++			icon: "/usr/lib/luna/system/luna-systemui/images/notification-large-appcatalog.png",
++			messageText: msg + ": " + title
++	}
++	Mojo.Controller.getAppController().showBanner(bannerParams, {}, 'appinstallfailbanner');
++	
++	var stageController = Mojo.Controller.getAppController().getStageProxy('AppInstallDashboard');
++	if (stageController) {
++		stageController.delegateToSceneAssistant("update",title, msg, appId);
++	} 
++	else 
++	{	
++		var pushDashboard = function(stageController) {
++			stageController.pushScene('appinstalldashboard',title,msg, appId);
++		 }.bind(this);
++		Mojo.Controller.getAppController().createStageWithCallback({name: 'AppInstallDashboard', lightweight: true, icon: "/usr/lib/luna/system/luna-systemui/images/notification-large-appcatalog.png"}, 
++											pushDashboard, "dashboard");		
++	}
++},
++
++constructAccountToken: function(payload) {
++	if(!payload)
++		return;
++	
++	//Get the MEID/ESN or IMEI from the payload
++	if(payload.extended && (payload.extended.meid || payload.extended.esn))
++		this.accountToken.deviceId = payload.extended.meid ? "MEID:"+payload.extended.meid : "ESN:"+payload.extended.esn;
++	else if(payload.extended && payload.extended.imei)
++		this.accountToken.deviceId = "IMEI:"+payload.extended.imei;
++	
++	//Get the Carrier 
++	this.accountToken.carrier  = this.carrierName;//Mojo.Environment.DeviceInfo.carrierName;
++		
++	//Get the Email, accountState, and token.
++	if (payload.token) {
++		this.accountToken.token = payload.token;
++		if(payload.accountAlias)
++			this.accountToken.email = payload.accountAlias;
++	}
++	else {
++		if (!this.accountToken.token) {
++			this.getAccountTokenValues.bind(this).delay(5);
++			return;
++		}
++	}
++	
++	if(payload.serverUrl) {
++		ApplicationServer.serverUrl = payload.serverUrl;
++	}
++	else {
++		this.getAppServerURL.bind(this).delay(5);
++		return;
++	} 
++
++	this.isAppRestoreRequired();
++	
++},
++
++notifyServer: function(resp) {
++	
++	if(!resp.id || !resp.details || !resp.details.state)
++		return;
++		
++	switch(resp.details.state) {
++		case "ipk download complete" :
++				ApplicationServer.appDownloaded(resp.id, this.accountToken, this.handleAppServerResponse.bind(this));
++				break;
++		case "installed" :
++				ApplicationServer.appInstalled(resp.id, this.accountToken);
++				break;
++		case "removed" :
++				ApplicationServer.appUnInstalled(resp.id, this.accountToken, resp.details.version);
++				break;
++				
++	}
++},
++
++handleAppServerResponse: function() {
++	Mojo.Log.error("SystemUI :: App Server returned error");
++},
++
++showMigrationFailureAlert: function() {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("AppMigrationFailureAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popup alert
++		    var f = function(stageController){
++		      stageController.pushScene('migrationfailurealert');
++		    }.bind(this);
++		    var params = {name: 'AppMigrationFailureAlert', height: 200, lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }
++},
++
++showAppQuitAlert: function(appName) {
++	var appController = Mojo.Controller.getAppController();
++	var stageController = appController.getStageProxy("AppQuitAlert");
++        // if the window already exists, don't do anything
++        if (!stageController) {
++         	// Create a popup alert
++		    var f = function(stageController){
++		      stageController.pushScene('apperroralert',appName);
++		    }.bind(this);
++		    var params = {name: 'AppQuitAlert', height: 150, lightweight:true};		    	    
++		    appController.createStageWithCallback(params,f,'popupalert');
++        }
++},
++
++getInstalledAppsList: function() {
++	if(this.appRestoreInProgress)
++		return;
++	this.appRestoreInProgress = true;
++	Mojo.Log.error("SystemUI-App Restore Calling App Server to get the list of Installed Apps");
++	ApplicationServer.getInstalledApps(this.accountToken, Mojo.Locale.current, this.handleInstalledAppList.bind(this));
++},
++
++handleInstalledAppList: function(response) {
++	Mojo.Log.error("SystemUI-App Restore list %j", response);
++		
++		if (response && response.responseText) {
++			var jResponse = response.responseText.evalJSON();
++			if(jResponse.OutGetUserInstalledAppsV2 && jResponse.OutGetUserInstalledAppsV2.userApps) {
++				var appsList = jResponse.OutGetUserInstalledAppsV2.userApps;
++				if (Object.isArray(appsList) == true) {
++					this.packageURLArray = appsList;
++				} else {
++					this.packageURLArray[0] = appsList;
++				}
++			}
++			this.installApps();	
++		}
++		else {
++			this.appRestoreInProgress = false;
++			if(response.status === 0) {
++				//Re-try again
++				this.getInstalledAppsList.bind(this).delay(10);
++			}
++		}
++},
++
++installApps: function() {
++		Mojo.Log.error("SystemUI-App Restore Installing Apps "+ this.packageURLArray.length);		
++		this.appsCount = this.packageURLArray.size();
++		this.appArray = this.packageURLArray;
++		
++		if (this.appsCount > 0) {
++			this.installAllApps();
++		}
++		else {
++			this.appRestoreNeeded = false;
++			this.appRestoreInProgress = false;
++			//All Apps are restored.
++			var cookieObj = new Mojo.Model.Cookie("AppRestoreNeeded");
++			if (cookieObj) {
++				cookieObj.put("false");
++			}
++		} 
++},	
++
++installAllApps: function () {
++		if (this.appsCount > 0) {
++			this.currentAppIndex = 0;
++			this.installAppRequest = ApplicationServer.installApp(this.appArray[this.currentAppIndex], this.accountToken.token, 
++											this.accountToken.deviceId, this.installAppResponse.bind(this));	
++		}
++},
++	
++installAppResponse: function(response) {
++		Mojo.Log.error("SystemUI-App Restore installAppResponse= %j", response);
++		if (response.returnValue === true || response.errorCode) {
++			this.currentAppIndex = this.currentAppIndex + 1;
++			if (this.currentAppIndex < this.appsCount) {
++				this.installAppRequest = ApplicationServer.installApp(this.appArray[this.currentAppIndex], this.accountToken.token, 
++											this.accountToken.deviceId, this.installAppResponse.bind(this));
++			}
++			else {
++				this.appRestoreNeeded = false;
++				this.appRestoreInProgress = false;
++				this.appArray.clear();
++				//All Apps are restored.
++				var cookieObj = new Mojo.Model.Cookie("AppRestoreNeeded");
++				if(cookieObj) {
++					cookieObj.put("false");
++				}
++			}
++		} 
++},
++
++isAppRestoreRequired: function() {
++	var cookieObj = new Mojo.Model.Cookie("AppRestoreNeeded");
++	if(cookieObj) {
++		var appRestoreInComplete = cookieObj.get();
++		if (appRestoreInComplete === "true") {
++			this.appRestoreNeeded = true;
++			if(this.isInternetConnectionAvailable)
++				this.getInstalledAppsList();
++		}
++		else 
++			this.appRestoreNeeded = false;
++	}
++	Mojo.Log.info("SystemUI-App Restore Reading from the Cookie " + this.appRestoreNeeded);
++},
++
++
++//  Main Variables
++	timeAMPM: true,
++	serviceInitMethod:[],
++	serviceDeinitMethod:[],
++	serviceSessionHash:[],
++	installedApps:[],
++
++// Bluetooth variables
++	btProfiles: ["hfg", "a2dp", "pan"],
++	btProfileStatus:[],
++	btNotificationRequest:null,
++	btGapNotificationRequest:null,
++	btPanAlertShown: false,
++//bt notification stage name
++	kDashboardStageName: "systemui-bt-popupalert",
++	kDashboardAudioStageName: "systemui-audio-alert",
++	kDashboardWANStageName: "systemui-wan-alert",
++	
++	// Telephony Variables
++	phoneType: null,
++	phoneRadioState: null,
++ 	phoneRadioNotificationSession: null,
++	signalNotificationSession: null,
++	networkNotificationSession: null,
++//	voicemailNotificationSession: null,
++	GSM_RSSI: [113,107,94,82,70,0],
++	// TODO: remove for CDMA
++	CDMA_RSSI: [105,95,85,75,65,0],
++	rssi_orginalPayload: null,
++	onActiveCall: false,
++	SIMRejectCodes: [2,3,6],
++
++// Battery Power Variables
++	powerNotificationSession: null,
++	//powerIndicator: [12, 20, 27, 34, 42, 49, 57, 64, 72, 79, 88, 100],
++	powerIndicator: [12, 20, 28, 36, 44, 52, 60, 68, 76, 84, 88, 100],
++	isCharging: false,
++	powerSource: [],
++	lastBatteryLevel: 'error',
++	batteryLevel20Shown: false,
++	batteryLevel10Shown: false,
++
++// WAN Variables
++	wanStatusNotificationSession: null,
++	wanErrorCodesWithHelp:[67,75,80,81,82,88,96,97,98,99,131,136,138], 
++    wanErrorCodes:[64,65,66,68,69,70,71,72,73,74,76,79,100,101,104,105,106,128,129,130,132,133,134,135,137,139,140,141,1012,2048,3000,4000],
++	hideWANErrorAlert: false,  
++	
++// WiFi Variables
++	wifiStatusNotificationSession: null,
++	wifiConnected: false,
++
++// Storage Variables
++	storageNotificationSession: null,
++	storagePromptWindow: null,
++   
++// Power Off Variables
++	powerOffNotificationSession: null,
++	powerOffPromptWindow: null,
++
++// Airplane Mode Variables
++	airplaneMode: false,
++	firstAirplaneModeQuery: false,
++	apModeRadioStatus:  $H({phone: false, wifi: false, bluetooth: false}),
++	msmModeRadioStatus: $H({wifi: false, bluetooth: false}),
++
++// Account Sync Variables
++	// Data Type Syncing State Constants
++	ACCT_NOT_SYNCING: 0,
++	ACCT_SYNCING: 1,
++	// Hash table of accounts. Value of each entry is an array
++	// of supported data types for the account
++	accountDataTypeTracker: null,	
++	accountDataTypesRequest: null,
++	// Hash table of accounts. Value of each entry is a count of completed syncs 
++	accountSyncTracker: null,
++	accountSyncRequest: null,
++	// After each data type of an account completes, wait for a period of time
++	// defined by this timeout and see if there are any sync notifications for this
++	// account.  If there are no more notifications, we assume that the sync for an
++	// account is done.
++	ACCT_SYNC_DONE_NOTIFY_TIMEOUT: 10,	// in seconds
++
++// Account Token Object
++	accountToken: {},
++	restoringApps: [],
++
++//Software Update 
++	updateProgressDashboardShown: false,
++	allowIncomingCallsOver2G: false,
++	
++// Flag for Build
++	demoBuild: false,
++
++// Connection Manager Status
++	isInternetConnectionAvailable: false,
++	appRestoreNeeded: false,
++	appRestoreInProgress: false,
++	packageURLArray: [],
++});
