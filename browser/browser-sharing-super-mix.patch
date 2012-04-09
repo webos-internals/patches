@@ -1,8 +1,8 @@
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
-index 6bf5870..caa30e4 100644
+index 6bf5870..9d0409d 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-applicationmenu.js
-@@ -19,6 +19,120 @@ MenuData.ApplicationMenu = {
+@@ -19,6 +19,124 @@ MenuData.ApplicationMenu = {
  		checkEnabled: true
  	},
  	
@@ -88,8 +88,12 @@ index 6bf5870..caa30e4 100644
 +		label: $L('Send via DataJog'),
 +		command: 'add-datajog-cmd',
 +		checkEnabled: true
-+	},		
-+	
++	},
++	AddToMeorg: {
++		label: $L('Add To MeOrg!'),
++		command: 'add-meorg-cmd',
++		checkEnabled: true
++	},
 +	ShortenURL: {
 +		label: $L('Shorten URL'),
 +		command: 'shorten-url-cmd',
@@ -102,7 +106,7 @@ index 6bf5870..caa30e4 100644
 +		checkEnabled: true
 +	},
 +	
-+   ReKindleIt: {
++	ReKindleIt: {
 +		label: $L('ReKindleIt!'),
 +		command: 'add-rekindleit-cmd',
 +		checkEnabled: true
@@ -124,7 +128,7 @@ index 6bf5870..caa30e4 100644
  		label: $L('Add to Launcher'),
  		command: 'add-launch-icon-cmd',
 diff --git a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
-index 6e8efd0..4b3eb03 100644
+index 6e8efd0..b0e9954 100644
 --- a/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 +++ b/usr/palm/applications/com.palm.app.browser/app/controllers/page-assistant.js
 @@ -136,6 +136,10 @@ PageAssistant.prototype.setup = function() {
@@ -138,7 +142,7 @@ index 6e8efd0..4b3eb03 100644
  		
  		//observe seamless transition changes
  		
-@@ -796,20 +800,80 @@ PageAssistant.prototype._setupMenus = function() {
+@@ -796,20 +800,82 @@ PageAssistant.prototype._setupMenus = function() {
  		this._pageControls.setup(true);
  
  		// Create the application menus and shortcuts (once the modifier keys work).
@@ -178,7 +182,7 @@ index 6e8efd0..4b3eb03 100644
 +		
 +		this.getTweaksPrefs = new Mojo.Service.Request("palm://org.webosinternals.tweaks.prefs/", {
 +			method: 'get', parameters: {'owner': "browser-sharing-super-mix", 
-+			keys: ["showNeato", "showDataJog", "showSpareTime", "showInstapaper", "ipUsername", "ipPassword", "showRelego", "showReadontouch", "showClipboard", "shortenURL", "reKindleIt", 
++			keys: ["showNeato", "showDataJog", "showSpareTime", "showInstapaper", "ipUsername", "ipPassword", "showRelego", "showReadontouch", "showMeOrg", "showClipboard", "shortenURL", "reKindleIt", 
 +					"showFacebook", "showBadKitty", "showSpaz", "showTwee", "showTweed", "showCarbon", "showTachyon", "showQuickPost"]},
 +			onSuccess: function(response) {
 +				if(response) {
@@ -197,6 +201,8 @@ index 6e8efd0..4b3eb03 100644
 +						this.appMenuModel.items[0].items.push(MenuData.ApplicationMenu.AddToRelego);
 +					if(response.showReadontouch == true) 
 +						this.appMenuModel.items[0].items.push(MenuData.ApplicationMenu.AddToReadontouch);
++					if(response.showMeOrg == true) 
++						this.appMenuModel.items[0].items.push(MenuData.ApplicationMenu.AddToMeorg);
 +					if(response.showClipboard == true) 
 +						this.appMenuModel.items[0].items.push(MenuData.ApplicationMenu.CopyToClipboard);
 +					if(response.shortenURL == true) 
@@ -225,7 +231,7 @@ index 6e8efd0..4b3eb03 100644
  
  		this.controller.setupWidget(Mojo.Menu.appMenu, undefined, this.appMenuModel);
  
-@@ -2180,8 +2244,642 @@ PageAssistant.prototype.handleCommand = function(event) {
+@@ -2180,8 +2246,678 @@ PageAssistant.prototype.handleCommand = function(event) {
  					this._createDefaultBookmarkImages(urlReference);
  					this.showBookmarkDialog(BookmarkDialogAssistant.createLaunchpointTask, urlReference);
  					break;
@@ -474,7 +480,43 @@ index 6e8efd0..4b3eb03 100644
 +								}
 +						makeCallRoT();
 +						break;
-+			
++				//MeOrg
++				case MenuData.ApplicationMenu.AddToMeorg.command:
++					try{
++						this.meorgappid = "com.sven-ziegler.meorg";
++						this.controller.serviceRequest("palm://com.palm.applicationManager", {
++							method: 'open',
++							parameters: {
++								id: this.meorgappid,
++								params: {action: 'addLink', title: this.currentTitle, url: this.currentUrl}
++							},
++							onFailure:function(){
++								this.controller.showAlertDialog({
++									onChoose: function(value){
++										if (value=="yes"){
++											this.controller.serviceRequest('palm://com.palm.applicationManager', {
++												method:'open',
++												parameters:{
++													target: "http://developer.palm.com/appredirect/?packageid=" + this.meorgappid
++												}
++											});
++										}
++									},
++									preventCancel: false,
++									title: $L("MeOrg! Not Installed"),
++									message: $L("MeOrg! is not installed. Would you like to download it?"),
++									choices:[
++										{label:$L('Yes'), value:"yes", type:'affirmative'},
++										{label:$L('No'), value:"no", type:'dismissal'}
++									]
++								});
++							}.bind(this)
++						})
++					}catch(e){
++						Mojo.Log.error("MeOrg Patch Error: " + e);
++					}
++					break;
++				
 +			//CLIPBOARD
 +				case MenuData.ApplicationMenu.CopyToClipboard.command:
 +					this.controller.stageController.setClipboard(this.currentTitle + ' - ' + this.currentUrl);
