@@ -1784,10 +1784,10 @@ index 197f422..bb83b15 100644
  
  });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
-index c7127f8..060b1ff 100644
+index c7127f8..b690b69 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/day-assistant.js
-@@ -20,16 +20,123 @@ var DayAssistant = Class.create({
+@@ -20,16 +20,135 @@ var DayAssistant = Class.create({
  		this.appMenuModel = { visible:true, 
  								label:$L('Calendar'), 
  								items: [ Mojo.Menu.editItem,
@@ -1827,6 +1827,8 @@ index c7127f8..060b1ff 100644
 +		this.weekModulusNum = 1;
 +		this.weekNumberTitle = true;
 +		this.ucGroupsFirst = false;
++		this.dayMinutePopup = false;
++		this.dayMinInterval = 15;
 +		this.useAgendaZ = false;
 +		this.dayCookie = new Mojo.Model.Cookie('DayEnhanced');
 +		if (this.dayCookie !== undefined) {
@@ -1892,6 +1894,16 @@ index c7127f8..060b1ff 100644
 +				} else {
 +					this.useAgendaZ = false;
 +				}
++				if(daycookie.dayminutepopup !== undefined) {
++						this.dayMinutePopup = daycookie.dayminutepopup;
++				} else {
++						this.dayMinutePopup = false;
++				}
++				if(daycookie.daymininterval !== undefined) {
++						this.dayMinInterval = parseInt(daycookie.daymininterval, 10);
++				} else {
++						this.dayMinInterval = 15;
++				}
 +			}
 +		}
 +		this.userUberCats = [];
@@ -1914,7 +1926,7 @@ index c7127f8..060b1ff 100644
  		this.colors = {
  				'cal-color-blue':   {background: 'rgb(145, 211, 234)', border: 'rgb(99, 165, 188)',	text: 'rgb(5, 32, 41)'},
  				'cal-color-green':  {background: 'rgb(140, 240, 140)', border: 'rgb(77, 206, 77)',  text: 'rgb(1, 52, 1)'},
-@@ -60,9 +167,24 @@ var DayAssistant = Class.create({
+@@ -60,14 +179,29 @@ var DayAssistant = Class.create({
  		this.pendingCalendarSettingsUpdate = false;
  		//this.pendingOpenScratchEventInDetails = false;
  		this.snapEffectCount = 0;
@@ -1939,7 +1951,13 @@ index c7127f8..060b1ff 100644
  		this.totalWidth = 320;
  		this.totalHeight = this.hourHeight * 24;
  		// To make sure that the 11pm timeline can be scrolled above the command menu buttons, add an extra timeline
-@@ -196,6 +318,29 @@ var DayAssistant = Class.create({
+ 		// at the bottom
+-		this.totalHeight += this.hourHeight;
++		this.totalHeight += 48;
+ 
+ 		this.onHorizontalScroll	= this.onHorizontalScroll	.bind (this);
+ 		this.onResize			= this.onResize				.bind (this);
+@@ -196,6 +330,29 @@ var DayAssistant = Class.create({
  		this.hideFastScrollView();
  	},
  
@@ -1969,7 +1987,7 @@ index c7127f8..060b1ff 100644
  	isDayDisplayed: function(day) {
  		if (this.listeningToScroller) {
  			return 0;
-@@ -241,6 +386,9 @@ var DayAssistant = Class.create({
+@@ -241,6 +398,9 @@ var DayAssistant = Class.create({
  		
  	buildDayTitle: function(doScrim) {
  		var today = Date.today().clearTime();
@@ -1979,7 +1997,7 @@ index c7127f8..060b1ff 100644
  		var dayDateNoTime = new Date(this.dayDate).clearTime();
  		var formatObj = {};
  		
-@@ -248,20 +396,47 @@ var DayAssistant = Class.create({
+@@ -248,20 +408,47 @@ var DayAssistant = Class.create({
          formatObj.date = "medium";
          formatObj.weekday = "medium";
          formatObj.dateComponents = "md";
@@ -2032,7 +2050,15 @@ index c7127f8..060b1ff 100644
  		}
  		
  		if (doScrim) {
-@@ -400,8 +575,14 @@ var DayAssistant = Class.create({
+@@ -332,6 +519,7 @@ var DayAssistant = Class.create({
+ 		if (newHeight < scrollerHeight) {
+ 			newHeight = scrollerHeight;
+ 		}
++		newHeight += 48;
+ 				
+ 		if (this.divs[whichDay].eventsCanvas.offsetHeight != newHeight) {
+ 			this.divs[whichDay].eventsCanvas.setAttribute('height', newHeight+'px');
+@@ -400,8 +588,14 @@ var DayAssistant = Class.create({
  	},
  	getXIndexForTimeText:function(ctx,i,text)
  	{		
@@ -2047,7 +2073,7 @@ index c7127f8..060b1ff 100644
  			
  
  			var metrics = ctx.measureText(text);
-@@ -441,16 +622,39 @@ var DayAssistant = Class.create({
+@@ -441,16 +635,39 @@ var DayAssistant = Class.create({
  				}
  				
  				if (i < 24) {
@@ -2094,7 +2120,7 @@ index c7127f8..060b1ff 100644
  				}
  			}
  		}
-@@ -808,20 +1012,88 @@ var DayAssistant = Class.create({
+@@ -808,20 +1025,88 @@ var DayAssistant = Class.create({
  		// Subject
  		ctx.fillStyle = this.colors[event.calendarColor].text;
  		if (selected) {
@@ -2193,7 +2219,7 @@ index c7127f8..060b1ff 100644
  			bottom = textTop+15;			
  			this.fillText(event.location, ctx, left+4, textTop, width, bottom, 15 /*line height*/);
  			textTop += 15;
-@@ -829,9 +1101,18 @@ var DayAssistant = Class.create({
+@@ -829,9 +1114,18 @@ var DayAssistant = Class.create({
  		
  		// Notes
  		if (event.note && (event.note.length > 0) && (textTop < (top + height))) {
@@ -2213,7 +2239,7 @@ index c7127f8..060b1ff 100644
  		}
  
  		var selectedColor;		
-@@ -860,11 +1141,11 @@ var DayAssistant = Class.create({
+@@ -860,11 +1154,11 @@ var DayAssistant = Class.create({
  		var marginRight = 4;
  		//Incorporates the padding-top of the first all day event 
  		//from the old css style .dv-allday-event:first-child
@@ -2228,7 +2254,7 @@ index c7127f8..060b1ff 100644
  		
  		return {
  			top : (totalHeight * index + marginTop),
-@@ -899,8 +1180,34 @@ var DayAssistant = Class.create({
+@@ -899,8 +1193,34 @@ var DayAssistant = Class.create({
  		if (selected) {
  			ctx.fillStyle = "rgb(255, 255, 255)";
  		}
@@ -2265,7 +2291,7 @@ index c7127f8..060b1ff 100644
  		
  		if (selected) {
  			var selectedColor = "rgba(4, 4, 4, 0.5)";
-@@ -912,9 +1219,33 @@ var DayAssistant = Class.create({
+@@ -912,9 +1232,33 @@ var DayAssistant = Class.create({
  	calcEventCompression: function (day) {
  
  		// Make sure that free times, busy times, and events are sorted by start times
@@ -2300,28 +2326,7 @@ index c7127f8..060b1ff 100644
  
  		day.animationTop = 0;
  
-@@ -1042,6 +1373,7 @@ var DayAssistant = Class.create({
- 		// The data should equal 1 day's worth of data:
- 		var day = data.days[0];
- 
-+
- 		if (!day){ return; }
- //Mojo.Log.info ("\n\n\n\trenderDay: AllDayEvents? [ "+day.allDayEvents+" ]\n\n\n");
- 
-@@ -1049,6 +1381,12 @@ var DayAssistant = Class.create({
- 		Mojo.Dom.hide (this.controller.get('current_time'));
- 		this.renderAllDayEvents (day, whichDay, skipUpdateEmptySpacer);
- 
-+
-+
-+
-+
-+
-+
- 		if (this.animating) {
- 			this.eraseDay (whichDay, day.animationTop);
- 		} else {
-@@ -1136,7 +1474,7 @@ var DayAssistant = Class.create({
+@@ -1136,7 +1480,7 @@ var DayAssistant = Class.create({
  			}
  			//now that we have finished rendering the timelines and number 
  			//render am pm
@@ -2330,7 +2335,7 @@ index c7127f8..060b1ff 100644
  				//now show the am/pm indicators
  				this.calculatePosToDrawAmPm(Math.abs(this.tds[this.THIS_DAY].scroller.mojo.getScrollPosition().top));
  				Mojo.Dom.show (this.controller.get('ampm_indicator'));
-@@ -1159,7 +1497,7 @@ var DayAssistant = Class.create({
+@@ -1159,7 +1503,7 @@ var DayAssistant = Class.create({
  		// ** ALL DAY EVENTS
  		// Determine whether there are any all day events
  		if (day.allDayEvents.size() > 0) {
@@ -2339,7 +2344,7 @@ index c7127f8..060b1ff 100644
  			
  			// Set the height of the canvas
  			if (dayDiv.alldayevents_list.offsetHeight != newHeight) {
-@@ -1384,7 +1722,17 @@ var DayAssistant = Class.create({
+@@ -1384,7 +1728,17 @@ var DayAssistant = Class.create({
  		var calMgr	= this.calendarsManager
  		,	calendar= calMgr.getCurrentCal();
  
@@ -2358,7 +2363,7 @@ index c7127f8..060b1ff 100644
  			this.controller.get ("dv_current_calendar")	.update			($L("All"));
  			this.controller.get ("dv_calendar_source")	.setAttribute	("class", "header-cal-source");
  
-@@ -1394,6 +1742,7 @@ var DayAssistant = Class.create({
+@@ -1394,6 +1748,7 @@ var DayAssistant = Class.create({
  				// gets truncated and looks ugly
  				this.controller.get ("dv_current_calendar").update ($L("Palm"));
  
@@ -2366,7 +2371,7 @@ index c7127f8..060b1ff 100644
  			} else {
  				this.controller.get ("dv_current_calendar").update (calMgr.getCalAccountName (calendar));
  			}
-@@ -1439,9 +1788,18 @@ var DayAssistant = Class.create({
+@@ -1439,9 +1794,18 @@ var DayAssistant = Class.create({
  		,	tzId	: this.app.getTimezoneName()
  		};
  
@@ -2386,7 +2391,7 @@ index c7127f8..060b1ff 100644
  		} else {
  			range.calendarId = calendarId;										// otherwise enable calendar filtering.
  		}
-@@ -1584,6 +1942,12 @@ var DayAssistant = Class.create({
+@@ -1584,6 +1948,12 @@ var DayAssistant = Class.create({
  			top: yPixel+'px'
  		}).show();
  
@@ -2399,7 +2404,7 @@ index c7127f8..060b1ff 100644
  	},
  	
  	calculatePosWithCompression:function(day,hour)
-@@ -1617,8 +1981,22 @@ var DayAssistant = Class.create({
+@@ -1617,8 +1987,22 @@ var DayAssistant = Class.create({
  	
  	
  	scrollToDefault: function(whichDay) {
@@ -2424,7 +2429,7 @@ index c7127f8..060b1ff 100644
  		}
  
  		//Mojo.Log.info('BEFORE SCROLL TOP', this.tds[whichDay].scroller.mojo.getScrollPosition().top);
-@@ -1674,10 +2052,26 @@ var DayAssistant = Class.create({
+@@ -1674,10 +2058,26 @@ var DayAssistant = Class.create({
  		this.dvScratchEventsDiv	= this.controller.get ("dv_scratch_events");
  		this.scratchEventActive	= false;
  		this.scratchEvent		= null;
@@ -2451,7 +2456,7 @@ index c7127f8..060b1ff 100644
  		this.firstActivated = true;
  		
  		this.buildViewHeader();
-@@ -1787,6 +2181,11 @@ var DayAssistant = Class.create({
+@@ -1787,6 +2187,11 @@ var DayAssistant = Class.create({
  		this.divs[this.NEXT_DAY].ctxAllDayEvents = this.divs[this.NEXT_DAY].alldayevents_list.getContext('2d');
  		this.divs[this.THIS_DAY].ctxAllDayEvents = this.divs[this.THIS_DAY].alldayevents_list.getContext('2d');
  		
@@ -2463,7 +2468,7 @@ index c7127f8..060b1ff 100644
  		this.fastScrollScrim = this.controller.get('dv_scroll_scrim');
  		this.fastScrollAnimateDiv = this.controller.get('dv_scrim_animate');
  		Mojo.Dom.hide (this.fastScrollScrim);
-@@ -1934,15 +2333,16 @@ var DayAssistant = Class.create({
+@@ -1934,15 +2339,16 @@ var DayAssistant = Class.create({
  		this.menuModel = {
  			visible:true,
  			items: [
@@ -2482,7 +2487,7 @@ index c7127f8..060b1ff 100644
  					]};
  			
  		this.controller.setupWidget(Mojo.Menu.commandMenu, undefined, this.menuModel);
-@@ -2075,9 +2475,10 @@ var DayAssistant = Class.create({
+@@ -2075,9 +2481,10 @@ var DayAssistant = Class.create({
  
  ,	showJumpTo: function() {
  		this.maybeCommitScratchEvent (true);
@@ -2494,7 +2499,7 @@ index c7127f8..060b1ff 100644
  ,	syncAllCalendars: function() {
  		this.calendarsManager.syncAllCalendars (this.controller);
  	}
-@@ -2153,14 +2554,45 @@ var DayAssistant = Class.create({
+@@ -2153,14 +2560,45 @@ var DayAssistant = Class.create({
  				Mojo.Event.stop (event);
  				this.maybeCommitScratchEvent(true);
  				this.syncAllCalendars();
@@ -2542,7 +2547,7 @@ index c7127f8..060b1ff 100644
  			}
  		}
  			
-@@ -2337,13 +2769,45 @@ var DayAssistant = Class.create({
+@@ -2337,13 +2775,45 @@ var DayAssistant = Class.create({
  		Mojo.Event.stop (event);
  		var listItems = this.calendarsManager.buildCalendarsMenu (true /*includeAll*/, true /*includeReadOnly*/, true /*includeExcludedFromAll*/);
  
@@ -2589,7 +2594,7 @@ index c7127f8..060b1ff 100644
  		});
  	},
  
-@@ -2355,6 +2819,18 @@ var DayAssistant = Class.create({
+@@ -2355,6 +2825,18 @@ var DayAssistant = Class.create({
  			return;
  		}
  
@@ -2608,7 +2613,7 @@ index c7127f8..060b1ff 100644
  		this.maybeCommitScratchEvent (true);
  		this.calendarsManager.setCurrentCal (value);
  		this.clearCache();
-@@ -2399,6 +2875,7 @@ var DayAssistant = Class.create({
+@@ -2399,6 +2881,7 @@ var DayAssistant = Class.create({
  /*HACK*/}
  
  		this.active = true;
@@ -2616,7 +2621,7 @@ index c7127f8..060b1ff 100644
  		//this.resetPos(); // TEMP
  
  		if (this.compressed) {
-@@ -2428,6 +2905,12 @@ var DayAssistant = Class.create({
+@@ -2428,6 +2911,12 @@ var DayAssistant = Class.create({
  		// Calendar Picker
  		this.calendarTapHandler = this.CalSelectorHandler.bind (this);
  		this.controller.get ("dv_calendar_source").observe (Mojo.Event.tap, this.calendarTapHandler);
@@ -2629,7 +2634,7 @@ index c7127f8..060b1ff 100644
  
  		// The colors have been updated, so we clear the cache and update everything
  		if (this.pendingCalendarSettingsUpdate === true) {
-@@ -2461,14 +2944,29 @@ var DayAssistant = Class.create({
+@@ -2461,14 +2950,29 @@ var DayAssistant = Class.create({
  
  		this.keyDownHandler = this.handleKeyDown.bind(this);
  		this.controller.listen (this.controller.sceneElement, Mojo.Event.keydown, this.keyDownHandler);
@@ -2661,7 +2666,7 @@ index c7127f8..060b1ff 100644
  		this.tapHandler.deactivate();
  		this.tapHandlerCompressed.deactivate();
  		this.tapHandlerAllDay.deactivate();
-@@ -2497,6 +2995,7 @@ var DayAssistant = Class.create({
+@@ -2497,6 +3001,7 @@ var DayAssistant = Class.create({
  /*HACK*/this.lastScrollPosition			= this.scrollContainer.mojo.getScrollPosition();
  /*HACK*/this.lastVerticalScrollPosition	= this.tds [this.THIS_DAY].scroller.mojo.getScrollPosition();
  
@@ -2669,7 +2674,7 @@ index c7127f8..060b1ff 100644
  	},
  
  
-@@ -2508,6 +3007,11 @@ var DayAssistant = Class.create({
+@@ -2508,6 +3013,11 @@ var DayAssistant = Class.create({
  			//Mojo.Log.info("handleKeyUp detected ORANGE key");
  			this.orangeKeyDown = false;
  		} 
@@ -2681,7 +2686,7 @@ index c7127f8..060b1ff 100644
  	},
  	
  	handleKeyDown: function(event) {
-@@ -2516,6 +3020,21 @@ var DayAssistant = Class.create({
+@@ -2516,6 +3026,21 @@ var DayAssistant = Class.create({
  			//Mojo.Log.info("handleKeyDown detected ORANGE key");
  			this.orangeKeyDown = true;
  		} 
@@ -2703,7 +2708,62 @@ index c7127f8..060b1ff 100644
  	},
  	
  	updateSceneScrollerSize: function(event) {
-@@ -3007,14 +3526,14 @@ var DayAssistant = Class.create({
+@@ -2692,6 +3217,14 @@ var DayAssistant = Class.create({
+ 		}
+ 	},
+ 	
++	uberPopMinuteChoose: function(min){
++		if(min !== undefined){
++			min = parseInt(min);
++			this.ucEventTop += Math.floor((min/60)*this.hourHeight);
++			this.preCheckBeforeScratchEvent(this.ucNewHour, min, this.ucEventTop);
++		}
++	},
++	
+ 	preCheckBeforeScratchEvent:function(newHour, newMinutes, eventTop) {
+ 		// Only allow creation of inline events if a non readonly calendar is selected or All
+ 		if (this.readOnlyCalendar === false) {
+@@ -2724,7 +3257,6 @@ var DayAssistant = Class.create({
+ 		}
+ 
+ 		Mojo.Event.stop (event);
+-
+ 		var eventStartTime	= new Date (this.scratchEvent.dtstart);
+ 		var subject			= this.scratchEventField.mojo.getValue();
+ 
+@@ -2990,7 +3522,30 @@ var DayAssistant = Class.create({
+ 			}
+ 			*/
+ 		}
+-		
++		if(this.enhancedView && this.dayMinutePopup && !this.scratchEvent){
++			this.ucNewHour = newHour;
++			this.ucEventTop = eventTop;
++			var hr = newHour;
++			if(this.currentTimeFormat == "HH12") {
++				if(hr === 0){
++					hr = 12;
++				} else {
++					hr = hr > 12 ? hr -12 : hr;
++				}
++			}
++			var items =[], itemNum, interval = this.dayMinInterval;
++			itemNum = Math.floor(60/interval);
++			items.push({label: hr+":00", command:0});
++			for(var i=1;i<itemNum;i++){
++				items.push({label: hr+":" + (interval*i), command:(interval*i)});
++			}
++			this.controller.popupSubmenu({
++					onChoose: this.uberPopMinuteChoose,
++					items: items,
++					placeNear: event.target
++					});
++			return;
++		}
+ 		if (!this.scratchEvent) {
+ 			this.preCheckBeforeScratchEvent(newHour, newMinute, eventTop);
+ 		} 
+@@ -3007,14 +3562,14 @@ var DayAssistant = Class.create({
  	
  	handleAllDayTap: function(index, event) {
  		this.deletedEventId = undefined;
@@ -2721,7 +2781,7 @@ index c7127f8..060b1ff 100644
  			//this.db.getEvent(event._id, this.gotEventInlineDelete.bind(this),this.gotEventInlineDeleteFailed.bind(this));
  			this.gotEventInlineDelete(event);
  		} else {
-@@ -3090,6 +3609,22 @@ var DayAssistant = Class.create({
+@@ -3090,6 +3645,22 @@ var DayAssistant = Class.create({
  		}
  	},
  	
@@ -2744,7 +2804,7 @@ index c7127f8..060b1ff 100644
  	handleEventsTap: function(event, tapEvent) {
  		//Mojo.Log.info("day-assistant: handleEventsTap event_being_held " + Object.toJSON(this.event_being_held));
  		
-@@ -3118,23 +3653,45 @@ var DayAssistant = Class.create({
+@@ -3118,23 +3689,45 @@ var DayAssistant = Class.create({
              }
          }
          else {
@@ -2800,7 +2860,7 @@ index c7127f8..060b1ff 100644
          }
  	},
  	
-@@ -3514,6 +4071,66 @@ var DayAssistant = Class.create({
+@@ -3514,6 +4107,66 @@ var DayAssistant = Class.create({
  		}
  	},
  	
@@ -2867,7 +2927,7 @@ index c7127f8..060b1ff 100644
  	recurrenceCancel:function(){
  		//Mojo.Log.info('inside day- recurrene canceled %o',this.draggedEventTop);
  		this.event_being_held.top = this.event_being_held.origDragTop;
-@@ -3576,6 +4193,16 @@ var DayAssistant = Class.create({
+@@ -3576,6 +4229,16 @@ var DayAssistant = Class.create({
  		//Mojo.Log.info("day-assistant handleEventsDragEnd");
  		
  		if (this.event_being_dragged) {
@@ -2884,7 +2944,7 @@ index c7127f8..060b1ff 100644
  			var itemTop = this.event_being_dragged.positionedOffset().top;
  			
  			// Calculate how much "time" the user has moved the event.  When the event is retrieved
-@@ -3600,12 +4227,12 @@ var DayAssistant = Class.create({
+@@ -3600,12 +4263,12 @@ var DayAssistant = Class.create({
  	
  				// Retrieve the event from the calendar service so we can set the new start time
  				this.gotEventForUpdateTime(this.event_being_held);	
@@ -2900,7 +2960,7 @@ index c7127f8..060b1ff 100644
  		}
  	},
  	
-@@ -3810,7 +4437,9 @@ var DayAssistant = Class.create({
+@@ -3810,7 +4473,9 @@ var DayAssistant = Class.create({
  				this.animationValue = value;
  				scrollOffset		*= this.compressed ? value : -value;
  				this.renderDay (this.THIS_DAY, day, false);
@@ -2912,7 +2972,7 @@ index c7127f8..060b1ff 100644
  			}.bind (this, this.tds [this.THIS_DAY].scroller.mojo.scrollTo)
  
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
-index 7b4c244..ca1f1c8 100644
+index 7b4c244..4c32925 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 @@ -14,16 +14,19 @@ var EditAssistant = Class.create({
@@ -3201,7 +3261,28 @@ index 7b4c244..ca1f1c8 100644
  		this.controller.modelChanged (this.locationModel);
  		this.controller.modelChanged (this.subjectModel);
  		this.controller.modelChanged (this.noteModel);
-@@ -543,8 +655,13 @@ var EditAssistant = Class.create({
+@@ -484,6 +596,20 @@ var EditAssistant = Class.create({
+ 			this.alarm = [new CalendarAlarm()];
+ 		}
+ 		
++		if(this.displayCatField){
++			var txt;
++			if(this.targetEvent.categories && this.targetEvent.categories !== ""){
++				txt = this.targetEvent.categories;
++				//this.ucCatModel.disabled = false;
++			} else {
++				txt = "";
++				//this.ucCatModel.disabled = true;
++			}
++			//button = Mojo.View.render({object: {text: txt}, template: "edit/infoButton"});
++			this.ucCatModel.category = txt;
++			this.controller.modelChanged (this.ucCatModel);
++			//this.controller.get('edit_uccat').update(button);
++		}
+ 		this.updateCalendarTypeInfo(this.targetEvent.calendarId);
+ 	},
+ 	
+@@ -543,8 +669,13 @@ var EditAssistant = Class.create({
  
  		this.renderAlarmStrings(this.formatter.getAlarmStrings(this.alarms.list));
  			
@@ -3216,7 +3297,7 @@ index 7b4c244..ca1f1c8 100644
  	},
  	
  	updateCalendarTypeInfo:function(calendarId){
-@@ -559,7 +676,7 @@ var EditAssistant = Class.create({
+@@ -559,7 +690,7 @@ var EditAssistant = Class.create({
  	
  	
  	blurStageBound:function(){
@@ -3225,7 +3306,7 @@ index 7b4c244..ca1f1c8 100644
  		//this will send a Mojo.propertychanged on fields
  		//which have changed
  		this.controller.commitChanges();
-@@ -567,7 +684,9 @@ var EditAssistant = Class.create({
+@@ -567,7 +698,9 @@ var EditAssistant = Class.create({
  		// update selections in the recurrence field
  		//into our recurence model
  		this.updateRecurrenceModel();
@@ -3236,7 +3317,7 @@ index 7b4c244..ca1f1c8 100644
  		if (this.checkTargetEventDirty()){
  				Mojo.Log.info("saving the current event");
  				this.saveEvent(undefined, true);	
-@@ -575,6 +694,32 @@ var EditAssistant = Class.create({
+@@ -575,6 +708,59 @@ var EditAssistant = Class.create({
  	},		
  	
  	setup: function() {
@@ -3247,6 +3328,7 @@ index 7b4c244..ca1f1c8 100644
 +			this.imgIcons[catName].src = "/media/internal/.scrims/ubercalendar/icon-" + catName + ".png";
 +		}
 +		this.bridgeCallDialer = false;
++		this.displayCatField = false;
 +		this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");
 +		if (this.snoozeCookie) {
 +			var snzcookie = this.snoozeCookie.get();
@@ -3256,7 +3338,33 @@ index 7b4c244..ca1f1c8 100644
 +				} else {
 +					this.bridgeCallDialer = false;
 +				}
++				if (snzcookie.displaycatfield !== undefined) {
++					this.displayCatField = snzcookie.displaycatfield;
++				} else {
++					this.displayCatField = false;
++				}
 +			}
++		}
++		if(this.displayCatField){
++			var catDiv = document.createElement('div');
++			catDiv.setAttribute('class', "palm-row");
++			//catDiv.setAttribute('x-mojo-tap-highlight',"momentary");
++			catDiv.setAttribute('id', "edit_ubercategoriesrow");
++			catDiv.innerHTML = '<div class="palm-row-wrapper textfield-group" x-mojo-focus-highlight="true"><div class="title"><div id="edit_uccat" name="edit_uccat" x-mojo-element="TextField"></div></div></div>';
++			//var button = Mojo.View.render({object: {text: ("")}, template: "edit/infoButton"});
++			var partRow = this.controller.get('edit_participantrow');
++			partRow.parentNode.insertBefore(catDiv, partRow);
++			var tfAttrs3 =
++			{	acceptBack		: true
++			,	hintText		: $L("Category:")
++			,	modelProperty	: "category"
++			,	multiline		: false
++			,	textFieldName	: "edit_uccat"
++			,	runTextLinker	: false
++			};
++			this.ucCatModel = { "category" : "" };
++			this.controller.setupWidget ("edit_uccat", tfAttrs3, this.ucCatModel);
++			//this.controller.get('edit_uccat').insert(button);
 +		}
 +		var editAlarmDiv = this.controller.get("edit_alarmrow");
 +		editAlarmDiv.removeChild(editAlarmDiv.firstChild);
@@ -3269,7 +3377,7 @@ index 7b4c244..ca1f1c8 100644
  		var subjecthinttext=$L('Event name');
          this.alarmType = {
              alarmsTimed: {
-@@ -583,18 +728,68 @@ var EditAssistant = Class.create({
+@@ -583,18 +769,68 @@ var EditAssistant = Class.create({
  						'-PT5M', // Do Not Localize
  						'-PT10M', //Do not localize
  						'-PT15M', // Do NOT Localize
@@ -3340,7 +3448,7 @@ index 7b4c244..ca1f1c8 100644
  				]
              }
          };
-@@ -605,6 +800,14 @@ var EditAssistant = Class.create({
+@@ -605,6 +841,14 @@ var EditAssistant = Class.create({
  		//we hide this div initially since we do not know if the participants list
  		//is populated already
  		this.controller.get('edit_participantrow').hide();
@@ -3355,7 +3463,7 @@ index 7b4c244..ca1f1c8 100644
  	
  		this.controller.setupWidget(Mojo.Menu.appMenu, {omitDefaultItems:true}, this.appMenuModel);
  		
-@@ -631,6 +834,7 @@ var EditAssistant = Class.create({
+@@ -631,6 +875,7 @@ var EditAssistant = Class.create({
  		
  		this.edit_repeatHander = this.handleEditRepeat.bind (this);
  		this.edit_alarmHandler = this.handleEditAlarm.bind (this);
@@ -3363,7 +3471,7 @@ index 7b4c244..ca1f1c8 100644
  
  		var subject = this.eventSubject || '';
  
-@@ -655,6 +859,9 @@ var EditAssistant = Class.create({
+@@ -655,6 +900,9 @@ var EditAssistant = Class.create({
  		,	multiline		: true
  		};
  		this.locationModel = { "location" : ''};
@@ -3373,7 +3481,16 @@ index 7b4c244..ca1f1c8 100644
  		this.controller.setupWidget ("edit_location_field", tfAttrs2, this.locationModel);
  
  		// For notes:
-@@ -776,7 +983,27 @@ var EditAssistant = Class.create({
+@@ -681,7 +929,7 @@ var EditAssistant = Class.create({
+ 				start = new Date(this.targetDate);
+ 				
+ 				// Clear the minutes, seconds, and ms's.
+-				start.set({	minute: 0, second: 0, millisecond: 0 });
++				start.set({second: 0, millisecond: 0 });
+ 			} else {
+ 				// Use the current date and time maintained by the calendar... Users will
+ 				// most likely want to create events on the day they are currently looking
+@@ -776,7 +1024,27 @@ var EditAssistant = Class.create({
  		if (this.eventCalendarId) {
  			this.updateContentCalendarType (this.eventCalendarId.sub ("id", ''));
  		}
@@ -3402,7 +3519,14 @@ index 7b4c244..ca1f1c8 100644
  
  	 setUpWidgetListeners: function(){ 
  		this.controller.get('edit_datetimerow').observe(Mojo.Event.tap,this.edit_infoHandler );
-@@ -792,6 +1019,12 @@ var EditAssistant = Class.create({
+@@ -787,11 +1055,19 @@ var EditAssistant = Class.create({
+ 		
+ 		this.controller.get('edit_subject_field').observe(Mojo.Event.propertyChange, this.subjectChanged.bind(this));
+ 		
++		this.displayCatField && this.controller.get('edit_uccat').observe(Mojo.Event.propertyChange, this.categoryChanged.bind(this));
++		
+ 		this.controller.get('edit_location_field').observe(Mojo.Event.propertyChange, this.locationChanged.bind(this));
+ 		
  		this.controller.get('edit_note').observe(Mojo.Event.propertyChange, this.noteChanged.bind(this));
  	
  	 },
@@ -3415,7 +3539,7 @@ index 7b4c244..ca1f1c8 100644
  	 handleCommand: function(event) {
  		if(event.type == Mojo.Event.command) {
  			if(event.command == 'deleteEvent') {
-@@ -801,6 +1034,50 @@ var EditAssistant = Class.create({
+@@ -801,6 +1077,50 @@ var EditAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Event.stop(event);
  				this.controller.stageController.pushScene('prefs');
@@ -3466,7 +3590,7 @@ index 7b4c244..ca1f1c8 100644
  			}else if(event.command =='copy'){
  				//@todo
  			}else if(event.command == Mojo.Menu.helpCmd){
-@@ -809,6 +1086,64 @@ var EditAssistant = Class.create({
+@@ -809,6 +1129,64 @@ var EditAssistant = Class.create({
  				this.app.getAppManagerService().launchMaps (this.controller, this.targetEvent.location, false);
  			}else if(event.command == "direction"){
  				this.app.getAppManagerService().launchMaps (this.controller, this.targetEvent.location, true);
@@ -3531,7 +3655,7 @@ index 7b4c244..ca1f1c8 100644
  			}
  		}
  		else if(event.type == Mojo.Event.commandEnable && event.command == Mojo.Menu.prefsCmd) {
-@@ -835,9 +1170,14 @@ var EditAssistant = Class.create({
+@@ -835,9 +1213,14 @@ var EditAssistant = Class.create({
  		
  		if (e.value !== null) {
  			this.targetEvent.note = e.value;
@@ -3548,7 +3672,34 @@ index 7b4c244..ca1f1c8 100644
  		}		
  	},
  	
-@@ -861,7 +1201,7 @@ var EditAssistant = Class.create({
+@@ -857,11 +1240,34 @@ var EditAssistant = Class.create({
+ 		}		
+ 	},
+ 	
++	categoryChanged: function(e){
++		if(this.targetEvent.categories != e.value){
++			this.targetEvent.dirty = true;
++		}
++		
++		if(e.value !== null){
++			var temp, Arr = [], txt, cats=[];
++			txt = e.value;
++			Arr = txt.split(",");
++			for(var i=0;i<Arr.length;i++){
++				temp = Arr[i];
++				temp = temp.replace(/^\s*/,"");
++				temp = temp.replace(/\s*$/,"");
++				if(temp && temp !== ""){
++					cats.push(temp);
++				}
++			}
++			this.targetEvent.categories = cats
++		} else {
++			this.targetEvent.categories = [];
++		}
++	},
++	
+ 	locationChanged: function(e) {
  		this.targetEvent.dirty =true;
  		Mojo.Log.info("edit-assistant:locationChanged");
  		
@@ -3557,7 +3708,7 @@ index 7b4c244..ca1f1c8 100644
  			this.targetEvent.location = e.value;
  			this.appMenuModel.items[1].items[0].disabled = false;
  			this.appMenuModel.items[1].items[1].disabled = false;
-@@ -876,9 +1216,41 @@ var EditAssistant = Class.create({
+@@ -876,9 +1282,41 @@ var EditAssistant = Class.create({
  		 
  			
  	},
@@ -3601,7 +3752,7 @@ index 7b4c244..ca1f1c8 100644
  		if(this.targetEvent.subject=="" || this.targetEvent.subject === null) {
  			if (this.targetEvent._id) {
  				this.targetEvent.subject = $L("Event name");
-@@ -932,6 +1304,7 @@ var EditAssistant = Class.create({
+@@ -932,6 +1370,7 @@ var EditAssistant = Class.create({
  				);	
  			}
  	        else{
@@ -3609,7 +3760,7 @@ index 7b4c244..ca1f1c8 100644
  				this.db [this.targetEvent._id ? "updateEvent" : "createEvent"]
  				(	this.targetEvent
  				,	this.setEventCallback
-@@ -964,6 +1337,7 @@ var EditAssistant = Class.create({
+@@ -964,20 +1403,29 @@ var EditAssistant = Class.create({
  			this.controller.get('edit_repeatrow').stopObserving(Mojo.Event.tap, this.edit_repeatHander);
  			this.controller.get('edit_alarmrow').stopObserving(Mojo.Event.tap, this.edit_alarmHandler);
  			this.controller.get('edit_calendartypeParent').stopObserving(Mojo.Event.tap, this.event_calendarTypeHandler);
@@ -3617,7 +3768,10 @@ index 7b4c244..ca1f1c8 100644
  		}
  	
  		this.controller.get('edit_participantrow').stopObserving(Mojo.Event.tap,this.edit_participantHandler);
-@@ -973,11 +1347,18 @@ var EditAssistant = Class.create({
+ 
+ 		this.controller.get('edit_subject_field').stopObserving(Mojo.Event.propertyChange, this.subjectChanged);
++		this.displayCatField && this.controller.get('edit_uccat').stopObserving(Mojo.Event.propertyChange, this.categoryChanged);
+ 		this.controller.get('edit_location_field').stopObserving(Mojo.Event.propertyChange, this.locationChanged);
  		this.controller.get('edit_note').stopObserving(Mojo.Event.propertyChange, this.noteChanged);
  	},
    
@@ -3637,7 +3791,7 @@ index 7b4c244..ca1f1c8 100644
  	},
  
  	deactivate: function() {
-@@ -985,6 +1366,8 @@ var EditAssistant = Class.create({
+@@ -985,6 +1433,8 @@ var EditAssistant = Class.create({
  			this.blurStage();	
  		}		
  		this.controller.stopListening(this.controller.document, Mojo.Event.stageDeactivate, this.blurStage);
@@ -3646,7 +3800,7 @@ index 7b4c244..ca1f1c8 100644
  	},
  	/*
  	//Not relevant anymore - cleanup
-@@ -1012,6 +1395,7 @@ var EditAssistant = Class.create({
+@@ -1012,6 +1462,7 @@ var EditAssistant = Class.create({
  				this.targetEvent.rrule = 
  				{	freq: "DAILY"						// Do NOT Localize
  				,	interval: 1
@@ -3654,7 +3808,7 @@ index 7b4c244..ca1f1c8 100644
  				};				
  				break;
  				
-@@ -1168,6 +1552,7 @@ var EditAssistant = Class.create({
+@@ -1168,6 +1619,7 @@ var EditAssistant = Class.create({
  	handleEditInfo: function(e){	
  		//this.updateEventModel();
  		this.updateRecurrenceModel();
@@ -3662,7 +3816,7 @@ index 7b4c244..ca1f1c8 100644
  		this.controller.stageController.pushScene(
  			'datetime', 
  			this.targetEvent,
-@@ -1182,6 +1567,354 @@ var EditAssistant = Class.create({
+@@ -1182,6 +1634,354 @@ var EditAssistant = Class.create({
  		
  	},	
  	
@@ -4017,7 +4171,7 @@ index 7b4c244..ca1f1c8 100644
  	handleEditRepeat: function(e){
  		Mojo.Log.info("edit-assistant:handleEditRepeat");
  		//create popup menu
-@@ -1259,6 +1992,7 @@ var EditAssistant = Class.create({
+@@ -1259,6 +2059,7 @@ var EditAssistant = Class.create({
  			//this.updateEventModel();
  			this.updateRecurrenceModel();
  			//Mojo.Log.info('pushing the repeat scene');
@@ -4025,7 +4179,7 @@ index 7b4c244..ca1f1c8 100644
  			this.controller.stageController.pushScene(
  				'repeat', 
  				this.targetEvent, 
-@@ -1272,6 +2006,56 @@ var EditAssistant = Class.create({
+@@ -1272,6 +2073,56 @@ var EditAssistant = Class.create({
  		}
  	},
  
@@ -4083,7 +4237,7 @@ index 7b4c244..ca1f1c8 100644
  		Mojo.Log.info("edit-assistant:handleEditAlarm");
  		var items=[];
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
-index f20a9ad..9db6fdb 100644
+index f20a9ad..1004517 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/month-assistant.js
 @@ -15,9 +15,12 @@ var MonthAssistant = Class.create({
@@ -4261,6 +4415,15 @@ index f20a9ad..9db6fdb 100644
  		if (calendarId != "all") {
  			range.calendarId = calendarId;
  		}
+@@ -94,7 +223,7 @@ var MonthAssistant = Class.create({
+ 		}
+ 
+ 		
+-		range.end = this.loadBusyTimesBatch.start.addWeeks(3).addDays(1).getTime();	// Set range end 3 weeks after start.
++		range.end = this.loadBusyTimesBatch.start.addWeeks(6).addDays(1).getTime();	// Set range end 3 weeks after start.
+ 																					// Add one extra day because monthview renders one day less than the range requested
+ 																					//i.e., string length of 35 = render 34 days of info
+ 
 @@ -102,9 +231,48 @@ var MonthAssistant = Class.create({
  			range.end = this.loadBusyTimesBatch.end;						// reset to range's end.
  		}
@@ -4569,7 +4732,48 @@ index f20a9ad..9db6fdb 100644
  			this.controller.get ("mv_current_calendar")	.update			($L("All"));
  			this.controller.get ("mv_calendar_source")	.setAttribute	("class", "header-cal-source");
  			return;
-@@ -758,11 +1073,15 @@ var MonthAssistant = Class.create({
+@@ -744,6 +1059,40 @@ var MonthAssistant = Class.create({
+ 
+ 		var prefs		= this.prefsManager.getPrefs();
+ 		this.savedPrefs	= prefs ? Foundations.ObjectUtils.clone (prefs) : undefined;
++		if(this.enhancedView){
++			var headDiv = this.controller.get("mv_header_container1");
++			var scrimDiv = document.createElement('div');
++			scrimDiv.setAttribute('id', "uber-month-panel-scrim");
++			scrimDiv.setAttribute('class', "palm-scrim menu-panel");
++			scrimDiv.setAttribute('x-mojo-menupanel-scrim', "");
++			
++			var panDiv = document.createElement('div');
++			panDiv.setAttribute('id', "uber-month-mp-cont");
++			panDiv.innerHTML = '<div id="uber-month-menu-panel" class="palm-menu-panel" x-mojo-menupanel="">' +
++				'<div class="palm-menu-panel-wrapper" x-mojo-element="Scroller"><div class="palm-list">' +
++		        	'<div class="palm-row first" id="uber-month-panel-event"></div>' +
++					'<div class="palm-row last" ><div class="palm-row-wrapper"><div ><table width="100%" ><tr>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-month-mp-back" class="palm-button" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc=""><-</div></td>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-month-mp-map" class="palm-button secondary disabled" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc="">'+$L("Map")+'</div></td>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-month-mp-delete" class="palm-button negative" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc="">'+$L("Delete")+'</div></td>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-month-mp-next" class="palm-button" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc="">-></div></td>' +
++					'</tr></table></div></div>' +
++				'</div></div></div>';
++			
++			this.controller.get("month_view").insertBefore(scrimDiv, headDiv);
++			var scrollDiv = this.controller.get("wv_scroll_container");
++			this.controller.get("month_view").insertBefore(panDiv, scrollDiv);
++			this.uberMenuPanel = this.controller.get("uber-month-menu-panel");
++			this.uberScrim = this.controller.get("uber-month-panel-scrim");
++			this.uberMenuPanel.hide();
++			this.uberScrim.hide();
++			this.prevListener = this.handleHeldPrev.bind(this);
++			this.nextListener = this.handleHeldNext.bind(this);
++			this.mapListener = this.handleHeldMap.bind(this);
++			this.heldEvtListener = this.handleHeldEvent.bind(this);
++			this.handleEventsHold = this.handleEventsHold.bind(this);
++			this.deleteListener = this.handleHeldDelete.bind(this);
++		}
+ 		this._months	= this.month_days.appendChild (this._createEmptyMonthTable());
+ 
+ 		this.setupScrolling (this._months);
+@@ -758,11 +1107,15 @@ var MonthAssistant = Class.create({
  		this.menuModel = 
  		{	visible	:	true
  		,	items	:
@@ -4587,7 +4791,7 @@ index f20a9ad..9db6fdb 100644
  						,	icon	: 'menu-day'
  						,	label	: $L('Day')
  						}
-@@ -776,7 +1095,7 @@ var MonthAssistant = Class.create({
+@@ -776,7 +1129,7 @@ var MonthAssistant = Class.create({
  						}
  					]
  				}
@@ -4596,7 +4800,7 @@ index f20a9ad..9db6fdb 100644
  			]
  		};
  
-@@ -881,7 +1200,7 @@ var MonthAssistant = Class.create({
+@@ -881,7 +1234,7 @@ var MonthAssistant = Class.create({
  	},//END: function setupScrolling (monthsElement)
  
  	showJumpTo: function() {
@@ -4605,7 +4809,7 @@ index f20a9ad..9db6fdb 100644
  	},
  
  	syncAllCalendars: function() {
-@@ -911,6 +1230,12 @@ var MonthAssistant = Class.create({
+@@ -911,6 +1264,12 @@ var MonthAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Mojo.Event.stop (event);
  				this.controller.stageController.pushScene('prefs');
@@ -4618,7 +4822,7 @@ index f20a9ad..9db6fdb 100644
  			}else if(event.command == Mojo.Menu.helpCmd){
  				this.app.getAppManagerService().launchHelp (this.controller);
  			} else if (event.command == 'sync') {
-@@ -925,11 +1250,37 @@ var MonthAssistant = Class.create({
+@@ -925,11 +1284,48 @@ var MonthAssistant = Class.create({
  			} else if (event.command == 'reminders') {
  				Mojo.Event.stop (event);
  				this.controller.stageController.pushScene('reminder-list');
@@ -4643,6 +4847,17 @@ index f20a9ad..9db6fdb 100644
  			// Enable prefs menuitem for this scene.
  			event.stopPropagation();
 +		}else if (event.type == Mojo.Event.back) {
++			if(this.uberHolding){
++				if(this.uberHoldTimeout){
++					this.controller.window.clearTimeout(this.uberHoldTimeout);
++					this.uberHoldTimeout = 0;
++				}
++				this.uberMenuPanel.hide();
++				this.uberHolding = false;
++				event.preventDefault();
++				event.stopPropagation();
++				return;
++			}
 +			if(this.uberBackGesture == 'week' || (this.uberBackGesture == 'last' && this.uberLastView == 'week' )) {
 +				event.preventDefault();
 +				event.stopPropagation();
@@ -4657,7 +4872,7 @@ index f20a9ad..9db6fdb 100644
  		}
  	},
  
-@@ -949,7 +1300,20 @@ var MonthAssistant = Class.create({
+@@ -949,7 +1345,20 @@ var MonthAssistant = Class.create({
  ///*DEBUG:*/	this.timing.activate = -new Date();
  
  		//Mojo.Log.info ("\n\nmonth-assistant.activate\n\n");
@@ -4679,7 +4894,19 @@ index f20a9ad..9db6fdb 100644
  		// Tap JumpTo:
  		this.controller.get ('mv_view_header').observe (Mojo.Event.tap, this.showJumpTo);
  
-@@ -962,6 +1326,12 @@ var MonthAssistant = Class.create({
+@@ -958,10 +1367,24 @@ var MonthAssistant = Class.create({
+ 
+ 		// Tap Any Day:
+ 		this.month_days.observe (Mojo.Event.tap, this.onDayTapped);
++		if(this.enhancedView){
++			this.month_days.observe (Mojo.Event.hold, this.handleEventsHold);
++			this.controller.get ('uber-month-mp-back').observe(Mojo.Event.tap, this.prevListener);
++			this.controller.get ('uber-month-mp-next').observe(Mojo.Event.tap, this.nextListener);
++			this.controller.get ('uber-month-mp-map').observe(Mojo.Event.tap, this.mapListener);
++			this.controller.get ('uber-month-panel-event').observe(Mojo.Event.tap, this.heldEvtListener);
++			this.controller.get ('uber-month-mp-delete').observe(Mojo.Event.tap, this.deleteListener);
++		}
+ 
  		// Tap Current Day:
  		this.dvCurrentDay.observe (Mojo.Event.tap, this.onTodayTapped);
  
@@ -4692,7 +4919,7 @@ index f20a9ad..9db6fdb 100644
  		this.handleScrolling();
  		this.buildMonth();
  ///*DEBUG:*/	this.timing.launch += +new Date();
-@@ -977,6 +1347,7 @@ var MonthAssistant = Class.create({
+@@ -977,6 +1400,7 @@ var MonthAssistant = Class.create({
  			DayAssistant.dayCache = new Hash();
  			DayAssistant.cacheSubscribed = new Hash();
  			this.pendingCalendarSettingsUpdate = false;
@@ -4700,7 +4927,48 @@ index f20a9ad..9db6fdb 100644
  		}
  
  ///*DEBUG:*/	this.timing.activate += +new Date();
-@@ -1033,14 +1404,46 @@ var MonthAssistant = Class.create({
+@@ -993,7 +1417,20 @@ var MonthAssistant = Class.create({
+ 
+ 		this.month_days		.stopObserving (Mojo.Event.tap	, this.onDayTapped);
+ 		this.dvCurrentDay	.stopObserving (Mojo.Event.tap	, this.onTodayTapped);
+-
++		if(this.enhancedView){
++			this.month_days.stopObserving (Mojo.Event.hold, this.handleEventsHold);
++			this.controller.get ('uber-month-mp-back').stopObserving(Mojo.Event.tap, this.prevListener);
++			this.controller.get ('uber-month-mp-next').stopObserving(Mojo.Event.tap, this.nextListener);
++			this.controller.get ('uber-month-mp-map').stopObserving(Mojo.Event.tap, this.mapListener);
++			this.controller.get ('uber-month-panel-event').stopObserving(Mojo.Event.tap, this.heldEvtListener)
++			this.controller.get ('uber-month-mp-delete').stopObserving(Mojo.Event.tap, this.deleteListener);
++			if(this.uberHoldTimeout){
++				this.controller.window.clearTimeout(this.uberHoldTimeout);
++				this.uberHoldTimeout = 0;
++			}
++			this.uberMenuPanel.hide();
++			this.uberHolding = false;
++		}
+ 		this.controller.get ('mv_view_header')		.stopObserving (Mojo.Event.tap, this.showJumpTo);
+ 		this.controller.get ('mv_calendar_source')	.stopObserving (Mojo.Event.tap, this.showCalendarPicker);
+ 	},
+@@ -1002,7 +1439,17 @@ var MonthAssistant = Class.create({
+ 
+ 	onDayTapped: function (event) {
+ 		if (this.isScrolling) { return; }
+-
++		if(this.uberHolding){
++			if(this.uberHoldTimeout){
++				this.controller.window.clearTimeout(this.uberHoldTimeout);
++				this.uberHoldTimeout = 0;
++			}
++			this.uberMenuPanel.hide();
++			this.uberHolding = false;
++			event.preventDefault();
++			event.stopPropagation();
++			return;
++		}
+ 		//Mojo.Log.info ('month-assistant: onDayTapped');
+ 
+ 		var targetDay = this.controller.get (event.target);
+@@ -1033,14 +1480,46 @@ var MonthAssistant = Class.create({
  		Mojo.Event.stop (event);
  
  		var listItems = this.calendarsManager.buildCalendarsMenu (true /*includeAll*/, true /*includeReadOnly*/, true /*includeExcludedFromAll*/);
@@ -4749,7 +5017,7 @@ index f20a9ad..9db6fdb 100644
  		});
  	},
  
-@@ -1052,6 +1455,18 @@ var MonthAssistant = Class.create({
+@@ -1052,6 +1531,18 @@ var MonthAssistant = Class.create({
  			return;
  		}
  
@@ -4768,7 +5036,7 @@ index f20a9ad..9db6fdb 100644
  		this.calendarsManager.setCurrentCal (value);
  		this.buildMonth();
  
-@@ -1062,8 +1477,33 @@ var MonthAssistant = Class.create({
+@@ -1062,8 +1553,33 @@ var MonthAssistant = Class.create({
  		DayAssistant.cacheSize			= 0;
  		DayAssistant.dayCache			= new Hash();
  		DayAssistant.cacheSubscribed	= new Hash();
@@ -4802,7 +5070,366 @@ index f20a9ad..9db6fdb 100644
  	// ** MENU **
  	handleDayView: function (e) {
  		//var today = new Date();
-@@ -1112,6 +1552,11 @@ var MonthAssistant = Class.create({
+@@ -1093,7 +1609,358 @@ var MonthAssistant = Class.create({
+ 		sController.popScene();
+ 		sController.pushScene({name: "week", transition: Mojo.Transition.crossFade, disableSceneScroller: true});
+ 	},
++	
++	handleEventsHold: function(holdEvent, whichDay, eIdx, Evt) {
++		//Mojo.Event.stop(tapEvent);
++		//Mojo.Log.error("Holding Event!!!!!!!" + (event && event.subject) + " , day: " + whichDay + " , idx: " + eIdx);
++		var daycount,event;
++		if(holdEvent && holdEvent.target){
++			holdEvent.stopPropagation();
++			holdEvent.preventDefault();
++			//Mojo.Log.error("holdEvent keys: " + Object.keys(holdEvent.target));
++			var targetDay = this.controller.get (holdEvent.target);
++
++			if (targetDay.hasClassName ('monthview-day-numeral')) {
++				targetDay = targetDay.parentNode;
++			}
++
++			//Mojo.Log.error ("onDayTapped: %s" , Object.keys(targetDay));
++			if (targetDay.hasClassName ('day')) {
++				daycount= targetDay.parentNode.rowIndex * 7 + targetDay.cellIndex -42;
++				//Mojo.Log.error("target daycount: " + daycount);
++			}
++		}
++		daycount = (daycount !== undefined && daycount <= 41 && daycount > -1) ? daycount : 41;
++		if(Evt){
++			event = Evt;
++			this.uberHeldDay = whichDay;
++			this.uberHeldIdx = eIdx;
++		} else {
++			if(this.fullEvts[daycount] && this.fullEvts[daycount].allDayEvents && this.fullEvts[daycount].allDayEvents.length){
++				event = this.fullEvts[daycount].allDayEvents[0];
++				this.uberHeldIdx =0;
++				this.uberHeldDay = daycount;
++			} else if(this.fullEvts[daycount] && this.fullEvts[daycount].events && this.fullEvts[daycount].events.length){
++				event = this.fullEvts[daycount].events[0];
++				this.uberHeldIdx = 0;
++				this.uberHeldDay = daycount;
++			}
++		}
++		if(!event){
++			Mojo.Log.error("No events on daycount: " + daycount + ", date: " + (this.fullEvts[daycount] && this.fullEvts[daycount].date));
++			return;
++		}	
++		this.uberMenuPanel.show();
++		this.uberHolding = true;
++		this.uberHeldEvent = false;
++		if(event){
++			var tEvt = {}, item, rtdate;
++			item = event;
++			this.uberHeldEvent = event;
++			if(item._id) {
++				tEvt._id = item._id;
++			}
++			if(item.currentLocalStart || item.dtstart) {
++				var formatObj = {};
++				rtdate = new Date(item.currentLocalStart || item.dtstart);
++				// formatString = "EEE MMM d";
++				formatObj.date = "medium";
++				formatObj.weekday = "medium";
++				formatObj.dateComponents = "md"
++				var templateModel = {};
++				var template = new Template($L("#{dateStr}"));
++				//var todayStr= Mojo.Format.formatRelativeDate(rtdate.clearTime(), {date: "short"}).capitalize();
++				//templateModel.todayStr = todayStr;
++				templateModel.dateStr = Mojo.Format.formatDate(rtdate, formatObj);
++				var dateTxt = template.evaluate(templateModel);
++				if(!item.allDay) {
++					
++					var h = rtdate.getHours();
++					var m = rtdate.getMinutes();
++					tEvt.startT = (h<10 ? '0'+h: h) + ':' + (m<10 ? '0'+m : m);
++				} else if (item.allDay === true) {
++					tEvt.startT = $L("all ");
++				}
++			}
++			if(item.subject) {
++				tEvt.subject = dateTxt + " - " + item.subject;
++			}
++			if(item.location && item.location !== "") {
++				tEvt.location = item.location;
++				this.controller.get("uber-month-mp-map").removeClassName("disabled");
++			} else {
++				this.controller.get("uber-month-mp-map").addClassName("disabled");
++			}
++			if(item.calendarId) {
++				var calColor = this.calendarsManager.getCalColorStyle(item.calendarId);
++				tEvt.bgcolor = this.colors[calColor];
++			}
++			if(item.currentLocalEnd || item.dtend) {
++				if(!item.allDay) {
++					rtdate = new Date(item.currentLocalEnd || item.dtend);
++					var h = rtdate.getHours();
++					var m = rtdate.getMinutes();
++					tEvt.endT = (h<10 ? '0'+h: h) + ':' + (m<10 ? '0'+m : m);
++				} else if (item.allDay === true) {
++					tEvt.endT = $L("day ");
++				}
++			}
++			if(item.note) {
++				var wholeNote = item.note !== "\n" ? item.note : "";
++				var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++				if(wholeNote && wholeNote !== "\n" && wholeNote.length > 0) {
++					var result = wholeNote.match(patt);
++					if(result && result[3]) {
++						tEvt.cat = result[3];
++						if(tEvt.cat){
++							tEvt.catFormatted = 'url(/media/internal/.scrims/ubercalendar/icon-' + tEvt.cat + '.png) no-repeat center right;'
++						}
++						tEvt.note = result[1] + result[4];
++					} else {
++						tEvt.note = wholeNote;
++					}
++				}
++			}
++			var tEvtHtml = Mojo.View.render({object: tEvt, template: 'shared/ubertemplateitem'});
++			this.controller.get('uber-month-panel-event').update(tEvtHtml);
++		}
++		if(!this.uberHoldTimeout){
++			this.uberHoldTimeout = this.controller.window.setTimeout(function(){this.uberHeldEvent = false;this.uberHolding=false;this.uberMenuPanel.hide();}.bind(this), 5000);
++		} else {
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = this.controller.window.setTimeout(function(){this.uberHeldEvent = false;this.uberHolding=false;this.uberMenuPanel.hide();}.bind(this), 5000);
++		}
++	},
++	
++	findUberNextEvent: function(want){
++		if(this.uberHeldEvent && this.uberHeldDay !== undefined && this.uberHeldIdx !== undefined && want !== undefined){
++			var ended, data, day, aLen, eLen, maxD, nDay, nIdx;
++			var event;
++			//beginWeekNoTime = this.getFirstDayOfWeek(this.app.getCurrentDateTime()).set({hour: 0, minute: 0, second: 0, millisecond: 0});
++			data = this.fullEvts;
++			nDay = this.uberHeldDay;
++			day = data[nDay];
++			aLen = day.allDayEvents.length;
++			eLen = day.events.length;
++			maxD = 41;
++			var needNewDay = (aLen + eLen) < 2;//true = only 1 event that day
++			if(!needNewDay) {
++				if(this.uberHeldEvent.allDay){
++					if(want === "prev"){
++						if(this.uberHeldIdx -1 <0){
++							needNewDay = true;
++						} else {
++							nIdx = this.uberHeldIdx -1;
++							event = day.allDayEvents[nIdx];
++						}
++					} else {// want next
++						if(aLen > this.uberHeldIdx+1){
++							nIdx = this.uberHeldIdx+1;
++							event = day.allDayEvents[nIdx];
++						} else { //check events
++							if(eLen > 0){
++								nIdx = 0;
++								event = day.events[nIdx];
++							} else {
++								needNewDay = true;
++							}
++						}
++					}
++					if(event){
++						var params = {event: event, whichDay: nDay, eIdx: nIdx};
++						return params;
++					}
++				} else {//events
++					if(want === "prev"){
++						if(this.uberHeldIdx -1 <0){//check all days
++							if(aLen === 0){
++								needNewDay = true;
++							} else {
++								nIdx = aLen -1;
++								event = day.allDayEvents[nIdx];
++							}
++						} else {
++							nIdx = this.uberHeldIdx -1;
++							event = day.events[nIdx];
++						}
++					} else {// want next
++						if(eLen > this.uberHeldIdx+1){
++							nIdx = this.uberHeldIdx+1;
++							event = day.events[nIdx];
++						} else {
++							needNewDay = true;
++						}
++					}
++					if(event){
++						var params = {event: event, whichDay: nDay, eIdx: nIdx};
++						return params;
++					}
++				}
++			}
++			
++			if(needNewDay){ //next or prev day
++				do {
++					if(want === "next"){//next should go to next all day event
++						nDay += 1;
++						if(nDay >= maxD){//no next this week
++							ended = true;
++							break;
++						}
++					} else {
++						nDay -= 1;
++						if(nDay < 0){//no prev this week
++							ended = true;
++							break;
++						}
++					}
++					day = data[nDay];
++					aLen = day.allDayEvents.length;
++					eLen = day.events.length;
++				} while(aLen + eLen <1);
++				if(!ended){
++					if(want === "next"){
++						if(aLen > 0){
++							event = day.allDayEvents[0];
++						} else {
++							event = day.events[0];
++						}
++						nIdx = 0;
++					} else {
++						if(eLen < 1){
++							nIdx = aLen-1;
++							event = day.allDayEvents[nIdx];
++						} else {
++							nIdx = eLen-1;
++							event = day.events[nIdx];
++						}
++					}
++					var params = {event: event, whichDay: nDay, eIdx: nIdx};
++					return params;
++				} else {// no event to be found
++					Mojo.Log.error("No next or previous event found");
++					return false;
++				}
++			}
++		}
++	},
++	
++	handleHeldPrev: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		var args = this.findUberNextEvent("prev");
++		if(args){
++			this.handleEventsHold(null, args.whichDay, args.eIdx, args.event);
++		}
++	},
++	
++	handleHeldNext: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		var args = this.findUberNextEvent("next");
++		if(args){
++			this.handleEventsHold(null, args.whichDay, args.eIdx, args.event);
++		}
++	},
++	
++	handleHeldEvent: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		this.uberMenuPanel.hide();
++		//Mojo.Log.error("held event - launch edit");
++		this.uberHolding = false;
++		if(this.uberHeldEvent){
++			if(this.uberHeldEvent._id){
++				var event = this.uberHeldEvent;
++				var idString = event._id+"-"+event.currentLocalStart+"-"+event.currentLocalEnd;
++				this.controller.stageController.pushScene('edit', idString, new Date(event.dtstart), false, event.calendarId, event.subject);
++			}
++			//this.handleEventsTap(this.uberHeldEvent, false);
++		}
++	},
++	
++	handleHeldMap: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		this.uberMenuPanel.hide();
++		//Mojo.Log.error("held map - launch map");
++		this.uberHolding = false;
++		if(this.uberHeldEvent && this.uberHeldEvent.location && this.uberHeldEvent.location !==""){
++			this.app.getAppManagerService().launchMaps (this.controller, this.uberHeldEvent.location, false);
++		}
++		return;
++	},
++	
++	handleHeldDelete: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		this.uberMenuPanel.hide();
++		//Mojo.Log.error("held delete ");
++		this.uberHolding = false;
++		if(this.uberHeldEvent){
++			this.fromDefaultTap = false;
++			this.eventToBeDeleted = this.uberHeldEvent;
++			this.deletedeventId = this.uberHeldEvent._id;
++			this.gotEventInlineDelete(this.uberHeldEvent);
++		}
++	},
+ 
++	gotEventInlineDelete: function(event) {
++		//Mojo.Log.info("gotEventInlineDelete");
++		var targetEvent = event;
++		// If the user is trying to delete a new event (cancelling the new event) 
++		// [new event's parentId is undefined]
++		// or
++		// if the event is NOT a recurring event, show the standard delete warning
++		if ((!targetEvent.rrule || !targetEvent.rrule.freq) && !targetEvent.parentId){
++			this.controller.showDialog({
++				template: 'shared/confirm-deleteevent',
++				assistant: new DeleteEventConfirmDialogAssistant(this, targetEvent, targetEvent.dtstart),
++				preventCancel: true
++			});
++		} 
++		else {
++			// If the event is a recurring event, show the warning allowing users to
++			// delete the series, the single event, or cancel
++			this.controller.showDialog({
++				template: 'shared/confirm-deleterecurringevent',
++				assistant: new DeleteEventConfirmDialogAssistant(this, targetEvent, targetEvent.currentLocalStart),
++				preventCancel: true
++			});
++		}
++		
++		// Re-render the event (un-tapped)
++		this.eventToBeDeleted = null;
++		//this.editEventsCallBack();
++	},
++	
++	gotEventInlineDeleteFailed: function(response) {
++		this.eventToBeDeleted = null;
++		this.deletedEventId = undefined;
++		//this.editEventsCallBack();
++	},
++	
++	deletedEvent: function(response) {
++		if (response.returnValue === false) {
++			Mojo.Log.error("Failed to delete event: %j", response);
++			return;
++		}
++				
++		// Remove the reminder for this event
++		if (this.deletedEventId !== undefined) {
++			this.app.getReminderManager().closeRemindersByEventId([this.deletedEventId]);
++		}
++	},
++	
+ 	showToday: function() {
+ 		var style = this.dvCurrentDay.style;
+ 
+@@ -1112,7 +1979,23 @@ var MonthAssistant = Class.create({
  		style.display	= "block";									// then display it.
  	},
  
@@ -4812,9 +5439,21 @@ index f20a9ad..9db6fdb 100644
 +	},
 +	
  	onTodayTapped: function (event) {
++		if(this.uberHolding){
++			if(this.uberHoldTimeout){
++				this.controller.window.clearTimeout(this.uberHoldTimeout);
++				this.uberHoldTimeout = 0;
++			}
++			this.uberMenuPanel.hide();
++			this.uberHolding = false;
++			event.preventDefault();
++			event.stopPropagation();
++			return;
++		}
  		this.gotoDayView (new Date());
  	},
-@@ -1120,12 +1565,12 @@ var MonthAssistant = Class.create({
+ 
+@@ -1120,12 +2003,12 @@ var MonthAssistant = Class.create({
  		// TODO: Extract this and all other views' reminder handling to common component:
  		// i.e. reminder-assistant*.js, new app.menu.js
  		if (this.reminders.getNumReminders() === 0) {
@@ -4851,7 +5490,7 @@ index 862dbd8..95fc1a0 100644
  
  		//set the picture for the contact
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
-index 3b41954..b7247ba 100644
+index 3b41954..7e438a4 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 @@ -8,7 +8,7 @@
@@ -4925,7 +5564,7 @@ index 3b41954..b7247ba 100644
  	chooseNotificationRingtone: function() {
  		var params = {
  			actionType: "attach",
-@@ -286,6 +306,1198 @@ var PrefsAssistant	= Class.create({
+@@ -286,6 +306,1275 @@ var PrefsAssistant	= Class.create({
  		// Retrieve the prefs from the service
  		this.prefs		= this.prefsManager.getPrefs();
  		this.db			= new DatabaseManager();
@@ -4946,6 +5585,8 @@ index 3b41954..b7247ba 100644
 +		this.weekModulusNum = 1;
 +		this.weekNumberTitle = true;
 +		this.ucGroupsFirst = false;
++		this.dayMinutePopup = false;
++		this.dayMinInterval = 15;
 +		this.dayViewShrink = "none";
 +		this.useAgendaZ = false;
 +		this.userUberCats = [];
@@ -4977,6 +5618,16 @@ index 3b41954..b7247ba 100644
 +						this.dayViewEnhanced = daycookie.dayviewenhanced;
 +				} else {
 +						this.dayViewEnhanced = false;
++				}
++				if(daycookie.dayminutepopup !== undefined) {
++						this.dayMinutePopup = daycookie.dayminutepopup;
++				} else {
++						this.dayMinutePopup = false;
++				}
++				if(daycookie.daymininterval !== undefined) {
++						this.dayMinInterval = parseInt(daycookie.daymininterval, 10);
++				} else {
++						this.dayMinInterval = 15;
 +				}
 +				if(daycookie.dayviewshrink !== undefined) {
 +						this.dayViewShrink = daycookie.dayviewshrink;
@@ -5124,6 +5775,7 @@ index 3b41954..b7247ba 100644
 +		this.uberAlarmDura = this.prefs.uberAlarmDura;
 +		this.snoozeThrob = this.prefs.blinkNotification;
 +		this.bridgeCallDialer = false;
++		this.displayCatField = false;
 +		this.perCalAlarms = false;
 +		this.alarmsFollowGroups = false;
 +		this.snoozeCookie = new Mojo.Model.Cookie("snoozeCookie");
@@ -5163,6 +5815,11 @@ index 3b41954..b7247ba 100644
 +					this.bridgeCallDialer = snzcookie.bridgecalldialer;
 +				} else {
 +					this.bridgeCallDialer = false;
++				}
++				if (snzcookie.displaycatfield !== undefined) {
++					this.displayCatField = snzcookie.displaycatfield;
++				} else {
++					this.displayCatField = false;
 +				}
 +				if(snzcookie.perCalAlarms !== undefined)	{
 +					this.perCalAlarms = snzcookie.perCalAlarms;
@@ -5519,6 +6176,35 @@ index 3b41954..b7247ba 100644
 +		newDiv12.appendChild(newDiv14);
 +		newDiv11.appendChild(newDiv12);
 +		d2List.appendChild(newDiv11); // add day view icons to second drawer list
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-dayminutepopup-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Minute popup');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		d2List.appendChild(newDiv11); // add day minute popup to second drawer list
++		
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv12.setAttribute('class', "palm-row");
++		newDiv12.setAttribute('x-mojo-tap-highlight', "momentary");
++		newDiv13.setAttribute('class', "palm-row-wrapper");
++		newDiv14.setAttribute('id', "pv_uber_day_minute_interval");
++		newDiv14.setAttribute('x-mojo-element', "ListSelector");
++		newDiv13.appendChild(newDiv14);
++		newDiv12.appendChild(newDiv13);
++		d2List.appendChild(newDiv12); // add day minute interval to second drawer list
++		
 +		var d3List = document.createElement('div');  // list for 3rd level drawer
 +		d3List.setAttribute('class', "palm-list");
 +		var newDiv01 = document.createElement('div'); 
@@ -5825,7 +6511,7 @@ index 3b41954..b7247ba 100644
 +		var newDiv12 = document.createElement('div');
 +		var newDiv13 = document.createElement('div');
 +		var newDiv14 = document.createElement('div');
-+		newDiv11.setAttribute('class', "palm-row last");
++		newDiv11.setAttribute('class', "palm-row");
 +		newDiv12.setAttribute('class', "palm-row-wrapper");
 +		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
 +		newDiv13.setAttribute('id', "prefs-bridgecalldialer-toggle");
@@ -5836,6 +6522,22 @@ index 3b41954..b7247ba 100644
 +		newDiv12.appendChild(newDiv14);
 +		newDiv11.appendChild(newDiv12);
 +		dList.appendChild(newDiv11); // add bridge call dialer to drawer list
++		
++		var newDiv11 = document.createElement('div');
++		var newDiv12 = document.createElement('div');
++		var newDiv13 = document.createElement('div');
++		var newDiv14 = document.createElement('div');
++		newDiv11.setAttribute('class', "palm-row last");
++		newDiv12.setAttribute('class', "palm-row-wrapper");
++		newDiv13.setAttribute('x-mojo-element', "ToggleButton");
++		newDiv13.setAttribute('id', "prefs-displaycatfield-toggle");
++		newDiv14.setAttribute('class', "title");
++		newDiv14.setAttribute('x-mojo-loc', '""');
++		newDiv14.innerHTML = $L('Display Categories');
++		newDiv12.appendChild(newDiv13);
++		newDiv12.appendChild(newDiv14);
++		newDiv11.appendChild(newDiv12);
++		dList.appendChild(newDiv11); // add display cat field to drawer list
 +		
 +		newDrawer1.appendChild(dList); // add 1st drawer list to drawer1
 +		newList1.appendChild(newDrawer1);  // add drawer1 to first list
@@ -5851,6 +6553,7 @@ index 3b41954..b7247ba 100644
 +			sendsonywatch: {id: "SendSonyWatch", value: this.sendSonyWatch},
 +			dayviewcompressed: {id: "DayViewCompressed", value: this.dayViewCompressed},
 +			dayviewicons: {id: "DayViewIcons", value: this.dayViewIcons},
++			dayminutepopup: {id: "DayMinutePopup", value: this.dayMinutePopup},
 +			weekviewenhanced: {id: "WeekViewEnhanced", value: this.weekViewEnhanced},
 +			dayviewenhanced: {id: "DayViewEnhanced", value: this.dayViewEnhanced},
 +			monthviewenhanced: {id: "MonthViewEnhanced", value: this.monthViewEnhanced},
@@ -5866,6 +6569,7 @@ index 3b41954..b7247ba 100644
 +			weekviewicons: {id: "WeekViewIcons", value: this.weekViewIcons},
 +			snoozethrob: {id: "SnoozeThrob", value: this.snoozeThrob},
 +			bridgecalldialer: {id: "BridgeCallDialer", value: this.bridgeCallDialer},
++			displaycatfield: {id: "DisplayCatField", value: this.displayCatField},
 +			percalalarms: {id: "PerCalAlarms", value: this.perCalAlarms},
 +			alarmsfollowgroups: {id: "AlarmsFollowGroups", value: this.alarmsFollowGroups},
 +			gotoeditfromtemplate: {id: "GotoEditFromTemplate", value: this.gotoEditFromTemplate},
@@ -5885,10 +6589,12 @@ index 3b41954..b7247ba 100644
 +		this.controller.setupWidget('prefs-sendsonywatch-toggle', uberCalendarAttributes, this.uberCalendarPrefs.sendsonywatch);
 +		this.controller.setupWidget('prefs-snoozethrob-toggle', uberCalendarAttributes, this.uberCalendarPrefs.snoozethrob);
 +		this.controller.setupWidget('prefs-bridgecalldialer-toggle', uberCalendarAttributes, this.uberCalendarPrefs.bridgecalldialer);
++		this.controller.setupWidget('prefs-displaycatfield-toggle', uberCalendarAttributes, this.uberCalendarPrefs.displaycatfield);
 +		this.controller.setupWidget('prefs-percalalarms-toggle', uberCalendarAttributes, this.uberCalendarPrefs.percalalarms);
 +		this.controller.setupWidget('prefs-alarmsfollowgroups-toggle', uberCalendarAttributes, this.uberCalendarPrefs.alarmsfollowgroups);
 +		this.controller.setupWidget('prefs-dayviewcompressed-toggle', uberCalendarAttributes, this.uberCalendarPrefs.dayviewcompressed);
 +		this.controller.setupWidget('prefs-dayviewicons-toggle', uberCalendarAttributes, this.uberCalendarPrefs.dayviewicons);
++		this.controller.setupWidget('prefs-dayminutepopup-toggle', uberCalendarAttributes, this.uberCalendarPrefs.dayminutepopup);
 +		this.controller.setupWidget('prefs-weekviewenhanced-toggle', uberCalendarAttributes, this.uberCalendarPrefs.weekviewenhanced);
 +		this.controller.setupWidget('prefs-dayviewenhanced-toggle', uberCalendarAttributes, this.uberCalendarPrefs.dayviewenhanced);
 +		this.controller.setupWidget('prefs-monthviewenhanced-toggle', uberCalendarAttributes, this.uberCalendarPrefs.monthviewenhanced);
@@ -5984,6 +6690,16 @@ index 3b41954..b7247ba 100644
 +									},
 +									this.minuteIntervalModel = {
 +										value: this.uberMinuteInterval
++									}
++		);
++		this.controller.setupWidget("pv_uber_day_minute_interval",
++										this.dayMinIntervalAttrs = {
++										modelProperty: 'value',
++										label: $L("Day Popup Interval"),
++										choices: this.uberDayMinIntervals
++									},
++									this.dayMinIntervalModel = {
++										value: this.dayMinInterval
 +									}
 +		);
 +		this.controller.setupWidget("pv_uber_weeknumber_offset",
@@ -6124,7 +6840,7 @@ index 3b41954..b7247ba 100644
  		this.requests	= [];
  		this.syncSources= [];
  		this.dirty		= false;
-@@ -392,6 +1604,7 @@ var PrefsAssistant	= Class.create({
+@@ -392,6 +1681,7 @@ var PrefsAssistant	= Class.create({
  	},
  	
  	activate: function() {
@@ -6132,7 +6848,7 @@ index 3b41954..b7247ba 100644
  		//Mojo.Log.info('prefs-assistant: activate');
  		this.prefsManager.validateDefaultCalPref();
  		
-@@ -423,17 +1636,188 @@ var PrefsAssistant	= Class.create({
+@@ -423,17 +1713,195 @@ var PrefsAssistant	= Class.create({
  		
  		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
  		this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
@@ -6153,6 +6869,8 @@ index 3b41954..b7247ba 100644
 +		this.controller.get('pv_uber_dayviewshrink').observe(Mojo.Event.propertyChange, this.uberShrinkDaySelectionHandler);
 +		this.uberMinuteIntervalHandler = this.handleUberMinuteInterval.bindAsEventListener(this);
 +		this.controller.get('pv_uber_minute_interval').observe(Mojo.Event.propertyChange, this.uberMinuteIntervalHandler);
++		this.uberDayMinIntervalHandler = this.handleUberDayMinInterval.bindAsEventListener(this);
++		this.controller.get('pv_uber_day_minute_interval').observe(Mojo.Event.propertyChange, this.uberDayMinIntervalHandler);
 +		this.uberWkNumOffsetHandler = this.handleUberWkNumOffset.bindAsEventListener(this);
 +		this.controller.get('pv_uber_weeknumber_offset').observe(Mojo.Event.propertyChange, this.uberWkNumOffsetHandler);
 +		this.uberWkModulusNumHandler = this.handleUberWkModulusNum.bindAsEventListener(this);
@@ -6169,10 +6887,12 @@ index 3b41954..b7247ba 100644
 +		this.controller.listen('prefs-sendsonywatch-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-snoozethrob-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-bridgecalldialer-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-displaycatfield-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-percalalarms-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-alarmsfollowgroups-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-dayviewcompressed-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-dayviewicons-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.listen('prefs-dayminutepopup-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-weekviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-dayviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.listen('prefs-monthviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
@@ -6254,6 +6974,7 @@ index 3b41954..b7247ba 100644
 +									uberopeninview: this.uberOpenInView,
 +									perCalAlarms: this.perCalAlarms,
 +									alarmsFollowGroups: this.alarmsFollowGroups,
++									displaycatfield: this.displayCatField,
 +									bridgecalldialer: this.bridgeCallDialer
 +									});
 +		}
@@ -6270,6 +6991,8 @@ index 3b41954..b7247ba 100644
 +									prefsstartofweek: this.prefs.startOfWeek,
 +									weekmodulusnum: this.weekModulusNum,
 +									uberbackgesture: this.uberBackGesture,
++									dayminutepopup: this.dayMinutePopup,
++									daymininterval: this.dayMinInterval,
 +									dayviewicons: this.dayViewIcons
 +									});
 +		}
@@ -6321,7 +7044,7 @@ index 3b41954..b7247ba 100644
  		//Mojo.Log.info('prefs-assistant: deactivate');
  		this.controller.get('pv_start_of_week').stopObserving('mojo-tap', this.startOfWeekClickHandler);
  		
-@@ -456,6 +1840,57 @@ var PrefsAssistant	= Class.create({
+@@ -456,6 +1924,60 @@ var PrefsAssistant	= Class.create({
  		
  		this.controller.stopListening('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
@@ -6333,6 +7056,7 @@ index 3b41954..b7247ba 100644
 +		this.controller.get('pv_uber_back_gesture').stopObserving(Mojo.Event.propertyChange, this.uberBackGestureSelectionHandler);
 +		this.controller.get('pv_uber_dayviewshrink').stopObserving(Mojo.Event.propertyChange, this.uberShrinkDaySelectionHandler);
 +		this.controller.get('pv_uber_minute_interval').stopObserving(Mojo.Event.propertyChange, this.uberMinuteIntervalHandler);
++		this.controller.get('pv_uber_day_minute_interval').stopObserving(Mojo.Event.propertyChange, this.uberDayMinIntervalHandler);
 +		this.controller.get('pv_uber_weeknumber_offset').stopObserving(Mojo.Event.propertyChange, this.uberWkNumOffsetHandler);
 +		this.controller.get('pv_uber_weeknumber_modulus').stopObserving(Mojo.Event.propertyChange, this.uberWkModulusNumHandler);
 +		this.controller.get('pv_uber_weekviewshrink').stopObserving(Mojo.Event.propertyChange, this.uberShrinkWeekSelectionHandler);
@@ -6344,10 +7068,12 @@ index 3b41954..b7247ba 100644
 +		this.controller.stopListening('prefs-sendsonywatch-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-snoozethrob-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-bridgecalldialer-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-displaycatfield-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-percalalarms-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-alarmsfollowgroups-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-dayviewcompressed-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-dayviewicons-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
++		this.controller.stopListening('prefs-dayminutepopup-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-weekviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-dayviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
 +		this.controller.stopListening('prefs-monthviewenhanced-toggle', Mojo.Event.propertyChange, this.uberTogglePrefsHandler);
@@ -6379,7 +7105,7 @@ index 3b41954..b7247ba 100644
  	},
  	
  	// *** EVENT HANDLERS ***
-@@ -492,6 +1927,239 @@ var PrefsAssistant	= Class.create({
+@@ -492,6 +2014,247 @@ var PrefsAssistant	= Class.create({
  		}
  	},
  
@@ -6440,6 +7166,10 @@ index 3b41954..b7247ba 100644
 +		this.uberMinuteInterval = this.minuteIntervalModel.value;
 +	},
 +	
++	handleUberDayMinInterval: function(event) {
++		this.dayMinInterval = this.dayMinIntervalModel.value;
++	},
++	
 +	handleUberWkModulusNum: function(event) {
 +		this.weekModulusNum = this.weekModulusModel.value;
 +	},
@@ -6459,6 +7189,8 @@ index 3b41954..b7247ba 100644
 +			this.reminders.sendSonyWatch = this.sendSonyWatch;
 +		} else if(event.model.id == "BridgeCallDialer") {
 +			this.bridgeCallDialer = event.model.value;
++		} else if(event.model.id == "DisplayCatField") {
++			this.displayCatField = event.model.value;
 +		} else if(event.model.id == "PerCalAlarms") {
 +			this.perCalAlarms = event.model.value;
 +			this.reminders.perCalAlarms = event.model.value;
@@ -6478,6 +7210,8 @@ index 3b41954..b7247ba 100644
 +			this.dayViewCompressed = event.model.value;
 +		} else if(event.model.id == "DayViewIcons") {
 +			this.dayViewIcons = event.model.value;
++		} else if(event.model.id == "DayMinutePopup") {
++			this.dayMinutePopup = event.model.value;
 +		} else if(event.model.id == "DayViewEnhanced") {
 +			this.dayViewEnhanced = event.model.value;
 +			if(event.model.value) {
@@ -6619,7 +7353,7 @@ index 3b41954..b7247ba 100644
  
  	startOfWeekChoose: function(val) {
  		//Mojo.Log.info('prefs-assistant: startOfWeekChoose: %s', val);
-@@ -558,8 +2226,23 @@ var PrefsAssistant	= Class.create({
+@@ -558,8 +2321,23 @@ var PrefsAssistant	= Class.create({
  					label: ONE_HOUR,
  					command: 60
  				}, {
@@ -6643,7 +7377,7 @@ index 3b41954..b7247ba 100644
  				}]
  			});
  	},
-@@ -639,6 +2322,26 @@ var PrefsAssistant	= Class.create({
+@@ -639,6 +2417,26 @@ var PrefsAssistant	= Class.create({
  		});
  	},
  	
@@ -6670,7 +7404,7 @@ index 3b41954..b7247ba 100644
  	// *** WIDGET ATTRS & MODELS
  
  	
-@@ -651,22 +2354,310 @@ var PrefsAssistant	= Class.create({
+@@ -651,22 +2449,317 @@ var PrefsAssistant	= Class.create({
  		listTitle: $L('Accounts'),
  		items: []
  	},
@@ -6719,6 +7453,13 @@ index 3b41954..b7247ba 100644
 +	uberMinuteIntervals: [
 +		{label:$L('1'), value:1},
 +		{label:$L('5'), value:5},
++		{label:$L('10'), value:10},
++		{label:$L('15'), value:15},
++		{label:$L('20'), value:20},
++		{label:$L('30'), value:30},
++	],
++	
++	uberDayMinIntervals: [
 +		{label:$L('10'), value:10},
 +		{label:$L('15'), value:15},
 +		{label:$L('20'), value:20},
@@ -8122,7 +8863,7 @@ index 65ecc4e..5252c8c 100644
  	
  });
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js
-index 93e8191..752690c 100644
+index 93e8191..938ece5 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/repeat-assistant.js
 @@ -46,7 +46,7 @@ var RepeatAssistant = Class.create({
@@ -9252,7 +9993,7 @@ index 93e8191..752690c 100644
  	slideDown: function(div, duration) {
  		div.show();
  		var divDimensions = div.getDimensions();
-@@ -894,9 +1776,157 @@ var RepeatAssistant = Class.create({
+@@ -894,7 +1776,159 @@ var RepeatAssistant = Class.create({
  	    this.controller.modelChanged(this.endDateModel);
  		this.recurConstruct(this.defaultRRuleUntil,false);
  		
@@ -9411,12 +10152,10 @@ index 93e8191..752690c 100644
 +		}
 +	}
  });
--
--
--
--
+ 
+ 
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
-index 4fa6e78..b033303 100644
+index 4fa6e78..ece9e53 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/week-assistant.js
 @@ -15,9 +15,12 @@ var WeekAssistant = Class.create({
@@ -9450,7 +10189,7 @@ index 4fa6e78..b033303 100644
  		this.PREV_WEEK			= 1;
  		this.THIS_WEEK			= 2;
  		this.NEXT_WEEK			= 3;
-@@ -50,10 +63,190 @@ var WeekAssistant = Class.create({
+@@ -50,10 +63,200 @@ var WeekAssistant = Class.create({
  		this.requests			= [];
  		this.HOUR_HEIGHT		= 30;
  		this.TOTAL_HEIGHT		= this.HOUR_HEIGHT * 24;
@@ -9584,6 +10323,16 @@ index 4fa6e78..b033303 100644
 +		}
 +	},
 +	
++	uberColors: {"cal-color-blue": "rgba(145,211,234,0.5)",
++		"cal-color-green": "rgba(140,240,140,0.5)",
++		"cal-color-yellow": "rgba(232,227,124,0.5)",
++		"cal-color-gray": "rgba(194,194,194,0.5)",
++		"cal-color-orange": "rgba(251,180,116,0.5)",
++		"cal-color-pink": "rgba(245,156,188,0.5)",
++		"cal-color-red": "rgba(255,151,151,0.5)",
++		"cal-color-purple": "rgba(217,183,255,0.5)",
++		"cal-color-teal": "rgba(114,223,210,0.5)"},
++	
 +	uberSetWidth: function(option){
 +		if(option){
 +			//this.workWeekOnly = true;
@@ -9641,7 +10390,7 @@ index 4fa6e78..b033303 100644
  	},
  	
  	databaseChanged: function (response) {
-@@ -111,6 +304,56 @@ var WeekAssistant = Class.create({
+@@ -111,6 +314,56 @@ var WeekAssistant = Class.create({
  		}
  	},
  	
@@ -9698,7 +10447,7 @@ index 4fa6e78..b033303 100644
  	isWeekDisplayed: function(week) {
  		var weekDateKey = this.keyFromDate(week);
  		var thisWeek = this.getFirstDayOfWeek (this.app.getCurrentDateTime());
-@@ -137,9 +380,31 @@ var WeekAssistant = Class.create({
+@@ -137,9 +390,31 @@ var WeekAssistant = Class.create({
  	buildWeekTitle: function() {
  		var today = Date.today().clearTime();
  		var dayOfWeek = this.getFirstDayOfWeek(this.weekDate);
@@ -9732,7 +10481,7 @@ index 4fa6e78..b033303 100644
  		var formatObj = {};
  		// formatString = "MMM d, yyyy";
          formatObj.date = "default";
-@@ -168,10 +433,14 @@ var WeekAssistant = Class.create({
+@@ -168,10 +443,14 @@ var WeekAssistant = Class.create({
  		this.ctxHeaderLabels.fillRect(641, 0, 1, 18);
  		
  		dayOfWeek.addWeeks(-1).clearTime();
@@ -9748,7 +10497,7 @@ index 4fa6e78..b033303 100644
  				var text1 = String(Mojo.Format.formatDate(dayOfWeek,'E'));
  				var text2 = String(dayOfWeek.getDate());
  				this.ctxHeaderLabels.font = "bold 14px Prelude";
-@@ -191,13 +460,16 @@ var WeekAssistant = Class.create({
+@@ -191,13 +470,16 @@ var WeekAssistant = Class.create({
  				if ((currentDayIndex == -1) && (dayOfWeek.compareTo(today) === 0)) {
  					currentDayIndex = j + (i * 7);
  				}
@@ -9766,7 +10515,7 @@ index 4fa6e78..b033303 100644
  				display: 'block'
  			});
  		} else {
-@@ -285,8 +557,19 @@ var WeekAssistant = Class.create({
+@@ -285,8 +567,19 @@ var WeekAssistant = Class.create({
  		//Mojo.Log.info("week-assistant: currentCalendarUpdated");
  		var calMgr	= this.calendarsManager
  		,	calendar= calMgr.getCurrentCal();
@@ -9788,7 +10537,7 @@ index 4fa6e78..b033303 100644
  			this.controller.get ("wv_current_calendar")	.update			($L("All"));
  			this.controller.get ("wv_calendar_source")	.setAttribute	("class", "header-cal-source");
  			return;
-@@ -403,10 +686,18 @@ var WeekAssistant = Class.create({
+@@ -403,10 +696,18 @@ var WeekAssistant = Class.create({
  		};
  
  		var calendarId	= this.calendarsManager.getCurrentCal();
@@ -9809,7 +10558,7 @@ index 4fa6e78..b033303 100644
  		} else {
  			range.calendarId = calendarId;										// otherwise enable calendar filtering.
  		}
-@@ -441,21 +732,66 @@ var WeekAssistant = Class.create({
+@@ -441,21 +742,66 @@ var WeekAssistant = Class.create({
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
  
@@ -9882,7 +10631,7 @@ index 4fa6e78..b033303 100644
  		var startPos = this.startDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var midPos = this.midDayMarkerPos * this.HOUR_HEIGHT - 1;
  		var endPos = this.endDayMarkerPos * this.HOUR_HEIGHT - 1;
-@@ -469,6 +805,7 @@ var WeekAssistant = Class.create({
+@@ -469,6 +815,7 @@ var WeekAssistant = Class.create({
  			ctx.strokeText(this.midDayMarkerTime, 12, midPos + 24);
  		}
  		ctx.strokeText(this.endDayMarkerTime, 17, endPos + 24);
@@ -9890,7 +10639,7 @@ index 4fa6e78..b033303 100644
  	},
  	
  	renderEmptyWeek: function(whichWeek) {
-@@ -476,7 +813,7 @@ var WeekAssistant = Class.create({
+@@ -476,7 +823,7 @@ var WeekAssistant = Class.create({
  		
  		// Erase the entire cavas
  		ctx.fillStyle = "rgb(228, 228, 226)";
@@ -9899,7 +10648,7 @@ index 4fa6e78..b033303 100644
  
  		// Draw vertical day seperator lines
  		var x = 0;
-@@ -501,7 +838,7 @@ var WeekAssistant = Class.create({
+@@ -501,7 +848,7 @@ var WeekAssistant = Class.create({
  				allDayEvents.setAttribute("height", newHeight + 'px');
  				var ctx = this.weeks[whichWeek].ctxAllDay;
  				ctx.fillStyle = "rgb(198, 197, 196)";
@@ -9908,7 +10657,16 @@ index 4fa6e78..b033303 100644
  			}
  				
  			if (allDayEvents.style.display != 'block') {
-@@ -564,6 +901,84 @@ var WeekAssistant = Class.create({
+@@ -520,7 +867,7 @@ var WeekAssistant = Class.create({
+ 		}
+ 	},
+ 	
+-	renderEvent: function(whichWeek, whichDay, event) {
++	renderEvent: function(whichWeek, whichDay, event, eIdx) {
+ 		var ctx = this.weeks[whichWeek].ctxEvents;
+ 		var marginLeft = 4;
+ 		var marginRight = 4;
+@@ -564,6 +911,84 @@ var WeekAssistant = Class.create({
  		
  		ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
  		ctx.fillRect(left+1, top+height-3, width-2, 1);
@@ -9924,7 +10682,7 @@ index 4fa6e78..b033303 100644
 +													this.handleEventsTap.bind(this, event),
 +													this.showSelectedEventsTap.bind(this, left, top, width, height),
 +													this.clearSelectedEventsTap.bind(this, left, top, width, height),
-+													null,
++													this.handleEventsHold.bind(this, event, left, top, width, height, whichDay, eIdx),
 +													null,
 +													null,
 +													null);
@@ -9993,7 +10751,7 @@ index 4fa6e78..b033303 100644
  	},
  	
  	renderBusyTime: function(whichWeek, whichDay, busy) {
-@@ -584,12 +999,79 @@ var WeekAssistant = Class.create({
+@@ -584,12 +1009,79 @@ var WeekAssistant = Class.create({
  	renderAllDayEvent: function(whichWeek, whichDay, row, allday) {
  		var ctx = this.weeks[whichWeek].ctxAllDay;
  		var marginLeft = 4;
@@ -10062,7 +10820,7 @@ index 4fa6e78..b033303 100644
 +						var end = allday.note.indexOf(";");
 +						if (end > start) {
 +							var icon = allday.note.substring(start, end);
-+							ctx.drawImage(this.imgIcons[icon], left+eventMaxWidth-14, top+2, 10, 10);
++							this.imgIcons[icon] && ctx.drawImage(this.imgIcons[icon], left+eventMaxWidth-14, top+2, 10, 10);
 +						}
 +					}
 +				} catch(e) {}
@@ -10075,7 +10833,7 @@ index 4fa6e78..b033303 100644
  	},
  
  
-@@ -598,10 +1080,14 @@ var WeekAssistant = Class.create({
+@@ -598,10 +1090,14 @@ var WeekAssistant = Class.create({
  		var ctx;
  		var ctxAllDay;
  		this.renderEmptyWeek(whichWeek);
@@ -10092,7 +10850,7 @@ index 4fa6e78..b033303 100644
  		// Erase any existing all day events and any selection highlighting
  		if (this.weeks[whichWeek].alldayHeight) {
  			ctx = this.weeks[whichWeek].ctxAllDay;
-@@ -621,53 +1107,76 @@ var WeekAssistant = Class.create({
+@@ -621,53 +1117,76 @@ var WeekAssistant = Class.create({
  		    ctxAllDay.fillRect(this.COL_POS[this.selectedCol], 0, this.COL_WIDTH[this.selectedCol], this.weeks[whichWeek].alldayHeight);
  		}	
  
@@ -10157,7 +10915,7 @@ index 4fa6e78..b033303 100644
 +			if(day && day.events) {
 +				for (limit = day.events.length, i = 0; i < limit; i++) {
 +					if (whichWeek == this.THIS_WEEK) {eventCount += 1;}
-+					this.renderEvent (whichWeek, whichDay, day.events[i]);
++					this.renderEvent (whichWeek, whichDay, day.events[i], i);
 +				}
  			}
  		}
@@ -10184,7 +10942,7 @@ index 4fa6e78..b033303 100644
  		this.renderStartEndDayLabels(whichWeek);
  	},
  	
-@@ -684,6 +1193,7 @@ var WeekAssistant = Class.create({
+@@ -684,6 +1203,7 @@ var WeekAssistant = Class.create({
  		this.clearCache();
  		this.eventManager	= new Calendar.EventManager();
  		this.reminders		= this.app.getReminderManager();
@@ -10192,10 +10950,40 @@ index 4fa6e78..b033303 100644
  
  		this.reminders.observeReminders	("week", this);
  		this.app.observeCurrentDateTime	("week", this);
-@@ -706,6 +1216,31 @@ var WeekAssistant = Class.create({
+@@ -706,6 +1226,61 @@ var WeekAssistant = Class.create({
  		this.scrollMakerPos	= this.controller.get ("wv_scroll_marker");
  		this.scrollDataDiv	= this.controller.get ("wv_scroll_data");
  		
++		if(this.enhancedView){
++			var headDiv = this.controller.get("wv_header_container1");
++			var scrimDiv = document.createElement('div');
++			scrimDiv.setAttribute('id', "uber-week-panel-scrim");
++			scrimDiv.setAttribute('class', "palm-scrim menu-panel");
++			scrimDiv.setAttribute('x-mojo-menupanel-scrim', "");
++			
++			var panDiv = document.createElement('div');
++			panDiv.setAttribute('id', "uber-week-mp-cont");
++			panDiv.innerHTML = '<div id="uber-week-menu-panel" class="palm-menu-panel" x-mojo-menupanel="">' +
++				'<div class="palm-menu-panel-wrapper" x-mojo-element="Scroller"><div class="palm-list">' +
++		        	'<div class="palm-row first" id="uber-panel-event"></div>' +
++					'<div class="palm-row last" ><div class="palm-row-wrapper"><div ><table width="100%" ><tr>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-week-mp-back" class="palm-button" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc=""><-</div></td>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-week-mp-map" class="palm-button secondary disabled" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc="">'+$L("Map")+'</div></td>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-week-mp-delete" class="palm-button negative" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc="">'+$L("Delete")+'</div></td>' +
++								'<td width="25%" style="padding:0px;margin:0px;"><div id="uber-week-mp-next" class="palm-button" x-mojo-tap-highlight="momentary" style="overflow:hidden;padding:0px;margin:0px;" x-mojo-loc="">-></div></td>' +
++					'</tr></table></div></div>' +
++				'</div></div></div>';
++			
++			this.controller.get("week_view").insertBefore(scrimDiv, headDiv);
++			var scrollDiv = this.controller.get("wv_scroll_container");
++			this.controller.get("week_view").insertBefore(panDiv, scrollDiv);
++			this.uberMenuPanel = this.controller.get("uber-week-menu-panel");
++			this.uberScrim = this.controller.get("uber-week-panel-scrim");
++			this.uberMenuPanel.hide();
++			this.uberScrim.hide();
++		}
++		
++		
 +		if (this.enhancedView && this.workWeekOnly) {
 +			this.controller.get("week_view").width = this.WEEK_WIDTH + 'px';
 +			this.controller.get("wv_scroll_data").width = this.WEEK_WIDTH*3 + 'px';
@@ -10224,7 +11012,7 @@ index 4fa6e78..b033303 100644
  		this.weeks = [];
  		this.weeks[this.PREV_WEEK] = {};
  		this.weeks[this.THIS_WEEK] = {};
-@@ -721,9 +1256,20 @@ var WeekAssistant = Class.create({
+@@ -721,9 +1296,20 @@ var WeekAssistant = Class.create({
  		this.weeks[this.THIS_WEEK].ctxEvents.font = "14px Prelude Bold";
  		this.weeks[this.NEXT_WEEK].ctxEvents.font = "14px Prelude Bold";
  		
@@ -10246,7 +11034,7 @@ index 4fa6e78..b033303 100644
  			this.eventHandler.addHandler(this.COL_POS[i], 
  										 0, 
  										 this.COL_POS[i] + this.COL_WIDTH[i],
-@@ -746,7 +1292,7 @@ var WeekAssistant = Class.create({
+@@ -746,7 +1332,7 @@ var WeekAssistant = Class.create({
  		this.weeks[this.THIS_WEEK].ctxAllDay = this.weeks[this.THIS_WEEK].all_day_events.getContext('2d');
  		this.weeks[this.NEXT_WEEK].ctxAllDay = this.weeks[this.NEXT_WEEK].all_day_events.getContext('2d');
  		this.allDayEventHandler = new TapHandler(this.weeks[this.THIS_WEEK].all_day_events);
@@ -10255,7 +11043,7 @@ index 4fa6e78..b033303 100644
  			this.allDayEventHandler.addHandler(this.COL_POS[i], 
  													0, 
  													this.COL_POS[i] + this.COL_WIDTH[i],
-@@ -770,7 +1316,12 @@ var WeekAssistant = Class.create({
+@@ -770,7 +1356,12 @@ var WeekAssistant = Class.create({
  		this.controller.setupWidget ("wv_scroll_events"		, {}							, this.vertScrollerModel);	
  
  //		this.sceneWidth = this.controller.get('wv_scroll_container').getDimensions().width;
@@ -10269,7 +11057,7 @@ index 4fa6e78..b033303 100644
  		
  		this.buildViewHeader();
  		this.title = this.controller.get('wv_title');
-@@ -797,16 +1348,17 @@ var WeekAssistant = Class.create({
+@@ -797,16 +1388,17 @@ var WeekAssistant = Class.create({
  		this.menuModel =
  		{	visible	:	true
  		,	items	:
@@ -10290,7 +11078,7 @@ index 4fa6e78..b033303 100644
  			]
  		};
  
-@@ -816,10 +1368,42 @@ var WeekAssistant = Class.create({
+@@ -816,10 +1408,47 @@ var WeekAssistant = Class.create({
  		this.remindersUpdated(); // Update missed reminders menu item
  
  		this.isScrolling = false;
@@ -10324,6 +11112,11 @@ index 4fa6e78..b033303 100644
 +			Mojo.Dom.hide(this.evtap);
 +			//setup events taphandler
 +			this.fromDefaultTap = false;
++			this.prevListener = this.handleHeldPrev.bind(this);
++			this.nextListener = this.handleHeldNext.bind(this);
++			this.mapListener = this.handleHeldMap.bind(this);
++			this.heldEvtListener = this.handleHeldEvent.bind(this);
++			this.deleteListener = this.handleHeldDelete.bind(this);
 +			this.eventsTapHandler = new TapHandler(this.controller.get('eventsTap'));
 +		}
  	}
@@ -10334,7 +11127,7 @@ index 4fa6e78..b033303 100644
  	}
  
  ,	syncAllCalendars: function() {
-@@ -840,6 +1424,12 @@ var WeekAssistant = Class.create({
+@@ -840,6 +1469,12 @@ var WeekAssistant = Class.create({
  			} else if (event.command == Mojo.Menu.prefsCmd) {
  				Mojo.Event.stop (event);
  				this.controller.stageController.pushScene('prefs');
@@ -10347,7 +11140,7 @@ index 4fa6e78..b033303 100644
  			} else if(event.command == Mojo.Menu.helpCmd){
  				this.app.getAppManagerService().launchHelp (this.controller);
  			} else if (event.command == 'sync') {
-@@ -855,11 +1445,37 @@ var WeekAssistant = Class.create({
+@@ -855,11 +1490,50 @@ var WeekAssistant = Class.create({
  			} else if (event.command == 'reminders') {
  				Mojo.Event.stop (event);
  				this.controller.stageController.pushScene('reminder-list');
@@ -10371,6 +11164,19 @@ index 4fa6e78..b033303 100644
  			// Enable prefs menuitem for this scene.
  			event.stopPropagation();
 +		}  else if (event.type == Mojo.Event.back) {
++			if(this.uberHolding){
++				if(this.uberHoldTimeout){
++					this.controller.window.clearTimeout(this.uberHoldTimeout);
++					this.uberHoldTimeout = 0;
++				}
++				this.uberMenuPanel.hide();
++				//Mojo.Log.error("default tap should close and return");
++				this.uberHolding = false;
++				this.uberFirstTapFromHold = false;
++				event.preventDefault();
++				event.stopPropagation();
++				return;
++			}
 +			if(this.uberBackGesture == 'month' || (this.uberBackGesture == 'last' && this.uberLastView == 'month' )) {
 +				event.preventDefault();
 +				event.stopPropagation();
@@ -10385,7 +11191,7 @@ index 4fa6e78..b033303 100644
  		}
  	}
  
-@@ -916,7 +1532,19 @@ var WeekAssistant = Class.create({
+@@ -916,7 +1590,19 @@ var WeekAssistant = Class.create({
  
  ,	scrollToDefault: function(animate) {
  		if (this.scroller) {
@@ -10406,7 +11212,7 @@ index 4fa6e78..b033303 100644
  		}
  	},
  
-@@ -1019,8 +1647,49 @@ var WeekAssistant = Class.create({
+@@ -1019,8 +1705,54 @@ var WeekAssistant = Class.create({
  	
  	activate: function() {
  		this.active = true;
@@ -10452,11 +11258,16 @@ index 4fa6e78..b033303 100644
 +			this.controller.listen(this.controller.sceneElement, Mojo.Event.keydown, this.keyDownHandler);
 +			this.miniHandler = this.handleMini.bind(this);
 +			this.controller.listen(this.controller.sceneElement, Mojo.Event.stageActivate, this.miniHandler);
++			this.controller.get ('uber-week-mp-back').observe(Mojo.Event.tap, this.prevListener);
++			this.controller.get ('uber-week-mp-next').observe(Mojo.Event.tap, this.nextListener);
++			this.controller.get ('uber-week-mp-map').observe(Mojo.Event.tap, this.mapListener);
++			this.controller.get ('uber-panel-event').observe(Mojo.Event.tap, this.heldEvtListener);
++			this.controller.get ('uber-week-mp-delete').observe(Mojo.Event.tap, this.deleteListener);
 +		}
  
  		// Tap JumpTo:
  		this.controller.get('wv_view_header').observe(Mojo.Event.tap, this.showJumpTo);
-@@ -1049,10 +1718,20 @@ var WeekAssistant = Class.create({
+@@ -1049,10 +1781,29 @@ var WeekAssistant = Class.create({
  
  	deactivate: function(){
  		this.active = false;
@@ -10472,13 +11283,22 @@ index 4fa6e78..b033303 100644
 +			this.controller.stopListening(this.controller.sceneElement, Mojo.Event.keyup, this.keyUpHandler);
 +			this.controller.stopListening(this.controller.sceneElement, Mojo.Event.keydown, this.keyDownHandler);
 +			this.controller.stopListening(this.controller.sceneElement, Mojo.Event.stageActivate, this.miniHandler);
++			this.controller.get ('uber-week-mp-back').stopObserving(Mojo.Event.tap, this.prevListener);
++			this.controller.get ('uber-week-mp-next').stopObserving(Mojo.Event.tap, this.nextListener);
++			this.controller.get ('uber-week-mp-map').stopObserving(Mojo.Event.tap, this.mapListener);
++			this.controller.get ('uber-panel-event').stopObserving(Mojo.Event.tap, this.heldEvtListener)
++			this.controller.get ('uber-week-mp-delete').stopObserving(Mojo.Event.tap, this.deleteListener);
++			if(this.uberHoldTimeout){
++				this.controller.window.clearTimeout(this.uberHoldTimeout);
++				this.uberHoldTimeout = 0;
++			}
 +		}
 +		
 +
  		this.controller.get ('wv_view_header')		.stopObserving (Mojo.Event.tap, this.showJumpTo);
  		this.controller.get ('wv_calendar_source')	.stopObserving (Mojo.Event.tap, this.showCalendarPicker);
  
-@@ -1063,6 +1742,152 @@ var WeekAssistant = Class.create({
+@@ -1063,6 +1814,446 @@ var WeekAssistant = Class.create({
  		this.controller.get				("wv_scroll_container").mojo.removeMovementListener	(this.onMove);
  	},
  	
@@ -10526,9 +11346,291 @@ index 4fa6e78..b033303 100644
 +		}
 +	},
 +	
++	handleEventsHold: function(event, left, top, width, height, whichDay, eIdx, tapEvent) {
++		//Mojo.Event.stop(tapEvent);
++		//Mojo.Log.error("Holding Event!!!!!!!" + (event && event.subject) + " , day: " + whichDay + " , idx: " + eIdx);
++		this.uberMenuPanel.show();
++		this.uberHolding = true;
++		this.uberHeldEvent = false;
++		this.uberHeldDay = whichDay;
++		this.uberHeldIdx = eIdx;
++		this.uberFirstTapFromHold = true;
++		if(left !== null){this.clearSelectedEventsTap(left, top, width, height);}
++		if(event){
++			var tEvt = {}, item, rtdate;
++			item = event;
++			this.uberHeldEvent = event;
++			if(item._id) {
++				tEvt._id = item._id;
++			}
++			if(item.currentLocalStart || item.dtstart) {
++				var formatObj = {};
++				rtdate = new Date(item.currentLocalStart || item.dtstart);
++				// formatString = "EEE MMM d";
++				formatObj.date = "medium";
++				formatObj.weekday = "medium";
++				formatObj.dateComponents = "md"
++				var templateModel = {};
++				var template = new Template($L("#{dateStr}"));
++				//var todayStr= Mojo.Format.formatRelativeDate(rtdate.clearTime(), {date: "short"}).capitalize();
++				//templateModel.todayStr = todayStr;
++				templateModel.dateStr = Mojo.Format.formatDate(rtdate, formatObj);
++				var dateTxt = template.evaluate(templateModel);
++				if(!item.allDay) {
++					
++					var h = rtdate.getHours();
++					var m = rtdate.getMinutes();
++					tEvt.startT = (h<10 ? '0'+h: h) + ':' + (m<10 ? '0'+m : m);
++				} else if (item.allDay === true) {
++					tEvt.startT = $L("all ");
++				}
++			}
++			if(item.subject) {
++				tEvt.subject = dateTxt + " - " + item.subject;
++			}
++			if(item.location && item.location !== "") {
++				tEvt.location = item.location;
++				this.controller.get("uber-week-mp-map").removeClassName("disabled");
++			} else {
++				this.controller.get("uber-week-mp-map").addClassName("disabled");
++			}
++			if(item.calendarId) {
++				var calColor = this.calendarsManager.getCalColorStyle(item.calendarId);
++				tEvt.bgcolor = this.uberColors[calColor];
++			}
++			if(item.currentLocalEnd || item.dtend) {
++				if(!item.allDay) {
++					rtdate = new Date(item.currentLocalEnd || item.dtend);
++					var h = rtdate.getHours();
++					var m = rtdate.getMinutes();
++					tEvt.endT = (h<10 ? '0'+h: h) + ':' + (m<10 ? '0'+m : m);
++				} else if (item.allDay === true) {
++					tEvt.endT = $L("day ");
++				}
++			}
++			if(item.note) {
++				var wholeNote = item.note !== "\n" ? item.note : "";
++				var patt = /((.|\n|\r)*?)ICON=([a-z0-9_-]{1,20});((.|\n|\r)*)/;
++				if(wholeNote && wholeNote !== "\n" && wholeNote.length > 0) {
++					var result = wholeNote.match(patt);
++					if(result && result[3]) {
++						tEvt.cat = result[3];
++						if(tEvt.cat){
++							tEvt.catFormatted = 'url(/media/internal/.scrims/ubercalendar/icon-' + tEvt.cat + '.png) no-repeat center right;'
++						}
++						tEvt.note = result[1] + result[4];
++					} else {
++						tEvt.note = wholeNote;
++					}
++				}
++			}
++			var tEvtHtml = Mojo.View.render({object: tEvt, template: 'shared/ubertemplateitem'});
++			this.controller.get('uber-panel-event').update(tEvtHtml);
++		}
++		if(!this.uberHoldTimeout){
++			this.uberHoldTimeout = this.controller.window.setTimeout(function(){this.uberHeldEvent = false;this.uberHolding=false;this.uberMenuPanel.hide();}.bind(this), 5000);
++		} else {
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = this.controller.window.setTimeout(function(){this.uberHeldEvent = false;this.uberHolding=false;this.uberMenuPanel.hide();}.bind(this), 5000);
++		}
++	},
++	
++	findUberNextEvent: function(want){
++		if(this.uberHeldEvent && this.uberHeldDay !== undefined && this.uberHeldIdx !== undefined && want !== undefined){
++			var ended, data, day, beginWeekNoTime, aLen, eLen, maxD, nDay, nIdx;
++			var event;
++			beginWeekNoTime = this.getFirstDayOfWeek(this.app.getCurrentDateTime()).set({hour: 0, minute: 0, second: 0, millisecond: 0});
++			data = this.getFromCache(beginWeekNoTime.getTime());
++			nDay = this.uberHeldDay;
++			day = data.days[nDay];
++			aLen = day.allDayEvents.length;
++			eLen = day.events.length;
++			maxD = this.weekTest ? 5 : 7;
++			var needNewDay = (aLen + eLen) < 2;//true = only 1 event that day
++			if(!needNewDay) {
++				if(this.uberHeldEvent.allDay){
++					if(want === "prev"){
++						if(this.uberHeldIdx -1 <0){
++							needNewDay = true;
++						} else {
++							nIdx = this.uberHeldIdx -1;
++							event = day.allDayEvents[nIdx];
++						}
++					} else {// want next
++						if(aLen > this.uberHeldIdx+1){
++							nIdx = this.uberHeldIdx+1;
++							event = day.allDayEvents[nIdx];
++						} else { //check events
++							if(eLen > 0){
++								nIdx = 0;
++								event = day.events[nIdx];
++							} else {
++								needNewDay = true;
++							}
++						}
++					}
++					if(event){
++						var params = {event: event, whichDay: nDay, eIdx: nIdx};
++						return params;
++					}
++				} else {//events
++					if(want === "prev"){
++						if(this.uberHeldIdx -1 <0){//check all days
++							if(aLen === 0){
++								needNewDay = true;
++							} else {
++								nIdx = aLen -1;
++								event = day.allDayEvents[nIdx];
++							}
++						} else {
++							nIdx = this.uberHeldIdx -1;
++							event = day.events[nIdx];
++						}
++					} else {// want next
++						if(eLen > this.uberHeldIdx+1){
++							nIdx = this.uberHeldIdx+1;
++							event = day.events[nIdx];
++						} else {
++							needNewDay = true;
++						}
++					}
++					if(event){
++						var params = {event: event, whichDay: nDay, eIdx: nIdx};
++						return params;
++					}
++				}
++			}
++			
++			if(needNewDay){ //next or prev day
++				do {
++					if(want === "next"){//next should go to next all day event
++						nDay += 1;
++						if(nDay >= maxD){//no next this week
++							ended = true;
++							break;
++						}
++					} else {
++						nDay -= 1;
++						if(nDay < 0){//no prev this week
++							ended = true;
++							break;
++						}
++					}
++					day = data.days[nDay];
++					aLen = day.allDayEvents.length;
++					eLen = day.events.length;
++				} while(aLen + eLen <1);
++				if(!ended){
++					if(want === "next"){
++						if(aLen > 0){
++							event = day.allDayEvents[0];
++						} else {
++							event = day.events[0];
++						}
++						nIdx = 0;
++					} else {
++						if(eLen < 1){
++							nIdx = aLen-1;
++							event = day.allDayEvents[nIdx];
++						} else {
++							nIdx = eLen-1;
++							event = day.events[nIdx];
++						}
++					}
++					var params = {event: event, whichDay: nDay, eIdx: nIdx};
++					return params;
++				} else {// no event to be found
++					Mojo.Log.error("No next or previous event found");
++					return false;
++				}
++			}
++		}
++	},
++	
++	handleHeldPrev: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		var args = this.findUberNextEvent("prev");
++		if(args){
++			this.handleEventsHold(args.event, null, null, null, null, args.whichDay, args.eIdx, null);
++		}
++	},
++	
++	handleHeldNext: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		var args = this.findUberNextEvent("next");
++		if(args){
++			this.handleEventsHold(args.event, null, null, null, null, args.whichDay, args.eIdx, null);
++		}
++	},
++	
++	handleHeldEvent: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		this.uberMenuPanel.hide();
++		//Mojo.Log.error("held event - launch edit");
++		this.uberHolding = false;
++		this.uberFirstTapFromHold = false;
++		if(this.uberHeldEvent){
++			this.handleEventsTap(this.uberHeldEvent, false);
++		}
++	},
++	
++	handleHeldMap: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		this.uberMenuPanel.hide();
++		//Mojo.Log.error("held map - launch map");
++		this.uberHolding = false;
++		this.uberFirstTapFromHold = false;
++		if(this.uberHeldEvent && this.uberHeldEvent.location && this.uberHeldEvent.location !==""){
++			this.app.getAppManagerService().launchMaps (this.controller, this.uberHeldEvent.location, false);
++		}
++		return;
++	},
++	
++	handleHeldDelete: function(){
++		if(this.uberHoldTimeout){
++			this.controller.window.clearTimeout(this.uberHoldTimeout);
++			this.uberHoldTimeout = 0;
++		}
++		this.uberMenuPanel.hide();
++		//Mojo.Log.error("held delete ");
++		this.uberHolding = false;
++		this.uberFirstTapFromHold = false;
++		if(this.uberHeldEvent){
++			this.fromDefaultTap = false;
++			this.eventToBeDeleted = this.uberHeldEvent;
++			this.deletedeventId = this.uberHeldEvent._id;
++			this.gotEventInlineDelete(this.uberHeldEvent);
++		}
++	},
++	
 +	handleEventsTap: function(event, tapEvent) {
 +		//copied event saved open in edit scene
-+		Mojo.Event.stop(tapEvent);
++		if(tapEvent){Mojo.Event.stop(tapEvent);}
++		if(this.uberHolding){//hold fires tap so make sure we're not from that
++			if(this.uberFirstTapFromHold){
++				this.uberFirstTapFromHold = false;
++				return;
++			} else {
++				this.uberHolding = false;
++				if(this.uberHoldTimeout){
++					this.controller.window.clearTimeout(this.uberHoldTimeout);
++					this.uberHoldTimeout = 0;
++					this.uberMenuPanel.hide();
++				}
++			}
++		}
 +		this.fromDefaultTap = false;
 +		if (this.orangeKeyDown == true) {
 +			//create new from old
@@ -10589,6 +11691,18 @@ index 4fa6e78..b033303 100644
 +	handleDefaultEventsTap: function(event, x, y) {
 +		// no eventsTap handler in this space, find col run tapHandler
 +		Event.stop(event);
++		if(this.uberHolding){
++			if(this.uberHoldTimeout){
++				this.controller.window.clearTimeout(this.uberHoldTimeout);
++				this.uberHoldTimeout = 0;
++				this.uberMenuPanel.hide();
++			}
++			this.uberMenuPanel.hide();
++			//Mojo.Log.error("default tap should close and return");
++			this.uberHolding = false;
++			this.uberFirstTapFromHold = false;
++			return;
++		}
 +		if (this.metaKeyDown == true) {
 +			// nothing to copy here reset metakeydown
 +			this.metaKeyDown = false;
@@ -10631,7 +11745,7 @@ index 4fa6e78..b033303 100644
  	showSelectedHandler: function(col) {
  		this.selectedCol = col;
  		
-@@ -1079,7 +1904,66 @@ var WeekAssistant = Class.create({
+@@ -1079,7 +2270,66 @@ var WeekAssistant = Class.create({
  		this.renderWeek(this.THIS_WEEK, week);
  	},
  	
@@ -10698,7 +11812,7 @@ index 4fa6e78..b033303 100644
  		var dayofweek= this.getFirstDayOfWeek (this.app.getCurrentDateTime());
  		dayofweek.addDays(col);
  			
-@@ -1110,14 +1994,46 @@ var WeekAssistant = Class.create({
+@@ -1110,14 +2360,46 @@ var WeekAssistant = Class.create({
  		Mojo.Event.stop (event);
  
  		var listItems = this.calendarsManager.buildCalendarsMenu (true /*includeAll*/, true /*includeReadOnly*/, true /*includeExcludedFromAll*/);
@@ -10747,7 +11861,7 @@ index 4fa6e78..b033303 100644
  	    });
  	}
  
-@@ -1126,9 +2042,35 @@ var WeekAssistant = Class.create({
+@@ -1126,9 +2408,35 @@ var WeekAssistant = Class.create({
  
  		if (value == "viewOptions"){
  			this.controller.stageController.pushScene ("prefs-options");
@@ -10784,7 +11898,7 @@ index 4fa6e78..b033303 100644
  		this.calendarsManager.setCurrentCal (value);
  		this.clearCache();
  		this.updateAll();
-@@ -1142,11 +2084,15 @@ var WeekAssistant = Class.create({
+@@ -1142,11 +2450,15 @@ var WeekAssistant = Class.create({
  
  		var firstDayOfWeek	= new Date(week);
  		var prefs			= this.prefsManager.getPrefs();
@@ -10803,7 +11917,7 @@ index 4fa6e78..b033303 100644
  		return firstDayOfWeek;
  	},
  
-@@ -1156,20 +2102,45 @@ var WeekAssistant = Class.create({
+@@ -1156,20 +2468,45 @@ var WeekAssistant = Class.create({
  		var prefs			= this.prefsManager.getPrefs();
  		var lastDay			= 6;
  
@@ -10851,7 +11965,7 @@ index 4fa6e78..b033303 100644
  	
  	isCacheEntrySubscribed: function(weekDate) {
  		return WeekAssistant.cacheSubscribed.get(this.keyFromDate(weekDate));
-@@ -1219,12 +2190,12 @@ var WeekAssistant = Class.create({
+@@ -1219,12 +2556,12 @@ var WeekAssistant = Class.create({
  		// TODO: Extract this and all other views' reminder handling to common component:
  		// i.e. reminder-assistant*.js, new app.menu.js
  		if (this.reminders.getNumReminders() === 0) {
