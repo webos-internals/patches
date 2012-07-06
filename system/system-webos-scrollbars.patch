@@ -1,35 +1,16 @@
 diff --git a/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js b/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js
-index aed4b02..c734096 100644
+index aed4b02..ac2ea69 100644
 --- a/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js
 +++ b/usr/palm/frameworks/mojo/builtins/palmInitFramework347.js
-@@ -3462,6 +3462,17 @@ this.instantiateChildWidgets(this.sceneElement);
- 
- this._installMenus();
- 
-+var checkScrollbars=this.document.getElementById('scrollbar-y');
-+if (!checkScrollbars && (this.stageController.stageType == Mojo.Controller.StageType.card || this.stageController.stageType == Mojo.Controller.StageType.childCard)) {
-+var scrollbarYContent=this.document.createElement('div');
-+var scrollbarXContent=this.document.createElement('div');
-+scrollbarYContent.id="scrollbar-y";
-+scrollbarYContent.style.cssText="position: fixed; z-index: 10000; background-color: #2e2e2e; width: 4px; height: 24px; top: 17px; right: 1px; -webkit-border-radius: 2px; border-style: solid; border-color: white; border-width: 1px; opacity: 0.0;";
-+scrollbarXContent.id="scrollbar-x";
-+scrollbarXContent.style.cssText="position: fixed; z-index: 10000; background-color: #2e2e2e; width: 24px; height: 4px; bottom: 1px; left: 17px; -webkit-border-radius: 2px; border-style: solid; border-color: white; border-width: 1px; opacity: 0.0;";
-+this.document.body.appendChild(scrollbarXContent);
-+this.document.body.appendChild(scrollbarYContent);
-+}
- 
- if(this.sceneScroller){
- this.sceneScroller.mojo.validateScrollPosition();
-@@ -12608,6 +12619,8 @@ this.hasPalmOverflow=(Mojo.Host.current!==Mojo.Host.browser);
+@@ -12608,6 +12608,7 @@ this.hasPalmOverflow=(Mojo.Host.current!==Mojo.Host.browser);
  this.bindHandlers();
  this.setupChildElements();
  this.handleModelChanged();
-+this.controller.listen(this.controller.scene.sceneElement,Mojo.Event.orientationChange,this.updateOrientationStatus.bindAsEventListener(this));
-+this.winOrientation = this.controller.stageController.getWindowOrientation();
++this.setupScrollbars();
  
  this.controller.exposeMethods(['revealTop','revealBottom','revealElement','scrollTo',
  'getState','setState','adjustBy','scrollerSize','setMode',
-@@ -12646,6 +12659,7 @@ this.controller.stopListening(sceneElement,Mojo.Event.keydown,this.keyHandler);
+@@ -12646,6 +12647,7 @@ this.controller.stopListening(sceneElement,Mojo.Event.keydown,this.keyHandler);
  }
  this.clearCorrectOverscrollTimer();
  this.removeContinueOverscrollHandler();
@@ -37,7 +18,33 @@ index aed4b02..c734096 100644
  },
  
  
-@@ -13250,6 +13264,247 @@ this.startCorrectOverscrollTimer();
+@@ -12689,6 +12691,25 @@ this.controller.instantiateChildWidgets(scrollContainer);
+ }
+ },
+ 
++setupScrollbars: function() {
++var scrollContainer = this.controller.element;
++this.winOrientation = this.controller.stageController.getWindowOrientation();
++this.isValid = (this.controller.stageController.window._mojoStageType == "card" || this.controller.stageController.window._mojoStageType == "childcard") && (scrollContainer.parentNode === this.controller.document.body || !((scrollContainer.parentNode.className).match('-menu') !== null || (scrollContainer.parentNode.className).match('palm-popup-wrapper') !== null || (scrollContainer.parentNode.className).match('mv-value-list') !== null));
++var checkScrollbars=this.controller.document.getElementById('scrollbar-x');
++if (!checkScrollbars && (this.controller.stageController.window._mojoStageType == "card" || this.controller.stageController.window._mojoStageType == "childcard")) {
++var scrollbarXContent=this.controller.document.createElement('div');
++var scrollbarYContent=this.controller.document.createElement('div');
++scrollbarXContent.id="scrollbar-x";
++scrollbarXContent.style.cssText="position: fixed; z-index: 11000; background-color: #2e2e2e; width: 24px; height: 4px; bottom: 1px; left: 17px; -webkit-border-radius: 2px; border-style: solid; border-color: white; border-width: 1px; min-height: 4px; min-width: 4px; background-image: none; -webkit-palm-mouse-target: ignore; opacity: 0.0;";
++scrollbarYContent.id="scrollbar-y";
++scrollbarYContent.style.cssText="position: fixed; z-index: 100000; background-color: #2e2e2e; width: 4px; height: 24px; top: 17px; right: 1px; -webkit-border-radius: 2px; border-style: solid; border-color: white; border-width: 1px; min-height: 4px; min-width: 4px; background-image: none; -webkit-palm-mouse-target: ignore; opacity: 0.0;";
++this.controller.document.body.appendChild(scrollbarXContent);
++this.controller.document.body.appendChild(scrollbarYContent);
++}
++this.scrollbarVisibility = {x: false, y: false};
++if (this.isValid) this.hasScrollbars = (this.controller.document.querySelector('div[id*="scrollbar"]').id !== "scrollbar-x");
++},
++
+ 
+ setupIndicators:function(){
+ var indicatorElement,checkerFunction,side,possibleComponents;
+@@ -13250,6 +13271,233 @@ this.startCorrectOverscrollTimer();
  }
  },
  
@@ -47,13 +54,6 @@ index aed4b02..c734096 100644
 +REVPROP_MAP: {x: 'height', y: 'width'},
 +REVPOS_MAP: {x: 'top', y: 'left'},
 +REVSTY_MAP: {x: 'right', y: 'bottom'},
-+
-+updateOrientationStatus: function(e) {
-+if (e && e.orientation) {
-+this.winOrientation = this.controller.stageController.getWindowOrientation();
-+if (this.savedData) this.calcPreFix();
-+}
-+},
 +
 +getElementPosition: function(el) {
 +var valueL = 0, valueT = 0;
@@ -68,162 +68,140 @@ index aed4b02..c734096 100644
 +return {top: valueT, left: valueL};
 +},
 +
-+getFixedElement: function(element, top) {
-+top = top || false;
-+while (element.parentNode !== this.controller.scene.sceneElement && element.parentNode !== this.controller.element && element.getStyle('position') !== "fixed" && (top || ((element.className).match('palm-menu-') === null || !element.parentNode.hasClassName('palm-menu')))) {
++getFixedElement: function(element) {
++while (element.parentNode !== this.controller.scene.sceneElement && element.parentNode !== this.controller.element && element.parentNode !== this.controller.document && element.getStyle('position') !== "fixed") {
 +element = element.parentNode;
 +}
 +return element;
 +},
 +
 +getTopSpacer: function() {
-+var topBound=0, scrollerContainer = this.controller.element;
++var topBound=0, scrollContainer = this.controller.element;
 +var viewportSize = {height:this.controller.window.innerHeight,width:this.controller.window.innerWidth};
-+var margins = this.getElementPosition(scrollerContainer);
-+var dimensions = {height: scrollerContainer.offsetHeight, width: scrollerContainer.offsetWidth}, hasWidth = scrollerContainer.scrollWidth > dimensions.width && this.mode === ('free' || 'dominant' || 'horizontal'|| 'horizontal-snap');
-+dimensions = {height:dimensions.height - (dimensions.height + margins.top - viewportSize.height),width:dimensions.width - (dimensions.width + margins.left - viewportSize.width)};
-+var tempEl, children = scrollerContainer.getElementsByTagName('*');
-+for (var i=0,l=children.length; i<l && !topBound; i++) {
-+if (children[i].nodeName == 'DIV' && (children[i].className).match('-spacer')!==null && (children[i].offsetHeight > 5||children[i].offsetHeight == 0)) {
-+tempEl = this.controller.document.elementFromPoint(margins.left + dimensions.width - 20,margins.top + 5);
-+if (tempEl && tempEl !== scrollerContainer && tempEl.offsetHeight < dimensions.height) {
-+tempEl =  this.getFixedElement(tempEl,true);
++var margins = this.getElementPosition(scrollContainer);
++var children = scrollContainer.querySelectorAll('div[class*="-spacer"],img[src*="spacer"]');
++for (var i=0; i<children.length && !topBound; i++) {
++if (children[i].nodeName == 'DIV' && (children[i].offsetHeight > 5||children[i].offsetHeight == 0)) {
++var tempEl = this.controller.document.elementFromPoint(margins.left + this.dimensions.width - 20,margins.top + 5);
++if (tempEl && tempEl !== scrollContainer && tempEl.offsetHeight < this.dimensions.height) {
++tempEl = this.getFixedElement(tempEl);
 +if (tempEl.getStyle('position') === 'fixed') topBound = children[i].offsetHeight == 0 ? tempEl.offsetHeight : children[i].offsetHeight;
++} // Phnx fix
++} else if (children[i].nodeName == 'IMG' && children[i].offsetHeight > 5) {
++topBound = children[i].offsetHeight;
++} 
 +}
-+} else if (children[i].nodeName == 'IMG' && (children[i].src).match('spacer')!==null && children[i].height > 5) {
-+topBound = children[i].height;
++if (!topBound) {
++var tempEl = this.controller.document.elementFromPoint(margins.left + this.dimensions.width - 20,margins.top + 5);
++if (tempEl && tempEl !== scrollContainer && tempEl.offsetHeight < this.dimensions.height) {
++tempEl = this.getFixedElement(tempEl);
++if (tempEl.getStyle('position') === 'fixed' && tempEl.offsetHeight < this.dimensions.height / 2)
++topBound = tempEl.offsetHeight;
 +}
 +}
 +return topBound;
 +},
 +
 +getBottomSpacer: function() {
-+var scrollerContainer = this.controller.element;
++var scrollContainer = this.controller.element;
 +var doc = this.controller.document;
 +var viewportSize = {height:this.controller.window.innerHeight,width:this.controller.window.innerWidth};
-+var margins = this.getElementPosition(scrollerContainer);
-+var dimensions = {height: scrollerContainer.offsetHeight, width: scrollerContainer.offsetWidth}, hasWidth = scrollerContainer.scrollWidth > dimensions.width && this.components[0] == "x";
-+dimensions = {height:dimensions.height - (dimensions.height + margins.top - viewportSize.height),width:dimensions.width - (dimensions.width + margins.left - viewportSize.width)};
-+var firstBottomElement, bottomBound, rightBound, isCropped = false;
-+if (scrollerContainer.getStyle('-webkit-palm-scroll-margin-bottom') && parseInt(scrollerContainer.getStyle('-webkit-palm-scroll-margin-bottom'),10) > 0) {
-+firstBottomElement = doc.elementFromPoint(margins.left + dimensions.width - 20,margins.top + dimensions.height - 10);
-+if (firstBottomElement && firstBottomElement !== scrollerContainer && firstBottomElement.offsetHeight < dimensions.height) {
-+firstBottomElement = this.getFixedElement(firstBottomElement);
-+if (((firstBottomElement.className).match('palm-menu-') !== null || firstBottomElement.parentNode.hasClassName('palm-menu')) && firstBottomElement.offsetWidth < dimensions.height/4) {
-+if (firstBottomElement.offsetWidth < 65 && hasWidth) {
-+var children = firstBottomElement.parentNode.childElements;
-+if (children.length > 3) {
-+if (children.length < 6 && (parseInt(children[2].style.left,10) > 55 && parseInt(children[2].style.left,10) < viewportSize.width-120 || children[2].offsetWidth > 50)) {
-+firstBottomElement = firstBottomElement.parentNode;
-+bottomBound = firstBottomElement.offsetHeight;
-+dimensions.height -= bottomBound;
-+isCropped = true;
-+}
++var firstBottomElement, children, bottomBound, rightBound, leftBound=0, heightCrop = -0.1;
++if (scrollContainer === this.controller.scene.sceneScroller) {
++children = scrollContainer.querySelector('div[x-mojo-element="_Menu"]');
 +} else {
++var tempEl = this.getFixedElement(scrollContainer);
++if (tempEl.getStyle("position")=="fixed" && tempEl.getStyle("z-index") > 19001) {
++children = scrollContainer.querySelector('div[x-mojo-element="_Menu"]');
++} else {
++children = this.controller.scene.sceneElement.querySelector('div[x-mojo-element="_Menu"]');
++}
++}
++if (children && children.children.length > 0 && children.firstChild.getStyle('bottom') === "0px") {
++children = children.firstChild.children;
++if (parseInt(children[children.length-1].getStyle("left"),10) + children[children.length-1].offsetWidth > viewportSize.width - 20) {
++firstBottomElement = children[children.length-1];
++if (scrollContainer.getStyle('-webkit-palm-scroll-margin-bottom') && parseInt(scrollContainer.getStyle('-webkit-palm-scroll-margin-bottom'),10) > children[children.length-1].offsetHeight * 1.5) {
++firstBottomElement = scrollContainer;
++bottomBound = parseInt(scrollContainer.getStyle('-webkit-palm-scroll-margin-bottom'),10);
++} else {
++bottomBound = Math.max((this.bounds.top + this.dimensions.height) - (viewportSize.height - firstBottomElement.offsetHeight), 0);
++}
++if (children[children.length-1].offsetWidth > 70 || bottomBound > 60) {
++heightCrop = bottomBound;
++} else {
++if (children.length == 3 && parseInt(children[1].getStyle("left"),10) < 50) {
 +rightBound = firstBottomElement.offsetWidth;
-+bottomBound = firstBottomElement.offsetHeight;
-+}
-+} else {
-+firstBottomElement = firstBottomElement.parentNode;
-+bottomBound = firstBottomElement.offsetHeight;
-+dimensions.height -= bottomBound;
-+isCropped = true;
-+}
-+} else if (firstBottomElement.getStyle('position') == 'fixed') {
-+if (firstBottomElement.offsetWidth < Math.floor(dimensions.width/2) && hasWidth) {
-+bottomBound = firstBottomElement.offsetHeight;
-+rightBound = firstBottomElement.offsetWidth;
-+var tempEl = doc.elementFromPoint(margins.left + 20,margins.top + dimensions.height - 10);
-+if (tempEl && tempEl !== scrollerContainer && tempEl.offsetHeight < dimensions.height) {
-+tempEl = this.getFixedElement(tempEl);
-+if (tempEl.getStyle('position') == 'fixed') {
-+var leftBound = tempEl.offsetWidth;
-+margins.left += leftBound;
-+dimensions.width -= leftBound;
-+}
-+}
-+} else {
-+bottomBound = firstBottomElement.offsetHeight;
-+dimensions.height -= bottomBound;
-+isCropped = true;
++bottomBound = Math.max((this.bounds.top + this.dimensions.height) - (viewportSize.height - firstBottomElement.offsetHeight), 0);
++leftBound = children[1].offsetWidth;
++} else if (children.length > 3 && children.length < 6) {
++if (children.length > 4 && !children[0].parentNode.hasClassName("no-fade")) {
++heightCrop = bottomBound;
++} else if (parseInt(children[2].getStyle("left"),10) < 60 || parseInt(children[2].getStyle("left"),10) > viewportSize.width-130) {
++rightBound = firstBottomElement.offsetWidth + (parseInt(children[2].getStyle("left"),10) > 60 ? children[2].offsetWidth : 0);
++leftBound = children[1].offsetWidth + (parseInt(children[2].getStyle("left"),10) < 60 ? children[2].offsetWidth : 0);
++} else if (!children[0].parentNode.hasClassName("no-fade")) {
++heightCrop = bottomBound;
 +}
 +}
 +}
 +} else {
-+var children = scrollerContainer.getElementsByTagName('IMG');
-+for (var i=0, l=children.length; i<l && !bottomBound; i++) {
-+if ((children[i].src).match('spacer')!==null && children[i].height > 5) {
-+firstBottomElement = children[i];
-+bottomBound = children[i].height;
-+dimensions.height -= bottomBound;
-+isCropped = true;
++if (parseInt(children[children.length-1].getStyle("left"),10) + children[children.length-1].offsetWidth < viewportSize.width/3) {
++leftBound = parseInt(children[children.length-1].getStyle("left"),10) + children[children.length-1].offsetWidth;
++} else if (!children[0].parentNode.hasClassName("no-fade") && children[children.length-1].className === 'palm-menu-group') {
++firstBottomElement = children[0].parentNode;
++bottomBound = Math.max((this.bounds.top + this.dimensions.height) - (viewportSize.height - firstBottomElement.offsetHeight), 0);
++}
 +}
 +}
 +if (!bottomBound) {
-+firstBottomElement = doc.elementFromPoint(margins.left + dimensions.width - 20,margins.top + dimensions.height - 10);
-+if (firstBottomElement && firstBottomElement !== scrollerContainer && firstBottomElement.offsetHeight < dimensions.height) {
-+firstBottomElement = this.getFixedElement(firstBottomElement);
-+if (firstBottomElement.getStyle('position') == 'fixed') {
-+if (firstBottomElement.offsetWidth < Math.floor(dimensions.width/2) && hasWidth) {
-+bottomBound = firstBottomElement.offsetHeight;
-+rightBound = firstBottomElement.offsetWidth;
-+var tempEl = doc.elementFromPoint(margins.left + 20,margins.top + dimensions.height - 10);
-+if (tempEl && tempEl !== scrollerContainer && tempEl.offsetHeight < dimensions.height) {
++children = scrollContainer.querySelectorAll('img[src*="spacer"]');
++for (var i=0; i<children.length && !bottomBound; i++) {
++if (children[i].offsetHeight > 5) { 
++var tempElPos = this.getElementPosition(children[i]);
++if (tempElPos.top > this.bounds.top + 50) {
++firstBottomElement = children[i];
++bottomBound = children[i].offsetHeight;
++heightCrop = bottomBound;
++}
++}
++}
++if (!bottomBound) {
++var tempEl = doc.elementFromPoint(this.bounds.right - 20,this.bounds.bottom - 10);
++if (tempEl && tempEl !== scrollContainer && tempEl.offsetHeight < this.dimensions.height) {
 +tempEl = this.getFixedElement(tempEl);
-+if (tempEl.getStyle('position') == 'fixed') {
-+var leftBound = tempEl.offsetWidth;
-+margins.left += leftBound;
-+dimensions.width -= leftBound;
-+}
-+}
-+} else {
-+bottomBound = firstBottomElement.offsetHeight;
-+dimensions.height -= bottomBound;
-+isCropped = true;
-+}
-+} else if (((firstBottomElement.className).match('palm-menu-') !== null || firstBottomElement.parentNode.hasClassName('palm-menu')) && firstBottomElement.offsetWidth < dimensions.height/4) {
-+if (firstBottomElement.offsetWidth < 65 && hasWidth) {
-+var children = firstBottomElement.parentNode.childElements;
-+if (children.length > 3) {
-+if (children.length < 6 && (parseInt(children[2].style.left,10) > 55 && parseInt(children[2].style.left,10) < viewportSize.width-120 || children[2].offsetWidth > 50)) {
-+firstBottomElement = firstBottomElement.parentNode;
-+bottomBound = firstBottomElement.offsetHeight;
-+dimensions.height -= bottomBound;
-+isCropped = true;
-+}
++if (tempEl.getStyle('position') === "fixed" && tempEl.offsetHeight < this.dimensions.height / 2) {
++firstBottomElement = tempEl;
++bottomBound = (this.bounds.top + this.dimensions.height) - (viewportSize.height - firstBottomElement.offsetHeight);
++if (firstBottomElement.offsetWidth > this.dimensions.width / 2) {
++heightCrop = bottomBound;
 +} else {
 +rightBound = firstBottomElement.offsetWidth;
-+bottomBound = firstBottomElement.offsetHeight;
-+}
-+} else {
-+firstBottomElement = firstBottomElement.parentNode;
-+bottomBound = firstBottomElement.offsetHeight;
-+dimensions.height -= bottomBound;
-+isCropped = true;
 +}
 +}
 +}
 +}
 +}
-+return {botEl: firstBottomElement, croppedHeight: isCropped, top: margins.top, bottom: (bottomBound || 0), left: margins.left, right: (rightBound || 0), height: dimensions.height, width: dimensions.width};
++return {botEl: firstBottomElement, heightCrop: heightCrop, bottom: (bottomBound || 0), right: (rightBound || 0), leftBound: leftBound};
 +},
 +
 +getScrollerPositionInfo: function() {
-+var el = this.controller.element;
++var scrollContainer = this.controller.element;
 +var doc = this.controller.document;
 +var viewportSize = {height:this.controller.window.innerHeight,width:this.controller.window.innerWidth};
-+var margins = this.getElementPosition(el);
-+var isValid = this.controller.stageController.stageType == (Mojo.Controller.StageType.card || Mojo.Controller.StageType.childCard) && (el.parentNode === doc.body || !((el.parentNode.className).match('-menu') !== null || el.parentNode.hasClassName('palm-popup-wrapper') || el.parentNode.hasClassName('mv-value-list')));
-+if (isValid && (!this.savedData || this.savedData.viewport.height !== viewportSize.height || this.savedData.viewport.width !== viewportSize.width || this.savedData.top !== (margins.top || margins.top + this.savedData.topBound) || !this.inOverscroll && (this.savedData.name !== this.controller.scene.sceneElement.id || this.savedData.firstBotEl && this.savedData.firstBotEl.getStyle('position') === 'fixed' && this.savedData.bottom !== ((this.savedData.firstBotEl).offsetHeight || (this.savedData.firstBotEl).height)))) {
-+var topSpacerReturn, bottomSpacerReturn;
-+topSpacerReturn = this.getTopSpacer();
-+bottomSpacerReturn = this.getBottomSpacer();
-+bottomSpacerReturn.height -= topSpacerReturn;
-+bottomSpacerReturn.top += topSpacerReturn;
-+this.savedData = {name: this.controller.scene.sceneElement.id, cropped: bottomSpacerReturn.croppedHeight, valid: isValid, firstBotEl: bottomSpacerReturn.botEl, topBound: topSpacerReturn, top: bottomSpacerReturn.top, bottom: bottomSpacerReturn.bottom, left: bottomSpacerReturn.left, right: bottomSpacerReturn.right, height: bottomSpacerReturn.height, width: bottomSpacerReturn.width, viewport: viewportSize};
++this.bounds = scrollContainer.getBoundingClientRect();
++this.dimensions = {height: this.bounds.bottom - Math.max(this.bounds.bottom - viewportSize.height, 0) - this.bounds.top, width: this.bounds.right - Math.max(this.bounds.right - viewportSize.width, 0) - this.bounds.left};
++if (this.savedData && this.savedData.heightCrop >= 0) {
++var diff = (this.bounds.top + this.dimensions.height) - (this.savedData.top + this.savedData.height);
++if (diff != 0) this.savedData.heightCrop = (diff > 0 ? Math.min(diff, this.savedData.bottom) : (-diff > this.savedData.bottom ? 0 : -diff));
++}
++var contentSize = {width: scrollContainer.scrollWidth, height: scrollContainer.scrollHeight};
++if (!this.savedData || this.isValid && (this.savedData.contentSize.width < contentSize.width || scrollContainer.scrollTop < 10 && (this.savedData.contentSize.height !== contentSize.height) || this.savedData.viewport.height !== viewportSize.height || this.savedData.viewport.width !== viewportSize.width || this.savedData.firstBotEl && (this.savedData.firstBotEl.getStyle('position') === 'fixed' ? this.savedData.bottom !== this.savedData.firstBotEl.offsetHeight : this.savedData.bottom * 1.5 < parseInt(scrollContainer.getStyle('-webkit-palm-scroll-margin-bottom'),10) || this.savedData.firstBotEl === scrollContainer && this.savedData.bottom !== parseInt(scrollContainer.getStyle('-webkit-palm-scroll-margin-bottom'),10)))) {
++var topSpacerReturn = this.getTopSpacer();
++var bottomSpacerReturn = this.getBottomSpacer();
++this.savedData = {heightCrop: bottomSpacerReturn.heightCrop, widthCrop: 0, firstBotEl: bottomSpacerReturn.botEl, topBound: topSpacerReturn, leftBound: bottomSpacerReturn.leftBound, top: this.bounds.top, bottom: bottomSpacerReturn.bottom, left: this.bounds.left, right: bottomSpacerReturn.right, height: this.dimensions.height, width: this.dimensions.width, viewport: viewportSize, contentSize: contentSize};
++this.winOrientation = this.controller.stageController.getWindowOrientation();
 +this.calcPreFix();
-+} else {
-+this.savedData.valid = isValid;
 +}
 +return this.savedData;
 +},
@@ -232,64 +210,89 @@ index aed4b02..c734096 100644
 +var tempX, tempY;
 +var isUp = this.winOrientation === 'up' && !this.controller.scene._enableFullScreenMode;
 +if (isUp) {
-+tempX = (this.savedData.top + this.savedData.height - (this.savedData.cropped?0:this.savedData.bottom) == this.savedData.viewport.height ? (this.savedData.width - this.savedData.right == this.savedData.viewport.width - 16 ? 33 : (this.savedData.left < 17 || this.savedData.left + this.savedData.width - this.savedData.right == this.savedData.viewport.width ? 23 : 10)) : 10);
-+tempY = (this.savedData.height - (this.savedData.cropped?0:this.savedData.bottom) == this.savedData.viewport.height ? 33 : (this.savedData.top < 17 || this.savedData.top + this.savedData.height - (this.savedData.cropped?0:this.savedData.bottom) == this.savedData.viewport.height ? 23 : 10));
++tempX = (this.savedData.top + this.savedData.height - (this.savedData.heightCrop?this.savedData.bottom:0) == this.savedData.viewport.height ? (this.savedData.width - this.savedData.right >= this.savedData.viewport.width - 16 ? 33 : (this.savedData.left + this.savedData.leftBound < 17 || this.savedData.left + this.savedData.width - this.savedData.right == this.savedData.viewport.width ? 23 : 10)) : 10);
++tempY = (this.savedData.height - (this.savedData.topBound + this.savedData.bottom) == this.savedData.viewport.height ? 33 : (this.savedData.top + this.savedData.topBound < 17 || (this.savedData.top + this.savedData.height - this.savedData.bottom) > (this.savedData.viewport.height-17) ? 23 : 10));
 +} else {
 +tempX = tempY = 10;
 +}
 +this.preFix = {x: tempX, y: tempY};
 +},
 +
++isNotInViewport: function() {
++var rect = this.bounds;
++return (rect.top >= this.controller.window.innerHeight || rect.left >= this.controller.window.innerWidth || rect.bottom <= 0 || rect.right <= 0);
++},
++
 +animateScrollbars: function() {
 +var scrollContainer = this.controller.element;
-+var elementPos = {top:scrollContainer.scrollTop,left:scrollContainer.scrollLeft};
++if (this.controller.scene.isActive() && this.isValid) {
++var scrollPos = {top:scrollContainer.scrollTop,left:scrollContainer.scrollLeft};
 +var contentSize = {width: scrollContainer.scrollWidth, height: scrollContainer.scrollHeight};
 +var scrollInfo = this.getScrollerPositionInfo();
-+if (this.controller.scene.isActive() && scrollInfo.valid) {
 +var viewportSize = scrollInfo.viewport;
-+var components = this.components;
-+for (var i = components.length - 1; i >= 0; i--) {
-+var component = components[i];
-+var property = this.PROPERTY_MAP[component], revProperty = this.REVPROP_MAP[component];
-+if (contentSize[property] > scrollInfo[property]) {
-+var posit = this.POS_MAP[component], revPosit = this.REVPOS_MAP[component];
-+var stylePosit = this.STYLE_MAP[component], revStyle = this.REVSTY_MAP[component];
-+var scrollbar = this.controller.get("scrollbar-" + component);
-+var margin = scrollInfo[posit];
-+var dimension = scrollInfo[property];
-+var zoneDimen = dimension - this.preFix[component] - (!scrollInfo.cropped?scrollInfo[revStyle]:0);
-+var scrollSize = contentSize[property] - scrollInfo[revStyle] - margin;
-+this.controller.window.clearTimeout(this.scrollbarHider);
-+var scrollbarHide = function() {
-+scrollbar.setOpacity(0.0);
-+};
-+var mSize = dimension * dimension / scrollSize;
-+var axisPercent = (elementPos[posit] / scrollSize) * 100;
-+var scrollbarSize = Math.min(Math.max(mSize, 24), (zoneDimen - (zoneDimen * ((elementPos[posit] >= 0 ? axisPercent/100 : (-elementPos[posit] + scrollSize - (dimension + margin)) / scrollSize)))));
++var axes = this.components;
++for (var i = axes.length - 1; i >= 0; i--) {
++var axis = axes[i];
++var property = this.PROPERTY_MAP[axis], revProperty = this.REVPROP_MAP[axis];
++var posit = this.POS_MAP[axis], revPosit = this.REVPOS_MAP[axis];
++var stylePosit = this.STYLE_MAP[axis], revStyle = this.REVSTY_MAP[axis];
++var dimension = this.bounds[revStyle] - this.bounds[posit];
++var scrollSize = contentSize[property];
++if (scrollSize <= dimension || this.isNotInViewport()) continue;
++var scrollbar = this.controller.get("scrollbar-" + axis);
++var margin = this.bounds[posit] + scrollInfo[posit+"Bound"];
++var zoneDimen = this.dimensions[property] - (this.preFix[axis] + scrollInfo[posit+"Bound"] + scrollInfo[revStyle]);
++var scrollbarSize = Math.max(Math.min(zoneDimen * dimension / scrollSize, zoneDimen), 24);
++var axisPosition = (zoneDimen-scrollbarSize) * scrollPos[posit] / (scrollSize-dimension);
++if (scrollPos[posit] < 0 || scrollPos[posit] > scrollSize - dimension && zoneDimen - (axisPosition + scrollbarSize) < 0) {
++scrollbarSize -= Math.min((scrollbarSize * Math.abs(Math.min(axisPosition, zoneDimen - (axisPosition + scrollbarSize)) * 2) / zoneDimen), scrollbarSize-4);
++axisPosition = (axisPosition > 0 ? zoneDimen - scrollbarSize : 0);
++}
 +scrollbar.style[property] = scrollbarSize + "px";
-+scrollbar.style[posit] = (axisPercent > 0 ? (axisPercent / 100 * zoneDimen) : 0) + (margin <= 17 && this.preFix[component] > 10 ? 17 : margin + 5) + "px";
-+scrollbar.style[stylePosit] = viewportSize[revProperty] - (scrollInfo[revPosit] + scrollInfo[revProperty]) + 1.5 + "px";
++scrollbar.style[posit] = axisPosition + (margin <= 17 && this.preFix[axis] > 10 ? 17 : margin + 5) + "px";
++var revStylePosition = viewportSize[revProperty] - (this.bounds[revPosit] + this.dimensions[revProperty]) + scrollInfo[revProperty+"Crop"];
++scrollbar.style[stylePosit] = revStylePosition + 1.5 + "px";
++if (!this.scrollbarVisibility[axis]) {
 +scrollbar.setOpacity(0.8);
-+this.scrollbarHider = this.controller.window.setTimeout(scrollbarHide.bind(this), 200);
++this.scrollbarVisibility[axis] = true;
 +}
 +}
 +}
 +},
 +
++hideScrollbar: function(axis) {
++this.controller.get("scrollbar-"+axis).setOpacity(0.0);
++this.scrollbarVisibility[axis] = false;
++},
++
 +clearScrollbarsMemory: function() {
-+this.controller.stopListening(this.controller.scene.sceneElement,Mojo.Event.orientationChange,this.updateOrientationStatus.bindAsEventListener(this));
++delete this.hasScrollbars;
 +delete this.savedData;
++delete this.bounds;
++delete this.dimensions;
++delete this.scrollbarVisibility;
 +delete this.winOrientation;
 +delete this.preFix;
++delete this.isValid;
 +},
  
  flick:function(event){
  var factor;
-@@ -13630,6 +13885,7 @@ scrolled=true;
+@@ -13354,6 +13602,9 @@ stopAnimating:function(){
+ if(this.animating){
+ this.animating=false;
+ this.getAnimationQueue().remove(this);
++for (var i = this.components.length - 1; i >= 0; i--) {
++if (this.scrollbarVisibility[this.components[i]]) this.controller.window.setTimeout(this.hideScrollbar.bind(this), 200, this.components[i]);
++}
+ }
+ },
+ 
+@@ -13630,6 +13881,7 @@ scrolled=true;
  if(scrolled){
  this.setScrollPosition(scrollPosition);
  this.notifyListeners(false,currentCoordinate);
-+this.animateScrollbars();
++if (!this.hasScrollbars) this.animateScrollbars();
  }
  
  if(done.x&&done.y&&!this.unhandledAnimatingOverscroll()){
