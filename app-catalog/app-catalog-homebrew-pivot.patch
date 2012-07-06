@@ -1,49 +1,68 @@
 diff --git a/usr/palm/services/com.palm.service.appcatalog/UpdateService/UpdateAssistant.js b/usr/palm/services/com.palm.service.appcatalog/UpdateService/UpdateAssistant.js
-index 609aa79..029e418 100644
+index 609aa79..9c0feb7 100644
 --- a/usr/palm/services/com.palm.service.appcatalog/UpdateService/UpdateAssistant.js
 +++ b/usr/palm/services/com.palm.service.appcatalog/UpdateService/UpdateAssistant.js
-@@ -181,7 +181,27 @@ UpdateAssistant.prototype = {
- 	getMagazineEdition: function(acCountry, deviceLocale) {
- 		DebugConsole.log("getMagazineEdition: acCountry: "+acCountry+" Device Locale: "+deviceLocale);
- 		var magazineEditionHeaders = {};
--		var resultFuture = this.getACS2AuthHeaders();
-+		
+@@ -178,10 +178,38 @@ UpdateAssistant.prototype = {
+ 		return resultFuture;
+ 	},
+ 	
++	getHomebrewPivotParams: function() {
 +		// Params for use with Homebrew Pivot patch
 +		var homebrewPivotParams = {
 +			"homebrewPivotEnabled": true,
-+			"pivotServerBaseUrl": "http://dl.dropbox.com/u/29365870/pivot/server/"		
-+		}
++			"pivotServerBaseUrl": "http://ontap.datajog.com/server/"		
++		};
++		
++		var resultFuture = new Foundations.Control.Future();
 +		
 +		// Get prefs from Tweaks service
-+		var resultFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs/", "get", {owner: "vnd.gmware.patch.homebrewpivot", keys: ["homebrewPivotEnabled", "pivotServerBaseUrl"]});
++		var tempFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs/", "get", {owner: "vnd.gmware.patch.homebrewpivot", keys: ["homebrewPivotEnabled", "pivotServerBaseUrl"]});
 +		
-+		resultFuture.then(this, function(resultFuture) {
-+			DebugConsole.log("getMagazineEdition: got Tweaks response: "+JSON.stringify(resultFuture.result));
-+			if (resultFuture.result && resultFuture.result.returnValue === true)
++		tempFuture.then(this, function(tempFuture) {
++			DebugConsole.log("getHomebrewPivotParams: got Tweaks response: "+JSON.stringify(tempFuture.result));
++			if (tempFuture.result && tempFuture.result.returnValue === true)
 +			{
-+				if (resultFuture.result.homebrewPivotEnabled !== undefined) homebrewPivotParams.homebrewPivotEnabled = resultFuture.result.homebrewPivotEnabled;
-+				if (resultFuture.result.pivotServerBaseUrl !== undefined) homebrewPivotParams.pivotServerBaseUrl = resultFuture.result.pivotServerBaseUrl;
++				if (tempFuture.result.homebrewPivotEnabled !== undefined) homebrewPivotParams.homebrewPivotEnabled = tempFuture.result.homebrewPivotEnabled;
++				if (tempFuture.result.pivotServerBaseUrl !== undefined) homebrewPivotParams.pivotServerBaseUrl = tempFuture.result.pivotServerBaseUrl;
 +			}
-+			resultFuture.nest(this.getACS2AuthHeaders());
-+		});				
-+		
-+		//var resultFuture = this.getACS2AuthHeaders();
++			resultFuture.result = homebrewPivotParams;
++		}, function(tempFuture) {
++			DebugConsole.log("getHomebrewPivotParams: Failed to get Tweaks reponse; moving on...");
++			resultFuture.result = homebrewPivotParams;
++		});
++		return resultFuture;		
++	},
++
+ 	getMagazineEdition: function(acCountry, deviceLocale) {
+ 		DebugConsole.log("getMagazineEdition: acCountry: "+acCountry+" Device Locale: "+deviceLocale);
+ 		var magazineEditionHeaders = {};
+ 		var resultFuture = this.getACS2AuthHeaders();
++		var ACS2Url = "";
  		
  		resultFuture.then(this, function(resultFuture) {
  			
-@@ -194,12 +214,20 @@ UpdateAssistant.prototype = {
+@@ -190,16 +218,29 @@ UpdateAssistant.prototype = {
+ 			resultFuture.nest(this.getACS2ServerUrl());
+ 		});
+ 		
++		resultFuture.then(this, function(resultFuture) {
++			ACS2Url = resultFuture.result.server2URL;
++			resultFuture.nest(this.getHomebrewPivotParams());
++		});
++		
+ 		resultFuture.then(this, function(resultFuture){
  			var separatorIndex = deviceLocale.indexOf("_");
  			if(separatorIndex >= 0) {
  				var localeCountry = deviceLocale.substring(separatorIndex+1, deviceLocale.length);
 -				var requestURL = resultFuture.result.server2URL+deviceLocale+"/magazine/country/"+acCountry+"/edition";
-+				if (homebrewPivotParams.homebrewPivotEnabled === true && homebrewPivotParams.pivotServerBaseUrl.substr(-1) === "/")
++				if (resultFuture.result.homebrewPivotEnabled === true && resultFuture.result.pivotServerBaseUrl.substr(-1) === "/")
 +				{
-+					var requestURL = homebrewPivotParams.pivotServerBaseUrl+deviceLocale+"/edition.json";
++					var requestURL = resultFuture.result.pivotServerBaseUrl+deviceLocale+"/edition.json";
 +					var options = {};
 +				}
 +				else
 +				{
-+					var requestURL = resultFuture.result.server2URL+deviceLocale+"/magazine/country/"+acCountry+"/edition";
++					var requestURL = ACS2Url+deviceLocale+"/magazine/country/"+acCountry+"/edition";
 +					var options = {
 +							"headers": magazineEditionHeaders
 +					};
