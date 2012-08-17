@@ -1,0 +1,659 @@
+diff --git a/usr/palm/frameworks/mojo/mojo.js b/usr/palm/frameworks/mojo/mojo.js
+index 61e0627..32392dd 100644
+--- a/usr/palm/frameworks/mojo/mojo.js
++++ b/usr/palm/frameworks/mojo/mojo.js
+@@ -8,6 +8,100 @@
+ * @fileOverview This file has functions related to documenting the Mojo Framework.
+ */
+ 
++/*globals _ */
++window.kblayout="en";
++var timePress = 0;
++var ohiQ = Array(0,0,0,0,0,0);
++var strChunk = "";
++var orange = false;
++var shiftEnabled = false;
++
++function ohiDoubleJamo(a,c,d) {
++	var i, a=Array( // Double Jamos
++			Array(Array(1,7,18,21,24),1,7,18,21,24), // Cho
++			Array(Array(39,44,49),Array(31,32,51),Array(35,36,51),51), // Jung
++			Array(Array(1,4,9,18,21),Array(1,21),Array(24,30),Array(1,17,18,21,28,29,30),Array(0,21),21))[a]; // Jong
++	for (i=a[0].length; c!=a[0][i-1]; i--) if (!i) return i;
++	for (a=a[i], i=a.length||1; 1; i--) if (!i || d==a || d==a[i-1]) return i;
++}
++
++function ohiInsert(f,m,c) { // Insert
++	if (!c && ohiQ=='0,0,0,0,0,0') return true;
++	if (c.length!=6) ohiQ=Array(0,0,0,0,0,0);
++	else {
++		var m=m||'0,0,0,0,0,0', i=c[0]+c[1], j=c[2]+c[3], k=c[4]+c[5];
++		c=i&&j?0xac00+(i-(i<3?1:i<5?2:i<10?4:i<20?11:12))*588+(j-31)*28+k-(k<8?0:k<19?1:k<25?2:3):0x3130+(i||j||k);
++	}
++
++	var str=String.fromCharCode(c);
++
++    if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++        document.execCommand("insertText", true, str);
++    } else if(f.target.tagName=="OBJECT") {
++        strChunk+=str;
++    }
++}
++
++function ohiHangul2(f,c) { // 2-Bulsik
++    if (c<65 || (c-1)%32>25) ohiInsert(f,0,c);
++    else if ((c=Array(17,48,26,23,7,9,30,39,33,35,31,51,49,44,32,36,18,1,4,21,37,29,24,28,43,27)[c%32-1]
++                +(c==79||c==80?2:c==69||c==81||c==82||c==84||c==87?1:0))<31) { // Jaum
++        if(ohiQ[2] && ohiQ[0]==0) ohiQ[2]=0;
++
++        if ((!ohiQ[5] || !(ohiQ[0]=-1)) && ohiQ[2]) ohiQ[5]=ohiDoubleJamo(2,ohiQ[4],c);
++
++        if (!ohiQ[2] || ohiQ[0]<0 || ohiQ[0] && (!ohiQ[4] || !ohiQ[5]) && (ohiQ[4] || c==8 || c==19 || c==25)) {
++            if(ohiDoubleJamo(0,ohiQ[0],c) && ohiQ[0]==c && ohiQ[1]!=1 && ohiQ[2]==0) {
++                if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                    document.execCommand("delete", true, 1);
++                } else if(f.target.tagName=="OBJECT") {
++                    strChunk=strChunk.slice(0,-1);
++                }
++            };
++
++            ohiInsert(f,(ohiQ=ohiQ[1]||ohiQ[2]||!ohiDoubleJamo(0,ohiQ[0],c)?ohiQ:0),ohiQ=Array(c,ohiQ?0:1,0,0,0,0));
++        }
++        else if (!ohiQ[0] && (ohiQ[0]=c) || (ohiQ[4]=ohiQ[4]||c))
++        {
++            if(ohiQ[4]=ohiQ[4]||c) {
++                if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                    document.execCommand("delete", true, 1);
++                } else if(f.target.tagName=="OBJECT") {
++                    strChunk=strChunk.slice(0,-1);
++                }
++            }
++            ohiInsert(f,0,ohiQ);
++        }
++        if (ohiQ[5]) ohiQ[5]=c;
++    }
++    else { // Moum
++        if ((!ohiQ[3] || ohiQ[4] || !(ohiQ[2]=-1)) && !ohiQ[4]) ohiQ[3]=ohiDoubleJamo(1,ohiQ[2],c);
++        if ((ohiQ[0] && ohiQ[2]>0 && ohiQ[4]) && (ohiQ[5] || !(ohiQ[5]=ohiQ[4]) || !(ohiQ[4]=0))) {
++            if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                document.execCommand("delete", true, 1);
++            } else if(f.target.tagName=="OBJECT") {
++                strChunk=strChunk.slice(0,-1);
++            }
++            ohiInsert(f,0,Array(ohiQ[0],ohiQ[1],ohiQ[2],ohiQ[3],ohiQ[4],0));
++            ohiInsert(f,ohiQ,ohiQ=Array(ohiQ[5],0,c,0,0,0));
++        }
++        else if ((!ohiQ[0] || ohiQ[2]) && (!ohiQ[3] || ohiQ[4]) || ohiQ[2]<0)
++        {
++            ohiInsert(f,ohiQ,ohiQ=Array(0,0,c,0,0,0));
++        }
++        else if (ohiQ[2]=ohiQ[2]||c)
++        {
++            if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                document.execCommand("delete", true, 1);
++            } else if(f.target.tagName=="OBJECT") {
++                strChunk=strChunk.slice(0,-1);
++            }
++            ohiInsert(f,0,ohiQ);
++        }
++    }
++}
++
++
+ // if there's an appropriately named Prototype loader global, then we're running in an environment with
+ // prototype built-in and should initialize it to copy it into the global object. 
+ if (window.InstallPrototypeBuiltIn) {
+@@ -189,3 +283,224 @@ if((Mojo.Version.use === 'trunk' || parseInt(Mojo.Version.use,10) >= 135 )) {
+ 		window.PalmSystem.stagePreparing();
+ 	}
+ }
++
++document.onclick = function(event) {
++    ohiQ=Array(0,0,0,0,0,0);
++}
++
++document.onkeydown = function(event) {
++    if(event.keyCode == 129) {
++        orange = true;
++    }
++
++    if (event.keyCode == 17)
++    {
++        if (timePress == 0)
++        {
++            timePress++;
++            setTimeout(cleanTimer, 700);
++        }
++        else
++        {
++            ohiQ=Array(0,0,0,0,0,0);
++            if(window.kblayout=="en")
++            {
++                var t=document.getElementsByTagName("BODY")[0];
++                var div=document.createElement("div");
++                div.align="right";
++                div.style.overflow="hidden";
++                div.style.position="fixed";
++                div.id="kblayoutdiv";
++                div.style.display="block";
++                div.style.top="85%";
++                div.style.left="70%";
++                div.style.width="24px";
++                div.style.height="24px";
++                div.style.border="3px solid gray";
++                div.style.color="white";
++                div.style.background="#ff7700";
++                div.style.zIndex="255";
++                div.style.opacity=0.70;
++                div.style.webkitBorderRadius="3px";
++                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                t.appendChild(div);
++                window.kblayout="ko";
++            }
++            else
++            {
++                if(event.target.tagName=="OBJECT" && strChunk.length) {
++                    event.target.insertStringAtCursor(strChunk);
++                    strChunk="";
++                }
++
++                var t=document.getElementById("kblayoutdiv");
++                t.parentNode.removeChild(t);
++                window.kblayout="en";
++            }
++        }
++    }
++
++    if(window.kblayout=="en") {
++        ohiQ=Array(0,0,0,0,0,0);
++	shiftEnabled = false;
++        return;
++    }
++
++    var o=event.target, c=event.keyCode;
++    var div=document.getElementById("kblayoutdiv");
++
++    if(orange==true) {
++        if(event.target.tagName=="OBJECT" && strChunk.length) {
++            o.insertStringAtCursor(strChunk);
++            strChunk="";
++            div.style.width="24px";
++            div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++        }
++
++        ohiQ=Array(0,0,0,0,0,0);
++	shiftEnabled = false;
++	div.style.background="#ff7700";
++        return;
++    }
++
++    // digits
++    if(c>=48 && c<=57) {
++        if(event.target.tagName=="OBJECT" && strChunk.length) {
++            event.target.insertStringAtCursor(strChunk);
++            strChunk="";
++            div.style.width="24px";
++            div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++        }
++
++        ohiQ=Array(0,0,0,0,0,0);
++	shiftEnabled = false;
++	div.style.background="#ff7700";
++        return;
++    }
++
++    if((c<65 || c>90) && !event.altKey && !event.ctrlKey && !event.shiftKey) {
++	shiftEnabled = false;
++	div.style.background="#ff7700";
++        if(c==8) {
++            if(o.tagName=="INPUT" || o.tagName=="TEXTAREA" || o.tagName=="DIV") {
++                if((ohiQ[1] || ohiQ[3] || ohiQ[0] && ohiQ[2])) {
++                    document.execCommand("delete", true, 1);
++                    for (var i=5; !ohiQ[i];) i--;
++                    ohiInsert(event,ohiQ[i]=0,ohiQ);
++                    event.preventDefault();
++                    return;
++                }
++            } else if(o.tagName=="OBJECT") {
++                if(strChunk.length) {
++                    strChunk=strChunk.slice(0,-1);
++
++                    if((ohiQ[1] || ohiQ[3] || ohiQ[0] && ohiQ[2])) {
++                        for (var i=5; !ohiQ[i];) i--;
++                        ohiInsert(event,ohiQ[i]=0,ohiQ);
++                        div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                        event.preventDefault();
++                        return;
++                    } else {
++                        var length=20*strChunk.length;
++
++                        if(length<24) {
++                            length=24;
++                        }
++
++                        if(length>=96) {
++                            div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                        } else {
++                            div.style.width=length + "px";
++
++                            if(strChunk==0) {
++                                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                            } else {
++                                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                            }
++                        }
++                    }
++                    event.preventDefault();
++                }
++            }
++        } else {
++            if(o.tagName=="OBJECT" && strChunk.length) {
++                o.insertStringAtCursor(strChunk);
++                strChunk="";
++                div.style.width="24px";
++                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++            }
++        }
++    }
++
++    if((c!=39) && (c<65 || c>122) && !event.shiftKey) {
++        ohiQ=Array(0,0,0,0,0,0);
++	shiftEnabled = false;
++	div.style.background="#ff7700";
++    }
++
++    if(event.altKey || event.ctrlKey) {
++	shiftEnabled = false;
++	div.style.background="#ff7700";
++        return;
++    }
++
++    if(event.shiftKey == true && c == 16) {
++	    if(shiftEnabled == false) {
++		    shiftEnabled = true;
++		    div.style.background="#ff7777";
++	    } else {
++		    shiftEnabled = false;
++		    div.style.background="#ff7700";
++	    }
++	    return;
++    }
++
++    if(c>32 && c<127) {
++        if (c>64 && c<91 && !event.shiftKey) c+=32;
++	if (c>96 && c<123 && (event.shiftKey || shiftEnabled)) {
++		c-=32;
++	}
++
++	shiftEnabled = false;
++	div.style.background="#ff7700";
++
++        ohiHangul2(event,c);
++
++        if(o.tagName=="OBJECT") {
++            var length=20*strChunk.length;
++
++            if(length<24) {
++                length=24;
++            }
++
++            if(length>=96) {
++                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++            } else {
++                div.style.width=length + "px";
++                if(strChunk==0) {
++                    div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                } else {
++                    div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                }
++            }
++        }
++        event.preventDefault();
++    } else {
++	    shiftEnabled = false;
++	    div.style.background="#ff7700";
++    }
++}
++
++document.onkeypress = function(event) {
++}
++
++document.onkeyup = function(event) {
++    if(event.keyCode == 129) {
++        orange = false;
++    }
++}
++
++function cleanTimer() {
++	timePress = 0;
++}
++
+diff --git a/usr/palm/frameworks/mojo2/mojo.js b/usr/palm/frameworks/mojo2/mojo.js
+index fa55b13..6266944 100644
+--- a/usr/palm/frameworks/mojo2/mojo.js
++++ b/usr/palm/frameworks/mojo2/mojo.js
+@@ -10,6 +10,97 @@
+ */
+ 
+ /*globals _ */
++window.kblayout="en";
++var timePress = 0;
++var ohiQ = Array(0,0,0,0,0,0);
++var strChunk = "";
++var orange = false;
++var shiftEnabled = false;
++
++function ohiDoubleJamo(a,c,d) {
++	var i, a=Array( // Double Jamos
++			Array(Array(1,7,18,21,24),1,7,18,21,24), // Cho
++			Array(Array(39,44,49),Array(31,32,51),Array(35,36,51),51), // Jung
++			Array(Array(1,4,9,18,21),Array(1,21),Array(24,30),Array(1,17,18,21,28,29,30),Array(0,21),21))[a]; // Jong
++	for (i=a[0].length; c!=a[0][i-1]; i--) if (!i) return i;
++	for (a=a[i], i=a.length||1; 1; i--) if (!i || d==a || d==a[i-1]) return i;
++}
++
++function ohiInsert(f,m,c) { // Insert
++	if (!c && ohiQ=='0,0,0,0,0,0') return true;
++	if (c.length!=6) ohiQ=Array(0,0,0,0,0,0);
++	else {
++		var m=m||'0,0,0,0,0,0', i=c[0]+c[1], j=c[2]+c[3], k=c[4]+c[5];
++		c=i&&j?0xac00+(i-(i<3?1:i<5?2:i<10?4:i<20?11:12))*588+(j-31)*28+k-(k<8?0:k<19?1:k<25?2:3):0x3130+(i||j||k);
++	}
++
++	var str=String.fromCharCode(c);
++
++    if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++        document.execCommand("insertText", true, str);
++    } else if(f.target.tagName=="OBJECT") {
++        strChunk+=str;
++    }
++}
++
++function ohiHangul2(f,c) { // 2-Bulsik
++    if (c<65 || (c-1)%32>25) ohiInsert(f,0,c);
++    else if ((c=Array(17,48,26,23,7,9,30,39,33,35,31,51,49,44,32,36,18,1,4,21,37,29,24,28,43,27)[c%32-1]
++                +(c==79||c==80?2:c==69||c==81||c==82||c==84||c==87?1:0))<31) { // Jaum
++        if(ohiQ[2] && ohiQ[0]==0) ohiQ[2]=0;
++
++        if ((!ohiQ[5] || !(ohiQ[0]=-1)) && ohiQ[2]) ohiQ[5]=ohiDoubleJamo(2,ohiQ[4],c);
++
++        if (!ohiQ[2] || ohiQ[0]<0 || ohiQ[0] && (!ohiQ[4] || !ohiQ[5]) && (ohiQ[4] || c==8 || c==19 || c==25)) {
++            if(ohiDoubleJamo(0,ohiQ[0],c) && ohiQ[0]==c && ohiQ[1]!=1 && ohiQ[2]==0) {
++                if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                    document.execCommand("delete", true, 1);
++                } else if(f.target.tagName=="OBJECT") {
++                    strChunk=strChunk.slice(0,-1);
++                }
++            };
++
++            ohiInsert(f,(ohiQ=ohiQ[1]||ohiQ[2]||!ohiDoubleJamo(0,ohiQ[0],c)?ohiQ:0),ohiQ=Array(c,ohiQ?0:1,0,0,0,0));
++        }
++        else if (!ohiQ[0] && (ohiQ[0]=c) || (ohiQ[4]=ohiQ[4]||c))
++        {
++            if(ohiQ[4]=ohiQ[4]||c) {
++                if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                    document.execCommand("delete", true, 1);
++                } else if(f.target.tagName=="OBJECT") {
++                    strChunk=strChunk.slice(0,-1);
++                }
++            }
++            ohiInsert(f,0,ohiQ);
++        }
++        if (ohiQ[5]) ohiQ[5]=c;
++    }
++    else { // Moum
++        if ((!ohiQ[3] || ohiQ[4] || !(ohiQ[2]=-1)) && !ohiQ[4]) ohiQ[3]=ohiDoubleJamo(1,ohiQ[2],c);
++        if ((ohiQ[0] && ohiQ[2]>0 && ohiQ[4]) && (ohiQ[5] || !(ohiQ[5]=ohiQ[4]) || !(ohiQ[4]=0))) {
++            if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                document.execCommand("delete", true, 1);
++            } else if(f.target.tagName=="OBJECT") {
++                strChunk=strChunk.slice(0,-1);
++            }
++            ohiInsert(f,0,Array(ohiQ[0],ohiQ[1],ohiQ[2],ohiQ[3],ohiQ[4],0));
++            ohiInsert(f,ohiQ,ohiQ=Array(ohiQ[5],0,c,0,0,0));
++        }
++        else if ((!ohiQ[0] || ohiQ[2]) && (!ohiQ[3] || ohiQ[4]) || ohiQ[2]<0)
++        {
++            ohiInsert(f,ohiQ,ohiQ=Array(0,0,c,0,0,0));
++        }
++        else if (ohiQ[2]=ohiQ[2]||c)
++        {
++            if(f.target.tagName=="INPUT" || f.target.tagName=="TEXTAREA" || f.target.tagName=="DIV") {
++                document.execCommand("delete", true, 1);
++            } else if(f.target.tagName=="OBJECT") {
++                strChunk=strChunk.slice(0,-1);
++            }
++            ohiInsert(f,0,ohiQ);
++        }
++    }
++}
+ 
+ // This little acorn will one day be a beautiful (and gnarly) oak!
+ if (!window.Mojo) {
+@@ -171,6 +262,226 @@ if (!window.Mojo) {
+ 			window.mojoLoaderLoaded = null;
+ 		};
+ 
++                document.onclick = function(event) {
++                    ohiQ=Array(0,0,0,0,0,0);
++                }
++
++		document.onkeydown = function(event) {
++                    if(event.keyCode == 129) {
++                        orange = true;
++                    }
++
++                    if (event.keyCode == 17)
++                    {
++                        if (timePress == 0)
++                        {
++                            timePress++;
++                            setTimeout(cleanTimer, 700);
++                        }
++                        else
++                        {
++                            ohiQ=Array(0,0,0,0,0,0);
++                            if(window.kblayout=="en")
++                            {
++                                var t=document.getElementsByTagName("BODY")[0];
++                                var div=document.createElement("div");
++                                div.align="right";
++                                div.style.overflow="hidden";
++                                div.style.position="fixed";
++                                div.id="kblayoutdiv";
++                                div.style.display="block";
++                                div.style.top="85%";
++                                div.style.left="70%";
++                                div.style.width="24px";
++                                div.style.height="24px";
++                                div.style.border="3px solid gray";
++                                div.style.color="white";
++                                div.style.background="#ff7700";
++                                div.style.zIndex="255";
++                                div.style.opacity=0.70;
++                                div.style.webkitBorderRadius="3px";
++                                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                                t.appendChild(div);
++                                window.kblayout="ko";
++                            }
++                            else
++                            {
++                                if(event.target.tagName=="OBJECT" && strChunk.length) {
++                                    event.target.insertStringAtCursor(strChunk);
++                                    strChunk="";
++                                }
++
++                                var t=document.getElementById("kblayoutdiv");
++                                t.parentNode.removeChild(t);
++                                window.kblayout="en";
++                            }
++                        }
++                    }
++
++                    if(window.kblayout=="en") {
++                        ohiQ=Array(0,0,0,0,0,0);
++			shiftEnabled = false;
++                        return;
++                    }
++
++                    var o=event.target, c=event.keyCode;
++		    var div=document.getElementById("kblayoutdiv");
++
++                    if(orange==true) {
++                        if(event.target.tagName=="OBJECT" && strChunk.length) {
++                            o.insertStringAtCursor(strChunk);
++                            strChunk="";
++                            div.style.width="24px";
++                            div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                        }
++
++                        ohiQ=Array(0,0,0,0,0,0);
++			shiftEnabled = false;
++			div.style.background="#ff7700";
++                        return;
++                    }
++
++                    // digits
++                    if(c>=48 && c<=57) {
++                        if(event.target.tagName=="OBJECT" && strChunk.length) {
++                            o.insertStringAtCursor(strChunk);
++                            strChunk="";
++                            div.style.width="24px";
++                            div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                        }
++
++                        ohiQ=Array(0,0,0,0,0,0);
++			shiftEnabled = false;
++			div.style.background="#ff7700";
++                        return;
++                    }
++
++                    if((c<65 || c>90) && !event.altKey && !event.ctrlKey && !event.shiftKey) {
++			shiftEnabled = false;
++			div.style.background="#ff7700";
++                        if(c==8) {
++                            if(o.tagName=="INPUT" || o.tagName=="TEXTAREA" || o.tagName=="DIV") {
++                                if((ohiQ[1] || ohiQ[3] || ohiQ[0] && ohiQ[2])) {
++                                    document.execCommand("delete", true, 1);
++                                    for (var i=5; !ohiQ[i];) i--;
++                                    ohiInsert(event,ohiQ[i]=0,ohiQ);
++                                    event.preventDefault();
++                                    return;
++                                }
++                            } else if(o.tagName=="OBJECT") {
++                                if(strChunk.length) {
++                                    strChunk=strChunk.slice(0,-1);
++
++                                    if((ohiQ[1] || ohiQ[3] || ohiQ[0] && ohiQ[2])) {
++                                        for (var i=5; !ohiQ[i];) i--;
++                                        ohiInsert(event,ohiQ[i]=0,ohiQ);
++                                        div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                                        event.preventDefault();
++                                        return;
++                                    } else {
++                                        var length=20*strChunk.length;
++
++                                        if(length<24) {
++                                            length=24;
++                                        }
++
++                                        if(length>=96) {
++                                            div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                                        } else {
++                                            div.style.width=length + "px";
++
++                                            if(strChunk==0) {
++                                                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                                            } else {
++                                                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                                            }
++                                        }
++                                    }
++                                    event.preventDefault();
++                                }
++                            }
++                        } else {
++                            if(o.tagName=="OBJECT" && strChunk.length) {
++                                o.insertStringAtCursor(strChunk);
++                                strChunk="";
++                                div.style.width="24px";
++                                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                            }
++                        }
++                    }
++
++                    if((c!=39) && (c<65 || c>122) && !event.shiftKey) {
++                        ohiQ=Array(0,0,0,0,0,0);
++			shiftEnabled = false;
++			div.style.background="#ff7700";
++                    }
++
++                    if(event.altKey || event.ctrlKey) {
++			shiftEnabled = false;
++			div.style.background="#ff7700";
++                        return;
++                    }
++
++		    if(event.shiftKey == true && c == 16) {
++			    if(shiftEnabled == false) {
++				    shiftEnabled = true;
++				    div.style.background="#ff7777";
++			    } else {
++				    shiftEnabled = false;
++				    div.style.background="#ff7700";
++			    }
++			    return;
++		    }
++
++                    if(c>32 && c<127) {
++                        if (c>64 && c<91 && !event.shiftKey) c+=32;
++                        if (c>96 && c<123 && (event.shiftKey || shiftEnabled)) {
++			       	c-=32;
++			}
++
++			shiftEnabled = false;
++			div.style.background="#ff7700";
++
++                        ohiHangul2(event,c);
++
++                        if(o.tagName=="OBJECT") {
++                            var length=20*strChunk.length;
++
++                            if(length<24) {
++                                length=24;
++                            }
++
++                            if(length>=96) {
++                                div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                            } else {
++                                div.style.width=length + "px";
++                                if(strChunk==0) {
++                                    div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">Ko</div>";
++                                } else {
++                                    div.innerHTML="<div style=\"margin-top:-5px;align:right;text-align:right;direction:rtl;white-space:nowrap;\">" + strChunk + "</div>";
++                                }
++                            }
++                        }
++                        event.preventDefault();
++                    } else {
++			    shiftEnabled = false;
++			    div.style.background="#ff7700";
++		    }
++                }
++
++                document.onkeypress = function(event) {
++                }
++
++                document.onkeyup = function(event) {
++                    if(event.keyCode == 129) {
++                        orange = false;
++                    }
++                }
++
++                function cleanTimer() {
++                    timePress = 0;
++                }
++
+ 		document.write('<script type="text/javascript" onload="mojoLoaderLoaded();" src="/usr/palm/frameworks/mojoloader.js"><\/script>');
+ 		//console.timeEnd('mojo.js:load');
+ 	}
