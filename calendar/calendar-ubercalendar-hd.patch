@@ -3000,7 +3000,7 @@ index d28ca07..afd4099 100644
  		ui.btnEdit.setShowing(!isReadOnly);
  	},
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
-index e1dd533..62bbca2 100644
+index e1dd533..878f5fb 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 @@ -33,6 +33,17 @@ enyo.kind({
@@ -3021,7 +3021,7 @@ index e1dd533..62bbca2 100644
  	name: "calendar.edit.ColorNameIconItem",
  	kind: enyo.MenuItem,
  	className: "edit",
-@@ -74,6 +85,538 @@ enyo.kind({
+@@ -74,6 +85,554 @@ enyo.kind({
  });
  
  enyo.kind({
@@ -3211,8 +3211,24 @@ index e1dd533..62bbca2 100644
 +				this.cleanupView();
 +				var tzMgr = enyo.application.cacheManager.eventManager.utils.timezoneManager;
 +				var year = new Date(this.timeStamp).getFullYear();
-+				var tzFuture = tzMgr.loadTimezones([tZ.ZoneID], [year]);
-+				this.doTimezoneSelect(tzFuture, tZ.ZoneID);
++				var tzFuture = new Future();
++				if(tzMgr.hasTimezoneInfo(tZ.ZoneID, year)){
++					//console.error("starting we have info!!!");
++					this.doTimezoneSelect(tZ.ZoneID, year);
++				} else {
++					//console.error("starting do we have info???? " + tzMgr.hasTimezoneInfo(tZ.ZoneID, year));
++					tzFuture.nest(tzMgr.loadTimezones([tZ.ZoneID], [year]));
++					
++					tzFuture.then(this, function (join){
++						var result = join.result.returnValue;
++						//console.error("tz join result was ::: " + result);
++						//console.error("In join do we have info???? " + tzMgr.hasTimezoneInfo(tZ.ZoneID, year));
++						if(tzMgr.hasTimezoneInfo(tZ.ZoneID, year)){
++							this.doTimezoneSelect(tZ.ZoneID, year);
++							join.result = true;
++						}
++					});
++				}
 +			}
 +		}
 +	},
@@ -3560,7 +3576,7 @@ index e1dd533..62bbca2 100644
  	name		: "calendar.edit.EditView",
  	kind		: enyo.VFlexBox,
  	className	: "edit enyo-bg",
-@@ -109,42 +652,56 @@ enyo.kind({
+@@ -109,42 +668,56 @@ enyo.kind({
  			{name: "contentContainer", className: "content-container", components:[
  				{kind:enyo.RowGroup, className: "group", components:[
  					{name:"subject"		, kind: enyo.RichText, hint: $L("Event Name"), className: "event-name", onblur:"editSubject", autoLinking: true, allowHtml: true, onkeydown:"ignoreNewLines", inputClassName: "event-name-input", maxTextHeight: "23px"},
@@ -3629,7 +3645,7 @@ index e1dd533..62bbca2 100644
  										,	onSelect: "editRepeat"
  										,	className: "alert-list"
  										,	items	:
-@@ -159,14 +716,24 @@ enyo.kind({
+@@ -159,14 +732,24 @@ enyo.kind({
  								]}
  							]}
  						]},
@@ -3661,7 +3677,7 @@ index e1dd533..62bbca2 100644
  									]}
  								]}
  							]}
-@@ -182,23 +749,53 @@ enyo.kind({
+@@ -182,23 +765,53 @@ enyo.kind({
  
  				{kind: enyo.RowGroup, onclick:"focusNote", components: [
  					{name: "note", kind: enyo.RichText, hint: $L("Event Notes"), autoLinking: true, className: "note", onblur:"editNote", alwaysLooksFocused:true}	//HACK because onblur sux with back gesture!
@@ -3719,7 +3735,7 @@ index e1dd533..62bbca2 100644
  	],//end EditView components
  
  	create: function create () {
-@@ -223,6 +820,13 @@ enyo.kind({
+@@ -223,6 +836,13 @@ enyo.kind({
  		,	customMonthly	: $L("Custom Monthly")
  		,	customYearly	: $L("Custom Yearly")
  		};
@@ -3733,7 +3749,7 @@ index e1dd533..62bbca2 100644
  	},
  
  	destroy: function destroy () {
-@@ -256,6 +860,7 @@ enyo.kind({
+@@ -256,6 +876,7 @@ enyo.kind({
  
  	eventChanged: function eventChanged (oldEvent) {
  		var event = this.event;
@@ -3741,7 +3757,7 @@ index e1dd533..62bbca2 100644
  		if (!event) { return; }
  
  		event.event													// This event is likely an event's GUI because it contains an event object:
-@@ -282,14 +887,14 @@ enyo.kind({
+@@ -282,14 +903,14 @@ enyo.kind({
  		ui.subject	.setValue	(subject	||	"");
  		ui.location	.setValue	(event.location	||	"");
  		ui.note		.setValue	(indexedNote);
@@ -3759,7 +3775,7 @@ index e1dd533..62bbca2 100644
  		//pickerStart and pickerEnd are the values displayed by the 
  		//time and date pickers.  If they change, they'll be merged back on to
  		//the event before we save.
-@@ -297,6 +902,8 @@ enyo.kind({
+@@ -297,6 +918,8 @@ enyo.kind({
  		this.pickerEnd   = event.currentLocalEnd;
  		var start = new Date (this.pickerStart);
  		var end   = new Date (this.pickerEnd);		
@@ -3768,7 +3784,7 @@ index e1dd533..62bbca2 100644
  		ui.startDate.setValue	(start);
  		ui.startTime.setValue	(start);
  
-@@ -305,8 +912,9 @@ enyo.kind({
+@@ -305,8 +928,9 @@ enyo.kind({
  
  		ui.allDay			.setChecked	(!!event.allDay);					
  		ui.startTimeDrawer	.setOpen	(!event.allDay);
@@ -3779,7 +3795,7 @@ index e1dd533..62bbca2 100644
  		Utilities.findEventOrganizer(event);
  
  		this.setupRepeatValue();
-@@ -347,6 +955,7 @@ enyo.kind({
+@@ -347,6 +971,7 @@ enyo.kind({
  			this.startDateOld	=	this.endDateOld	= null;
  			this.pickerStart	=	this.pickerEnd	= null;
  			enyo.call(document.activeElement, "blur");
@@ -3787,7 +3803,7 @@ index e1dd533..62bbca2 100644
  			
  			if (this.hasCustomReminderItem && this.hasCustomReminderItem.selector) {
  				var	selector	= this.hasCustomReminderItem.selector
-@@ -389,7 +998,8 @@ enyo.kind({
+@@ -389,7 +1014,8 @@ enyo.kind({
  				}
  				break;	
  
@@ -3797,7 +3813,7 @@ index e1dd533..62bbca2 100644
  				this.doDelete (this.eventGUI || this.event);
  				break;
  
-@@ -434,6 +1044,451 @@ enyo.kind({
+@@ -434,6 +1060,451 @@ enyo.kind({
  		this.$.contentScroller.setScrollTop (0);	// Reset the scroll position.
  	},
  
@@ -3972,7 +3988,7 @@ index e1dd533..62bbca2 100644
 +	},
 +	
 +	pickedAdd: function pickedAdd(inSender){
-+		console.error("picked add :::: " + inSender.value);
++		//console.error("picked add :::: " + inSender.value);
 +		var idx = parseInt(inSender.value);
 +		var prevLoc = this.$.location.getValue();
 +		var txt = this.uberEditLoc === true ? prevLoc + " " + this.uberAdds[idx].address : this.uberAdds[idx].address;
@@ -4193,14 +4209,13 @@ index e1dd533..62bbca2 100644
 +		ui.timezoneViewPopup.openAt({top: 0, left: 300});
 +	},
 +	
-+	setPickedTimezone: function setPickedTimezone(inSender, tzFuture, tzId){
++	setPickedTimezone: function setPickedTimezone(inSender, tzId, year){
 +		//console.error("set picked zone :::: " + tzId);
 +		//this.$.timezoneViewPopup.destroyComponents();
-+		tzFuture.then(this, function(future) {
-+			future.getResult();
-+			this.convertedTS = this.tzMgr.convertTime(this.tzTS.getTime(), tzId,(this.event.tzId || this.tzId));
-+			//console.error("set picked zone :::: " + this.convertedTS);
-+		});
++		//console.error("In set picked do we have info???? " + this.tzMgr.hasTimezoneInfo(tzId, year));
++		
++		this.convertedTS = this.tzMgr.convertTime(this.tzTS.getTime(), tzId,(this.event.tzId || this.tzId));
++		
 +		this.$.timezoneViewPopup.close();
 +		if(!this.convertedTS || isNaN(this.convertedTS) || this.tzLastBtn == null){
 +			this.error("set picked zone :::: exiting" + this.convertedTS + ", button: " + this.tzLastBtn);
@@ -4212,20 +4227,19 @@ index e1dd533..62bbca2 100644
 +			oldDura = this.pickerStart - this.pickerEnd;
 +			oldDate = new Date((ui.startDate.getValue()).getTime());
 +			if(cDate.getFullYear() === oldDate.getFullYear() && cDate.getMonth() === oldDate.getMonth() && cDate.getDate() === oldDate.getDate() ) {
-+				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && this.convertedTS - oldDate.getTime() < oldDura)){this.pickerStart = this.convertedTS;}
++				this.pickerStart = this.convertedTS;
 +				ui.startTime.setValue(cDate);
 +			} else { //changing start date & time
 +				//first change time, so it does not automatically change end date
 +				newDate = new Date(this.pickerStart);
-+				newDate.setHours(cDate.getHours());
-+				newDate.setMinutes(cDate.getMinutes());
-+				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && this.convertedTS- oldDate.getTime() < oldDura)){this.pickerStart = newDate.getTime();}
-+				ui.startTime.setValue(newDate);
++				newDate.set({hour: cDate.getHours(), minute: cDate.getMinutes()});
++				//newDate.setMinutes(cDate.getMinutes());
++				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && (this.convertedTS- oldDate.getTime()) < oldDura)){this.pickerStart = newDate.getTime();}
++				ui.startTime.setValue(new Date(cDate));
 +				// time set now must change day & pickerstart time again for duration
-+				if((this.convertedTS < oldDate.getTime()) || ((this.convertedTS > oldDate.getTime()) && this.convertedTS - oldDate.getTime() < oldDura)){
-+					this.pickerStart = this.convertedTS;
-+				}
++				this.pickerStart = this.convertedTS;
 +				ui.startDate.setValue(new Date(cDate))
++				this.startOrEndDateModified = true;
 +			}
 +			
 +		} else if(this.tzLastBtn !== null && this.tzLastBtn == "popTimeZoneBtn"){
@@ -4242,14 +4256,16 @@ index e1dd533..62bbca2 100644
 +				ui.endTime.setValue(new Date(newDate));
 +				this.pickerEnd = cDate.getTime();
 +				ui.endDate.setValue(new Date(this.pickerEnd));
++				this.startOrEndDateModified = true;
 +			}
 +		}
++		//this.startOrEndDateModified = true;
 +	},
 +
  	setupRepeatValue: function setupRepeatValue(sender, repeatType){
  		var	customType
  		,	event = this.event
-@@ -520,6 +1575,94 @@ enyo.kind({
+@@ -520,6 +1591,94 @@ enyo.kind({
  		selector.setValue(reminderValue);
  	},
  
@@ -4344,7 +4360,7 @@ index e1dd533..62bbca2 100644
  	setupCalendarPicker: function setupCalendarPicker(calendarId){
  		var mgr = enyo.application.calendarsManager;
  		this.calendars = mgr.getCalendarsList({sorted: true, excludeReadOnly: true});
-@@ -541,6 +1684,35 @@ enyo.kind({
+@@ -541,6 +1700,35 @@ enyo.kind({
  		ui.calendarPicker.setValue (calendarId);	// calendarId will be undefined on accountsAndCalendarsChanged().
  	},
  
@@ -4380,7 +4396,7 @@ index e1dd533..62bbca2 100644
  	ignoreNewLines: function ignoreNewLines (inSender, inResponse) {
  		if (inResponse && inResponse.keyCode === 13) {
  			enyo.stopEvent(inResponse);
-@@ -580,6 +1752,10 @@ enyo.kind({
+@@ -580,6 +1768,10 @@ enyo.kind({
  		,	end = new Date(timestamp);
  		ui.endTime.setValue (end);
  		ui.endDate.setValue (end);	
@@ -4391,7 +4407,7 @@ index e1dd533..62bbca2 100644
  	},
  	 
  	//Rules for date and time changes:
-@@ -596,9 +1772,11 @@ enyo.kind({
+@@ -596,9 +1788,11 @@ enyo.kind({
  		,	event	= this.event
  		;
  		
@@ -4406,7 +4422,7 @@ index e1dd533..62bbca2 100644
  
  		var duration = this.pickerEnd - this.pickerStart;
  		
-@@ -622,10 +1800,18 @@ enyo.kind({
+@@ -622,10 +1816,18 @@ enyo.kind({
  		var event	= this.event;
  		
  		this.changeStartTime();
@@ -4426,7 +4442,7 @@ index e1dd533..62bbca2 100644
  		}
  		this.oldStartValue = this.$.startDate.getValue().getTime();
  	},
-@@ -638,9 +1824,10 @@ enyo.kind({
+@@ -638,9 +1840,10 @@ enyo.kind({
  		,	changedDate = false
  		;
  
@@ -4440,7 +4456,7 @@ index e1dd533..62bbca2 100644
  		
  		if(time < this.pickerStart){			
  			//consider it as setting for next 12 hour clock
-@@ -664,9 +1851,13 @@ enyo.kind({
+@@ -664,9 +1867,13 @@ enyo.kind({
  		,	changedDate = false
  		;
  
@@ -4457,7 +4473,7 @@ index e1dd533..62bbca2 100644
  		
  		if(time < this.pickerStart){
  			var startDate = new Date(this.pickerStart);
-@@ -731,7 +1922,9 @@ enyo.kind({
+@@ -731,7 +1938,9 @@ enyo.kind({
  		ui.startTime.setValue	(start);	
  		event.allDay = state;
  		ui.startTimeDrawer	.setOpen (!state);
@@ -4467,7 +4483,7 @@ index e1dd533..62bbca2 100644
  		
  		this.setupReminder(event, true);
  	},
-@@ -1053,6 +2246,7 @@ enyo.kind({
+@@ -1053,6 +2262,7 @@ enyo.kind({
  	
  	editNote: function editNote (note) {
  		this.event.note = note && note.getText();
@@ -4475,7 +4491,7 @@ index e1dd533..62bbca2 100644
  	},
  	
  	confirmSave: function confirmSave(){
-@@ -1120,6 +2314,67 @@ enyo.kind({
+@@ -1120,6 +2330,67 @@ enyo.kind({
  		this.doExit(this.event);
  	},
  
@@ -6108,7 +6124,7 @@ index 592cb6e..decd2c8 100644
  		}
  		this.startOfWeekChanged();
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
-index d06f5ca..a3a6042 100644
+index d06f5ca..ce389b8 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 @@ -12,6 +12,39 @@ enyo.kind(
@@ -6151,7 +6167,7 @@ index d06f5ca..a3a6042 100644
  {	name	: "calendar.prefs.TimedReminderSelector"
  ,	kind	: enyo.ListSelector
  ,	value	: "-PT5M"
-@@ -23,9 +56,42 @@ enyo.kind(
+@@ -23,9 +56,44 @@ enyo.kind(
  	,	{caption: $L("5 minutes before")	, value: "-PT5M"}
  	,	{caption: $L("10 minutes before")	, value: "-PT10M"}
  	,	{caption: $L("15 minutes before")	, value: "-PT15M"}
@@ -6170,6 +6186,8 @@ index d06f5ca..a3a6042 100644
 +	,	{caption: $L("7 hours before")		, value: "-PT7H"}
 +	,	{caption: $L("8 hours before")		, value: "-PT8H"}
 +	,	{caption: $L("10 hours before")		, value: "-PT10H"}
++	,	{caption: $L("12 hours before")		, value: "-PT12H"}
++	,	{caption: $L("18 hours before")		, value: "-PT18H"}
 +	,	{caption: $L("23 hours before")		, value: "-PT23H"}
  	,	{caption: $L("1 day before")		, value: "-P1D"}
 +	,	{caption: $L("36 hours before")		, value: "-PT36H"}
@@ -6194,11 +6212,12 @@ index d06f5ca..a3a6042 100644
  	]
  });
  
-@@ -38,10 +104,27 @@ enyo.kind(
+@@ -38,10 +106,28 @@ enyo.kind(
  ,	items	:
  	[	{caption: $L("No Reminder")			, value: "none"}
  	,	{caption: $L("At start time")		, value: "-PT0M"}
 +	,	{caption: $L("12 hours before")		, value: "-PT12H"}
++	,	{caption: $L("18 hours before")		, value: "-PT18H"}
  	,	{caption: $L("1 day before")		, value: "-P1D"}
 +	,	{caption: $L("36 hours before")		, value: "-PT36H"}
  	,	{caption: $L("2 days before")		, value: "-P2D"}
@@ -6222,7 +6241,7 @@ index d06f5ca..a3a6042 100644
  	]
  });
  
-@@ -52,7 +135,70 @@ enyo.kind(
+@@ -52,7 +138,70 @@ enyo.kind(
  ,	items	:
  	[	{caption: $L("30 minutes")	, value: 30}
  	,	{caption: $L("1 hour")		, value: 60}
@@ -6293,7 +6312,7 @@ index d06f5ca..a3a6042 100644
  	]
  });
  
-@@ -78,6 +224,19 @@ enyo.kind(
+@@ -78,6 +227,19 @@ enyo.kind(
  ,	textAlign	: "left"
  });
  
@@ -6313,7 +6332,7 @@ index d06f5ca..a3a6042 100644
  /*
   * Custom item kind for the ColorPicker popup menu.  Required so we could show the color swatch not using an image.
   * The regular MenuItem only allows a caption and an image-based icon.  Normally we could just add components
-@@ -141,6 +300,204 @@ enyo.kind(
+@@ -141,6 +303,204 @@ enyo.kind(
  });
  
  enyo.kind({
@@ -6518,7 +6537,7 @@ index d06f5ca..a3a6042 100644
  	name		: "calendar.prefs.PreferencesView",
  	kind		: enyo.VFlexBox,
  	className	: "prefs enyo-bg",
-@@ -183,30 +540,219 @@ enyo.kind({
+@@ -183,30 +543,219 @@ enyo.kind({
  					{kind: enyo.RowGroup, caption: $L("First Day of Week"), components:[
  						{kind: "calendar.day.DayPicker", name: "startOfWeek", onChange: "chooseStartOfWeek"}
  					]},
@@ -6750,7 +6769,7 @@ index d06f5ca..a3a6042 100644
  					{kind: enyo.Group, caption: $L("Calendar Colors"), components: [
  						{name: "calendarList", kind: enyo.VirtualRepeater, onSetupRow: "getCalendar", components: [
  							{kind: enyo.Item, name: "calendarItem", onclick: "calendarClick", layoutKind: enyo.HFlexLayout, className:"accounts-list-item", components: [
-@@ -242,6 +788,7 @@ enyo.kind({
+@@ -242,6 +791,7 @@ enyo.kind({
  	},
  
  	ready: function ready (){
@@ -6758,7 +6777,7 @@ index d06f5ca..a3a6042 100644
  		this.$.accountsList.getAccountsList("CALENDAR", []);
  	},
  
-@@ -298,18 +845,64 @@ enyo.kind({
+@@ -298,18 +848,64 @@ enyo.kind({
  		var ui = this.$;
  		ui.startOfWeek		.setValue (this.prefs.startOfWeek);
  		ui.reminder			.setValue (this.prefs.defaultEventReminder);
@@ -6830,7 +6849,7 @@ index d06f5ca..a3a6042 100644
  		this.setupDefaultCalendar();
  	},
  
-@@ -359,25 +952,25 @@ enyo.kind({
+@@ -359,25 +955,25 @@ enyo.kind({
  	},
  
  //	Commenting out the following but keeping it in case it is needed again.
@@ -6875,7 +6894,7 @@ index d06f5ca..a3a6042 100644
  	chooseReminder: function chooseReminder () {
  		this.prefs.defaultEventReminder = this.$.reminder.getValue();
  	},
-@@ -389,6 +982,10 @@ enyo.kind({
+@@ -389,6 +985,10 @@ enyo.kind({
  	chooseDuration: function chooseDuration () {
  		this.prefs.defaultEventDuration = this.$.durationSelector.getValue();
  	},
@@ -6886,7 +6905,7 @@ index d06f5ca..a3a6042 100644
  
  	syncNow: function syncNow () {
  		enyo.application.calendarsManager.syncAllCalendars();
-@@ -408,6 +1005,185 @@ enyo.kind({
+@@ -408,6 +1008,185 @@ enyo.kind({
  		}
  	},
  
@@ -7072,7 +7091,7 @@ index d06f5ca..a3a6042 100644
  	calendarClick: function calendarClick(inSender, inEvent) {
  		var calendar = this.calendars[inEvent.rowIndex];
  		this.$.colorPicker.setCalendarId(calendar._id);
-@@ -427,7 +1203,36 @@ enyo.kind({
+@@ -427,7 +1206,36 @@ enyo.kind({
  		this.templates = templates;
  	},
  
@@ -8334,10 +8353,10 @@ index 866fea0..f722963 100644
 +ReminderManager.WINDOWSIZE_S = "130px";
 +ReminderManager.WINDOWSIZE_L = "172px";
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js
-index 1ad9e47..a3c9c77 100644
+index 1ad9e47..df2cab5 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/Utilities.js
-@@ -286,12 +286,39 @@
+@@ -286,12 +286,41 @@
  			case '-P1D':
  			case '-P2D':
  			case '-P3D':
@@ -8363,6 +8382,8 @@ index 1ad9e47..a3c9c77 100644
 +			case '-PT7H':
 +			case '-PT8H':
 +			case '-PT10H':
++			case '-PT12H':
++			case '-PT18H':
 +			case '-PT23H':
 +			case '-PT36H':
 +			case '-P2W':
@@ -8377,11 +8398,12 @@ index 1ad9e47..a3c9c77 100644
  				isStandard = true;
  		}	
  		if(isAllDay){
-@@ -300,10 +327,26 @@
+@@ -300,10 +329,27 @@
  				case '-PT0M':
  				case 'PT0M':
  				case '+PT0M':
 +				case '-PT12H':
++				case '-PT18H':
  				case '-P1D':
 +				case '-PT36H':
  				case '-P2D':
@@ -8404,7 +8426,7 @@ index 1ad9e47..a3c9c77 100644
  					isStandardForType = true;
  			}
  		}
-@@ -319,6 +362,41 @@
+@@ -319,6 +365,43 @@
  				case '-PT30M':
  				case '-PT1H':
  				case '-P1D':
@@ -8432,6 +8454,8 @@ index 1ad9e47..a3c9c77 100644
 +				case '-PT7H':
 +				case '-PT8H':
 +				case '-PT10H':
++				case '-PT12H':
++				case '-PT18H':
 +				case '-PT23H':
 +				case '-PT36H':
 +				case '-P2W':
@@ -8446,7 +8470,7 @@ index 1ad9e47..a3c9c77 100644
  					isStandardForType = true;
  			}
  		}
-@@ -835,6 +913,322 @@
+@@ -835,6 +918,322 @@
  // TODO: Move all RRule manipulation functions below this comment into the Calendar.RRuleManager loadable library.
  //--------------------------------------------------------------------------------------------------------------------
  
@@ -8769,7 +8793,7 @@ index 1ad9e47..a3c9c77 100644
  	// Publish the Utilities object for public access:
  	this.Utilities	=
  	{	addException					: addException
-@@ -869,6 +1263,7 @@
+@@ -869,6 +1268,7 @@
  	,	updateByDayRRule				: updateByDayRRule
  	,	wrapIt							: wrapIt
  	,	isArrayLike						: isArrayLike
