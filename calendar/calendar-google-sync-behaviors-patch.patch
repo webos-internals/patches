@@ -1,50 +1,3111 @@
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/credentialschangedcommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/credentialschangedcommand.js
+new file mode 100644
+index 0000000..c8cc14c
+--- /dev/null
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/credentialschangedcommand.js
+@@ -0,0 +1,64 @@
++/*global Class, Future, exports, PalmCall, console */
++exports.CredentialsChangedCommand = Class.create(Transport.Command,
++{
++	run: function(result)
++	{
++		// when the credentials are changed successfully then initiate a sync
++		// this may come after a restore and we must do a sync to get the data
++		var future = new Future(true),
++			args = this.controller.args,
++			command = "sync";
++		
++		params = {
++			enabled: true,
++			accountId: args.accountId
++		};
++		result.nest(future.then(this, [
++				function(future) {
++					// enableAccount just checks to see if the modnum is set to 0
++					// if so, it will update it to the most recent rev to avoid
++					// syncing any deletes that may exist from previously removing the capability
++					return this.handler.enableAccount();
++				},
++				function(future) {
++					// reload the account transport object because it will have changed in enableAccount() if
++					// the capability has just been enabled by entering the credentials into the particular app
++					future.nest(this.handler.getAccountTransportObject(args.accountId).then(this, function(future) {
++						var transport = future.result;
++						if (!transport) {
++							console.error("CredentialsChangedCommand: no transport object found");
++						} else {
++							this.client.transport = transport;
++						}
++						
++						return true;
++					}));
++				},
++				function(){
++					var activity = new Foundations.Control.Activity("Sync on credentials changed:" + this.controller.service.name + ":" + this.client.clientId, "Sync on credentials changed", true)
++						.setUserInitiated(true)
++						.setExplicit(true)
++						.setPersist(true)
++						.setReplace(true)
++						.setCallback("palm://" + this.controller.service.name + "/"+command, params);
++					return activity.start();
++				},
++				function() {
++					var capability;
++					if (!this.client.syncStatusMgr) {
++						try {
++							capability = this.client.getCapabilityProviderId();
++						} catch(ex) {
++							console.log("getCapabilityProviderId", ex);
++							return false;
++						}
++						this.client.syncStatusMgr = new SyncStatusManager(this.client.clientId, capability, this.controller.service.name);
++					} 
++					return this.client.syncStatusMgr.clearSyncStatus();
++				},
++				function(){
++					future.result = {};
++				}
++		]));
++	}
++});
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/deleteaccountcommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/deleteaccountcommand.js
+index c84f0c0..9a328b7 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/deleteaccountcommand.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/deleteaccountcommand.js
+@@ -1,3 +1,5 @@
++/*global Class, exports, Future, Transport */
++
+ exports.DeleteAccountCommand = Class.create(Transport.Command,
+ {
+ 	run: function(result)
+@@ -6,11 +8,26 @@ exports.DeleteAccountCommand = Class.create(Transport.Command,
+ 		result.nest(future.then(this,
+ 		[
+ 			function()
++			{				
++				if (this.client.syncStatusMgr) {
++					return this.client.syncStatusMgr.setDeleteStatus();
++				}
++				return new Future(true);
++			},
++			function()
+ 			{
++				future.getResult();
+ 				return this.handler.deleteAccount();
+ 			},
+ 			function()
+ 			{
++				future.getResult();
++				if (this.client.syncStatusMgr) {
++					return this.client.syncStatusMgr.clearDeleteStatus();
++				}
++				return new Future(true);
++			},
++			function() {
+ 				future.result = {};
+ 			}
+ 		]));
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/enabledaccountcommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/enabledaccountcommand.js
+index 2a15599..caf67df 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/enabledaccountcommand.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/enabledaccountcommand.js
+@@ -6,9 +6,10 @@ exports.EnabledAccountCommand = Class.create(Transport.Command,
+ 	{
+ 		var future = new Future(true),
+ 			args = this.controller.args;
+-	
++		
++		console.log("EnabledAccountCommand: onEnabled = " + args.enabled);
++		
+ 		if(args.enabled) { // account is being enabled
+-			var interval;
+ 			var requiresInternet;
+ 			var requirements;
+ 			if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
+@@ -26,12 +27,39 @@ exports.EnabledAccountCommand = Class.create(Transport.Command,
+ 			}
+ 			requirements = (requiresInternet) ? { internetConfidence: "fair" } : undefined;
+ 			var command = "sync"; //TODO: Shouldn't the command name be retrieved from the config?
+-			var args = { accountId: this.client.clientId };
++			args = { accountId: this.client.clientId };
+ 			
+ 			result.nest(future.then(this,
+ 			[
+ 				function()
+ 				{
++					return this.handler.getAccountTransportObject(this.client.clientId);
++				},
++				function()
++				{
++					// If there is a transport object reset, modnum to 0 
++					// in order to force an initial sync after restore;
++					// it will be set to the correct value in enableAccount
++					var transportObject = future.result;
++					if (transportObject && transportObject._sync) {
++						console.log("OnEnabledAssistant: transport object is set to sync; clearing");
++						transportObject = {
++							_kind: transportObject._kind,
++							_id: transportObject._id,
++							_rev: transportObject._rev,
++							accountId: transportObject.accountId,
++							modnum: 0, // will be set correctly in enableAccount
++							syncKey: {},
++							extras: {}
++						};
++						return this.handler.put([transportObject]);
++					}
++					console.log("OnEnabledAssistant: transport object is NOT set to sync");
++					return true;
++				},
++				function()
++				{
++					future.getResult();
+ 					if (this.client.getSyncInterval && typeof this.client.getSyncInterval === 'function') {
+ 						return this.client.getSyncInterval();
+ 					} else {
+@@ -83,7 +111,6 @@ exports.EnabledAccountCommand = Class.create(Transport.Command,
+ 				}
+ 			]));
+ 		} else {	// account is being disabled
+-			var syncActivity;
+ 			var serviceAssistant = this.controller.service.assistant;
+ 			var clientId=this.client.clientId;
+ 			serviceAssistant._syncInProgress = serviceAssistant._syncInProgress || {};
+@@ -116,7 +143,7 @@ exports.EnabledAccountCommand = Class.create(Transport.Command,
+ 					if (future.exception) {
+ 						console.error("ignoring exception from Activity Manager");
+ 					}
+-					var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; // TODO: merge this with code in SyncCommand
++					var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; // TODO: merge this with code in SyncCommand - started common implementation: syncactivityhelper.js
+ 					// get the activityId from ActivityManager
+ 					return PalmCall.call("palm://com.palm.activitymanager", "getDetails", {"activityName":name}); 
+ 				},
+@@ -138,7 +165,7 @@ exports.EnabledAccountCommand = Class.create(Transport.Command,
+ 				function(future)
+ 				{
+ 					if (future.exception) {
+-						console.error("ignoring exception from Activity Manager");
++						console.error("ignoring exception from this.handler.disableAccount()");
+ 					}
+ 					serviceAssistant._syncInProgress[clientId]=false;
+ 					return true;
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js
+index 999a702..e394f84 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/commands/synccommand.js
+@@ -1,6 +1,8 @@
+ /*global console, Class, TempDB, Transport, Future, Foundations, exports, require: true, IMPORTS,
+ file, PalmCall, SyncStatusManager, AjaxCall */
+ 
++var logError;
++
+ /*
+  * The SyncCommand provide all the handling to synchronize content between a server and the client.
+  * This class should be extended for use with specific servers and specific content types, but is general
+@@ -8,7 +10,7 @@ file, PalmCall, SyncStatusManager, AjaxCall */
+  */
+ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ {
+-	commandTimeout: 3600,
++	commandTimeout: 60 * 60, // 60 minutes
+ 
+ 	/*
+ 	 * Returns a function which will transform between local and remote formats.
+@@ -100,6 +102,11 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		throw new Error("No getSyncObjects function");
+ 	},
+ 
++	updateLocalTransportRevision: function(batchTransport, object_kind)
++	{
++		throw new Error("No updateLocalRevision function");
++	},
++	
+ 	/*
+ 	 * Return the ID string for the capability (e.g., CALENDAR, CONTACTS, etc.)
+ 	 * supported by the sync engine as specified in the account template (e.g.,
+@@ -108,16 +115,300 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	 */
+ 	getCapabilityProviderId: function() {
+ 	},
++	
++	/* 
++	 * Return the number of retries to attempt when a sync error occurs
++	 */
++	getMaxSyncRetries: function() {
++		return 3;
++	},
+ 
++	/* 
++	 * Return the number of retries to attempt when a sync error occurs
++	 */
++	getSyncRetryInterval: function(retriesSoFar) {
++		return "5m";
++	},
+ 	preSaveModify: function() {
+-		console.log("synccommand: preSaveModify()");
++		Utils.debug("synccommand: preSaveModify()");
+ 		return new Future([]);
+ 	},
+ 
+ 	postPutRemoteModify: function() {
+-		console.log("synccomand: postPutRemoteModify()");
++		Utils.debug("synccomand: postPutRemoteModify()");
+ 		return new Future([]);
+ 	},
++	
++	getTweakedInterval: function(interval){
++		var serviceName = this.controller.service.name;
++		if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
++			if(serviceName.indexOf("calendar") !== -1 || (serviceName.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
++				interval = this.advSyncReq.interval !== "" ? this.advSyncReq.interval : interval
++			}
++		}
++		//console.error("returning Tweaked interval: " + interval);
++		return interval;
++	},
++	
++	getUTCDateString: function(date){
++		
++		//UTC time format	  
++		var year = date.getUTCFullYear();
++		var month = date.getUTCMonth()+1;
++		var day = date.getUTCDate();
++		var hour= date.getUTCHours();
++		var minute=date.getUTCMinutes();
++		var second =date.getUTCSeconds();
++			
++		month	= (month > 9)	? month		: "0"+month;
++		day		= (day > 9)		? day		: "0"+day;
++		hour	= (hour > 9)	? hour		: "0"+hour;
++		minute	= (minute > 9)	? minute	: "0"+minute;
++		second	= (second > 9)	? second	: "0"+second;
++		
++		//YYYY-MM-DD HH:MM:SSZ
++		return (""+year+"-"+month+"-"+day+" "+hour+":"+minute+":"+second+"Z");  
++	},
++	
++	getNextStart: function(){
++		var nextStart = false;
++		if(this.customSyncSchedule){
++			if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++				// only do this if we're not doing an initial sync from accounts app
++				if(!(this.client.transport && this.client.transport.initialSync)){
++					var timeMachine = new Date(this.advSyncReq.endtime);
++					var hrs, mins, startTS, stopTS, now = (new Date()).getTime();
++					
++					hrs = timeMachine.getUTCHours();
++					mins = timeMachine.getUTCMinutes();
++					timeMachine.setTime(now);
++					timeMachine.setHours(hrs);
++					timeMachine.setMinutes(mins);
++					stopTS = timeMachine.getTime();
++					timeMachine.setTime(this.advSyncReq.starttime);
++					hrs = timeMachine.getUTCHours();
++					mins = timeMachine.getUTCMinutes();
++					timeMachine.setTime(now);
++					timeMachine.setHours(hrs);
++					timeMachine.setMinutes(mins);
++					startTS = timeMachine.getTime();
++					if(parseInt(this.advSyncReq.endtime,10) <= parseInt(this.advSyncReq.starttime,10)){
++						//start after end, subtract a day from start
++						startTS = startTS - 86400000;
++						timeMachine.setTime(startTS);
++						timeMachine.setHours(hrs);
++						timeMachine.setMinutes(mins);
++						startTS = timeMachine.getTime();
++					}
++					console.error("CustomSyncStart start: " + (timeMachine.setTime(startTS) && timeMachine.toString()) + ", now: " + (timeMachine.setTime(now) && timeMachine.toString()) + ", stop: "+ (timeMachine.setTime(stopTS) && timeMachine.toString()+" "+ this.client.clientId) );
++					if(!(now < stopTS && now >= startTS)){
++						if(now < startTS){
++							timeMachine.setTime(startTS);
++							nextStart = this.getUTCDateString(timeMachine);
++						} else {//next day compensate for daylight savings
++							timeMachine.setTime(startTS + 86400000);
++							timeMachine.setHours(hrs);
++							timeMachine.setMinutes(mins);
++							nextStart = this.getUTCDateString(timeMachine);
++						}
++						console.error("CustomSyncStart schedule starting at: " + nextStart +" "+ this.client.clientId);
++						return nextStart;
++					} else {
++						console.error("CustomSyncStart schedule in sync window continuing sync "+ this.client.clientId);
++					}
++				} else {
++					console.error("CustomSyncStart schedule initial sync in process "+ this.client.clientId);
++				}
++			} else {
++				console.error("CustomSyncStart schedule, bad start and stop times "+ this.client.clientId);
++			}
++		}
++		return nextStart;
++	},
++	
++	getTweakedReqs: function(update){
++		this.customSyncSchedule = false;
++		var req = {};
++		var oldReqs = this.oldReqs;
++		var serviceName = this.controller.service.name;
++		//var defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, false /*battery*/, "20m" /*0d0h20m0s*/, false/*charging*/, false /*docked*/];
++		if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
++			if(serviceName.indexOf("calendar") !== -1 || (serviceName.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
++				// calendars or contacts "on" as well
++				if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++					this.customSyncSchedule = true;
++				}
++				if(this.advSyncReq.wifi === true && this.advSyncReq.wan === true){
++					//both on, best to remove the requirements as this is AND not an OR
++					if(update && oldReqs && oldReqs.wifi){
++						req.wifi = false;
++					}
++					if(update && oldReqs && oldReqs.wan){
++						req.wan = false;
++					}
++				} else {
++					if(!!this.advSyncReq.wifi){
++						req.wifi = true;
++					} else if(update && oldReqs && oldReqs.wifi){
++						req.wifi = false;
++					}
++					if(!!this.advSyncReq.wan){
++						req.wan = true;
++					} else if(update && oldReqs && oldReqs.wan){
++						req.wan = false;
++					}
++				}
++				if(parseInt(this.advSyncReq.battery, 10) > 0){
++					req.battery = parseInt(this.advSyncReq.battery, 10);
++				} else if(update && oldReqs && oldReqs.battery){
++					req.battery = false;
++				}
++				if(!!this.advSyncReq.charging){
++					req.charging = true;
++				} else if(update && oldReqs && oldReqs.charging){
++					req.charging = false;
++				}
++				if(!!this.advSyncReq.docked){
++					req.docked = true;
++				} else if(update && oldReqs && oldReqs.docked){
++					req.docked = false;
++				}
++			} else if(serviceName.indexOf("contacts") !== -1 && this.advSyncReq.contacts === false){
++				if(update && oldReqs && oldReqs.battery){
++					req.battery = false;
++				}
++				//req.interval = (serviceName.indexOf("facebook") === -1 ? "20m" : "24h");
++				if(update && oldReqs && oldReqs.docked){
++					req.docked = false;
++				}
++				if(update && oldReqs && oldReqs.charging){
++					req.charging = false;
++				}
++				if(update && oldReqs && oldReqs.wan){
++					req.wan = false;
++				}
++				if(update && oldReqs && oldReqs.wifi){
++					req.wifi = false;
++				}
++			}
++		} else {
++			//must set defaults in case it was previously on
++			if(update && oldReqs && oldReqs.battery){
++				req.battery = false;
++			}
++			//req.interval = (serviceName.indexOf("facebook") === -1 ? "20m" : "24h");
++			if(update && oldReqs && oldReqs.docked){
++				req.docked = false;
++			}
++			if(update && oldReqs && oldReqs.charging){
++				req.charging = false;
++			}
++			if(update && oldReqs && oldReqs.wan){
++				req.wan = false;
++			}
++			if(update && oldReqs && oldReqs.wifi){
++				req.wifi = false;
++			}
++		}
++		req.internetConfidence = "fair";
++		
++		return req;
++	},
++	
++	getAdvConfigReq: function () {
++		var timeMachine = new Date(2000, 0, 1, 0, 0, 0, 0);
++		timeMachine.setHours(7);
++		var start = timeMachine.getTime();
++		timeMachine.setHours(18);
++		var end = timeMachine.getTime();
++		var accountId = this.client.clientId,
++		serviceId = this.controller.service.name,
++		serviceAssistant = this.controller.service.assistant,
++		name = this.controller.config.name,
++		map = ["onoff", "contacts","wifi","wan","battery","interval", "charging", "docked", "syncallday", "starttime", "endtime"],
++		defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, false /*battery*/, "20m" /*0d0h20m0s*/, false/*charging*/, false /*docked*/, true /*all day*/, start, end];
++		
++		this.advSyncReq ={};
++		this.useTweaksReq = false;
++		this.customSyncSchedule = false;
++		
++		if(this.controller.args && this.controller.args.$activity){
++			if(this.controller.args.$activity.trigger &&  this.controller.args.$activity.trigger.returnValue===true){
++				serviceAssistant._EditOnSyncFired[this.client.clientId] = true;
++			} else {
++				serviceAssistant._EditOnSyncFired[this.client.clientId] = false;
++			}
++			if(this.controller.args.$activity.requirements !== undefined){
++				this.oldReqs = this.controller.args.$activity.requirements;
++			} else {
++				this.oldReqs = {};
++			}
++		}
++		if(serviceId.indexOf("facebook") !== -1){
++			defaults[5] = "24h";
++		}
++		
++		var future = new Future();
++		Utils.error("Adv config req start .... " + serviceId + ", name: " +name + ",account: " + accountId);
++		var inner = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
++							"get",
++									{owner: "google-first-sync",
++									keys: ["advancedSyncEnabled", "syncStringField"], subscribe:false}
++		);
++		
++		future.nest(inner).then(this, function gotTweaks(inner) {
++			var reqs = {}, result, exception;
++			
++			Utils.error("in got tweaks synccommand old reqs: " + JSON.stringify(this.oldReqs));
++
++			try{
++				//Utils.error("Get tweaks results????");
++				result = inner.result;
++				exception = inner.exception;
++				//Utils.error("TWEAKS adv req results: " + (result && JSON.stringify(result)) );
++				//Utils.error("TWEAKS call started result: " + JSON.stringify(future.result) );
++				//Utils.error("TWEAKS call exception: " + JSON.stringify(future.exception) );
++				if(result && result.returnValue === true) {
++					this.useTweaksReq = !!result.advancedSyncEnabled;
++					if(result.syncStringField && result.syncStringField !== ""){
++						reqs = JSON.parse(result.syncStringField);
++						for(var prop in reqs){
++							if(reqs.hasOwnProperty(prop) && reqs[prop] !== undefined && accountId === prop){
++								var opt;
++								if(reqs[prop] && reqs[prop].length === defaults.length){
++									for(var i=0;i<defaults.length;i++){
++										opt = reqs[prop][i];
++										if(opt !== undefined && opt !== null && opt !== ""){
++											this.advSyncReq[map[i]] = opt;
++										} else {
++											this.advSyncReq[map[i]] = defaults[i];
++										}
++									}
++								}
++								Utils.error("TWEAKS adv req results: " + prop + ",values: " + JSON.stringify(this.advSyncReq) );
++								break;
++							}
++						}
++						if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
++							if(serviceId.indexOf("calendar") !== -1 || (serviceId.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
++								if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++									this.customSyncSchedule = true;
++								}
++							}
++						}
++					}
++				}
++				
++				inner.result = true;
++				//return (useReq && {useReq: useReq, reqs: reqs});
++			} catch(error) {
++				//Utils.error("in Get tweaks::: error ");
++				console.log("failed to read TWEAKS advanced requirements" + JSON.stringify(error && error.message));
++				inner.result = true;
++			}
++		});
++		return future;
++	},
+ 
+ 	initialize: function()
+ 	{
+@@ -126,31 +417,65 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	run: function(future)
+ 	{
+ 		this._future = future;
+-		var serviceAssistant = this.controller.service.assistant;
+-		serviceAssistant._syncInProgress = serviceAssistant._syncInProgress || {};
+-
+-		if (serviceAssistant._syncInProgress[this.client.clientId])
+-		{
+-			console.log("Sync activity already in progress, ignoring sync request");
+-			future.result={returnValue:true, result:"sync already in progress"};
++		this.syncActivityHelper 			= new SyncActivityHelper(this.controller.service.name, this.client.clientId);
++		this.recreateActivitiesOnComplete 	= true; // used in complete()
++		
++		var serviceAssistant 				= this.controller.service.assistant,
++			capabilityId,
++			capabilityFuture;
++		
++		serviceAssistant._syncInProgress 	= serviceAssistant._syncInProgress || {};
++		serviceAssistant._EditOnSyncFired 	= serviceAssistant._EditOnSyncFired || {};
++
++		// determine if the account capability is enabled for this transport
++		try {
++			if (this.client.getCapabilityProviderId) {
++					capabilityId = this.client.getCapabilityProviderId();
++			}
++			else if (serviceAssistant && serviceAssistant.getCapabilityProviderId) {
++				capabilityId = serviceAssistant.getCapabilityProviderId();
++			} else {
++				capabilityId = this.getCapabilityProviderId();
++			}
++		} catch(e) {
++			console.error("Error fetching capabilityId from client");
+ 		}
+-		else if (this.controller.args.$activity &&  this.controller.args.$activity.trigger &&  this.controller.args.$activity.trigger.returnValue===false) {
+-			// error during triggered activity - probaby a bad watch
+-			var response = this.controller.args.$activity.trigger;
+-			console.error("Error with triggered activity:");
+-			console.error("error in trigger: "+JSON.stringify(response));
+-			future.result={returnValue:false, result:"error in trigger: "+JSON.stringify(response)};
++		console.error("sync arguments trigger: "+JSON.stringify((this.controller.args && this.controller.args.$activity)));
++		
++		if (capabilityId) {
++			capabilityFuture = this.getAdvConfigReq();
++			//console.error("CapabilityId is:" + capabilityId+", allowing sync to continue");
++		} else {
++			//console.error("CapabilityId is empty, allowing sync to continue");
++			capabilityFuture = this.getAdvConfigReq(); //new Future(true);
+ 		}
+-		else // start the sync machinery
+-		{
+-			serviceAssistant._syncInProgress[this.client.clientId]=true;
+-			new Foundations.Control.FSM(this);
+-			var self = this;
+-			this._gotReply = function(future)
++
++		capabilityFuture.then(this, function() {
++			var isCapabilityEnabled = capabilityFuture.getResult();
++			
++			if (serviceAssistant._syncInProgress[this.client.clientId])
+ 			{
+-				self.event("gotReply", future);
+-			};
+-		}
++				console.log("Sync activity already in progress, ignoring sync request");
++				future.result={returnValue:true, result:"sync already in progress"};
++			}
++			else if (this.controller.args.$activity &&  this.controller.args.$activity.trigger &&  this.controller.args.$activity.trigger.returnValue===false) {
++				// error during triggered activity - probably a bad watch
++				var response = this.controller.args.$activity.trigger;
++				console.error("Error with triggered activity:");
++				console.error("error in trigger: "+JSON.stringify(response));
++				future.result={returnValue:false, result:"error in trigger: "+JSON.stringify(response)};
++			}
++			else // start the sync machinery
++			{
++				serviceAssistant._syncInProgress[this.client.clientId]=true;
++				var fsm = new Foundations.Control.FSM(this);
++				var self = this;
++				this._gotReply = function(future)
++				{
++					self.event("gotReply", future);
++				};
++			}
++		});
+ 	},
+ 
+ 	"yield": function() {
+@@ -159,7 +484,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	},
+ 
+ 	getPeriodicSyncActivityName: function() {
+-		var name = "Periodic Sync:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
++		var name = "Periodic Sync:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand - started by adding syncactivityhelper.js
+ 		return name;
+ 	},
+ 
+@@ -168,6 +493,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		var details = PalmCall.call("palm://com.palm.activitymanager", "getDetails", {"activityName": name}).then(this, function(future) {
+ 			// got it - return details
+ 			future.result = future.result.activity;
++			console.error("Query for 'Periodic Sync' found activity: " +JSON.stringify(future.result.activityId));
+ 		},
+ 		function(future) {
+ 			// error - create activity
+@@ -179,7 +505,12 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			var inner;
+ 			if (this.client.getSyncInterval && typeof this.client.getSyncInterval === 'function') {
+-				inner = this.client.getSyncInterval();
++				try {
++					inner = this.client.getSyncInterval();
++				} catch (e) {
++					logError("getSyncInterval", e);
++					inner = new Future("24h");
++				}
+ 			} else {
+ 				console.error("=== No getSyncInterval function in client for "+this.controller.service.name +" ===");
+ 				console.error("=== Default sync interval is 24 hours ===");
+@@ -195,6 +526,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				else {
+ 					interval = future.result;
+ 				}
++				interval = this.getTweakedInterval(interval);
+ 				var requiresInternet;
+ 				var requirements;
+ 				if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
+@@ -210,130 +542,561 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 					console.error("=== Default answer is 'true' - internet is required ===");
+ 					requiresInternet = true;
+ 				}
+-				requirements = (requiresInternet) ? { internetConfidence: "fair" } : undefined;
++				requirements = this.getTweakedReqs(false);
+ 				var args = { accountId: this.client.clientId };
+-				var activity = new Foundations.Control.Activity(name, "Periodic Sync", true)
+-					.setScheduleInterval(interval)
+-					.setUserInitiated(false)
+-					.setExplicit(true)
+-					.setPersist(true)
+-					.setReplace(true)
+-					.setRequirements(requirements)
+-					.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
+-				return activity.start();
++				var activityMethod = "create";
++				var activityArgs = {
++					"start": true,
++					"replace": true,
++					"schedule": {"interval": interval},
++					"activity": {
++						"name": name,
++						"description": "Periodic Sync",
++						"type": {
++							"persist": true,
++							"immediate": true,
++							"priority": "low",
++							"explicit":true,
++							"power":true
++						},
++						"requirements": requirements,
++						"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++					}
++				};
++				console.error("Find periodic error create act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements) +", sched: "+interval);
++				return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++						var result = inner.result;
++						console.error("Find periodic error, create result: " + JSON.stringify(result));
++						return result;
++						})
++					);
+ 			});
+ 		});
+ 		return details;
+ 	},
+ 
++	timeoutReceived: function(msg) {
++		try {
++			/**
++			 * DFISH-19453: Try to clear the sync status and set an error status
++			 */
++			var future = this.client.syncStatusMgr.clearSyncStatus().then(this, function (join) {
++				join.getResult();
++				console.log("timeoutReceieved - synccommand(complete): clearing previous sync state");
++				return true;
++			});
++			
++			future.nest(this.client.syncStatusMgr.setErrorCondition(new Transport.CommandTimeoutError(msg)).then(this, function (join) {
++				join.getResult();
++				console.log("synccommand(complete): resetting error sync state");
++				return true;
++			}));
++			/**
++			 * DFISH-19453: END
++			 */
++		} catch(except) { 
++			console.log(JSON.stringify(except)); 
++		}
++	},
++	
+ 	complete: function(activity) {
+ 		console.log("Completing activity "+activity.name);
+-		var syncActivity;
+-		var details = this.getPeriodicSyncActivity().then(function(future) {
+-			var restart=false;
+-			syncActivity = future.result;
+-			if (activity._activityId === syncActivity.activityId) {
+-				console.log("Periodic sync. Restarting activity");
+-				restart=true;
+-			} else {
+-				console.log("Not periodic sync. Completing activity");
+-			}
+-			return activity.complete(restart);
+-		}).then(function(future) {
+-			console.log("Complete succeeded, result = "+JSON.stringify(future.result));
+-			future.result=true;
+-		},
+-		function(future) {
+-			console.log("Complete FAILED, exception = "+JSON.stringify(future.exception));
+-			future.result=false;
+-		}).then(this, function(future) {
+-			if (future.result) {
+-				// TODO: Set up one of these for each synced kind...
+-				if (this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
+-					var rev = this.client.transport.modnum;
+-					var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
++		
++		//custom sync logic
++		if(this.customSyncSchedule){
++			var nextStart = this.getNextStart();
++			if(nextStart){
++				var schedule, future = new Future();
++				//we complete whatever just fired, then schedule the Custom sync restart
++				var innerCS = activity.complete().then(this, function(innerCS) {
++							Utils.error("CustomSyncStart previos sync complete succeeded, result = "+ this.client.clientId+" "+JSON.stringify(innerCS.result));
++							innerCS.result=true;
++						},
++						function(innerCS) {
++							//causes bug where database sync types are crossed
++							console.error("CustomSyncStart previos sync FAILED, exception = "+JSON.stringify(innerCS.exception));
++							//ignoring error try to establish database watch
++							innerCS.result=true;
++						}
++					);
++				
++				future.nest(innerCS).then(this, function(future){
++					var r = future.result;
++					schedule = {"start": nextStart};
++					var name = "CustomSyncStart:"+this.controller.service.name + ":" + this.client.clientId; 
+ 					var requiresInternet;
+ 					var requirements;
++					
+ 					if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
+-						requiresInternet = this.client.requiresInternet();
++						try {
++							requiresInternet = this.client.requiresInternet();
++						} catch (e) {
++							logError("requiresInternet", e);
++							requiresInternet = true;
++						}
+ 					} else {
+ 						console.error("=== No requiresInternet function in client for "+this.controller.service.name +" ===");
+ 						console.error("=== Default answer is 'true' - internet is required ===");
+ 						requiresInternet = true;
+ 					}
+-					requirements = (requiresInternet) ? { internetConfidence: "fair" } : undefined;
+-					var queryParams = {
+-						"query":{
+-							"from":this._kind,
+-							"where":[
+-								{"prop":"accountId", "op":"=", "val":this.client.transport.accountId},
+-								{"prop":"_rev", "op":">", "val": rev}
+-							],
+-							incDel: true
+-						},
+-						"subscribe": true
+-					};
+-					var args = { accountId: this.client.clientId };
+-					var activity = new Foundations.Control.Activity(name, "Sync On Edit", true)
+-						.setUserInitiated(false)
+-						.setExplicit(true)
+-						.setPersist(true)
+-						.setReplace(true)
+-						.setRequirements(requirements)
+-						.setTrigger("fired", "palm://com.palm.db/watch", queryParams)
+-						.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
+-					return activity.start();
++					var getDetailsArgs = {"activityName" : name};
++					var needToRestart, actId, innerCustom = PalmCall.call("palm://com.palm.activitymanager/", "getDetails", getDetailsArgs);
++					
++					future.nest(innerCustom).then(this, function(innerCustom){
++						var result;
++						
++						try{
++							var error = innerCustom.exception;
++							result = innerCustom.result;
++						} catch(e){  console.error("Complete query for CustomSyncStart not found "+ this.client.clientId);}
++						if(result && result.activity && result.returnValue === true){
++							console.error("Complete query for CustomSyncStart found activityId: "+ this.client.clientId +" " +result.activity.activityId);
++							// found the CustomSyncStart, we should complete and restart and update the trigger
++							needToRestart = true;
++							actId = result.activity.activityId;
++						}
++						innerCustom.result = true; 
++					});
++					
++					future.then(this, function(future){
++						try{
++							var result = future.result;
++						}catch(e4){console.error("restarting CustomSyncStart error "+ this.client.clientId);}
++						
++						var serviceAssistant = this.controller.service.assistant;
++						//console.error("In CustomSyncStart serviceAssistant._syncInProgress:"+this.client.clientId+ " , " + serviceAssistant._syncInProgress[this.client.clientId]);
++						
++						requirements = this.getTweakedReqs(!!(needToRestart && actId));
++						var args = { accountId: this.client.clientId };
++						
++						if(needToRestart && actId){
++							var activityMethod = "complete";
++							var activityArgs = {
++								"activityId": actId,
++								"restart": true,
++								"schedule": schedule,
++								"requirements": requirements
++							};
++							console.error("CustomSyncStart restarting, name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++
++							return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++								var result = inner.result;
++								console.error("in Complete, CustomSyncStart restarting result: "+ this.client.clientId+" " + JSON.stringify(result));
++								return result;
++								})
++							);
++							
++						} else {
++							var activityMethod = "create";
++							var activityArgs = {
++								"start": true,
++								"replace": true,
++								"activity": {
++									"name": name,
++									"description": "Custom Sync Start",
++									"type": {
++										"persist": true,
++										"immediate": true,
++										"priority": "low",
++										"power":true
++										//"explicit":true
++									},
++									"schedule": schedule,
++									"requirements": requirements,
++									"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++								}
++							};
++							console.error("CustomSyncStart create name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++							return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++								var result = inner.result;
++								console.error("In CustomSyncStart, CustomSyncStart creating result: " + this.client.clientId+" "+ JSON.stringify(result));
++								return result;
++								})
++							);
++						}
++					});
++					this.recreateActivitiesOnComplete = false;
++				});
++				return future;
++			}
++		}
++		// this.recreateActivitiesOnComplete will be set to false when
++		// the sync command is run while the capability is disabled
++		// This is a little messy
++		if (!this.recreateActivitiesOnComplete) {
++			console.log("complete(): skipping creating of sync activities");
++			return activity.complete().then(function (future) {
++				future.result = true;
++			});
++		} else {
++			var syncActivity;
++			var networkError=false;
++			var details = this.getPeriodicSyncActivity().then(this, function(future) {
++				var restart=false;
++				syncActivity = future.result;
++				if (activity._activityId === syncActivity.activityId) {
++					console.log("Periodic sync. Restarting activityId: " + syncActivity.activityId);
++					restart=true;
++					var requirements = this.getTweakedReqs(true);
++					var def = this.controller.service.name.indexOf("facebook") === -1 ? "20m" : "24h";
++					var sched = this.getTweakedInterval(def);
++					//activity.setPower(true);
++					//activity.setScheduleInterval(sched);
++					
++				} else {
++					console.log("Not periodic sync. Completing activity ");
++				}
++				if(this._hadLocalRevisionError) {
++					restart = true;
++					this._hadLocalRevisionError = false;
+ 				}
++				// if (this._error && this._error.message && this._error.message.indexOf("httpClient error") != -1) {
++					// networkError=true;
++					// this.retryNetworkError(activity);
++				// }
++				if(restart && syncActivity.activityId && syncActivity.name === this.getPeriodicSyncActivityName() ){
++					if(syncActivity.type && (syncActivity.type.background || !syncActivity.type.power)){
++						//fix to make them immediate, but low priority
++						var inner = activity.complete().then(this, function(inner) {
++									Utils.error("tweak periodic complete succeeded, result = "+ this.client.clientId+" "+JSON.stringify(inner.result));
++									inner.result=true;
++								},
++								function(inner) {
++									//causes bug where database sync types are crossed
++									console.error("tweak periodic FAILED, exception = "+JSON.stringify(inner.exception));
++									//ignoring error try to establish database watch
++									inner.result=true;
++								}
++							);
++						
++						future.nest(inner).then(this, function(future){
++							var r = future.result;
++							var name = this.getPeriodicSyncActivityName();
++							var inner2;
++							if (this.client.getSyncInterval && typeof this.client.getSyncInterval === 'function') {
++								try {
++									inner2 = this.client.getSyncInterval();
++								} catch (e) {
++									logError("getSyncInterval", e);
++									inner2 = new Future("24h");
++								}
++							} else {
++								console.error("=== No getSyncInterval function in client for "+this.controller.service.name +" ===");
++								console.error("=== Default sync interval is 24 hours ===");
++								inner2 = new Future("24h");
++							}
++							future.nest(inner2).then(this, function(future) {
++								//ToDo: merge this with implementation in EnableAccoutCommand
++								var interval;
++								if (future.exception) {
++									console.error("Error in client.getSyncInterval, assuming syncInterval 24h "+ this.client.clientId);
++									interval="24h";
++								} 
++								else {
++									interval = future.result;
++								}
++								interval = this.getTweakedInterval(interval);
++								var requiresInternet;
++								var requirements;
++								if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
++									try {
++										requiresInternet = this.client.requiresInternet();
++									}
++									catch (_) {
++										console.error("client error in requiresInternet");
++										requiresInternet=true;
++									}
++								} else {
++									console.error("=== No requiresInternet function in client for "+this.controller.service.name +" ===");
++									console.error("=== Default answer is 'true' - internet is required ===");
++									requiresInternet = true;
++								}
++								requirements = this.getTweakedReqs(false);
++								var args = { accountId: this.client.clientId };
++								var activityMethod = "create";
++								var activityArgs = {
++									"start": true,
++									"replace": true,
++									"schedule": {"interval": interval},
++									"activity": {
++										"name": name,
++										"description": "Periodic Sync",
++										"type": {
++											"persist": true,
++											"immediate": true,
++											"priority": "low",
++											"explicit":true,
++											"power":true
++										},
++										"requirements": requirements,
++										"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++									}
++								};
++								console.error("tweak replacing periodic with act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements));
++								return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner3){
++										var result = inner3.result;
++										console.error("tweak periodic, create result: " + this.client.clientId+" "+ JSON.stringify(result));
++										return result;
++										})
++									);
++						
++							});
++							//future.result 
++						});
++					} else {
++						var activityMethod = "complete";
++						var activityArgs = {
++							"activityId": syncActivity.activityId,
++							"restart": true,
++							"schedule": {interval: sched},
++							"requirements": requirements
++						};
++						console.error("Periodic sync. set requirements: " + JSON.stringify(requirements) + ", schedule: " + sched);
++						return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++									var result = inner.result;
++									console.error("Complete periodic sync, restart result: "+ this.client.clientId+" " + JSON.stringify(result));
++									return result;
++									})
++							);
++					}
++				} else {
++					return activity.complete(restart);
++				}
++			}).then(this, function(future) {
++				Utils.debug("Complete succeeded, result = "+ this.client.clientId +" "+JSON.stringify(future.result));
++				future.result=true;
++			},
++			function(future) {
++				console.error("Complete FAILED, exception = "+JSON.stringify(future.exception));
++				//ignoring error try to establish database watch
++				future.result=true;
++			}).then(this, function(future) {
++				
++				if (future.result) {
++					// TODO: Set up one of these for each synced kind...
++					if (this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
++						var rev = this.client.transport.modnum;
++						var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
++						var requiresInternet;
++						var requirements;
++						//console.error("sync complete results: " + JSON.stringify(future));
++						if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
++							try {
++								requiresInternet = this.client.requiresInternet();
++							} catch (e) {
++								logError("requiresInternet", e);
++								requiresInternet = true;
++							}
++						} else {
++							console.error("=== No requiresInternet function in client for "+this.controller.service.name +" ===");
++							console.error("=== Default answer is 'true' - internet is required ===");
++							requiresInternet = true;
++						}
++						var getDetailsArgs = {"activityName" : name};
++						var needToRestart, actId, inner1 = PalmCall.call("palm://com.palm.activitymanager/", "getDetails", getDetailsArgs);
++						
++						future.nest(inner1).then(this, function(inner1){
++							var result;
++							
++							try{
++								var error = inner1.exception;
++								result = inner1.result;
++							} catch(e){  console.error("Complete query for synconedit not found"+ this.client.clientId);}
++							if(result && result.activity && result.returnValue === true){
++								console.error("Complete query for synconedit found activityId: "+ this.client.clientId +" : " +result.activity.activityId);
++								// found the sync on edit, we should complete and restart and update the trigger
++								needToRestart = true;
++								actId = result.activity.activityId;
++							}
++							inner1.result = true; 
++						});
++						
++						future.then(this, function(future){
++							try{
++								var result = future.result;
++							}catch(e4){console.error("restarting synconedit error"+ this.client.clientId);}
++							
++							var serviceAssistant = this.controller.service.assistant;
++							//console.error("In sync on edit serviceAssistant._syncInProgress:"+this.client.clientId+ " , " + serviceAssistant._syncInProgress[this.client.clientId]);
++							if(!serviceAssistant._syncInProgress[this.client.clientId]){
++								requirements = this.getTweakedReqs(!!(needToRestart && actId));
++								var queryParams = {
++									"query":{
++										"from":this._kind,
++										"where":[
++											{"prop":"accountId", "op":"=", "val":this.client.transport.accountId},
++											{"prop":"_rev", "op":">", "val": rev}
++										],
++										incDel: true
++									},
++									"subscribe": true
++								};
++								var args = { accountId: this.client.clientId };
++								
++								if(needToRestart && actId){
++									var activityMethod = "complete";
++									var activityArgs = {
++										"activityId": actId,
++										"restart": true,
++										"requirements": requirements,
++										"trigger": {"method": "palm://com.palm.db/watch", key:"fired", params: queryParams},
++										
++									};
++									//only here if it was a periodic sync and the sync on edit exists
++									//if there were changes, sync on edit might have already fired
++									//don't complete it if it already fired
++									if(!serviceAssistant._EditOnSyncFired[this.client.clientId]){
++										console.error("DBwatch trigger restarting, rev: " + rev + ", act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements));
++										return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++											var result = inner.result;
++											console.error("in Complete, dbwatch restarting result: "+ this.client.clientId+" " + JSON.stringify(result));
++											return result;
++											})
++										);
++									} else {
++										//SyncOnEdit already fired just set good result
++										console.error("second check for SyncOnEdit -- already running "+ this.client.clientId);
++										future.result = true;
++									}
++								} else {
++									var activityMethod = "create";
++									var activityArgs = {
++										"start": true,
++										"replace": true,
++										
++										"activity": {
++											"name": name,
++											"description": "Sync On Edit",
++											"type": {
++												"persist": true,
++												"immediate": true,
++												"priority": "low",
++												"power":true
++												//"explicit":true
++											},
++											"requirements": requirements,
++											"trigger": {"method": "palm://com.palm.db/watch", key:"fired", params: queryParams},
++											"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++										}
++									};
++									console.error("DBwatch trigger "+ (activityMethod === "complete"? "restarting" : activityMethod)+", rev: " + rev + ", name: "+ name + ", requirements: " + JSON.stringify(requirements));
++									return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++										var result = inner.result;
++										console.error("In complete, dbwatch creating result: "+ this.client.clientId+" " + JSON.stringify(result));
++										return result;
++										})
++									);
++								}
++							} else {
++								//SyncOnEdit already fired just set good result
++								console.error("In sync on edit restart step, is SyncOnEdit already running "+ this.client.clientId);
++								future.result = true;
++							}
++						});
++					}
++				}
++				return future;
++			});
++			return details;
++		}
++	},
++	
++	retryNetworkError: function(activity) {
++		var retryCount=0;
++		console.error("Creating retry activity");
++		// This should really get parsed in at command startup
++		if (this.controller.args.$activity && this.controller.args.$activity.metadata  && this.controller.args.$activity.metadata.retryCount) {
++			retryCount = this.controller.args.$activity.metadata.retryCount;
++			console.error("Retry count is "+retryCount);
++		}
++		if (retryCount < this.getMaxSyncRetries()) {
++			console.error("Network error detected, restarting activity after " + this.getSyncRetryInterval(retryCount));
++			var name = "SyncRetry:"+this.controller.service.name + ":" + this.client.clientId;
++			var requiresInternet;
++			var requirements;
++			if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
++				try {
++					requiresInternet = this.client.requiresInternet();
++				} catch (e) {
++					logError("requiresInternet", e);
++					requiresInternet = true;
++				}
++			} else {
++				console.error("=== No requiresInternet function in client for "+this.controller.service.name +" ===");
++				console.error("=== Default answer is 'true' - internet is required ===");
++				requiresInternet = true;
+ 			}
+-			future.result=true;
+-		});
+-		return details;
++			requirements = this.getTweakedReqs(false);
++			var args = { accountId: this.client.clientId };
++			var retryActivity = new Foundations.Control.Activity(name, "SyncRetry", true)
++				.setUserInitiated(false)
++				.setExplicit(true)
++				.setPersist(true)
++				.setReplace(true)
++				.setRequirements(requirements)
++				.setScheduleInterval(this.getSyncRetryInterval(retryCount))
++				.setMetadata({"retryCount":retryCount+1})
++				.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
++			return retryActivity.start();
++		} else {
++			console.error(">>>Too many retries, giving up for now.");
++		}
+ 	},
+-
+ 	__start:
+ 	{
+ 		__enter: function()
+ 		{
++			var capability;
++			if (!this.client.syncStatusMgr) {
++				try {
++					if (this.client.getCapabilityProviderId) {
++						capability = this.client.getCapabilityProviderId();
++					} else {
++						capability = this.getCapabilityProviderId();
++					}
++				} catch(e3) {
++					logError("getCapabilityProviderId", e3);
++					// we're not returning an error here because 3rd-part sync services can't properly implement
++					// getCappabilityId at this time - if the client doesn't implement it, we should sync anyway
++					//this._error=e3;
++					//return "error";
++				} finally {
++					// We do this here so that even if the above call to getCapabilityProviderId() excepts,
++					// we'll have an instance of SyncStatusManager to work with in the "error" state
++					this.client.syncStatusMgr = new SyncStatusManager(this.client.clientId, capability, this.controller.service.name);
++				}
++			}
++			this.client.syncStatusMgr.clearSyncStatus().then(this, function (future) {
++				future.getResult();
++				if (this.client.transport && this.client.transport.initialSync) {
++					return this.client.syncStatusMgr.setInitialSyncStatus();
++				} else {
++					return this.client.syncStatusMgr.setIncrementalSyncStatus();
++				}
++			}).then(this._gotReply);
++		},
++
++		gotReply: function(join) {
++			join.getResult();
+ 			try {
+ 				this._syncOrder = this.getSyncOrder();
+ 			} catch (e) {
+-				console.error("error in getSyncOrder: "+e._stack?e.stack:e.toString());
++				logError("getSyncOrder", e);
+ 				this._error=e;
+ 				return "error";
+ 			}
+ 			try {
+ 				this._syncObjects =this.getSyncObjects();
+ 			} catch (e2) {
+-				console.error("error in getSyncObjects: "+e2._stack?e2.stack:e2.toString());
++				logError("getSyncObjects", e2);
+ 				this._error=e2;
+ 				return "error";
+ 			}
+ 			this._upsyncedSomething=false;
++			this._hadLocalRevisionError = false;
+ 			this._syncCount=0;
+-			console.log(">>>syncOrder = "+JSON.stringify(this._syncOrder));
++			Utils.debug(">>>syncOrder = "+JSON.stringify(this._syncOrder));
+ 			this._kindIndex=0;
+-
+-			var capability;
+-			try {
+-				capability = this.getCapabilityProviderId();
+-			} catch(e3) {
+-				console.error("error in getSyncObjects: "+e3._stack?e3.stack:e3.toString());
+-				this._error=e3;
+-				return "error";
+-			}
+-			this.syncStatusMgr = new SyncStatusManager(this.client.clientId, capability, this.controller.service.name);
+-			this.syncStatusMgr.clearSyncStatus().then(this, function (future) {
+-				future.getResult();
+-				if (this.client.transport && this.client.transport.initialSync) {
+-					return this.syncStatusMgr.setInitialSyncStatus();
+-				} else {
+-					return this.syncStatusMgr.setIncrementalSyncStatus();
+-				}
+-			}).then(this._gotReply);
+-		},
+-
+-		gotReply: function(join) {
+-			join.getResult();
+ 			return "getFirstRemoteChanges";
+ 		}
+ 	},
+@@ -350,16 +1113,16 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			try {
+ 				this._remote2localTransformer = this.getTransformer("remote2local", this._kindName);
+ 			} catch (e) {
+-				console.error("error in getTransformer: "+e._stack?e.stack:e.toString());
++				logError("getTransformer", e);
+ 				this._error=e;
+ 				return "error";
+ 			}
+-			console.log(">>> remote2localTransformer="+ this._remote2localTransformer);
++			Utils.debug(">>> remote2localTransformer="+ this._remote2localTransformer);
+ 
+ 			try {
+ 				this._local2remoteTransformer = this.getTransformer("local2remote", this._kindName);
+ 			} catch (e2) {
+-				console.error("error in getTransformer: "+e2._stack?e2.stack:e2.toString());
++				logError("getTransformer", e2);
+ 				this._error=e2;
+ 				return "error";
+ 			}
+@@ -379,9 +1142,10 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		__enter: function()
+ 		{
+ 			try {
++				console.log("getMoreRemoteChanges");
+ 				this.getRemoteChanges(this._remoteState, this._kindName).then(this._gotReply);
+ 			} catch (e) {
+-				console.error("error in getRemoteChanges: "+e._stack?e.stack:e.toString());
++				logError("getRemoteChanges", e);
+ 				this._error=e;
+ 				return "error";
+ 			}
+@@ -398,7 +1162,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("getRemoteChanges.gotReply", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -411,16 +1175,17 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		{
+ 			var self = this;
+ 			var batch = {};
+-			this._remoteChanges.forEach(function(change)
+-			{
+-				try {
++			try {
++				console.log("getLocalMatches");
++				this._remoteChanges.forEach(function(change)
++				{
+ 					batch[self.getRemoteId(change, self._kindName)] = change;
+-				} catch (e) {
+-					console.error("error in getRemoteId: "+e._stack?e.stack:e.toString());
+-					this._error=e;
+-					return "error";
+-				}
+-			});
++				});
++			} catch (e) {
++				logError("getRemoteId", e);
++				this._error=e;
++				return "error";
++			}
+ 			this._remoteChanges = batch;
+ 			//console.log(">>>this._remoteChanges:"+JSON.stringify(this._remoteChanges));
+ 			this.handler.getObjectsByRid(Object.keys(batch), this._kindName).then(this._gotReply);
+@@ -446,45 +1211,41 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			var transformer = this._remote2localTransformer;
+ 			var wb = [];
+ 			var self = this;
++			console.log("mergeRemoteChanges");
+ 			//console.log(">>>this._remoteChanges:"+JSON.stringify(this._remoteChanges));
+-			this._remoteChanges.forEach(function(match)
+-			{
+-				var isDeleted;
+-				try {
+-					isDeleted = self.isDeleted(match.remote, self._kindName);
+-				} catch (e) {
+-					console.error("error in isDeleted: "+e._stack?e.stack:e.toString());
+-					this._error=e;
+-					return "error";
+-				}
+-				if (isDeleted)
++			try {
++				this._remoteChanges.forEach(function(match)
+ 				{
+-					if (match.local._id)
++					var isDeleted;
++						isDeleted = self.isDeleted(match.remote, self._kindName);
++					if (isDeleted)
+ 					{
+-						match.operation = "delete";
+-						wb.push(match);
+-					}
+-					// else this object was deleted remotely, but there is no matching local object, so we ignore it.
+-				}
+-				else
+-				{
+-					// merge changes from remote to local objecs
+-					var t;
+-					try {
+-						t = transformer(match.local, match.remote);
+-					} catch (e2) {
+-						console.error("error in remote2localtransformer: "+e2._stack?e2.stack:e2.toString());
+-						this._error=e2;
+-						return "error";
++						if (match.local._id)
++						{
++							match.operation = "delete";
++							wb.push(match);
++						}
++						// else this object was deleted remotely, but there is no matching local object, so we ignore it.
+ 					}
+-					if (t)
++					else
+ 					{
+-						// transformer returns true if anything changed
+-						match.operation = "save";
+-						wb.push(match);
++						// merge changes from remote to local objecs
++						var t;
++							t = transformer(match.local, match.remote);
++						if (t)
++						{
++							// transformer returns true if anything changed
++							match.operation = "save";
++							wb.push(match);
++						}
+ 					}
+-				}
+-			});
++				});
++			} catch (e) {
++				logError("mergeRemoteChanges", e);
++				this._error=e;
++				return "error";
++			}
++			this._remoteChanges=undefined;
+ 			this._localWriteback = wb;
+ 
+ 			return "preSaveModifyStep";
+@@ -498,9 +1259,9 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			console.log("preSaveModify");
+ 			// modify local objects before pushing to database
+ 			try {
+-				this.preSaveModify(this._localWriteback).then(this._gotReply);
++				this.preSaveModify(this._localWriteback, this._kindName).then(this._gotReply);
+ 			} catch (e) {
+-				console.error("error in remote2localtransformer: "+e._stack?e.stack:e.toString());
++				logError("preSaveModifyStep", e);
+ 				this._error=e;
+ 				return "error";
+ 			}
+@@ -515,7 +1276,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("preSaveModifyStep.gotReply", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -526,12 +1287,13 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
+-			//console.log(">>>__enter");
++			console.log("writeLocalChanges");
+ 			this.handler.putObjects(this._localWriteback).then(this._gotReply);
+ 		},
+ 
+ 		gotReply: function(join)
+ 		{
++			this._localWriteback = undefined;
+ 			//console.log(">>>gotReply join="+JSON.stringify(join));
+ 			try
+ 			{
+@@ -551,7 +1313,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				});
+ 
+ 				// If we're done then update the account, otherwise get the next batch
+-				if (this._remoteState == "last")
++				if (this._remoteState === "last")
+ 				{
+ 					if (this._local2remoteTransformer)
+ 					{
+@@ -569,7 +1331,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("writeLocalChanges", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -586,14 +1348,25 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		},
+ 		gotReply: function(future)
+ 		{
+-			// NOV-119682
+-			// if yield was requested, end the sync now. Otherwise, continue to up-sync
+-			if (this._yieldRequested) {
+-				console.warn("Yield: Bailing out after down-sync");
+-				return "updateAccount";
++			try
++			{
++				// NOV-119682
++				// if yield was requested, end the sync now. Otherwise, continue to up-sync
++				if (this._yieldRequested) {
++					console.warn("Yield: Bailing out after down-sync");
++					return "updateAccount";
++				}
++				else {
++					// this holds already upsynced objects so they won't get pushed to the server again
++					this._processedChanges = [];
++					return "getLocalChanges";
++				}
+ 			}
+-			else {
+-				return "getLocalChanges";
++			catch (_)
++			{
++				logError("checkpointDownSync", _);
++				this._error = _;
++				return "error";
+ 			}
+ 		}
+ 	},
+@@ -602,6 +1375,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("getLocalChanges");
+ 			this.handler.getChangedObjects(this.client.transport.modnum, this._kindName).then(this._gotReply);
+ 		},
+ 
+@@ -618,7 +1392,13 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				{
+ 					// if changed locally, and not deleted on server
+ 					// TODO: This doesn't actually work quite correctly. See NOV-117942 for details
+-					if (map[result.local._id] !== result.local._rev && !delMap[result.local._id])
++					// if the object was not already processed or if it has been changed in the meanwhile 
++					// then put it in the changes array
++					var upsynced = this._processedChanges[result.local._id]; 
++					if (		(!upsynced || upsynced.rev < result.local._rev)
++							&& 	(map[result.local._id] !== result.local._rev && !delMap[result.local._id])
++							&& 	!result.local.preventSync) 	// preventSync is set on all objects that are deleted via disabling an account
++															// do NOT upsync deleted objects that have this set to true
+ 					{
+ 						changes.push(result);
+ 					}
+@@ -626,15 +1406,16 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 					{
+ 						rev = result.local._rev;
+ 					}
+-				});
++				}, this);				
+ 				this.client.transport.modnum = rev;
++				this._latestRev = rev;
+ 				this.handler.updateAccountTransportObject(this.client.transport, {modnum: rev});
+ 				this._localChanges = changes;
+ 				return "getFirstRemoteMatches";
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("getLocalChanges", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -648,38 +1429,39 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			var rids = [];
+ 			var self = this;
+ 			var localChangesToSyncUp = [];
+-			this._localChanges.forEach(function(change, index)
+-			{
+-				if (change.local.remoteId)
+-				{
+-					//this is a local modify or delete on a contact that exists remotely
+-					localChangesToSyncUp.push(change);
+-					rids.push(change.local.remoteId);
+-				}
+-				else if (!change.local._del)
++			console.log("getFirstRemoteMatches");
++			try {
++				this._localChanges.forEach(function(change, index)
+ 				{
+-					//this is a local add
+-					localChangesToSyncUp.push(change);
+-					try {
++					if (change.local.remoteId)
++					{
++						//this is a local modify or delete on a contact that exists remotely
++						localChangesToSyncUp.push(change);
++						rids.push(change.local.remoteId);
++					}
++					else if (!change.local._del)
++					{
++						//this is a local add
++						localChangesToSyncUp.push(change);
+ 						change.remote = self.getNewRemoteObject(self._kindName);
+-					} catch (e) {
+-						console.error("error in getNewRemoteObject: "+e._stack?e.stack:e.toString());
+-						this._error=e;
+-						return "error";
+ 					}
+-				}
+-				// else this is a local delete that happened on a brand-new local contact that was
+-				// never synced to the server. so we just drop the change
+-			});
++					// else this is a local delete that happened on a brand-new local contact that was
++					// never synced to the server. so we just drop the change
++				});
++			} catch (e) {
++				logError("getNewRemoteObject", e);
++				this._error=e;
++				return "error";
++			}
+ 			//now replace this._localChanges with localChangesToSyncUp so that we drop the
+ 			//objects that were added locally and then deleted before getting synced up
+ 			this._localChanges = localChangesToSyncUp;
+ 			this._rids = rids;
+ 			try {
+ 				this.getRemoteMatches(rids, this._kindName).then(this._gotReply);
+-			} catch (e) {
+-				console.error("error in getRemoteMatches: "+e._stack?e.stack:e.toString());
+-				this._error=e;
++			} catch (e2) {
++				logError("getRemoteMatches", e2);
++				this._error=e2;
+ 				return "error";
+ 			}
+ 		},
+@@ -693,7 +1475,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				for (var i=0; i < join.result.length; i++)
+ 				{
+ 					var rid = this._rids[i];
+-					while (matches[pos].local.remoteId != rid)
++					while (matches[pos].local.remoteId !== rid)
+ 					{
+ 						pos++;
+ 					}
+@@ -703,7 +1485,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("getFirstRemoteMatches.gotReply", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -714,32 +1496,32 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("mergeLocalChanges");
+ 			var transformer = this._local2remoteTransformer;
+ 			var wb = [];
+-			this._localChanges.forEach(function(match)
+-			{
+-				if (match.local._del)
+-				{
+-					match.operation = "delete";
+-					wb.push(match);
+-				}
+-				else
++			try {
++				this._localChanges.forEach(function(match)
+ 				{
+-					var t;
+-					try {
+-						t = transformer(match.remote, match.local);
+-					} catch (e) {
+-						console.error("error in local2remotetransformer: "+e._stack?e.stack:e.toString());
+-						this._error=e;
+-						return "error";
+-					}
+-					if (t)
++					if (match.local._del)
+ 					{
+-						match.operation = "save";
++						match.operation = "delete";
+ 						wb.push(match);
+ 					}
+-				}
+-			});
++					else
++					{
++						var t = transformer(match.remote, match.local);
++						if (t)
++						{
++							match.operation = "save";
++							wb.push(match);
++						}
++					}
++				});
++			} catch (e) {
++				logError("local2remotetransformer", e);
++				this._error=e;
++				return "error";
++			}
+ 			this._remoteWriteback = wb;
+ 
+ 			return "writeRemoteChanges";
+@@ -750,6 +1532,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("writeRemoteChanges");
+ 			// TODO: remove this when NOV-117942 is fixed properly
+ 			if (this._remoteWriteback.length > 0) {
+ 				this._upsyncedSomething = true;
+@@ -763,7 +1546,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			try {
+ 				this.putRemoteObjects(this._batch, this._kindName).then(this._gotReply);
+ 			} catch (_) {
+-				console.error("error in getNewRemoteObject: "+_._stack?_.stack:_.toString());
++				logError("putRemoteObjects", _);
+ 				this._error=_;
+ 				return "error";
+ 			}
+@@ -792,17 +1575,47 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			catch (_)
+ 			{
++				logError("writeRemoteChanges.gotReply", _);
++				this._error = _;
++				return "error";
++			}
++		}
++	},
++	
++	updateLocalRevision:
++	{
++		__enter: function() {
++			try {
++				console.log("updateLocalRevision");
++				this.updateLocalTransportRevision(this._batch.transport, this._kindName).then(this._gotReply);
++			} catch (e) {
++				console.error("error in updateLocalRevision: "+e._stack?e.stack:e.toString());
++				this._error=e;
++				return "error";
++			}
++		},
++		
++		gotReply: function(future)
++		{
++			try
++			{
++				future.getResult();
++				return "writeRemoteTransportChanges";
++			}
++			catch (_)
++			{
+ 				console.log(_.stack);
+ 				this._error = _;
+ 				return "error";
+ 			}
+ 		}
+ 	},
+-
++	
+ 	writeRemoteTransportChanges:
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("writeRemoteTransportChanges");
+ 			// save all the local objects
+ 			this.handler.putTransportObjects(this._batch.transport, this._kindName).then(this._gotReply);
+ 		},
+@@ -826,13 +1639,30 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 						}
+ 					}
+ 				}
+-				delete this._batch.transport;
++				this._batch.transport = undefined;
+ 				join.result = true;
++				// if we arrived here from a revision mismatch error then restart the
++				// up-sync
++				if( this._batch.revisionChangedError ) {
++					this._batch.revisionChangedError = false;
++				}
+ 				return "getPostPutRemoteChanges";
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				// If this is the second time we are receiving revision mismatch for
++				// an object then do not try to update it again
++				if( this._batch.revisionChangedError ) {
++					console.log(_.stack);
++					this._error = _;
++					// Did we previously throw an exception ... if no then throw it
++					return "error";					
++				} else
++					if(_.errorCode===-3961){
++						return "updateLocalRevision";
++					}
++				
++				logError("writeRemoteTransportChanges", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -846,9 +1676,10 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			// Give the client an opportunity to modify local objects based on
+ 			// results from putting those objects to the server (e.g., etags)
+ 			try {
++				console.log("getPostPutRemoteChanges");
+ 				this.postPutRemoteModify(this._batch, this._kindName).then(this._gotReply);
+ 			} catch (_) {
+-				console.error("error in getNewRemoteObject: "+_._stack?_.stack:_.toString());
++				logError("postPutRemoteModify", _);
+ 				this._error=_;
+ 				return "error";
+ 			}
+@@ -879,7 +1710,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("getPostPutRemoteChanges.gotReply", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -890,20 +1721,45 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
+-			console.log(">>> writePostPutRemoteChanges: " + JSON.stringify(this._remoteWriteback));
++			console.log("writePostPutRemoteChanges");
++			//console.log(">>> writePostPutRemoteChanges: " + JSON.stringify(this._remoteWriteback));
+ 			this.handler.putObjects(this._batch).then(this._gotReply);
+ 		},
+ 
+ 		gotReply: function(join)
+ 		{
++			var results,
++				len,
++				result,
++				local,
++				i,
++				j,
++				wbLen;
+ 			try
+ 			{
+-				join.getResult();
++				results = join.getResult().put;
++				//set the changed revs for the local objects that are on the write array which have not yet been
++				//written but have been modified in the meanwhile so that there won't be conflicting revs
++				//at the moment that they will be written into the DB
++				len = results.length;
++				for (i = 0;i < len;i++)
++				{
++					result = results[i];
++					this._processedChanges[result.id] = {id:result.id, rev:result.rev};
++					wbLen = this._remoteWriteback.length;
++					for (j = 0; j < wbLen; j++) {
++						local = this._remoteWriteback[j].local;
++						if (result.id === local._id && local._rev && (result.rev !== local._rev)) {
++							local._rev = result.rev;
++							break;
++						}
++					}
++				}
+ 				return "getPostPutRemoteModnum";
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("writePostPutRemoteChanges.gotReply", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -914,6 +1770,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("getPostPutRemoteModnum");
+ 			this.handler.getLatestRev(this._kindName).then(this._gotReply);
+ 		},
+ 
+@@ -924,16 +1781,14 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				// Find highest revision
+ 				var latestRev = join.result;
+ 				console.log(">>> getPostPutRemoteModnum: cur: " + this.client.transport.modnum + ", latest: " + JSON.stringify(latestRev));
+-				if (latestRev > this.client.transport.modnum)
+-				{
+-					this.client.transport.modnum = latestRev;
+-					this.handler.updateAccountTransportObject(this.client.transport, {modnum: this.client.transport.modnum});
++				if (latestRev > this._latestRev) {
++					this._latestRev = latestRev;
+ 				}
+ 				return "nextType";
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("getPostPutRemoteModnum.gotReply", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -944,9 +1799,15 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("nextType");
+ 			if (this._remoteWriteback && this._remoteWriteback.length > 0) {
+ 				return "writeRemoteChanges";
+ 			}
++			// if there were any changes since upsync then see if there might have been
++			// new local changes beetween them so that we can upsync them also
++			if (this._latestRev > this.client.transport.modnum) {
++				return "getLocalChanges";
++			}
+ 			console.log(">>> this._kindIndex = "+this._kindIndex+", this._kinds.syncOrder.length-1="+(this._syncOrder.length-1));
+ 			if (this._kindIndex < this._syncOrder.length-1) {
+ 				this._kindIndex++;
+@@ -960,6 +1821,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("updateAccount");
+ 			this.handler.updateAccountTransportObject(this.client.transport, {initialSync: false, syncKey: this.client.transport.syncKey}).then(this._gotReply);
+ 		},
+ 
+@@ -971,7 +1833,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			catch (_)
+ 			{
+-				console.log(_.stack);
++				logError("updateAccount", _);
+ 				this._error = _;
+ 				return "error";
+ 			}
+@@ -982,7 +1844,13 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	{
+ 		__enter: function()
+ 		{
++			console.log("success");
+ 			var serviceAssistant = this.controller.service.assistant;
++			if(this._hadLocalRevisionError) {
++				this._hadLocalRevisionError = false;
++				return "getFirstRemoteChanges";
++			}
++			// If some updates received revision error then resync those objects
+ 			if (this._upsyncedSomething && this._syncCount < 2) {
+ 				/* restart current sync */
+ 				console.log("Upsync ocurred, restarting sync");
+@@ -991,7 +1859,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				return "getFirstRemoteChanges";
+ 			}
+ 			serviceAssistant._syncInProgress[this.client.clientId]=false;
+-			this.syncStatusMgr.clearSyncStatus().then(this, function (join) {
++			this.client.syncStatusMgr.clearSyncStatus().then(this, function (join) {
+ 				join.getResult();
+ 				console.log("synccommand(success): __enter");
+ 				this._future.result = {};
+@@ -1009,12 +1877,12 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			//TODO: NOV-111365: before we clear the sync status, we need to check to see if it's a recoverable network error,
+ 			//		in which case we should retry the sync (based on a retry count provided by the sync engine)
+ 
+-			this.syncStatusMgr.clearSyncStatus().then(this, function (join) {
++			this.client.syncStatusMgr.clearSyncStatus().then(this, function (join) {
+ 				join.getResult();
+ 
+ 				//this is the list of cases where we need to notify the user of the error
+ 				if (this._error instanceof Transport.TransportError) {
+-					this.syncStatusMgr.setErrorCondition(this._error);
++					this.client.syncStatusMgr.setErrorCondition(this._error);
+ 				}
+ 
+ 				//TODO: in some of these cases (e.g. Transport.AuthenticationError), we should also stop the scheduled syncs
+@@ -1035,12 +1903,15 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+  */
+ SyncCommand.fetchPhoto = function( photo, headers )
+ {
++	
+ 	var future = new Future(),
+ 		cacheInsertFuture,
+ 		haveCanceledSubscription = false,
+ 		fs,
+-		urlObject;
+-
++		urlObject,
++		hashPhoto = MD5(JSON.stringify( photo ));
++		
++	console.log("SyncCommand.fetchPhoto: "+hashPhoto);
+ 	future.now(function () {
+ 		if (typeof require === 'undefined') {
+ 			require = IMPORTS.require;
+@@ -1048,7 +1919,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 		fs = require('fs');
+ 		var url = require('url');
+ 
+-		console.log("synccommand.fetchPhoto() : " + JSON.stringify( photo ) );
++		Utils.debug("synccommand.fetchPhoto() : " + JSON.stringify( photo ) );
+ 
+ 		// Check if a filepath already exists
+ 		if (photo.localPath) {
+@@ -1089,14 +1960,15 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 
+ 	// Copy the image to the filecache
+ 	future.then(function () {
++		
+ 		var result = future.result,
+ 			path = future.result.pathName;
+-
++		console.log("insert into filecache: "+ path +" :hash: "+hashPhoto);
+ 		if (result.skippedInsert) {
+ 			return result.path;
+ 		}
+ 
+-		console.log("fetchPhoto: filecache object inserted at: " + path);
++		Utils.debug("fetchPhoto: filecache object inserted at: " + path);
+ 
+ 		// open a file for writing. We're using openSync here so as not to have to
+ 		// deal with asynchronous I/O
+@@ -1121,13 +1993,14 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 		ajaxCallFuture.then(function () {
+ 			var status = ajaxCallFuture.result.status;
+ 
+-			console.log("File finished downloading - (" + count + "): " + path);
++			console.log("File finished downloading - (" + count + "): " + hashPhoto);
+ 
+ 			// close the file we had open
+ 			fs.closeSync(file);
+ 
+ 			// If it failed to download, expire the file and throw an error
+ 			if (status !== 200) {
++				console.log("failed to download, status: " + status + ", hash: " + hashPhoto);
+ 				var expireFuture = PalmCall.call("palm://com.palm.filecache", "ExpireCacheObject", {
+ 						pathName: path
+ 				});
+@@ -1145,8 +2018,8 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 				newSize: count
+ 			});
+ 			resizeFuture.then(function () {
+-				var result = resizeFuture.result;
+-
++				resizeFuture.getResult();
++				console.log("resize filecache, hash: " + hashPhoto);
+ 				//cancel the subscription we had open with the filecache so that it will save the object
+ 				PalmCall.cancel(cacheInsertFuture);
+ 				haveCanceledSubscription = true;
+@@ -1166,10 +2039,10 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 
+ 	future.then(function () {
+ 		try {
+-			console.log("fetchPhoto: image copied to file cache: " + JSON.stringify(future.result) );
++			console.log("fetchPhoto: image copied to file cache: " + JSON.stringify(future.result) +", hash: "+hashPhoto);
+ 			return future.result;
+ 		} catch(e) {
+-			console.log("fetchPhoto failed: " + e.stack);
++			logError("fetchPhoto", e);
+ 			throw e;
+ 		} finally {
+ 			//just in case we didn't cancel it above, cancel it now
+@@ -1181,3 +2054,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 
+ 	return future;
+ };
++
++logError = function logError(place, exception) {
++	console.error("error in " + place + ": " + (exception._stack?exception._stack:exception.toString()));
++};
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/handlers/synchandler.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/handlers/synchandler.js
+index 3928a45..1eb528b 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/handlers/synchandler.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/handlers/synchandler.js
+@@ -205,60 +205,70 @@ exports.SyncHandler = function(kinds)
+ 		 */
+ 		putObjects: function(objects)
+ 		{
+-			return new Future().now(this, function(future)
++			// Calculate number of ids we need
++			var count = 0;
++			var saved = [];
++			var deleted = [];
++			var accountId = this.command.client.clientId;
++			var scope = this;
++			objects.forEach(function(obj)
++			{
++				if (obj.operation == "save" && !obj.local._id)
++				{
++					count++;
++				}
++			});
++			console.log(">>>>>putObjects, count="+count);
++			// Get the ids
++			var f = this.reserveIds(count);
++			
++			f.then(function(future)
+ 			{
+-				//console.log(">>>putObjects ");
+-				// Calculate number of ids we need
+-				var count = 0;
++				console.log("return from reserveIds()");
++				var ids = future.result;
++				var i = 0;
++				// Create an array of items we need to save and delete, and allocate new ids
++				// where necessary. 
+ 				objects.forEach(function(obj)
+ 				{
+-					if (obj.operation == "save" && !obj.local._id)
++					switch (obj.operation)
+ 					{
+-						count++;
++						case "save":
++							saved.push(obj.local);
++							if (!obj.local._id)
++							{
++								obj.local._id = ids[i++];
++								obj.local.accountId = accountId;
++							}
++							break;
++							
++						case "delete":
++							deleted.push(obj.local._id);
++							break;
+ 					}
+ 				});
+-				//console.log(">>count="+count);
+-				// Get the ids
+-				this.reserveIds(count).then(this, function(future2)
+-				{
+-					var ids = future2.result;
+-					var i = 0;
+-					var saved = [];
+-					var deleted = [];
+-					var accountId = this.command.client.clientId;
+-					// Create an array of items we need to save and delete, and allocate new ids
+-					// where necessary. 
+-					objects.forEach(function(obj)
+-					{
+-						switch (obj.operation)
+-						{
+-							case "save":
+-								saved.push(obj.local);
+-								if (!obj.local._id)
+-								{
+-									obj.local._id = ids[i++];
+-									obj.local.accountId = accountId;
+-								}
+-								break;
+-								
+-							case "delete":
+-								deleted.push(obj.local._id);
+-								break;
+-						}
+-					});
+-					this.del(deleted, false).then(this, function(future2)
+-					{
+-						future2.result=future2.result; // Check for errors
+-						this.put(saved).then(function(future2)
+-						{
+-							future.result = {
+-								"put": future2.result,
+-								"deleted": deleted
+-							};
+-						});
+-					});
+-				});
++				
++				f.nest(scope.del(deleted, false));
++			});
++			
++			f.then(function(future)
++			{
++				console.log("return from del()");
++				var result = future.result;
++				f.nest(scope.put(saved));
++			});
++			
++			f.then(function(future)
++			{
++				console.log("return from put()");
++				var result = future.result;
++				future.result = {
++					"put": result,
++					"deleted": deleted
++				};
+ 			});
++			
++			return f;
+ 		},
+ 		
+ 		/*
+@@ -354,8 +364,11 @@ exports.SyncHandler = function(kinds)
+ 			// find the account
+ 			function delKind(kind) {
+ 				return function(future) {
+-					//console.log("delKind: "+kind);
+-					var f2 = this.del({ from: kind, where: [ { prop: "accountId", op: "=", val: accountId } ] }, false);
++					console.log("delKind: "+kind);
++					// delete objects via merge so we can set the _del property AND preventSync
++					// preventSync:true is an indicator that the object was deleted as a result of disabling the account
++					// this is used in synchandler.js to avoid upsyncing these deletes!
++					var f2 = DB.merge({ from: kind, where: [ { prop: "accountId", op: "=", val: accountId } ] }, {"_del": true, preventSync: true});
+ 					f2.then(function() {
+ 						if (f2.exception) {
+ 							console.error("delKind: exception raised, but I'm ignoring it:"+f2.exception);
+@@ -417,6 +430,21 @@ exports.SyncHandler = function(kinds)
+ 		getObjectKinds: function() 
+ 		{
+ 			return kinds;
++		},
++		
++		/*
++		 * Given an array of ids will get the records from the database
++		 */
++		getLatestRevForObjects: function(objs, object_kind) {
++			var oids = [],
++				f;
++			
++			objs.forEach(function(obj){
++				oids.push(obj._id);
++			});
++			f = this.find({ from: object_kind, where: [{prop:"_id", op: "=", val: oids}]});
++			return f;
+ 		}
++
+ 	});
+ };
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/prologue.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/prologue.js
+index 5551dd5..71525ef 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/prologue.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/prologue.js
+@@ -3,18 +3,23 @@ var IMPORTS = MojoLoader.require(
+ 	{ name: "mojoservice.transport", version: "1.0" }, 
+ 	{ name: "foundations", version: "1.0" }, 
+ 	{ name: "foundations.json", version: "1.0" },
+-	{ name: "foundations.io", version: "1.0" }
++	{ name: "foundations.io", version: "1.0" },
++	{ name: "foundations.crypto", version: "1.0" }
+ );
+ var MojoService = IMPORTS["mojoservice"];
+ var Transport = IMPORTS["mojoservice.transport"];
+ var Foundations = IMPORTS["foundations"];
+ var FJSON = IMPORTS["foundations.json"];
+ var IO = IMPORTS["foundations.io"];
++var Crypto = IMPORTS["foundations.crypto"];
+ var PalmCall = Foundations.Comms.PalmCall;
+ var AjaxCall = Foundations.Comms.AjaxCall;
+-
++var MD5 = Crypto.MD5.hex_md5;
+ var Class = Foundations.Class;
+ var Future = Foundations.Control.Future;
+ var DB = Foundations.Data.DB;
+ var TempDB = Foundations.Data.TempDB;
+ var SyncStatusManager=Transport.SyncStatusManager;
++var Config = {
++	//logs: "debug"		// used by utils.js to control logging
++}; 
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/syncactivityhelper.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/syncactivityhelper.js
+new file mode 100644
+index 0000000..3f5a683
+--- /dev/null
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/syncactivityhelper.js
+@@ -0,0 +1,128 @@
++// TODO: replace all activity code in synccommand & enabledaccountcommand with this
++var SyncActivityHelper = SyncActivityHelper = Class.create({
++	initialize: function(serviceName, accountId) {
++		this.serviceName 	= serviceName;
++		this.accountId 		= accountId;
++		
++		this._syncTypes = {
++			PERIODIC: 		"Periodic Sync",
++			TRIGGERED:	 	"SyncOnEdit"
++		};
++	},
++	
++	/**
++	 * getSyncActivityId
++	 * Fetches the activity for the specified sync type.
++	 * This will suppress exceptions created from activitymanager returning an error
++	 *
++	 * @param	type	// this._syncTypes
++	 * @return	future	// result is (activityId<int> || null) depending on if the activity is found
++	 */
++	getSyncActivityId: function(type) {
++		var name = type + ":" + this.serviceName + ":" + this.accountId; 
++		// get the activityId from ActivityManager
++		return PalmCall.call("palm://com.palm.activitymanager", "getDetails", {"activityName":name}).then(function (future) {
++			var activityId = future.result.activity.activityId;
++			if (future.exception) {
++				console.error("ignoring exception from Activity Manager while fetching sync activityId: ", activityId);
++				return null;
++			} else {
++				return activityId;
++			}
++		}); 
++	},
++	
++	/**
++	 * cancelSyncActivity
++	 * Fetches and cancels the sync activity for the specified type
++	 * This will suppress exceptions created from activitymanager returning an error
++	 *
++	 * @param	type	// this._syncTypes
++	 * @return	future	// result is (true || false) depending on if the cancel was successful
++	 */
++	cancelSyncActivity: function (type) {
++		var future;
++		
++		if (type === this._syncTypes.PERIODIC) {
++			future = this.getPeriodicSyncActivityId();
++		} else {
++			future = this.getTriggeredActivityId();
++		}
++		
++		return future.then(function(future) {
++			var activityId = future.result;
++			if (activityId) {
++				future.nest(PalmCall.call("palm://com.palm.activitymanager", "cancel", {"activityId":activityId}).then(function (future) {
++					if (future.exception) {
++						console.error("ignoring exception from Activity Manager while attempting to cancel sync activity: ", activityId);
++						return false;
++					} else {
++						return true;
++					}
++				}));
++			} else {
++				future.result = false;
++			}
++			return future;
++		});
++	},
++	
++	/**
++	 * getPeriodicSyncActivityId
++	 * Fetches the activityId for the periodic sync activity
++	 *
++	 * @return	future	// result is (activityId<int> || null)
++	 */
++	getPeriodicSyncActivityId: function () {
++		return this.getSyncActivityId(this._syncTypes.PERIODIC);
++	},
++	
++	/**
++	 * getTriggeredActivityId
++	 * Fetches the activityId for the triggered sync activity
++	 *
++	 * @return	future	// result is (activityId<int> || null)
++	 */
++	getTriggeredActivityId: function () {
++		return this.getSyncActivityId(this._syncTypes.TRIGGERED);
++	},
++	
++	/**
++	 * cancelPeriodicSyncActivity
++	 * Fetches & cancels the periodic sync activity.
++	 * This will suppress exceptions created from activitymanager returning an error
++	 *
++	 * @return	future	// result is (true || false) depending on if the cancel was successful
++	 */
++	cancelPeriodicSyncActivity: function () {
++		console.log("canceling periodic sync");
++		return this.cancelSyncActivity(this._syncTypes.PERIODIC);
++	},
++	
++	/**
++	 * cancelTriggeredSyncActivity
++	 * Fetches & cancels the triggered sync activity.
++	 * This will suppress exceptions created from activitymanager returning an error
++	 *
++	 * @return	future	// result is (true || false) depending on if the cancel was successful
++	 */
++	cancelTriggeredSyncActivity: function () {
++		console.log("canceling triggered sync");
++		return this.cancelSyncActivity(this._syncTypes.TRIGGERED);
++	},
++	
++	/**
++	 * cancelAllSyncActivities
++	 * Fetches & cancels the periodic & triggered sync activity.
++	 * This will suppress exceptions created from activitymanager returning an error
++	 *
++	 * @return	future	// result is (true || false) depending on if the cancels were successful
++	 */
++	// TODO: determine what this should return.  This really only returns the true/false value of the triggered sync activity
++	//       because it is the last operation in the chain
++	cancelAllSyncActivities: function () {
++		return this.cancelPeriodicSyncActivity().then(this, function (future) {
++			future.nest(this.cancelTriggeredSyncActivity());
++		});
++	}
++});
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/utils/utils.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/utils/utils.js
+new file mode 100644
+index 0000000..c47739c
+--- /dev/null
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/javascript/utils/utils.js
+@@ -0,0 +1,58 @@
++/*jslint bitwise: true, devel: true, eqeqeq: true, immed: true, maxerr: 500, newcap: true,
++nomen: false, onevar: true, plusplus: true, regexp: true, undef: true, white: false */
++
++/*global _, exports: true, ObjectUtils, stringify */
++
++var Utils = exports.Utils = {
++	
++	log: function () {
++		var argsArr = Array.prototype.slice.call(arguments, 0);
++		Utils._logBase("log", argsArr);
++	},
++
++	warn: function () {
++		var argsArr = Array.prototype.slice.call(arguments, 0);
++		Utils._logBase("warn", argsArr);
++	},
++
++	error: function () {
++		var argsArr = Array.prototype.slice.call(arguments, 0);
++		Utils._logBase("error", argsArr);
++	},
++
++	debug: function() {
++		if (Config && Config.logs === "debug") {
++			var argsArr = Array.prototype.slice.call(arguments, 0);
++			Utils._logBase("log", argsArr);
++		}
++	},
++	
++	_logBase: function (method, argsArr) {
++		var data = argsArr.reduce(function (accumulatedMessage, curArg) {
++			if (typeof curArg === "string") {
++				return accumulatedMessage + curArg;
++			} else {
++				return accumulatedMessage + JSON.stringify(curArg);
++			}
++		}, "");
++			
++		if (Config && Config.logs === "verbose") {
++			// I want ALL my logs!
++			data = data.split("\n");
++			var i, pos, datum;
++			for (i = 0; i < data.length; ++i) {
++				datum = data[i];
++				if (datum.length < 500) {
++					console[method](datum);
++				} else {
++					// Do our own wrapping
++					for (pos = 0; pos < datum.length; pos += 500) {
++						console[method](datum.slice(pos, pos + 500));
++					}
++				}
++			}
++		} else {
++			console[method](data);
++		}
++	}
++}
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/manifest.json b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/manifest.json
+index 8dcdbda..0076337 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/66/manifest.json
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/66/manifest.json
+@@ -5,13 +5,16 @@
+ 		"javascript":
+ 		[
+ 			"prologue.js",
++			"syncactivityhelper.js",
+ 			"handlers/synchandler.js",
+ 			"commands/synccommand.js",
+ 			"commands/refetchphotocommand.js",
+ 			"commands/createaccountcommand.js",
+ 			"commands/enabledaccountcommand.js",
+ 			"commands/deleteaccountcommand.js",
+-			"clients/authsyncclient.js"
++			"commands/credentialschangedcommand.js",
++			"clients/authsyncclient.js",
++			"utils/utils.js"
+ 		]
+ 	}
+ }
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/errors.js b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/errors.js
+index dbabb4e..38741fe 100644
+--- a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/errors.js
++++ b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/errors.js
+@@ -15,13 +15,16 @@
+ 	};
+ 
+ 	var CODES =
+-	{	Authentication	: "401_UNAUTHORIZED"
+-	,	BadRequest		: "400_BAD_REQUEST"
+-	,	Duplicate		: "DUPLICATE_ACCOUNT"
+-	,	NoConnectivity	: "NO_CONNECTIVITY"
+-	,	Server			: "500_SERVER_ERROR"
+-	,	Timeout			: "408_TIMEOUT"
+-	,	Unavailable		: "503_SERVICE_UNAVAILABLE"
++	{	Authentication		: "401_UNAUTHORIZED"
++	,	BadRequest			: "400_BAD_REQUEST"
++	,	Duplicate			: "DUPLICATE_ACCOUNT"
++	,	NoConnectivity		: "NO_CONNECTIVITY"
++	,	Server				: "500_SERVER_ERROR"
++	,	Timeout				: "408_TIMEOUT"
++	,	Unavailable			: "503_SERVICE_UNAVAILABLE"
++	,	NoCredentials		: "CREDENTIALS_NOT_FOUND"
++	,	CommandTimeout		: "COMMAND_TIMEOUT"
++	,	TimestampRefused	: "TIMESTAMP_REFUSED"
+ 	};
+ 
+ 	function newErrorClass() {
+diff --git a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/prologue.js b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/prologue.js
+index 1bea444..4cbe650 100644
+--- a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/prologue.js
++++ b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/prologue.js
+@@ -1,6 +1,11 @@
+-var libs = MojoLoader.require({ name: "foundations", version: "1.0" }, { name: "mojoservice", version: "1.0" });
++var libs = MojoLoader.require(
++{ name: "foundations", version: "1.0" }, 
++{ name: "mojoservice", version: "1.0" },
++{ name: "underscore", version: "1.0"} 
++);
+ var Foundations = libs["foundations"];
+ var MojoService = libs["mojoservice"];
++var Underscore = libs["underscore"];
+ 
+ // Propogate
+ exports.AppController = MojoService.AppController;
+@@ -13,3 +18,4 @@ var PalmCall = Foundations.Comms.PalmCall;
+ var DB = Foundations.Data.DB;
+ var TempDB = Foundations.Data.TempDB;
+ var Activity = Foundations.Control.Activity;
++var _ = Underscore._;
+\ No newline at end of file
+diff --git a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/services/serviceassistantbuilder.js b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/services/serviceassistantbuilder.js
+index c3fee09..1d6c31b 100644
+--- a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/services/serviceassistantbuilder.js
++++ b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/services/serviceassistantbuilder.js
+@@ -1,3 +1,5 @@
++/*global Class, console, exports, Priority, SyncStatusManager */
++
+ exports.ServiceAssistantBuilder = function(config)
+ {
+ 	var clientId = config.clientId;
+@@ -13,6 +15,8 @@ exports.ServiceAssistantBuilder = function(config)
+ 			var id = clientId ? command.args[clientId] || 0 : 0;
+ 			var client = this._clients[id];
+ 			var needsAuthentication = command.config.requiresAuthentication !== false; // true or undefined 
++			var capabilityProviderId;
++
+ 			if (!client || (!client.credentials && needsAuthentication))
+ 			{
+ 				var savedCommands;
+@@ -27,6 +31,20 @@ exports.ServiceAssistantBuilder = function(config)
+ 				this._clients[id] = client;
+ 				client._future = client.setup(this, id, command.config, command.args);
+ 			}
++
++			if (!client.syncStatusMgr) {
++				if (client.getCapabilityProviderId) {
++					capabilityProviderId = client.getCapabilityProviderId();
++				}
++				else if (command && command.assistant && command.assistant.getCapabilityProviderId) {
++					capabilityProviderId = command.assistant.getCapabilityProviderId();
++				}
++		
++				if (capabilityProviderId) {
++					client.syncStatusMgr = new SyncStatusManager(id, capabilityProviderId, this.controller.name);
++				}
++			}
++
+ 			if (client._future)
+ 			{
+ 				client._future.then(this, function(future)
+@@ -45,9 +63,14 @@ exports.ServiceAssistantBuilder = function(config)
+ 						{
+ 							
+ 							if (e instanceof exports.TransportError) {
+-								if (command && command.assistant && command.assistant.getCapabilityProviderId) {
+-									var syncStatusMgr = new SyncStatusManager(id, command.assistant.getCapabilityProviderId(), this.controller.name);
+-									syncStatusMgr.setErrorCondition(e);							
++								if (client.syncStatusMgr) {
++								// Clear all previous statuses for this account before setting the error.
++								// This will clear all previous statuses for all collections under the same 
++								// account.  Until now, we do not find any problem with this forceful cleanup. 
++									client.syncStatusMgr.clearSyncStatus().then(this, function (join) {
++										join.getResult();
++                                        client.syncStatusMgr.setErrorCondition(e);
++									});							
+ 								}
+ 								else {
+ 									console.error("Error occurred during client startup, but couldn't disable sync status");
+diff --git a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/syncstatusmanager.js b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/syncstatusmanager.js
+index fc8f7c3..5c6383f 100644
+--- a/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/syncstatusmanager.js
++++ b/usr/palm/frameworks/mojoservice.transport/submission/34/javascript/syncstatusmanager.js
+@@ -1,5 +1,5 @@
+ /*jslint devel:true */
+-/*global exports, Class, Future, PalmCall, TempDB */
++/*global exports, Class, Future, PalmCall, TempDB, _ */
+ 
+ /*
+  * Sync state management
+@@ -13,6 +13,9 @@ var SyncStatusManager = exports.SyncStatusManager = Class.create({
+ 	},
+ 
+ 	setSyncStatus: function(state, collectionId, metadata, errorCode, errorText) {
++		var where = [],
++		future;
++		
+ 		if (!this.accountId || !this.capabilityProvider || !this.busAddress) {
+ 			console.log(">>> setSyncStatus(): manager not fully configured; not setting state");
+ 			return new Future({
+@@ -20,23 +23,71 @@ var SyncStatusManager = exports.SyncStatusManager = Class.create({
+ 				results: []
+ 			});
+ 		}
+-
+-		console.log(">>> setSyncStatus(): setting sync state to " + state);
+-		var syncState = {
+-			_kind: "com.palm.account.syncstate:1",
+-			accountId: this.accountId,
+-			capabilityProvider: this.capabilityProvider,
+-			collectionId: collectionId,
+-			metadata: metadata,
+-			busAddress: this.busAddress,
+-			syncState: state,
+-			errorCode: errorCode,
+-			errorText: errorText
+-		};
+-
+-		console.log(">>> syncState: " + JSON.stringify(syncState));
+-
+-		return TempDB.put([syncState]);
++		
++		where.push({
++			prop: "accountId",
++			op: "=",
++			val: this.accountId
++		}, {
++			prop: "capabilityProvider",
++			op: "=",
++			val: this.capabilityProvider
++		});
++		
++		if (collectionId) {
++			where.push({
++				prop: "collectionId",
++				op: "=",
++				val: collectionId
++			});
++		} 
++
++		future = TempDB.find({
++				from: "com.palm.account.syncstate:1",
++				where: where
++			}).then(this, function(future){
++			var results = future.result.results,
++			syncState;
++			
++			syncState = _.detect(results, function(result){
++				return result.syncState === state;
++			});			
++			
++			if (syncState) {
++				console.log(">>> setSyncStatus(): update for state '", state, "'", JSON.stringify(syncState));
++				syncState = {
++					_kind: syncState._kind,
++					_id: syncState._id,
++					_rev: syncState._rev,
++					metadata: metadata,
++					errorCode: errorCode,
++					errorText: errorText
++				};
++				
++				console.log(">>> syncState merge with: " + JSON.stringify(syncState));
++				future.nest(TempDB.merge([syncState]));
++			}
++			else {
++				console.log(">>> setSyncStatus(): setting sync state to " + state);
++				syncState = {
++					_kind: "com.palm.account.syncstate:1",
++					accountId: this.accountId,
++					capabilityProvider: this.capabilityProvider,
++					collectionId: collectionId,
++					metadata: metadata,
++					busAddress: this.busAddress,
++					syncState: state,
++					errorCode: errorCode,
++					errorText: errorText
++				};
++				
++				console.log(">>> syncState: " + JSON.stringify(syncState));
++				
++				future.nest(TempDB.put([syncState]));
++			}
++		});
++	
++		return future;
+ 	},
+ 
+ 	clearSyncStatus: function(collectionId) {
+@@ -126,6 +177,6 @@ var SyncStatusManager = exports.SyncStatusManager = Class.create({
+ 
+ 	setErrorCondition: function(exception, collectionId, metadata) {
+ 		console.log(exception.stack);
+-		this.setErrorStatus(exception.errorCode, exception.errorText, collectionId, metadata);
++		return this.setErrorStatus(exception.errorCode, exception.errorText, collectionId, metadata);
+ 	}
+ });
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/checkcredentialsassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/checkcredentialsassistant.js
+index 4ffd057..cc4aea3 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/checkcredentialsassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/checkcredentialsassistant.js
+@@ -1,4 +1,4 @@
+-/*jslint white: false, onevar: true, undef: true, eqeqeq: true, plusplus: true, bitwise: true,
++/*jslint white: false, onevar: true, undef: true, eqeqeq: true, plusplus: false, bitwise: true,
+ regexp: true, newcap: true, immed: true, nomen: false, maxerr: 500 */
+ 
+ /*global Class, Transport, JSON, console, YahooContactsTransport, Future, Assert, stringify, google, Utils */
+@@ -9,7 +9,45 @@ var CheckCredentialsAssistant = Class.create(Transport.OAuthCommand, {
+ 		BAD_STATUS: 0,
+ 		LOGIN_FAILED: 1,
+ 		NO_TOKEN: 2,
+-		MALFORMED_TOKEN: 3
++		MALFORMED_TOKEN: 3,
++		ECONNREFUSED: 11,
++		ETIMEDOUT: 110
++	},
++	
++	// List of Apps that have access to this command
++    allowedAppIds: ["com.quickoffice.webos",
++                    "com.quickoffice.ar"
++                    ],
++	
++	_stripProcessNumFromId: function(id) {
++		// because of a bug, the id will come in as [appid processid], see DFISH-5527
++		var strippedId = id,
++		spacePos = id.indexOf(' ');
++		if (spacePos !== -1){
++			strippedId = id.substr(0, spacePos);
++		}
++		return strippedId;
++	},
++	
++	_findPermissionById: function(id) {
++		var strippedId = this._stripProcessNumFromId(id),
++		permission,
++		i;
++		for (i = 0; i < this.allowedAppIds.length; i++){
++			if (this.allowedAppIds[i] === strippedId){
++				permission = this.allowedAppIds[i];
++				break;
++			}
++		}
++		return permission;
++	},
++	
++	hasPermissionsById: function(id) {
++	    if (id.indexOf("com.palm.") === 0) {
++	        return true;
++	    } else {
++		    return this._findPermissionById(id) !== undefined;
++	    }
+ 	},
+ 
+ 	run: function (responseFuture) {
+@@ -20,10 +58,18 @@ var CheckCredentialsAssistant = Class.create(Transport.OAuthCommand, {
+ 			password,
+ 			feedUri,
+ 			calendarFeedUri;
+-
++						
+ 		future.now(this, function initiateLogin() {
+-			var query;
+-
++			var query,
++			appId = this.controller.message.applicationID(),
++			errorString;					
++
++			if(!this.hasPermissionsById(appId)) {
++			    errorString = appId + " is not on allowed app list";
++                console.log(errorString);
++                throw errorString;
++			}
++			
+ 			username = args.username;
+ 			password = args.password;
+ 			Assert.require(username, "Google calendar sync: missing username - cannot log in");
+@@ -66,7 +112,7 @@ var CheckCredentialsAssistant = Class.create(Transport.OAuthCommand, {
+ 			}
+ 
+ 			Utils.cacheAuthToken(result);
+-			Utils.log('\n\n\n---->>>> handleLoginResponse() result: ' + result);
++			Utils.debug('\n\n\n---->>>> handleLoginResponse() result: ' + result);
+ 
+ 			// Clear credentials on client so that subsequent commands will create
+ 			// a new client that can load the credentials
+@@ -102,6 +148,12 @@ var CheckCredentialsAssistant = Class.create(Transport.OAuthCommand, {
+ 				throw new Transport.ServerError(error);
+ 		}
+ 
++		if(error.errorCode) {
++			if(error.errorCode === this.GDATA_ERROR_TYPES.ECONNREFUSED || error.errorCode === this.GDATA_ERROR_TYPES.ETIMEDOUT) {
++				throw new Transport.NoConnectivityError(error);
++			}
++		}
++		
+ 		if (error.cause && error.cause.status === 403) {
+ 			if (throwOn403) {
+ 				throw new Transport.AuthenticationError(error);
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/onenabledassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/onenabledassistant.js
+index bd1a38d..6466994 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/onenabledassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/onenabledassistant.js
+@@ -1,45 +1,7 @@
+ /*jslint white: true, onevar: true, undef: true, eqeqeq: true, plusplus: true, bitwise: true,
+ regexp: true, newcap: true, immed: true, nomen: false, maxerr: 500, evil: true */
+ 
+-/*global Class, Config, Sync, Utils */
++/*global Sync */
+ 
+-var OnEnabledAssistant = Class.create(Sync.EnabledAccountCommand, {
+-	getCapabilityProviderId: function () {
+-		return Config.capabilityProviderId;
+-	},
++var OnEnabledAssistant = Sync.EnabledAccountCommand;
+ 
+-	run: function run(result) {
+-		var args = this.controller.args;
+-
+-		if (args.enabled) {
+-			Utils.log("OnEnabledAssistant: enabling transport");
+-			return this.handler.getAccountTransportObject(this.client.clientId)
+-				.then(this, function (join) {
+-					var transportObject = join.result;
+-					if (transportObject && transportObject._sync) {
+-						Utils.log("OnEnabledAssistant: transport object is set to sync; clearing");
+-						transportObject = {
+-							_kind: transportObject._kind,
+-							_id: transportObject._id,
+-							_rev: transportObject._rev,
+-							accountId: transportObject.accountId,
+-							modnum: 0, // will be set correctly in enableAccount
+-							syncKey: {},
+-							extras: {}
+-						};
+-						return this.handler.put([transportObject]);
+-					}
+-					Utils.log("OnEnabledAssistant: transport object is NOT set to sync");
+-					return true;
+-				})
+-				.then(this, function (join) {
+-					join.getResult();
+-					Utils.log("OnEnabledAssistant: calling inherited");
+-					return this.$super(run)(result);
+-				});
+-		}
+-
+-		Utils.log("OnEnabledAssistant: disabling transport");
+-		return this.$super(run)(result);
+-	}
+-});
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-index 57cc297..8fe04e4 100644
+index 57cc297..9fab500 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-@@ -19,6 +19,37 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+@@ -10,6 +10,15 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+ 			Utils.log("\n\n\n---->>>> CANCEL WAS CALLED");
+ 		},
+ 
++		/*
++		 * Return the ID string for the capability (e.g., CALENDAR, CONTACTS, etc.)
++		 * supported by the sync engine as specified in the account template (e.g.,
++		 * com.palm.calendar.google, com.palm.contacts.google, etc.).
++		 */
++		getCapabilityProviderId: function() {
++			return Config.capabilityProviderId;
++		},
++
+         getSyncInterval: function () {
+ 	        return new Future(Config.syncInterval);
+ 	    },
+@@ -19,7 +28,15 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
  		},
  
  		setup: function setup(service, accountId, launchConfig, launchArgs) {
-+			try{
-+				Config.syncWindowMonthsAfter = 48; 
-+				Config.syncWindowMonthsBefore = 12;
-+				Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
-+				var configFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
-+						"get",
-+								{owner: "google-first-sync",
-+								keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"]}
-+						);
-+				configFuture.then(Config, function(future)
-+						{ var result = future.result;
-+							if(result.returnValue === true) {
-+								if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
-+									Utils.log("TWEAKS preferences before sync: " + result.syncWindowMonthsBefore);
-+									Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
-+								}
-+								if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
-+									Utils.log("TWEAKS preferences after sync: " + result.syncWindowMonthsAfter);
-+									Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
-+								}
-+								future.result = {returnValue: true};
-+							} else{
-+								Config.syncWindowMonthsAfter = 48;
-+								Config.syncWindowMonthsBefore = 12;
-+								Utils.error("failed to read TWEAKS preferences no result" + stringify(result));
-+							}
-+						});
-+			} catch(e) {Utils.error("failed to read TWEAKS no service preferences");}
-+			Utils.error("google sync start preferences: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
+-			var future = this._getAccount(accountId);
 +			
++			//var future = new Future(true);// = this._getAccount(accountId);
++
++			Config.syncWindowMonthsAfter = 48; 
++			Config.syncWindowMonthsBefore = 12;
 +			
- 			var future = this._getAccount(accountId);
++			var future = this._goTweaks(accountId);
++			
++			//Utils.error("google sync start preferences: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
  			
  			future.then(this, function finishSetup() {
+ 				var account = future.result,
+@@ -66,7 +83,7 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+ 					Utils.cacheAuthToken(credentials.authToken);
+ 				}
+ 
+-				Utils.log("------<>>>>>>>> creds: " + stringify(credentials));
++				Utils.debug("------<>>>>>>>> creds: " + stringify(credentials));
+ 				
+ 				this.$super(setup)(service, accountId, undefined, Transport.HandlerFactoryBuilder(Sync.SyncHandler(Kinds)));
+ 				
+@@ -75,6 +92,50 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+ 			
+ 			return future;
+ 		},
++		
++		_goTweaks: function(Id){
++			//Utils.error("in Get tweaks ");
++			var future = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
++							"get",
++									{owner: "google-first-sync",
++									keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"], subscribe:false}
++							);
++		
++			future.then(this, function readTweaks() {
++				//Utils.error("in Read tweaks ");
++				var result;
++				try{
++					//Utils.error("Get tweaks results????");
++					result = future.result;
++					Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++					//Utils.error("TWEAKS call started result: " + stringify(future.result) );
++					//Utils.error("TWEAKS call exception: " + stringify(future.exception) );
++					if(result && result.returnValue === true) {
++						if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
++							Utils.error("TWEAKS preference: before sync = " + result.syncWindowMonthsBefore);
++							Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
++						}
++						if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
++							Utils.error("TWEAKS preference: after sync = " + result.syncWindowMonthsAfter);
++							Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
++						}
++					}
++					future.result= true;
++				} catch(error) {
++					//Utils.error("in Get tweaks::: error ");
++					Utils.error("failed to read TWEAKS preferences no result" + stringify(error && error.message));
++				}
++				future.result= true;
++			});
++			
++			future.then(this, function(){
++				var result = future.result;
++				//Utils.error("in Get tweaks::: then again ");
++				return this._getAccount(Id);
++			});
++			
++			return future;
++		},
+ 
+ 		_getAccount: function (id) {
+ 			var future = DB.find({
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
-index 73256cd..b1ae98f 100644
+index 73256cd..858577c 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
-@@ -389,7 +389,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+@@ -101,19 +101,19 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 		var transform,
+ 			transformer,
+ 			self = this;
+-		Utils.log("\n\n\n--->>> Transforming " + direction);
++		Utils.debug("\n\n\n--->>> Transforming " + direction);
+ 		if (direction === "remote2local") {
+ 			transform = Transforms[kindName] && Transforms[kindName][direction];
+ 			if (transform) {
+ 				transformer = new Json.Transformer(transform);
+ 				return function (to, from) {
+-					Utils.log("\n-->> Transforming " + (from.title && from.title.$t) + " (" + to.accountId + ") " + " (" + direction + ")");
++					Utils.debug("\n-->> Transforming " + (from.title && from.title.$t) + " (" + to.accountId + ") " + " (" + direction + ")");
+ 					// Utils.log("\n-->> To: " + stringify(to));
+ 					// Utils.log("\n-->> From: " + stringify(from));
+ 					// Utils.log("\n-->> Transform: " + stringify(transform));
+ 					from.to = to;
+ 					var t = transformer.transformAndMerge(to, from);
+-					Utils.log("\n-->> Transformed " + (from.title && from.title.$t)); // + ": " + stringify(t));
++					Utils.debug("\n-->> Transformed " + (from.title && from.title.$t)); // + ": " + stringify(t));
+ 					return t;
+ 				};
+ 			}
+@@ -124,11 +124,11 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					return function (to, from) {
+ 						if (self._isEventFromReadOnlyCalendar(from)) {
+ 							// Filter out events from read-only calendars
+-							Utils.log("\n--->>> Tried to transform an event from a read-only calendar: " + stringify(from));
++							Utils.debug("\n--->>> Tried to transform an event from a read-only calendar: " + stringify(from));
+ 							return;
+ 						}
+ 						transformer.transform(to, from);
+-						Utils.log("\n-->> Transformed " + from.subject + ": " + stringify(to));
++						Utils.debug("\n-->> Transformed " + from.subject + ": " + stringify(to));
+ 						return to;
+ 					};
+ 				case Kinds.objects.calendar.name:
+@@ -187,11 +187,11 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 		var status,
+ 			deleted = false;
+ 
+-		Utils.log("\n\n\n----->>>>> isDeleted obj: " + (obj.title && obj.title.$t) + " (" + kindName + ")");
++		Utils.debug("\n\n\n----->>>>> isDeleted obj: " + (obj.title && obj.title.$t) + " (" + kindName + ")");
+ 		switch (kindName) {
+ 			case Kinds.objects.calendarevent.name:
+ 				status = obj && obj.getEventStatus();
+-				Utils.log("----->>>>> event status: " + stringify(status));
++				Utils.debug("----->>>>> event status: " + stringify(status));
+ 				if (status && status.getValue() === google.gdata.EventStatus.VALUE_CANCELED) {
+ 					deleted = true;
+ 				} else {
+@@ -204,7 +204,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 				Utils.logAndThrow("Google calendar sync: isDeleted check on invalid kind: " + kindName);
+ 		}
+ 
+-		Utils.log("----->>>>> deleted: " + deleted + "\n\n");
++		Utils.debug("----->>>>> deleted: " + deleted + "\n\n");
+ 		return deleted;
+ 	},
+ 
+@@ -234,6 +234,18 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 		}
+ 	},
+ 
++	preSaveModify: function (events, kindName) {
++		if(kindName===Kinds.objects.calendarevent.name) {
++			for(var idx=events.length-1; idx>=0; idx--) {
++				if(!events[idx] ||!events[idx].local ||!events[idx].local.dtstart || !events[idx].local.dtend) {
++					Utils.log("skipping invalid event!");
++					events.splice(idx, 1);
++				}
++			}
++		}
++		return new Future (events);
++	},
++		
+ 	/*
+ 	 * Put a set of remote objects to the server.  Each object has an operation property
+ 	 * which is either 'save' or 'delete', depending on how the objects should be put
+@@ -275,7 +287,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 	_loadCalendars: function (future) {
+ 		// If we haven't previously fetched the various calendars for this account, do so now
+ 		if (!this._calendarEntries) {
+-			Utils.log("\n\n---->>>> Getting calendars for account " + this.client.account._id);
++			Utils.debug("\n\n---->>>> Getting calendars for account " + this.client.account._id);
+ 			future.nest(DB.find({
+ 				from: "com.palm.calendar:1",
+ 				where: [{
+@@ -286,7 +298,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			}).then(this, function (join) {
+ 				var result = join.result.results;
+ 
+-				Utils.log("\n\n---->>>> _loadCalendars(): DB.find() results: " + stringify(result));
++				Utils.debug("\n\n---->>>> _loadCalendars(): DB.find() results: " + stringify(result));
+ 				Assert.require(result, "Google calendar sync: have a falsy calendar result: " + result);
+ 
+ 				this._calendarEntries = this._calendarEntries || result;
+@@ -313,7 +325,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			entries = result.entries || [],
+ 			more = result.more;
+ 
+-		Utils.log(">>> _cleanDeletedCalendars(): deleting calendars: " + stringify(this._deletedCalendars));
++		Utils.debug(">>> _cleanDeletedCalendars(): deleting calendars: " + stringify(this._deletedCalendars));
+ 
+ 		return DB.find({
+ 			select: ["remoteId", "subject"],
+@@ -326,11 +338,11 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 		}).then(function (innerJoin) {
+ 			var eventsToDelete = innerJoin.getResult().results,
+ 				i;
+-			Utils.log(">>> _cleanDeletedCalendars(): events from deleted calendars: " + stringify(eventsToDelete));
++			Utils.debug(">>> _cleanDeletedCalendars(): events from deleted calendars: " + stringify(eventsToDelete));
+ 			for (i = 0; i < eventsToDelete.length; ++i) {
+ 				entries.push(new DeletedEvent(eventsToDelete[i]));
+ 			}
+-			Utils.log(">>> _cleanDeletedCalendars(): final entries list: " + stringify(entries));
++			Utils.debug(">>> _cleanDeletedCalendars(): final entries list: " + stringify(entries));
+ 			innerJoin.setResult({
+ 				entries: entries,
+ 				more: more
+@@ -357,17 +369,17 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 
+ 				for (i = 0; i < entries.length; i += 1) {
+ 					entries[i].accountId = this.client.account._id;
+-					Utils.log("\n\n---->>>> Calendar entry " + i + ": " + stringify(entries[i].title && entries[i].title.$t));
++					Utils.debug("\n\n---->>>> Calendar entry " + i + ": " + stringify(entries[i].title && entries[i].title.$t));
+ 					calendarEntries.push(entries[i]);
+ 				}
+ 
+-				Utils.log("\n\n---->>>> Calendar entries count: " + entries.length);
++				Utils.debug("\n\n---->>>> Calendar entries count: " + entries.length);
+ 
+ 				future.result = true;
+ 			}), future.callback(this, function (error) {
+ 				future._complete = true;
+ 				Utils.error("Google calendar sync: failed to get calendar feed: " + stringify(error));
+-				throw error;
++				throw Utils.convertError(error);
+ 			}));
+ 		});
+ 
+@@ -389,17 +401,17 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
  						found = this._calendarEntries[i].remoteId === remoteId;
  						if (!found) {
  							// Second chance for calendars migrated from 1.4.5
@@ -52,8 +3113,226 @@ index 73256cd..b1ae98f 100644
 +							found = calendarEntries[j].content && (this._calendarEntries[i].UID === calendarEntries[j].content.src);
  							if (found) {
  								// Get the correct remoteId
- 								Utils.log("---->>>> detectDeletedCalendars(): patchExistingCalendarRemoteId");
-@@ -1078,6 +1078,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+-								Utils.log("---->>>> detectDeletedCalendars(): patchExistingCalendarRemoteId");
++								Utils.debug("---->>>> detectDeletedCalendars(): patchExistingCalendarRemoteId");
+ 								calendarEntries[j].patchExistingCalendarRemoteId = true;
+ 							}
+ 						}
+ 					}
+-					Utils.log("\n---->>>> detectDeletedCalendars(): calendar " + this._calendarEntries[i].remoteId + " was found: " + found);
++					Utils.debug("\n---->>>> detectDeletedCalendars(): calendar " + this._calendarEntries[i].remoteId + " was found: " + found);
+ 					if (!found) {
+-						Utils.log("\n---->>>> detectDeletedCalendars(): calendar " + this._calendarEntries[i].remoteId + " has been deleted!");
++						Utils.debug("\n---->>>> detectDeletedCalendars(): calendar " + this._calendarEntries[i].remoteId + " has been deleted!");
+ 						// A calendar in the device DB is no longer on the server;
+ 						// it has been deleted.
+ 						deletedCalendar = new DeletedCalendar(this._calendarEntries[i]);
+@@ -437,7 +449,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			// that = this;
+ 
+ 		if (remoteEvents.length === 0) {
+-			Utils.log(">>> _filterRemoteEventChangeList(): outResult with no remote events: " + stringify(outResult));
++			Utils.debug(">>> _filterRemoteEventChangeList(): outResult with no remote events: " + stringify(outResult));
+ 			return new Future(outResult);
+ 		}
+ 
+@@ -468,8 +480,8 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 				deleteQueue = [],
+ 				deletedChildren = [];
+ 
+-			Utils.log(">>> _filterRemoteEventChangeList(): localEvents: " + localEvents.length);
+-			Utils.log(">>> _filterRemoteEventChangeList(): remoteEvents: " + remoteEvents.length);
++			Utils.debug(">>> _filterRemoteEventChangeList(): localEvents: " + localEvents.length);
++			Utils.debug(">>> _filterRemoteEventChangeList(): remoteEvents: " + remoteEvents.length);
+ 
+ 			for (localIndex = 0; localIndex < localEvents.length; ++localIndex) {
+ 				lEvent = localEvents[localIndex];
+@@ -480,7 +492,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					// If the ETAG has changed, the server side has been
+ 					// modified since we last down-synced, and the server
+ 					// always wins.
+-					Utils.log(">>> _filterRemoteEventChangeList(): lEvent: " + stringify(lEvent));
++					Utils.debug(">>> _filterRemoteEventChangeList(): lEvent: " + stringify(lEvent));
+ 					if (lEvent.etag === rEvent.getEtag()) {
+ 						// The ETAG hasn't changed, so we don't want to down-sync
+ 						// the event.
+@@ -491,7 +503,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 						// deletion entries for each of the children
+ 						deleteQueue.push(lEvent);
+ 					} else {
+-						Utils.log(">>> _filterRemoteEventChangeList(): local etag: " + stringify(lEvent.etag) + ", remote etag: " + stringify(rEvent.getEtag()));
++						Utils.debug(">>> _filterRemoteEventChangeList(): local etag: " + stringify(lEvent.etag) + ", remote etag: " + stringify(rEvent.getEtag()));
+ 					}
+ 				}
+ 			}
+@@ -517,20 +529,20 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					mapReduceJoin.getResult();
+ 					outResult.filtered = filteredEvents;
+ 					outResult.deleted = deletedChildren;
+-					Utils.log(">>> _filterRemoteEventChangeList(): outResult with deleteQueue: " + stringify(outResult));
++					Utils.debug(">>> _filterRemoteEventChangeList(): outResult with deleteQueue: " + stringify(outResult));
+ 					join.result = outResult;
+ 				});
+ 			} else {
+ 				outResult.filtered = filteredEvents;
+ 				outResult.deleted = deletedChildren;
+-				Utils.log(">>> _filterRemoteEventChangeList(): outResult without deleteQueue: " + stringify(outResult));
++				Utils.debug(">>> _filterRemoteEventChangeList(): outResult without deleteQueue: " + stringify(outResult));
+ 				join.result = outResult;
+ 			}
+ 		});
+ 	},
+ 
+ 	_getRemoteCalendarEventChanges: function(state) {
+-		Utils.log(">>>getRemoteChanges(calendarevent)");
++		Utils.debug(">>>getRemoteChanges(calendarevent)");
+ 		// get events
+ 		var futureToReturn = new Future();
+ 
+@@ -577,7 +589,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			});
+ 			future.then(function (join2) {
+ 				var result = join2.getResult();
+-				Utils.log("Filtering results for modifyingEntries: " + stringify(result));
++				Utils.debug("Filtering results for modifyingEntries: " + stringify(result));
+ 				modifyingEntries = result.filtered;
+ 				deletedChildren = deletedChildren.concat(result.deleted);
+ 				join2.result = true;
+@@ -634,15 +646,15 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			getRecurrentEvents(entries);
+ 			getRecurrentEvents(modifyingEntries);
+ 
+-			Utils.log("normalizeRecurrentEventTimes(): recurrentEntries: " + recurrentEvents.length);
++			Utils.debug("normalizeRecurrentEventTimes(): recurrentEntries: " + recurrentEvents.length);
+ 
+ 			if (recurrentEvents.length) {
+-				Utils.log("normalizeRecurrentEventTimes(): yearMap (prior): " + stringify(yearMap));
++				Utils.debug("normalizeRecurrentEventTimes(): yearMap (prior): " + stringify(yearMap));
+ 				timezoneMap = Object.keys(timezoneMap);
+ 				yearMap = _.uniq(yearMap);	//Object.keys(yearMap);
+ 
+-				Utils.log("normalizeRecurrentEventTimes(): timezoneMap: " + stringify(timezoneMap));
+-				Utils.log("normalizeRecurrentEventTimes(): yearMap: " + stringify(yearMap));
++				Utils.debug("normalizeRecurrentEventTimes(): timezoneMap: " + stringify(timezoneMap));
++				Utils.debug("normalizeRecurrentEventTimes(): yearMap: " + stringify(yearMap));
+ 
+ 				tzFuture = this.tzManager.loadTimezones(timezoneMap, yearMap);
+ 				tzFuture.then(this, function normalizeTimes(join) {
+@@ -651,11 +663,11 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					for (i = 0; i < recurrentEvents.length; ++i) {
+ 						event = recurrentEvents[i];
+ 						event = event.parsedRecurrence;
+-						Utils.log("normalizeRecurrentEventTimes(): converting " + event.tzId + " -> " + this.tzManager.timezone);
+-						Utils.log("normalizeRecurrentEventTimes(): event before convert: " + stringify(event));
++						Utils.debug("normalizeRecurrentEventTimes(): converting " + event.tzId + " -> " + this.tzManager.timezone);
++						Utils.debug("normalizeRecurrentEventTimes(): event before convert: " + stringify(event));
+ 						event.dtstart = this.tzManager.convertTime(event.dtstart, event.tzId, this.tzManager.timezone);
+ 						event.dtend = this.tzManager.convertTime(event.dtend, event.tzId, this.tzManager.timezone);
+-						Utils.log("normalizeRecurrentEventTimes(): event after convert: " + stringify(event));
++						Utils.debug("normalizeRecurrentEventTimes(): event after convert: " + stringify(event));
+ 					}
+ 
+ 					futureToReturn.result = result;
+@@ -676,7 +688,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 				deletedChildren = result.deletedChildren,
+ 				modifyingFuture;
+ 
+-			Utils.log("Post-filtering: result: " + stringify(result));
++			Utils.debug("Post-filtering: result: " + stringify(result));
+ 
+ 			modifyingEntries.forEach(function (entry) {
+ 				this._cacheModifyingEntry(entry, calendar);
+@@ -836,7 +848,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 		future.then(this, function decorateEntries(join) {
+ 			var localParents = join.getResult();
+ 
+-			Utils.log("\n---->>>> _decorateEntriesWithMoveExceptionInfo(): localParents: " + stringify(localParents));
++			Utils.debug("\n---->>>> _decorateEntriesWithMoveExceptionInfo(): localParents: " + stringify(localParents));
+ 			// Iterate over the parents, and assign the LID and dtstart of each
+ 			// parent event to the corresponding "child" entry's parentId and
+ 			// parentDtstart fields, respectively.
+@@ -847,7 +859,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					entriesByParentRid[parentRid].forEach(function decorateOneEntry(entry) {
+ 						entry.parentId = parent.local._id;
+ 						entry.parentDtstart = parent.local.dtstart;
+-						Utils.log("\n---->>>> _decorateEntriesWithMoveExceptionInfo(): decorated entry: " + stringify(entry));
++						Utils.debug("\n---->>>> _decorateEntriesWithMoveExceptionInfo(): decorated entry: " + stringify(entry));
+ 						decoratedEntries.push(entry);
+ 					});
+ 				}
+@@ -906,7 +918,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			that = this,
+ 			annotatedRemoteIds;
+ 
+-		Utils.log("\n\n--->>>calling _getRemoteCalendarEventMatches with remoteIds: " + stringify(remoteIds) + "\n\n");
++		Utils.debug("\n\n--->>>calling _getRemoteCalendarEventMatches with remoteIds: " + stringify(remoteIds) + "\n\n");
+ 		// Utils.log("\n\n--->>>calling _getRemoteCalendarEventMatches");
+ 		// Utils.logClientDetails(this.client);
+ 
+@@ -945,7 +957,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 							remoteCalendarEvent: calendarEventEntry
+ 						};
+ 					}), mapFuture.callback(that, function (error) {
+-						if (error.cause.status === 404) {
++						if (error && error.cause && error.cause.status === 404) {
+ 							// Get the local event
+ 							return DB.find({
+ 								from: Kinds.objects.calendarevent.id,
+@@ -965,7 +977,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 									// Add a dummy remote event; it will get culled
+ 									// from the up-sync stream during the transform
+ 									// phase
+-									Utils.log("\n--->>> Tried to get a remote calendar entry from a read-only calendar: " + annotatedRemoteId.remoteId);
++									Utils.debug("\n--->>> Tried to get a remote calendar entry from a read-only calendar: " + annotatedRemoteId.remoteId);
+ 									mapFuture.result = {
+ 										index: annotatedRemoteId.index,
+ 										remoteCalendarEvent: {
+@@ -974,14 +986,14 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 									};
+ 								} else {
+ 									Utils.error("Google calendar sync: failed to get remote calendar entry (" + annotatedRemoteId.remoteId + "): " + stringify(error));
+-									throw error;
++									throw Utils.convertError(error);
+ 								}
+ 							});
+ 						}
+ 
+ 						mapFuture._complete = true;
+ 						Utils.error("Google calendar sync: failed to get remote calendar entry (" + annotatedRemoteId.remoteId + "): " + stringify(error));
+-						throw error;
++						throw Utils.convertError(error);
+ 					}));
+ 
+ 					return mapFuture;
+@@ -992,15 +1004,15 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 				var annotatedResults = futureToReturn.result,
+ 					sortedCalendarEvents = [];
+ 
+-				Utils.log("\n\n--->>> calendar events fetched: " + annotatedResults.length /*stringify(annotatedResults)*/ + "\n\n");
++				Utils.debug("\n\n--->>> calendar events fetched: " + annotatedResults.length /*stringify(annotatedResults)*/ + "\n\n");
+ 
+ 				//for each calendar we get back, put it in the correct entry in the sortedCalendarEvents array
+ 				annotatedResults.forEach(function (annotatedResult) {
+-					Utils.log("\n\n--->>> pushing annotated result at index " + annotatedResult.result.index + ": " + (annotatedResult.result.remoteCalendarEvent.entry.title && annotatedResult.result.remoteCalendarEvent.entry.title.$t));
++					Utils.debug("\n\n--->>> pushing annotated result at index " + annotatedResult.result.index + ": " + (annotatedResult.result.remoteCalendarEvent.entry.title && annotatedResult.result.remoteCalendarEvent.entry.title.$t));
+ 					sortedCalendarEvents[annotatedResult.result.index] = annotatedResult.result.remoteCalendarEvent.entry;
+ 				});
+ 
+-				Utils.log("\n\n--->>> calendar events fetched and sorted: " + stringify(sortedCalendarEvents) + "\n\n");
++				Utils.debug("\n\n--->>> calendar events fetched and sorted: " + stringify(sortedCalendarEvents) + "\n\n");
+ 
+ 				futureToReturn.result = sortedCalendarEvents;
+ 			});
+@@ -1039,7 +1051,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 
+ 		for (i = 0; i < eventsToShift.length; ++i) {
+ 			event = eventsToShift[i].local;
+-			timezoneIds.push(event.tzId);
++			if(event.tzId && event.tzId != undefined ){timezoneIds.push(event.tzId);}
+ 			date.setTime(event.dtstart);
+ 			timezoneYears.push(date.getFullYear());
+ 			date.setTime(event.dtend);
+@@ -1078,6 +1090,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
  
  	_addOriginalEventInfoToChild: function (childObject, parent, isDeleting) {
  		var originalEvent = makeOriginalEvent(childObject.local.recurrenceId, parent),
@@ -61,37 +3340,232 @@ index 73256cd..b1ae98f 100644
  			times,
  			transformer = new GoogleCalendarEventTransformer();
  
-@@ -1085,7 +1086,9 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+@@ -1085,13 +1098,14 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
  
  		times = childObject.remote.getTimes();
  		if (times && times.length) {
 -			transformer.alarm(times[0], parent);
 +			reminders = GoogleCalendarEventTransformer.alarmsToReminders(parent.alarm);
 +			times[0].setReminder(reminders);
-+		//	transformer.alarm(times[0], parent);
  		}
  
  		if (isDeleting) {
-@@ -1263,7 +1266,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			childObject.remote.setEventStatus(new google.gdata.EventStatus({value: google.gdata.EventStatus.VALUE_CANCELED}));
+ 		}
+-		Utils.log("\n\n--->>> _addOriginalEventInfoToChild(): final child: " + stringify(childObject));
++		Utils.debug("\n\n--->>> _addOriginalEventInfoToChild(): final child: " + stringify(childObject));
+ 	},
+ 
+ 	_performUpSync: function (objects) {
+@@ -1120,10 +1134,10 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 							rid: object.local.remoteId
+ 						});
+ 					} else {
+-						Utils.log("\n---->>>> Deleting event: " + stringify(remoteCalendarEvent));
++						Utils.debug("\n---->>>> Deleting event: " + stringify(remoteCalendarEvent));
+ 						remoteCalendarEvent.deleteEntry(mapFuture.callback(that, function (result) {
+ 							mapFuture._complete = true;
+-							Utils.log("\n----->>>>> delete successful: " + (result && stringify(result)));
++							Utils.debug("\n----->>>>> delete successful: " + (result && stringify(result)));
+ 							mapFuture.result = {
+ 								rid: object.local.remoteId
+ 							};
+@@ -1141,10 +1155,10 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					if (object.local.remoteId) {
+ 						//it's an update!
+ 
+-						Utils.log("\n\n--->>> we're doing an update!!! \n\n");
++						Utils.debug("\n\n--->>> we're doing an update!!! \n\n");
+ 
+ 						remoteCalendarEvent.updateEntry(mapFuture.callback(that, function (calendarEventEntry) {
+-							Utils.log("\n\n--->>> Update successful for " + (remoteCalendarEvent.title && remoteCalendarEvent.title.$t) + "!");
++							Utils.debug("\n\n--->>> Update successful for " + (remoteCalendarEvent.title && remoteCalendarEvent.title.$t) + "!");
+ 							object.local.remoteId = that.getRemoteId(calendarEventEntry.entry, Kinds.objects.calendarevent.name);
+ 							object.local.etag = calendarEventEntry.entry.getEtag();
+ 							mapFuture._complete = true;
+@@ -1159,7 +1173,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					} else {
+ 						//it's an add!
+ 
+-						Utils.log("\n\n--->>> we're doing an add!!! \n\n");
++						Utils.debug("\n\n--->>> we're doing an add!!! \n\n");
+ 
+ 						// Find the calendar the object belongs to
+ 						calendar = _.detect(that._calendarEntries, function(calEntry) {
+@@ -1168,7 +1182,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 						Assert.require(calendar, "Google calendar sync: no calendar found for local event (" + stringify(localCalendarEvent) + ")");
+ 
+ 						feedUrl = calendar.UID;
+-						Utils.log("\n\n--->>> feedUrl: " + feedUrl + "\n");
++						Utils.debug("\n\n--->>> feedUrl: " + feedUrl + "\n");
+ 
+ 						//then add it to the server
+ 						that.client.gdataService.insertEntry(feedUrl, remoteCalendarEvent, mapFuture.callback(that, function (result) {
+@@ -1181,7 +1195,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 						}), mapFuture.callback(that, function (error) {
+ 							Utils.error("Google calendar sync: failed to add entry (" + object.local._id + ") " + stringify(error));
+ 							mapFuture._complete = true;
+-							throw error;
++							throw Utils.convertError(error);
+ 						}), google.gdata.calendar.CalendarEventEntry);
+ 					}
+ 				} else {
+@@ -1262,7 +1276,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 						if (family.parent) {
  							// The parent event was also part of this sync; get
  							// the ID directly from it
- 							Utils.log("fixupChildEventIds(): parent: " + stringify(family.parent));
--							that._addOriginalEventInfoToChild(child, family.parent);
-+							that._addOriginalEventInfoToChild(child, family.parent, false);
+-							Utils.log("fixupChildEventIds(): parent: " + stringify(family.parent));
++							Utils.debug("fixupChildEventIds(): parent: " + stringify(family.parent));
+ 							that._addOriginalEventInfoToChild(child, family.parent);
  							return new Future(true);
  						}
- 
-@@ -1275,7 +1278,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
- 							Assert.require(result.returnValue && result.results && result.results.length, "Google calendar sync: failed to find parent event for event '" + child.local._id);
- 
+@@ -1277,7 +1291,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
  							parent = result.results[0];
--							that._addOriginalEventInfoToChild(child, parent);
-+							that._addOriginalEventInfoToChild(child, parent, false);
+ 							that._addOriginalEventInfoToChild(child, parent);
  
- 							Utils.log("\n\n---->>>> Child event prepped: " + stringify(child.remote));
+-							Utils.log("\n\n---->>>> Child event prepped: " + stringify(child.remote));
++							Utils.debug("\n\n---->>>> Child event prepped: " + stringify(child.remote));
  
+ 							join.result = true;
+ 						});
+@@ -1295,7 +1309,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 				join.getResult();
+ 				var deleteQueue = [];
+ 
+-				Utils.log("sendDeleteExceptions(): eventInfo: " + stringify(eventInfo));
++				Utils.debug("sendDeleteExceptions(): eventInfo: " + stringify(eventInfo));
+ 
+ 				if (!_.isEmpty(eventInfo.eventFamilies)) {
+ 					_.each(eventInfo.eventFamilies, function (family) {
+@@ -1304,7 +1318,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 						// Utils.log("sendDeleteExceptions(): deleteExdates pre: " + stringify(family.deleteExdates));
+ 						transformExdates(family);
+ 						// Utils.log("sendDeleteExceptions(): deleteExdates post: " + stringify(family.deleteExdates));
+-						Utils.log("sendDeleteExceptions(): calendar for family " + family.parentId + ": " + stringify(calendar));
++						Utils.debug("sendDeleteExceptions(): calendar for family " + family.parentId + ": " + stringify(calendar));
+ 						// If there's no calendar ID associated with it, we
+ 						// can't delete on the server anyway, and there's no
+ 						// real remedy from the device end.
+@@ -1325,11 +1339,12 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 								future = new Future();
+ 
+ 							that.client.gdataService.insertEntry(calendar.UID, exdate, function success() {
+-								Utils.log("sentDeleteExceptions(): success!");
++								Utils.debug("sentDeleteExceptions(): success!");
+ 								future.result = true;
+-							}, function error() {
++							}, function errorHandler(error) {
+ 								Utils.log("sentDeleteExceptions(): error!");
+ 								future.result = false;
++								throw Utils.convertError(error); 
+ 							});
+ 							return future;
+ 						}
+@@ -1353,7 +1368,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					}
+ 				});
+ 
+-				Utils.log("\n---->>>> sortRemoteEvents(): rids: " + stringify(rids));
++				Utils.debug("\n---->>>> sortRemoteEvents(): rids: " + stringify(rids));
+ 
+ 				futureToReturn.result = rids;
+ 			});
+@@ -1363,7 +1378,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 	},
+ 
+ 	_postPutRemoteModifyCalendarEvents: function (objects) {
+-		Utils.log("\n\n--->>> _postPutRemoteModifyCalendarEvents: objects: " + stringify(objects));
++		Utils.debug("\n\n--->>> _postPutRemoteModifyCalendarEvents: objects: " + stringify(objects));
+ 
+ 		var etagMap = {};
+ 
+@@ -1373,7 +1388,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			}
+ 		});
+ 
+-		Utils.log("\n--->>> _postPutRemoteModifyCalendarEvents: etagMap: " + stringify(etagMap));
++		Utils.debug("\n--->>> _postPutRemoteModifyCalendarEvents: etagMap: " + stringify(etagMap));
+ 
+ 		if (_.isEmpty(etagMap)) {
+ 			return new Future([]);
+@@ -1399,5 +1414,75 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 		}
+ 
+ 		return false;
++	},
++		
++	/*
++	 * If we receive a revision error while saving the objects then update the 
++	 * revision number on them
++	 */
++	updateTransportObjectsToLatestRevisionNumber: function(objs, object_kind){
++		var revisionFuture = this.getLatestRevForObjects(objs, object_kind),
++			resulting = [];
++		revisionFuture.then(this, function(rFuture) {
++			var result = rFuture.getResult();
++			if( result && result.length && result.length>0) {
++				rFuture.result.forEach(function(result) {
++					if(result._id) {
++						objs.forEach(function(obj) {
++							if(obj._id===result._id) {
++								// Revisions differ - we made an editlocally while
++								// the sync was running so store remoteId and etag 
++								// from the current object and the object from the
++								// database to the result
++								if(obj._rev!==result._rev) {
++									result.remoteId = obj.remoteId;
++									result.etag = obj.etag;
++									//obj = result;
++									resulting.push(result);
++								} else {
++									resulting.push(obj);
++								}
++							}
++						});
++					}
++				});
++
++				rFuture.result = resulting;
++			} else {
++				rFuture.result = [];
++			} 
++		});
++		return revisionFuture;
++	},
++	
++	updateLocalTransportRevision: function(batchTransport, kindName)
++	{
++		var kinds = this.handler.getObjectKinds(),
++			future = this.updateTransportObjectsToLatestRevisionNumber(batchTransport, kinds.objects[kindName].id);
++		
++		future.then(this, function(join)
++		{
++			try
++			{
++				// copy any changed revs from the input into the local objects
++				var results = join.result,
++				len = results.length;
++				if(len>0) {
++					this._batch.transport = results;
++					this._hadLocalRevisionError = true;
++					this._batch.revisionChangedError = true;
++					return "writeRemoteTransportChanges";
++				} else {
++					throw new Error('Yahoo Transport updateLocalRevision: no data received');
++				}
++			} catch(_) {
++				console.log(_.stack);
++				this._error = _;
++				// Did we previously throw an exception ... if no then throw it
++				return "error";
++			}
++		});
++		
++		return future;
+ 	}
+ });
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-index 92a1156..8ced0fd 100644
+index 92a1156..0169bfd 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 @@ -13,6 +13,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
@@ -123,7 +3597,7 @@ index 92a1156..8ced0fd 100644
 -			Utils.log("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
 +			Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
  		} else {
-+			Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++			//Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
  			if (lastModTime) {
  				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
  			} else {
@@ -136,7 +3610,7 @@ index 92a1156..8ced0fd 100644
  		}
  	}
  
-@@ -168,6 +172,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -168,11 +172,13 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			switch (status) {
  				case 403:
  				case 410:
@@ -144,34 +3618,133 @@ index 92a1156..8ced0fd 100644
  					Utils.warn("---->>>> " + syncType(update) + " query error (" + status + "): " + errorStrings[status]);
  					Utils.warn("---->>>> Skipping " + syncType(update));
  					future.result = {
-@@ -182,7 +187,12 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 						count: 0,
+-						modTime: undefined
++						modTime: undefined,
++						error: error
+ 					};
+ 					break;
+ 
+@@ -182,7 +188,13 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  
  				default:
  					Utils.error("---->>>> " + syncType(update) + " query error: " + stringify(error));
 -					throw error;
 +					future.result = {
 +						count: 0,
-+						modTime: undefined
++						modTime: undefined,
++						error: error
 +					};
 +					//throw error;
 +					break;
  			}
  		}));
  	}
-@@ -224,7 +234,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -224,7 +236,11 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  							// "last update time", so store the fetch's time
  							setLastModifiedTimeForCalendar(true, queryResult.modTime);
  						}
 -						setLastModifiedTimeForCalendar(false, query.getMaximumStartTime());
-+						setLastModifiedTimeForCalendar(false, queryResult.modTime);
++						if (!queryResult.error) {
++							// If the fetch didn't succeed, leave the existing fetch time to use next
++							// sync so we don't end up skipping events
++							setLastModifiedTimeForCalendar(false, queryResult.modTime);
++						}
  						join.result = false;
  					}
  				} else {
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/eventfamilies.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/eventfamilies.js
+index 87d69da..2d2cba0 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/eventfamilies.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/eventfamilies.js
+@@ -62,7 +62,7 @@ function groupRelatedPutObjects(objects) {
+ 		}
+ 	});
+ 
+-	Utils.log("\n\n---->>>> groupRelatedPutObjects(): eventFamilies: " + stringify(eventFamilies));
++	Utils.debug("\n\n---->>>> groupRelatedPutObjects(): eventFamilies: " + stringify(eventFamilies));
+ 
+ 	return {
+ 		eventFamilies: eventFamilies,
+@@ -115,8 +115,8 @@ function collectDeleteExdates(join) {
+ 
+ 	family.deleteExdates = deleteExdates;
+ 
+-	Utils.log("\n\n---->>>> collectDeleteExdates(): exdates: " + stringify(exdates));
+-	Utils.log("---->>>> collectDeleteExdates(): relatedEvents: " + stringify(_.map(family.relatedEvents, function (relatedEvent) {
++	Utils.debug("\n\n---->>>> collectDeleteExdates(): exdates: " + stringify(exdates));
++	Utils.debug("---->>>> collectDeleteExdates(): relatedEvents: " + stringify(_.map(family.relatedEvents, function (relatedEvent) {
+ 		return relatedEvent.recurrenceId;
+ 	})));
+ 	
+@@ -133,7 +133,7 @@ function collectDeleteExdates(join) {
+ 		}
+ 	});
+ 
+-	Utils.log("---->>>> collectDeleteExdates(): deleteExdates: " + stringify(family.deleteExdates));
++	Utils.debug("---->>>> collectDeleteExdates(): deleteExdates: " + stringify(family.deleteExdates));
+ 
+ 	join.result = family;
+ }
+@@ -207,7 +207,7 @@ function exdateConverter(from, tzManager) {
+ 			return new Date(exdate);
+ 		})));
+ 
+-		Utils.log("---->>>> exdateConverter(): converted exdates: " + stringify(finalExdates));
++		Utils.debug("---->>>> exdateConverter(): converted exdates: " + stringify(finalExdates));
+ 
+ 		finalExdates = _.map(finalExdates, function convertLocalDates(exdate) {
+ 			return new google.gdata.DateTime(new Date(exdate));
+@@ -241,6 +241,7 @@ function makeOriginalEvent(date, parent) {
+ 	if (typeof date === 'string') {
+ 		date = Utils.convertIso8601ToGoogleIso8601(date);
+ 		date = google.gdata.DateTime.fromIso8601(date);
++		date.setDateOnly(parent.allDay);
+ 	}
+ 	originalEvent.setOriginalStartTime({startTime: date});
+ 
+@@ -264,14 +265,14 @@ function makeRecurrenceException(startTime, endTime, originalEvent, eventStatus)
+ 			endTime: endTime
+ 		});
+ 
+-	Utils.log("\n\n--->>> makeRecurrenceException(): when: " + stringify(when));
++	Utils.debug("\n\n--->>> makeRecurrenceException(): when: " + stringify(when));
+ 
+ 	recurEntry.setWhen([when]);
+ 	recurEntry.setOriginalEvent(originalEvent);
+ 	if (eventStatus) {
+ 		recurEntry.setEventStatus(eventStatus);
+ 	}
+-	Utils.log("\n\n--->>> makeRecurrenceException(): entry: " + stringify(recurEntry));
++	Utils.debug("\n\n--->>> makeRecurrenceException(): entry: " + stringify(recurEntry));
+ 
+ 	recurEntryLink.setEntry(recurEntry);
+ 
+@@ -296,7 +297,7 @@ function transformExdates(family) {
+ 		return eventEntry;
+ 	});
+ 
+-	Utils.log("\n\n---->>>> Delete exdates: " + stringify(family.deleteExdates));
++	Utils.debug("\n\n---->>>> Delete exdates: " + stringify(family.deleteExdates));
+ }
+ 
+ EventFamilies.gatherRelatedEvents = function gatherRelatedEvents(event) {
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-index ed2ef73..ae81e0a 100644
+index ed2ef73..a4b3d14 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/google_calendar_transformer.js
-@@ -70,7 +70,7 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -54,9 +54,7 @@ var GoogleCalendarEventTransformer = Class.create({
+ 		// Utils.log("----->>>>>remote: " + stringify(to));
+ 		fields.forEach(function (field) {
+ 			// Utils.log("------>>>>>> field: " + field);
+-			if (from[field]) {
+-				that[field](to, from);
+-			}
++			that[field](to, from);
+ 		});
+ 	},
+ 
+@@ -70,7 +68,7 @@ var GoogleCalendarEventTransformer = Class.create({
  	dtstart: function (to, from) {
  		// "type": "long",
  		// "description": "start date and time of the event. Formerly startTimestamp"
@@ -180,7 +3753,7 @@ index ed2ef73..ae81e0a 100644
  			var time = GoogleCalendarEventTransformer.getTimeOrAdd(to),
  				date = new google.gdata.DateTime(new Date(from.dtstart), from.allDay);
  
-@@ -81,7 +81,7 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -81,7 +79,7 @@ var GoogleCalendarEventTransformer = Class.create({
  	dtend: function (to, from) {
  		// "type": "long",
  		// "description": "end date and time of the event. Formerly endTimestamp"
@@ -189,7 +3762,7 @@ index ed2ef73..ae81e0a 100644
  			var time = GoogleCalendarEventTransformer.getTimeOrAdd(to),
  				date;
  
-@@ -111,16 +111,20 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -111,16 +109,20 @@ var GoogleCalendarEventTransformer = Class.create({
  			str += ":" + Calendar.IO.Utils.dateToIso8601(date, {justDate: model.allDay, noPunct: true, noMS: true, noTzOffset: true}) + "\r\n";
  			return str;
  		}
@@ -200,10 +3773,10 @@ index ed2ef73..ae81e0a 100644
  
 -		recurrence = formatDtTime("dtstart", from);
 -		recurrence += formatDtTime("dtend", from, from.allDay);
+-
+-		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
 +			recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
  
--		recurrence += Calendar.IO.eventRRuleToVCalendarRRule(from);
--
 -		Utils.log("\n------>>>>>> Final recurrence: " + stringify(recurrence));
 -		grecur = new google.gdata.Recurrence();
 -		grecur.setValue(recurrence);
@@ -213,12 +3786,51 @@ index ed2ef73..ae81e0a 100644
 +			grecur.setValue(recurrence);
 +			to.setRecurrence(grecur);
 +		} else {
-+			to.setRecurrence(undefined);
++			to.setRecurrence(null);
 +		}
  	},
  
  	subject: function (to, from) {
-@@ -176,45 +180,8 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -135,16 +137,15 @@ var GoogleCalendarEventTransformer = Class.create({
+ 	location: function (to, from) {
+ 		// "type": "string",
+ 		// "optional": "true"
+-		if (from.location) {
+-			var location = new google.gdata.Where({
+-				// NOTE: The Google calendar server's XML parser gets very unhappy (400 error)
+-				// if there are consecutive whitespace characters (except, for some reason,
+-				// new-lines) in certain places.  "Where" is one of them.
+-				valueString: GoogleCalendarEventTransformer.collapseWhitespace(from.location),
+-				rel: google.gdata.Where.REL_EVENT
+-			});
+-			to.setLocations([location]);
+-		}
++
++		var location = new google.gdata.Where({
++			// NOTE: The Google calendar server's XML parser gets very unhappy (400 error)
++			// if there are consecutive whitespace characters (except, for some reason,
++			// new-lines) in certain places.  "Where" is one of them.
++			valueString: GoogleCalendarEventTransformer.collapseWhitespace(from.location),
++			rel: google.gdata.Where.REL_EVENT
++		});
++		to.setLocations([location]);
+ 	},
+ 
+ 	note: function (to, from) {
+@@ -164,56 +165,14 @@ var GoogleCalendarEventTransformer = Class.create({
+ 		// "optional": "true",
+ 		// "description": "alarm object, same name, used to be string type.	 also incorporates yahoo-specific valarm field"
+ 
+-		var reminder,
+-			reminders = [],
+-			i,
+-			date,
+-			alarm,
+-			alarmTrigger,
++		var reminders = [],
+ 			time;
+ 
+ 		if (!from.rrule || _.values(from.rrule).length === 0) {
  			time = GoogleCalendarEventTransformer.getTimeOrAdd(to);
  		}
  
@@ -260,13 +3872,11 @@ index ed2ef73..ae81e0a 100644
 -			// Utils.log("----->>>>> new gdata reminder: " + stringify(reminder));
 -			reminders.push(reminder);
 -		}
--
 +		reminders = GoogleCalendarEventTransformer.alarmsToReminders(from.alarm);
-+		
+ 
  		// Stomp on whatever reminders we just pulled from the server
  		to.setReminders(reminders);
- 		if (time) {
-@@ -253,40 +220,46 @@ var GoogleCalendarEventTransformer = Class.create({
+@@ -253,40 +212,46 @@ var GoogleCalendarEventTransformer = Class.create({
  	attendees: function (to, from) {
  		// "type": ["$ref": "Attendee"]
  		// "optional": "true"
@@ -289,15 +3899,15 @@ index ed2ef73..ae81e0a 100644
  
  			attendeeStatus = undefined;
 -			if (from.participationStatus === "ACCEPTED") {
-+			if (from.attendees[i].participationStatus === "ACCEPTED") {
++			if (from.attendees[i].participationStatus && from.attendees[i].participationStatus === "ACCEPTED") {
  				attendeeStatus = new google.gdata.AttendeeStatus();
  				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_ACCEPTED);
 -			} else if (from.participationStatus === "DECLINED") {
-+			} else if (from.attendees[i].participationStatus === "DECLINED") {
++			} else if (from.attendees[i].participationStatus && from.attendees[i].participationStatus === "DECLINED") {
  				attendeeStatus = new google.gdata.AttendeeStatus();
  				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_DECLINED);
 -			} else if (from.participationStatus === "TENTATIVE") {
-+			} else if (from.attendees[i].participationStatus === "TENTATIVE") {
++			} else if (from.attendees[i].participationStatus && from.attendees[i].participationStatus === "TENTATIVE") {
  				attendeeStatus = new google.gdata.AttendeeStatus();
  				attendeeStatus.setValue(google.gdata.AttendeeStatus.VALUE_TENTATIVE);
 +			} else if (from.attendees[i].participationStatus === "NEEDS-ACTION" && from.attendees[i].organizer) {
@@ -322,7 +3932,7 @@ index ed2ef73..ae81e0a 100644
  		}
  	},
  
-@@ -574,6 +547,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
+@@ -574,6 +539,56 @@ GoogleCalendarEventTransformer.getTimeOrAdd = function (gEvent) {
  	return time;
  };
  
@@ -379,28 +3989,19 @@ index ed2ef73..ae81e0a 100644
  GoogleCalendarEventTransformer.dayHash = [
  	"SU",
  	"MO",
-@@ -586,7 +609,17 @@ GoogleCalendarEventTransformer.dayHash = [
- 
- // Catches form-feed, return, horizontal tab, vertical tab, space, non-breaking space, line separator, and paragraph separator
+@@ -588,5 +603,9 @@ GoogleCalendarEventTransformer.dayHash = [
  GoogleCalendarEventTransformer.collapseWhitespaceRegex = new RegExp("[\\f\\r\\t \u000B\u00A0\u2028\u2029]{2,}", 'g');
--
-+	
+ 
  GoogleCalendarEventTransformer.collapseWhitespace = function (str) {
 -	return str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
 +	str.replace(/\r\n/g, '\n').replace(GoogleCalendarEventTransformer.collapseWhitespaceRegex, ' ');
-+	
-+	var ESCAPE_REGEX =	/(,)|(")/g;
-+	var ESCAPE_MAP = {"," : "\\,", "\"" : "\\\""};
-+
-+	var ESCAPE_BSLASH_REGEX = /(\\)/g;
-+	var ESCAPE_BSLASH_MAP = {"\\":"\\\\"};
 +	
 +	var escString = str.replace(/(\\)/g,"\\\\");
 +	escString.replace(/(,)/g, "\,");
 +	return escString.replace(/(")/g, "\"");
  };
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
-index 5167014..f513379 100644
+index 5167014..6b7fffb 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 @@ -43,12 +43,16 @@ function formatTime (dateTime) {
@@ -430,44 +4031,22 @@ index 5167014..f513379 100644
  		s += duration.getDays() + 'D';
  	}
  
-@@ -154,25 +158,27 @@ function transformReminder (reminder, obj) {
+@@ -163,11 +167,11 @@ function transformAttendee(participant) {
  
- function transformAttendee(participant) {
- 	var attendee = {},
-+		attStatus,
- 		attendeeType = participant.getRel(),
- 		attendeeStatus = participant.getAttendeeStatus(),
- 		attendeeEmail = participant.getEmail(),
- 		attendeeCommonName = participant.getValueString();
- 
- 	attendee.organizer = attendeeType === google.gdata.Who.REL_EVENT_ORGANIZER;
--
--	attendeeStatus = attendeeStatus && attendeeStatus.getValue();
--	if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_ACCEPTED) {
+ 	attendeeStatus = attendeeStatus && attendeeStatus.getValue();
+ 	if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_ACCEPTED) {
 -		attendee.participantStatus = "ACCEPTED";
--	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_DECLINED) {
--		attendee.participantStatus = "DECLINED";
--	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_TENTATIVE) {
--		attendee.participantStatus = "TENTATIVE";
-+	//Utils.error("\n\n---->>>> transform attendee on Google calendar event: " + (participant && stringify(participant)));
-+	//Utils.error("\n\n---->>>> transform attendee status: " + (attendeeStatus && attendeeStatus.getValue()));
-+	attStatus = attendeeStatus && stringify(attendeeStatus.getValue());
-+	if (attStatus && /event\.accepted/g.test(attStatus)) {
 +		attendee.participationStatus = "ACCEPTED";
-+	} else if (attStatus && /event\.declined/g.test(attStatus)) {
+ 	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_DECLINED) {
+-		attendee.participantStatus = "DECLINED";
 +		attendee.participationStatus = "DECLINED";
-+	} else if (attStatus && /event\.tentative/g.test(attStatus)) {
+ 	} else if (attendeeStatus === google.gdata.AttendeeStatus.VALUE_TENTATIVE) {
+-		attendee.participantStatus = "TENTATIVE";
 +		attendee.participationStatus = "TENTATIVE";
  	}
  
  	attendee.email = attendeeEmail;
- 	attendee.commonName = attendeeCommonName;
--
-+	Utils.log("\n\n---->>>> transform attendee on Google calendar event: " + (attendee && stringify(attendee)));
- 	return attendee;
- }
- 
-@@ -241,7 +247,26 @@ Transforms = {
+@@ -241,7 +245,26 @@ Transforms = {
  					// Utils.log("\n\n---->>>> transformed rrule: " + stringify(recurrence));
  					Utils.log("\n\n---->>>> Recurrence exceptions: " + stringify(from.getRecurrenceException()));
  				}
@@ -495,6 +4074,195 @@ index 5167014..f513379 100644
  			},
  			subject: function (from) {
  				// "type": "string"
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/utils.js b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/utils.js
+index 08a8701..6c39d6b 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/utils.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/utils.js
+@@ -1,16 +1,42 @@
+ /*jslint bitwise: true, devel: true, eqeqeq: true, immed: true, maxerr: 500, 
+ newcap: true, nomen: false, onevar: true, regexp: true, undef: true, white: false */
+ 
+-/*global _, Calendar, Future, google, mapReduce, stringify */
++/*global _, Calendar, Config, Future, google, mapReduce, stringify, Transport */
+ 
+ var Utils = {
++	
++	//Regexp special characters - need to be escaped within the string the regexp is applied on
++	special : new RegExp(
++        '(\\' + [
++					'/', '.', '*', '+', '?', '|',
++		            '(', ')', '[', ']', '{', '}', '\\',
++		            ',', '.', '#', '$', '-', '^'
++		           ].join('|\\') + ')', 'g'
++	      ),
++	  
++	convertError: function (error) {
++		switch (error && error.cause && error.cause.status) {
++		case 400:
++			return new Transport.BadRequestError(error);
++		case 401:
++			return new Transport.AuthenticationError(error);
++		case 403:
++			return new Transport.AuthenticationError(error);
++		case 500:
++			return new Transport.ServerError(error);
++		case 503:
++			return new Transport.UnavailableError(error);
++		}
++		return error;
++	},
++	 
+ 	formatExdatesRdates: function (googleDateTimes) {
+ 		var formatted = _.map(googleDateTimes, function (time){
+ 			var date = time.getStartTime();
+ 			if (date) {
+-				Utils.log("\n\n------>>>>>> formatExdatesRdates(): " + date.getDate().toString());
++				Utils.debug("\n\n------>>>>>> formatExdatesRdates(): " + date.getDate().toString());
+ 				date = Calendar.IO.Utils.dateToIso8601(date.getDate(), {noPunct: true, noMS: true, noTzOffset: true});
+-				Utils.log("------>>>>>> formatExdatesRdates(): " + date);
++				Utils.debug("------>>>>>> formatExdatesRdates(): " + date);
+ 			}
+ 			return date;
+ 		});
+@@ -18,24 +44,58 @@ var Utils = {
+ 		return formatted;
+ 	},
+ 
+-	log: function (data) {
+-		Utils._logBase("log", data);
++	log: function () {
++		var argsArr = Array.prototype.slice.call(arguments, 0);
++		Utils._logBase("log", argsArr);
+ 	},
+ 
+-	warn: function (data) {
+-		Utils._logBase("warn", data);
++	warn: function () {
++		var argsArr = Array.prototype.slice.call(arguments, 0);
++		Utils._logBase("warn", argsArr);
+ 	},
+ 
+-	error: function (data) {
+-		Utils._logBase("error", data);
++	error: function () {
++		var argsArr = Array.prototype.slice.call(arguments, 0);
++		Utils._logBase("error", argsArr);
+ 	},
+ 
+-	_logBase: function (method, data) {
++	debug: function() {
++		if (Config && (Config.logs === "debug" || Config.logs === "verbose")) {
++			var argsArr = Array.prototype.slice.call(arguments, 0);
++			Utils._logBase("log", argsArr);
++		}
++	},
++	
++	_logBase: function (method, argsArr) {
++		var data = argsArr.reduce(function (accumulatedMessage, curArg) {
++			if (typeof curArg === "string") {
++				return accumulatedMessage + curArg;
++			} else {
++				return accumulatedMessage + JSON.stringify(curArg);
++			}
++		}, ""),
++		i, pos, datum;
++		
+ 		data = Utils.filterAuthToken(data);
+ 		data = Utils.filterPassword(data);
+ 		data = Utils.filterUsername(data);
+-
+-		console[method](data);
++		if (Config && Config.logs === "verbose") {
++			// I want ALL my logs!
++			data = data.split("\n");
++			for (i = 0; i < data.length; ++i) {
++				datum = data[i];
++				if (datum.length < 500) {
++					console[method](datum);
++				} else {
++					// Do our own wrapping
++					for (pos = 0; pos < datum.length; pos += 500) {
++						console[method](datum.slice(pos, pos + 500));
++					}
++				}
++			}
++		} else {
++			console[method](data);
++		}
+ 	},
+ 
+ 	logAndThrow: function (errMsg) {
+@@ -46,14 +106,23 @@ var Utils = {
+ 	cacheAuthToken: function (authToken) {
+ 		if (authToken && authToken !== '') {
+ 			// console.log("###### cached authToken: " + authToken);
+-			Utils.authTokenRegex = new RegExp(authToken, 'g');
++			Utils.authTokenRegex = new RegExp(Utils.replaceRegexSpecialChars(authToken), 'g');
+ 		}
+ 	},
+ 
++	
++	//Escape regexp special characters from the string	 
++	replaceRegexSpecialChars: function(reStr) {	
++		return reStr.replace(Utils.special, '\\$1');	
++	},
++	
+ 	cachePassword: function (password) {
++		var reStr;
+ 		if (password && password !== '') {
+ 			// console.log("###### cached password: " + password);
+-			Utils.passwordRegex = new RegExp(password, 'g');
++			//put the URI encoded password also into the regular expression 
++			reStr = Utils.replaceRegexSpecialChars(password)+ "|" + Utils.replaceRegexSpecialChars(encodeURIComponent(password));
++			Utils.passwordRegex = new RegExp(reStr, 'g');
+ 		}
+ 	},
+ 
+@@ -64,7 +133,7 @@ var Utils = {
+ 				username = username.slice(0, pos);
+ 			}
+ 			// console.log("###### cached username: " + username);
+-			Utils.usernameRegex = new RegExp(username, 'g');
++			Utils.usernameRegex = new RegExp(Utils.replaceRegexSpecialChars(username), 'g');
+ 		}
+ 	},
+ 
+@@ -134,7 +203,7 @@ var Utils = {
+ 			out;
+ 
+ 		out = dateRegex.exec(isoDate);
+-		Utils.log(">>> dateFromIso8601(): regex results: " + stringify(out));
++		Utils.debug(">>> dateFromIso8601(): regex results: " + stringify(out));
+ 
+ 		if (out && out.length) {
+ 			return {
+@@ -154,7 +223,7 @@ var Utils = {
+ 	convertIso8601ToGoogleIso8601: function (isoDate) {
+ 		var date = Utils.parseIso8601DateTime(isoDate);
+ 		date = '' + date.year + '-' + date.month + '-' + date.day + 'T' + date.hours + ':' + date.minutes + ':' + date.seconds + '.000' + date.timezone;
+-		Utils.log(">>> convertIso8601ToGoogleIso8601(): " + isoDate + " -> " + date);
++		Utils.debug(">>> convertIso8601ToGoogleIso8601(): " + isoDate + " -> " + date);
+ 		return date;
+ 	}
+ };
+@@ -205,7 +274,7 @@ Utils.forEachFuture = function (items, iterator) {
+ 
+ 	function next(item) {
+ 		sequentialFuture.then(function callIterator(sequentialJoin) {
+-			Utils.log("Utils.forEachFuture(): item at start: " + stringify(item));
++			Utils.debug("Utils.forEachFuture(): item at start: " + stringify(item));
+ 			var sequentialResult = sequentialJoin.getResult(),
+ 				iteratorFuture = iterator(item);
+ 
+@@ -312,7 +381,7 @@ Utils.chunkedMapReduce = function chunkedMapReduce(config, data, chunkSize) {
+ 		localMapReduce = config.sorted ? Utils.sortedMapReduce : mapReduce,
+ 		localConfig = {};
+ 
+-	Utils.log("Utils.chunkedMapReduce(): sorted: " + (config.sorted ? true : false));
++	Utils.debug("Utils.chunkedMapReduce(): sorted: " + (config.sorted ? true : false));
+ 
+ 	function mapReduceIterator(dataChunk) {
+ 		return localMapReduce(localConfig, dataChunk);
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
 index 6240d9a..a802fac 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
