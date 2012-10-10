@@ -73,7 +73,7 @@ index 9577b4d..24787c7 100644
  	{
  		this._trace("onEvent", arguments);
 diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
-index 87b6e88..e8e0515 100644
+index 87b6e88..4190378 100644
 --- a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
 +++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
 @@ -115,7 +115,20 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
@@ -97,7 +97,7 @@ index 87b6e88..e8e0515 100644
  	preSaveModify: function() {
  		Utils.debug("synccommand: preSaveModify()");
  		return new Future([]);
-@@ -125,6 +138,176 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -125,6 +138,277 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  		Utils.debug("synccomand: postPutRemoteModify()");
  		return new Future([]);
  	},
@@ -109,11 +109,88 @@ index 87b6e88..e8e0515 100644
 +				interval = this.advSyncReq.interval !== "" ? this.advSyncReq.interval : interval
 +			}
 +		}
-+		console.error("returning Tweaked interval: " + interval);
++		//console.error("returning Tweaked interval: " + interval);
 +		return interval;
 +	},
 +	
++	getUTCDateString: function(date){
++		
++		//UTC time format	  
++		var year = date.getUTCFullYear();
++		var month = date.getUTCMonth()+1;
++		var day = date.getUTCDate();
++		var hour= date.getUTCHours();
++		var minute=date.getUTCMinutes();
++		var second =date.getUTCSeconds();
++			
++		month	= (month > 9)	? month		: "0"+month;
++		day		= (day > 9)		? day		: "0"+day;
++		hour	= (hour > 9)	? hour		: "0"+hour;
++		minute	= (minute > 9)	? minute	: "0"+minute;
++		second	= (second > 9)	? second	: "0"+second;
++		
++		//YYYY-MM-DD HH:MM:SSZ
++		return (""+year+"-"+month+"-"+day+" "+hour+":"+minute+":"+second+"Z");  
++	},
++	
++	getNextStart: function(){
++		var nextStart = false;
++		if(this.customSyncSchedule){
++			if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++				// only do this if we're not doing an initial sync from accounts app
++				if(!(this.client.transport && this.client.transport.initialSync)){
++					var timeMachine = new Date(this.advSyncReq.endtime);
++					var hrs, mins, startTS, stopTS, now = (new Date()).getTime();
++					
++					hrs = timeMachine.getUTCHours();
++					mins = timeMachine.getUTCMinutes();
++					timeMachine.setTime(now);
++					timeMachine.setHours(hrs);
++					timeMachine.setMinutes(mins);
++					stopTS = timeMachine.getTime();
++					timeMachine.setTime(this.advSyncReq.starttime);
++					hrs = timeMachine.getUTCHours();
++					mins = timeMachine.getUTCMinutes();
++					timeMachine.setTime(now);
++					timeMachine.setHours(hrs);
++					timeMachine.setMinutes(mins);
++					startTS = timeMachine.getTime();
++					if(parseInt(this.advSyncReq.endtime,10) <= parseInt(this.advSyncReq.starttime,10)){
++						//start after end, subtract a day from start
++						startTS = startTS - 86400000;
++						timeMachine.setTime(startTS);
++						timeMachine.setHours(hrs);
++						timeMachine.setMinutes(mins);
++						startTS = timeMachine.getTime();
++					}
++					console.error("CustomSyncStart start: " + (timeMachine.setTime(startTS) && timeMachine.toString()) + ", now: " + (timeMachine.setTime(now) && timeMachine.toString()) + ", stop: "+ (timeMachine.setTime(stopTS) && timeMachine.toString()+" "+ this.client.clientId) );
++					if(!(now < stopTS && now >= startTS)){
++						if(now < startTS){
++							timeMachine.setTime(startTS);
++							nextStart = this.getUTCDateString(timeMachine);
++						} else {//next day compensate for daylight savings
++							timeMachine.setTime(startTS + 86400000);
++							timeMachine.setHours(hrs);
++							timeMachine.setMinutes(mins);
++							nextStart = this.getUTCDateString(timeMachine);
++						}
++						console.error("CustomSyncStart schedule starting at: " + nextStart +" "+ this.client.clientId);
++						return nextStart;
++					} else {
++						console.error("CustomSyncStart schedule in sync window continuing sync "+ this.client.clientId);
++					}
++				} else {
++					console.error("CustomSyncStart schedule initial sync in process "+ this.client.clientId);
++				}
++			} else {
++				console.error("CustomSyncStart schedule, bad start and stop times "+ this.client.clientId);
++			}
++		}
++		return nextStart;
++	},
++	
 +	getTweakedReqs: function(update){
++		this.customSyncSchedule = false;
 +		var req = {};
 +		var oldReqs = this.oldReqs;
 +		var serviceName = this.controller.service.name;
@@ -121,6 +198,9 @@ index 87b6e88..e8e0515 100644
 +		if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
 +			if(serviceName.indexOf("calendar") !== -1 || (serviceName.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
 +				// calendars or contacts "on" as well
++				if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++					this.customSyncSchedule = true;
++				}
 +				if(this.advSyncReq.wifi === true && this.advSyncReq.wan === true){
 +					//both on, best to remove the requirements as this is AND not an OR
 +					if(update && oldReqs && oldReqs.wifi){
@@ -199,19 +279,33 @@ index 87b6e88..e8e0515 100644
 +	},
 +	
 +	getAdvConfigReq: function () {
++		var timeMachine = new Date(2000, 0, 1, 0, 0, 0, 0);
++		timeMachine.setHours(7);
++		var start = timeMachine.getTime();
++		timeMachine.setHours(18);
++		var end = timeMachine.getTime();
 +		var accountId = this.client.clientId,
 +		serviceId = this.controller.service.name,
++		serviceAssistant = this.controller.service.assistant,
 +		name = this.controller.config.name,
-+		map = ["onoff", "contacts","wifi","wan","battery","interval", "charging", "docked"],
-+		defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, false /*battery*/, "20m" /*0d0h20m0s*/, false/*charging*/, false /*docked*/];
++		map = ["onoff", "contacts","wifi","wan","battery","interval", "charging", "docked", "syncallday", "starttime", "endtime"],
++		defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, false /*battery*/, "20m" /*0d0h20m0s*/, false/*charging*/, false /*docked*/, true /*all day*/, start, end];
 +		
 +		this.advSyncReq ={};
 +		this.useTweaksReq = false;
++		this.customSyncSchedule = false;
 +		
-+		if(this.controller.args && this.controller.args.$activity && this.controller.args.$activity.requirements !== undefined){
-+			this.oldReqs = this.controller.args.$activity.requirements;
-+		} else {
-+			this.oldReqs = {};
++		if(this.controller.args && this.controller.args.$activity){
++			if(this.controller.args.$activity.trigger &&  this.controller.args.$activity.trigger.returnValue===true){
++				serviceAssistant._EditOnSyncFired[this.client.clientId] = true;
++			} else {
++				serviceAssistant._EditOnSyncFired[this.client.clientId] = false;
++			}
++			if(this.controller.args.$activity.requirements !== undefined){
++				this.oldReqs = this.controller.args.$activity.requirements;
++			} else {
++				this.oldReqs = {};
++			}
 +		}
 +		if(serviceId.indexOf("facebook") !== -1){
 +			defaults[5] = "24h";
@@ -258,6 +352,13 @@ index 87b6e88..e8e0515 100644
 +								break;
 +							}
 +						}
++						if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
++							if(serviceId.indexOf("calendar") !== -1 || (serviceId.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
++								if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++									this.customSyncSchedule = true;
++								}
++							}
++						}
 +					}
 +				}
 +				
@@ -274,12 +375,21 @@ index 87b6e88..e8e0515 100644
  
  	initialize: function()
  	{
-@@ -148,9 +331,15 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -141,6 +425,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			capabilityFuture;
+ 		
+ 		serviceAssistant._syncInProgress 	= serviceAssistant._syncInProgress || {};
++		serviceAssistant._EditOnSyncFired 	= serviceAssistant._EditOnSyncFired || {};
+ 
+ 		// determine if the account capability is enabled for this transport
+ 		try {
+@@ -148,9 +433,16 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  		} catch(e) {
  			console.error("Error fetching capabilityProviderId from client");
  		}
 -
 +		console.error("sync arguments trigger: "+JSON.stringify((this.controller.args && this.controller.args.$activity)));
++		
  		if (capabilityId) {
 -			capabilityFuture = PalmCall.call("palm://com.palm.service.accounts/", "listAccounts", {}); 
 +			capabilityFuture = this.getAdvConfigReq();
@@ -292,7 +402,7 @@ index 87b6e88..e8e0515 100644
  			
  			capabilityFuture.then(this, function(accountDataFuture) {
  				var isEnabled = false,
-@@ -175,7 +364,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -175,7 +467,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  			});
  		} else {
  			console.error("CapabilityId is empty, allowing sync to continue");
@@ -301,7 +411,7 @@ index 87b6e88..e8e0515 100644
  		}
  
  		capabilityFuture.then(this, function() {
-@@ -238,6 +427,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -238,6 +530,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  		var details = PalmCall.call("palm://com.palm.activitymanager", "getDetails", {"activityName": name}).then(this, function(future) {
  			// got it - return details
  			future.result = future.result.activity;
@@ -309,7 +419,7 @@ index 87b6e88..e8e0515 100644
  		},
  		function(future) {
  			// error - create activity
-@@ -270,6 +460,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -270,6 +563,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  				else {
  					interval = future.result;
  				}
@@ -317,7 +427,7 @@ index 87b6e88..e8e0515 100644
  				var requiresInternet;
  				var requirements;
  				if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
-@@ -285,17 +476,34 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -285,17 +579,34 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  					console.error("=== Default answer is 'true' - internet is required ===");
  					requiresInternet = true;
  				}
@@ -346,13 +456,13 @@ index 87b6e88..e8e0515 100644
 +							"immediate": true,
 +							"priority": "low",
 +							"explicit":true,
-+							"powerDebounce": true
++							"power":true
 +						},
 +						"requirements": requirements,
 +						"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
 +					}
 +				};
-+				console.error("Find periodic error create name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++				console.error("Find periodic error create act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements) +", sched: "+interval);
 +				return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
 +						var result = inner.result;
 +						console.error("Find periodic error, create result: " + JSON.stringify(result));
@@ -362,7 +472,132 @@ index 87b6e88..e8e0515 100644
  			});
  		});
  		return details;
-@@ -338,13 +546,19 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -328,6 +639,124 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	complete: function(activity) {
+ 		console.log("Completing activity "+activity.name);
+ 		
++		//custom sync logic
++		if(this.customSyncSchedule){
++			var nextStart = this.getNextStart();
++			if(nextStart){
++				var schedule, future = new Future();
++				//we complete whatever just fired, then schedule the Custom sync restart
++				var innerCS = activity.complete().then(this, function(innerCS) {
++							Utils.error("CustomSyncStart previos sync complete succeeded, result = "+ this.client.clientId+" "+JSON.stringify(innerCS.result));
++							innerCS.result=true;
++						},
++						function(innerCS) {
++							//causes bug where database sync types are crossed
++							console.error("CustomSyncStart previos sync FAILED, exception = "+JSON.stringify(innerCS.exception));
++							//ignoring error try to establish database watch
++							innerCS.result=true;
++						}
++					);
++				
++				future.nest(innerCS).then(this, function(future){
++					var r = future.result;
++					schedule = {"start": nextStart};
++					var name = "CustomSyncStart:"+this.controller.service.name + ":" + this.client.clientId; 
++					var requiresInternet;
++					var requirements;
++					
++					if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
++						try {
++							requiresInternet = this.client.requiresInternet();
++						} catch (e) {
++							logError("requiresInternet", e);
++							requiresInternet = true;
++						}
++					} else {
++						console.error("=== No requiresInternet function in client for "+this.controller.service.name +" ===");
++						console.error("=== Default answer is 'true' - internet is required ===");
++						requiresInternet = true;
++					}
++					var getDetailsArgs = {"activityName" : name};
++					var needToRestart, actId, innerCustom = PalmCall.call("palm://com.palm.activitymanager/", "getDetails", getDetailsArgs);
++					
++					future.nest(innerCustom).then(this, function(innerCustom){
++						var result;
++						
++						try{
++							var error = innerCustom.exception;
++							result = innerCustom.result;
++						} catch(e){  console.error("Complete query for CustomSyncStart not found "+ this.client.clientId);}
++						if(result && result.activity && result.returnValue === true){
++							console.error("Complete query for CustomSyncStart found activityId: "+ this.client.clientId +" " +result.activity.activityId);
++							// found the CustomSyncStart, we should complete and restart and update the trigger
++							needToRestart = true;
++							actId = result.activity.activityId;
++						}
++						innerCustom.result = true; 
++					});
++					
++					future.then(this, function(future){
++						try{
++							var result = future.result;
++						}catch(e4){console.error("restarting CustomSyncStart error "+ this.client.clientId);}
++						
++						var serviceAssistant = this.controller.service.assistant;
++						//console.error("In CustomSyncStart serviceAssistant._syncInProgress:"+this.client.clientId+ " , " + serviceAssistant._syncInProgress[this.client.clientId]);
++						
++						requirements = this.getTweakedReqs(!!(needToRestart && actId));
++						var args = { accountId: this.client.clientId };
++						
++						if(needToRestart && actId){
++							var activityMethod = "complete";
++							var activityArgs = {
++								"activityId": actId,
++								"restart": true,
++								"schedule": schedule,
++								"requirements": requirements
++							};
++							console.error("CustomSyncStart restarting, name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++
++							return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++								var result = inner.result;
++								console.error("in Complete, CustomSyncStart restarting result: "+ this.client.clientId+" " + JSON.stringify(result));
++								return result;
++								})
++							);
++							
++						} else {
++							var activityMethod = "create";
++							var activityArgs = {
++								"start": true,
++								"replace": true,
++								"activity": {
++									"name": name,
++									"description": "Custom Sync Start",
++									"type": {
++										"persist": true,
++										"immediate": true,
++										"priority": "low",
++										"power":true
++										//"explicit":true
++									},
++									"schedule": schedule,
++									"requirements": requirements,
++									"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++								}
++							};
++							console.error("CustomSyncStart create name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++							return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++								var result = inner.result;
++								console.error("In CustomSyncStart, CustomSyncStart creating result: " + this.client.clientId+" "+ JSON.stringify(result));
++								return result;
++								})
++							);
++						}
++					});
++					this.recreateActivitiesOnComplete = false;
++				});
++				return future;
++			}
++		}
+ 		// this.recreateActivitiesOnComplete will be set to false when
+ 		// the sync command is run while the capability is disabled
+ 		// This is a little messy
+@@ -338,29 +767,148 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  			});
  		} else {
  			var syncActivity;
@@ -378,26 +613,29 @@ index 87b6e88..e8e0515 100644
 +					var requirements = this.getTweakedReqs(true);
 +					var def = this.controller.service.name.indexOf("facebook") === -1 ? "20m" : "24h";
 +					var sched = this.getTweakedInterval(def);
-+					//activity.setPowerDebounce(true);
++					//activity.setPower(true);
 +					//activity.setScheduleInterval(sched);
 +					
  				} else {
- 					console.log("Not periodic sync. Completing activity");
+-					console.log("Not periodic sync. Completing activity");
++					console.log("Not periodic sync. Completing activity ");
  				}
-@@ -352,15 +566,128 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				if(this._hadLocalRevisionError) {
  					restart = true;
  					this._hadLocalRevisionError = false;
  				}
 -				return activity.complete(restart);
+-			}).then(function(future) {
+-				Utils.debug("Complete succeeded, result = "+JSON.stringify(future.result));
 +				if (this._error && this._error.message && this._error.message.indexOf("httpClient error") != -1) {
 +					networkError=true;
 +					this.retryNetworkError(activity);
 +				}
 +				if(restart && syncActivity.activityId && syncActivity.name === this.getPeriodicSyncActivityName() ){
-+					if(syncActivity.type && syncActivity.type.background){
++					if(syncActivity.type && (syncActivity.type.background || !syncActivity.type.power)){
 +						//fix to make them immediate, but low priority
 +						var inner = activity.complete().then(function(inner) {
-+									Utils.error("tweak periodic complete succeeded, result = "+JSON.stringify(inner.result));
++									Utils.error("tweak periodic complete succeeded, result = "+ this.client.clientId+" "+JSON.stringify(inner.result));
 +									inner.result=true;
 +								},
 +								function(inner) {
@@ -428,7 +666,7 @@ index 87b6e88..e8e0515 100644
 +								//ToDo: merge this with implementation in EnableAccoutCommand
 +								var interval;
 +								if (future.exception) {
-+									console.error("Error in client.getSyncInterval, assuming syncInterval 24h");
++									console.error("Error in client.getSyncInterval, assuming syncInterval 24h "+ this.client.clientId);
 +									interval="24h";
 +								} 
 +								else {
@@ -465,16 +703,16 @@ index 87b6e88..e8e0515 100644
 +											"immediate": true,
 +											"priority": "low",
 +											"explicit":true,
-+											"powerDebounce": true
++											"power":true
 +										},
 +										"requirements": requirements,
 +										"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
 +									}
 +								};
-+								console.error("tweak replacing periodic with name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++								console.error("tweak replacing periodic with act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements));
 +								return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner3){
 +										var result = inner3.result;
-+										console.error("tweak periodic, create result: " + JSON.stringify(result));
++										console.error("tweak periodic, create result: " + this.client.clientId+" "+ JSON.stringify(result));
 +										return result;
 +										})
 +									);
@@ -493,7 +731,7 @@ index 87b6e88..e8e0515 100644
 +						console.error("Periodic sync. set requirements: " + JSON.stringify(requirements) + ", schedule: " + sched);
 +						return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
 +									var result = inner.result;
-+									console.error("Complete periodic sync, restart result: " + JSON.stringify(result));
++									console.error("Complete periodic sync, restart result: "+ this.client.clientId+" " + JSON.stringify(result));
 +									return result;
 +									})
 +							);
@@ -501,8 +739,8 @@ index 87b6e88..e8e0515 100644
 +				} else {
 +					return activity.complete(restart);
 +				}
- 			}).then(function(future) {
- 				Utils.debug("Complete succeeded, result = "+JSON.stringify(future.result));
++			}).then(this, function(future) {
++				Utils.debug("Complete succeeded, result = "+ this.client.clientId +" "+JSON.stringify(future.result));
  				future.result=true;
  			},
  			function(future) {
@@ -516,7 +754,7 @@ index 87b6e88..e8e0515 100644
  				if (future.result) {
  					// TODO: Set up one of these for each synced kind...
  					if (this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
-@@ -368,6 +695,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -368,6 +916,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  						var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
  						var requiresInternet;
  						var requirements;
@@ -524,7 +762,7 @@ index 87b6e88..e8e0515 100644
  						if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
  							try {
  								requiresInternet = this.client.requiresInternet();
-@@ -380,36 +708,126 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -380,36 +929,156 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  							console.error("=== Default answer is 'true' - internet is required ===");
  							requiresInternet = true;
  						}
@@ -555,12 +793,13 @@ index 87b6e88..e8e0515 100644
 +						
 +						future.nest(inner1).then(this, function(inner1){
 +							var result;
++							
 +							try{
 +								var error = inner1.exception;
 +								result = inner1.result;
-+							} catch(e){  console.error("Complete query for synconedit not found");}
++							} catch(e){  console.error("Complete query for synconedit not found"+ this.client.clientId);}
 +							if(result && result.activity && result.returnValue === true){
-+								console.error("Complete query for synconedit found activityId: " +result.activity.activityId);
++								console.error("Complete query for synconedit found activityId: "+ this.client.clientId +" : " +result.activity.activityId);
 +								// found the sync on edit, we should complete and restart and update the trigger
 +								needToRestart = true;
 +								actId = result.activity.activityId;
@@ -569,57 +808,86 @@ index 87b6e88..e8e0515 100644
 +						});
 +						
 +						future.then(this, function(future){
-+							requirements = this.getTweakedReqs(!!(needToRestart && actId));
-+							var queryParams = {
-+								"query":{
-+									"from":this._kind,
-+									"where":[
-+										{"prop":"accountId", "op":"=", "val":this.client.transport.accountId},
-+										{"prop":"_rev", "op":">", "val": rev}
-+									],
-+									incDel: true
-+								},
-+								"subscribe": true
-+							};
-+							var args = { accountId: this.client.clientId };
++							try{
++								var result = future.result;
++							}catch(e4){console.error("restarting synconedit error"+ this.client.clientId);}
 +							
-+							if(needToRestart && actId){
-+								var activityMethod = "complete";
-+								var activityArgs = {
-+									"activityId": actId,
-+									"restart": true,
-+									"requirements": requirements,
-+									"trigger": {"method": "palm://com.palm.db/watch", key:"fired", params: queryParams},
-+									
++							var serviceAssistant = this.controller.service.assistant;
++							//console.error("In sync on edit serviceAssistant._syncInProgress:"+this.client.clientId+ " , " + serviceAssistant._syncInProgress[this.client.clientId]);
++							if(!serviceAssistant._syncInProgress[this.client.clientId]){
++								requirements = this.getTweakedReqs(!!(needToRestart && actId));
++								var queryParams = {
++									"query":{
++										"from":this._kind,
++										"where":[
++											{"prop":"accountId", "op":"=", "val":this.client.transport.accountId},
++											{"prop":"_rev", "op":">", "val": rev}
++										],
++										incDel: true
++									},
++									"subscribe": true
 +								};
-+							} else {
-+								var activityMethod = "create";
-+								var activityArgs = {
-+									"start": true,
-+									"replace": true,
-+									
-+									"activity": {
-+										"name": name,
-+										"description": "Sync On Edit",
-+										"type": {
-+											"persist": true,
-+											"immediate": true,
-+											"priority": "low"
-+											//"explicit":true
-+										},
++								var args = { accountId: this.client.clientId };
++								
++								if(needToRestart && actId){
++									var activityMethod = "complete";
++									var activityArgs = {
++										"activityId": actId,
++										"restart": true,
 +										"requirements": requirements,
 +										"trigger": {"method": "palm://com.palm.db/watch", key:"fired", params: queryParams},
-+										"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++										
++									};
++									//only here if it was a periodic sync and the sync on edit exists
++									//if there were changes, sync on edit might have already fired
++									//don't complete it if it already fired
++									if(!serviceAssistant._EditOnSyncFired[this.client.clientId]){
++										console.error("DBwatch trigger restarting, rev: " + rev + ", act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements));
++										return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++											var result = inner.result;
++											console.error("in Complete, dbwatch restarting result: "+ this.client.clientId+" " + JSON.stringify(result));
++											return result;
++											})
++										);
++									} else {
++										//SyncOnEdit already fired just set good result
++										console.error("second check for SyncOnEdit -- already running "+ this.client.clientId);
++										future.result = true;
 +									}
-+								};
++								} else {
++									var activityMethod = "create";
++									var activityArgs = {
++										"start": true,
++										"replace": true,
++										
++										"activity": {
++											"name": name,
++											"description": "Sync On Edit",
++											"type": {
++												"persist": true,
++												"immediate": true,
++												"priority": "low",
++												"power":true
++												//"explicit":true
++											},
++											"requirements": requirements,
++											"trigger": {"method": "palm://com.palm.db/watch", key:"fired", params: queryParams},
++											"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++										}
++									};
++									console.error("DBwatch trigger "+ (activityMethod === "complete"? "restarting" : activityMethod)+", rev: " + rev + ", name: "+ name + ", requirements: " + JSON.stringify(requirements));
++									return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++										var result = inner.result;
++										console.error("In complete, dbwatch creating result: "+ this.client.clientId+" " + JSON.stringify(result));
++										return result;
++										})
++									);
++								}
++							} else {
++								//SyncOnEdit already fired just set good result
++								console.error("In sync on edit restart step, is SyncOnEdit already running "+ this.client.clientId);
++								future.result = true;
 +							}
-+							console.error("DBwatch trigger "+ (activityMethod === "complete"? "restarting" : activityMethod)+", rev: " + rev + ", name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
-+							return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
-+								var result = inner.result;
-+								console.error("Complete dbwatch, creating result: " + JSON.stringify(result));
-+								return result;
-+								})
-+							);
 +						});
  					}
  				}
@@ -675,7 +943,7 @@ index 87b6e88..e8e0515 100644
  	__start:
  	{
  		__enter: function()
-@@ -623,7 +1041,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+@@ -623,7 +1292,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
  			console.log("preSaveModify");
  			// modify local objects before pushing to database
  			try {

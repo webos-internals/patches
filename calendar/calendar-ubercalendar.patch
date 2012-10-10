@@ -5548,7 +5548,7 @@ index 862dbd8..95fc1a0 100644
  
  		//set the picture for the contact
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
-index 3b41954..bd52a3e 100644
+index 3b41954..f9e1146 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/prefs-assistant.js
 @@ -8,7 +8,7 @@
@@ -5622,7 +5622,7 @@ index 3b41954..bd52a3e 100644
  	chooseNotificationRingtone: function() {
  		var params = {
  			actionType: "attach",
-@@ -282,14 +302,1544 @@ var PrefsAssistant	= Class.create({
+@@ -282,14 +302,1580 @@ var PrefsAssistant	= Class.create({
  		}
  	},
  	
@@ -5641,7 +5641,12 @@ index 3b41954..bd52a3e 100644
 +	},
 +	
 +	getDefaultSync: function (Id){
-+		var defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, 0 /*battery*/, "20m" /*0d0h20m0s*/, false /*charging*/, false /*docked*/];
++		var timeMachine = new Date(2000, 0, 1, 0, 0, 0, 0);
++		timeMachine.setHours(7);
++		var start = timeMachine.getTime();
++		timeMachine.setHours(18);
++		var end = timeMachine.getTime();
++		var defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, 0 /*battery*/, "20m" /*0d0h20m0s*/, false /*charging*/, false /*docked*/, true /*all day*/, start, end];
 +		var acct, idx, len = this.advReqAccounts.length;
 +		for(var i=0;i<len;i++){
 +			acct = this.advReqAccounts[i];
@@ -5659,7 +5664,7 @@ index 3b41954..bd52a3e 100644
 +	gotTweaksReply: function(response){
 +		console.error("got tweaks response: " + JSON.stringify(response));
 +		var fromDefault = false, reqs = {},
-+		defaults =[false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, false /*battery*/, "20m" /*0d0h20m0s*/, false/*charging*/, false /*docked*/],
++		defaults,
 +		acctOps;
 +		
 +		this.advSyncReq = {};
@@ -5741,6 +5746,7 @@ index 3b41954..bd52a3e 100644
 +								}
 +							}
 +						}
++						//console.error("TWEAKS adv req results: " + id + ",values: " + JSON.stringify(this.advSyncReq[id]) );
 +					}
 +				}
 +				this.buildAdvReqModels();
@@ -5757,12 +5763,31 @@ index 3b41954..bd52a3e 100644
 +	buildAdvReqModels: function (){
 +		this.advReqAcctListItems = [];
 +		if(this.validReqAccounts && this.validReqAccounts.length > 0){
-+			var acctId, obj = {}, acctOps =[], len = this.validReqAccounts.length;
++			var hrs, mins, sDate, eDate, acctId, allDay, allDayDisabled, openStartEnd, interval, obj = {}, acctOps =[], len = this.validReqAccounts.length;
++			var timeMachine = new Date();
 +			for(var i=0;i<len;i++){
 +				acctId = this.validReqAccounts[i];
 +				acctOps = this.advSyncReq[acctId].slice(0);
 +				this.advReqAcctListItems[i] = {};
 +				this.advReqAcctListItems[i].Id = i;
++				interval = acctOps[5];
++				timeMachine.setTime(acctOps[9]);
++				hrs = timeMachine.getUTCHours();
++				mins = timeMachine.getUTCMinutes();
++				sDate = new Date(2000, 0, 1, hrs, mins, 0, 0);
++				timeMachine.setTime(acctOps[10]);
++				hrs = timeMachine.getUTCHours();
++				mins = timeMachine.getUTCMinutes();
++				eDate = new Date(2000, 0, 1, hrs, mins, 0, 0);
++				if(interval.indexOf("m") !== -1 || (interval.indexOf("h") !== -1 && parseInt(interval,10) <= 6)){
++					allDay = acctOps[8];
++					allDayDisabled = false;
++					openStartEnd = !allDay;
++				} else {
++					openStartEnd =false;
++					allDayDisabled = true;
++					allDay = true;
++				}
 +				if(i === 0){
 +					if(len===1){
 +						this.advReqAcctListItems[i].listplace = "single";
@@ -5786,7 +5811,8 @@ index 3b41954..bd52a3e 100644
 +				this.advReqAcctListItems[i].advReqBattTitle = $L("Min. battery %");
 +				this.advReqAcctListItems[i].advReqChargingTitle = $L("Charging");
 +				this.advReqAcctListItems[i].advReqDockedTitle = $L("On touchstone");
-+				this.advReqAcctListItems[i].open = false;
++				this.advReqAcctListItems[i].advReqAllDayTitle = $L("Sync all day");
++				this.advReqAcctListItems[i].bigOpen = false;
 +				this.advReqAcctListItems[i].onoff = acctOps[0];
 +				this.advReqAcctListItems[i].contacts  = acctOps[1];
 +				this.advReqAcctListItems[i].wifi = acctOps[2];
@@ -5795,7 +5821,12 @@ index 3b41954..bd52a3e 100644
 +				this.advReqAcctListItems[i].interval = acctOps[5];
 +				this.advReqAcctListItems[i].charging = acctOps[6];
 +				this.advReqAcctListItems[i].docked = acctOps[7];
-+				//console.error("build adv req models, account: " + acctId + ", ops: " + JSON.stringify(acctOps));
++				this.advReqAcctListItems[i].allday = allDay;
++				this.advReqAcctListItems[i].openStartEnd = openStartEnd;
++				this.advReqAcctListItems[i].allDayDisabled = allDayDisabled;
++				this.advReqAcctListItems[i].starttime = sDate;
++				this.advReqAcctListItems[i].endtime = eDate;
++				//console.error("build adv req models, account: " + acctId + ", ops: " + JSON.stringify(this.advReqAcctListItems[i]));
 +			}
 +		}
 +		
@@ -5809,13 +5840,17 @@ index 3b41954..bd52a3e 100644
 +			var Id;
 +			for(var i=0;i<len;i++){
 +				Id = this.advReqAcctListItems[i].Id;
-+				this.controller.setupWidget("uber-cal-advreq-drawer"+i,{modelProperty:'open'},{Id: Id, label : "",	disabled: false, open:this.advReqAcctListItems[i].open});
++				this.controller.setupWidget("uber-cal-advreq-drawer"+i,{modelProperty:'bigOpen'},{Id: Id, label : "",	disabled: false, bigOpen:this.advReqAcctListItems[i].open});
++				this.controller.setupWidget("uber-cal-timedrawer"+i,{modelProperty:'openStartEnd', drawerOpenerOffset: 800, drawerBottomOffset: 1000},{Id: Id, label : "",	disabled: false, open:this.advReqAcctListItems[i].openStartEnd});
 +				this.controller.setupWidget('uber-cal-advreq-onoff'+i, this.onOffAttr={modelProperty:'onoff'}, this.onOffModel={type:"onoff", Id: Id, value: this.advReqAcctListItems[i].onoff});
 +				this.controller.setupWidget('uber-cal-advreq-contacts'+i, this.contactsAttr={modelProperty:'contacts'}, this.contactsModel={type:"contacts", Id: Id, value: this.advReqAcctListItems[i].contacts});
 +				this.controller.setupWidget('uber-cal-advreq-wifi'+i, this.wifiAttr={modelProperty:'wifi'}, this.wifiModel={type:"wifi", Id: Id, value: this.advReqAcctListItems[i].wifi});
 +				this.controller.setupWidget('uber-cal-advreq-cell'+i, this.cellAttr={modelProperty:'cell'}, this.cellModel={type:"cell", Id: Id, value: this.advReqAcctListItems[i].cell});
 +				this.controller.setupWidget('uber-cal-advreq-charging'+i, this.chargingAttr={modelProperty:'charging'}, this.chargingModel={type:"charging", Id: Id, value: this.advReqAcctListItems[i].charging});
 +				this.controller.setupWidget('uber-cal-advreq-docked'+i, this.dockedAttr={modelProperty:'docked'}, this.dockedModel={type:"docked", Id: Id, value: this.advReqAcctListItems[i].docked});
++				this.controller.setupWidget('uber-cal-advreq-allday'+i, this.alldayAttr={modelProperty:'allday', disabledProperty:"allDayDisabled"},this.alldayModel={type:"allday", Id: Id, value: this.advReqAcctListItems[i].allday, disabled: this.advReqAcctListItems[i].allDayDisabled});
++				this.controller.setupWidget('uber-cal-advreq-starttime'+i, this.starttimeAttr={modelProperty:'starttime', label:$L("Start")}, this.advreqstarttimeModel={type:"starttime", Id: Id, value: this.advReqAcctListItems[i].starttime});
++				this.controller.setupWidget('uber-cal-advreq-endtime'+i, this.endtimeAttr={modelProperty:'endtime', label:$L("End")}, this.advreqendtimeModel={type:"endtime", Id: Id, value: this.advReqAcctListItems[i].endtime});
 +				this.controller.setupWidget('uber-cal-advreq-batt'+i, this.battAttr={label:"", modelProperty:'batt', min:0, max:100}, this.battModel={type:"batt", Id: Id, value: this.advReqAcctListItems[i].batt});
 +				this.controller.setupWidget('uber-cal-advreq-interval'+i,
 +									this.advReqIntAttr = {
@@ -5830,9 +5865,10 @@ index 3b41954..bd52a3e 100644
 +									});
 +			}
 +			this.advReqAcctListModel.items = this.advReqAcctListItems;
-+			this.controller.get('uber-cal-advreqList').mojo.noticeAddedItems(0, this.advReqAcctListItems);
++			this.controller.get('uber-cal-advreqList').mojo.noticeUpdatedItems(0, this.advReqAcctListItems);
 +			for(var i=0;i<len;i++){
 +				this.controller.get(i+"uber-cal-advreq-btn").observe('mojo-tap', this.ucDrawerBtnHandler);
++				this.controller.get(i+"uber-cal-advreq-timebtn").observe('mojo-tap', this.ucDrawerBtnHandler);
 +			}
 +			this.controller.get("uber-cal-advreq-setsyncbtn").observe('mojo-tap', this.ucDrawerBtnHandler);
 +		}
@@ -7167,7 +7203,7 @@ index 3b41954..bd52a3e 100644
  		//Mojo.Log.info("prefs-assistant: setup");
  		//Mojo.Log.info("prefs :%j" ,this.prefs);
  		this.calendarsManager.observeCalendars ("prefs", this);
-@@ -392,6 +1942,7 @@ var PrefsAssistant	= Class.create({
+@@ -392,6 +1978,7 @@ var PrefsAssistant	= Class.create({
  	},
  	
  	activate: function() {
@@ -7175,7 +7211,7 @@ index 3b41954..bd52a3e 100644
  		//Mojo.Log.info('prefs-assistant: activate');
  		this.prefsManager.validateDefaultCalPref();
  		
-@@ -423,17 +1974,203 @@ var PrefsAssistant	= Class.create({
+@@ -423,17 +2010,204 @@ var PrefsAssistant	= Class.create({
  		
  		this.chooseNotificationRingtone = this.chooseNotificationRingtone.bindAsEventListener(this);
  		this.controller.listen('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
@@ -7252,6 +7288,7 @@ index 3b41954..bd52a3e 100644
 +			var len = this.advReqAcctListItems.length;
 +			for(var i=0;i<len;i++){
 +				this.controller.get(i+"uber-cal-advreq-btn").observe('mojo-tap', this.ucDrawerBtnHandler);
++				this.controller.get(i+"uber-cal-advreq-timebtn").observe('mojo-tap', this.ucDrawerBtnHandler);
 +			}
 +			this.controller.get("uber-cal-advreq-setsyncbtn").observe('mojo-tap', this.ucDrawerBtnHandler);
 +		}
@@ -7379,7 +7416,7 @@ index 3b41954..bd52a3e 100644
  		//Mojo.Log.info('prefs-assistant: deactivate');
  		this.controller.get('pv_start_of_week').stopObserving('mojo-tap', this.startOfWeekClickHandler);
  		
-@@ -456,6 +2193,67 @@ var PrefsAssistant	= Class.create({
+@@ -456,6 +2230,68 @@ var PrefsAssistant	= Class.create({
  		
  		this.controller.stopListening('currentringtonerow',Mojo.Event.tap, this.chooseNotificationRingtone);		
  
@@ -7434,6 +7471,7 @@ index 3b41954..bd52a3e 100644
 +			this.controller.get('uber-cal-advreq-setsyncbtn').stopObserving('mojo-tap', this.ucDrawerBtnHandler);
 +			for(var i=0;i<this.advReqAcctListItems.length;i++){
 +				this.controller.get(i+"uber-cal-advreq-btn").stopObserving('mojo-tap', this.ucDrawerBtnHandler);
++				this.controller.get(i+"uber-cal-advreq-timebtn").stopObserving('mojo-tap', this.ucDrawerBtnHandler);
 +			}
 +		}
 +		this.controller.stopListening(this.uberCatList, Mojo.Event.listChange, this.uberCatListChangeHandler);
@@ -7447,7 +7485,7 @@ index 3b41954..bd52a3e 100644
  	},
  	
  	// *** EVENT HANDLERS ***
-@@ -492,6 +2290,269 @@ var PrefsAssistant	= Class.create({
+@@ -492,6 +2328,307 @@ var PrefsAssistant	= Class.create({
  		}
  	},
  
@@ -7663,21 +7701,59 @@ index 3b41954..bd52a3e 100644
 +	handleAdvReqsChange: function(event){
 +		//console.error("handle adv req change:2472 model: " + JSON.stringify((event && event.model)))
 +		if(event.model !== undefined && event.target.id !== undefined && event.model._id !== undefined) {
-+			var model = event.model;
++			//var model = event.model;
 +			var Id = event.model.Id;
 +			var _id = event.model._id;
 +			var targetId = event.target.id;
 +			var patt=/uber-cal-advreq-([a-z]+)\d+/g;
-+			var type, result = patt.exec(targetId);
-+			var idx, map = ["onoff", "contacts","wifi","cell","batt","interval","charging", "docked"];
++			var typ, result = patt.exec(targetId);
++			var idx, map = ["onoff", "contacts","wifi","cell","batt","interval","charging", "docked", "allday", "starttime", "endtime"];
 +			if(result && result[1]){
-+				type = result[1];
-+				idx = map.indexOf(type);
++				typ = result[1];
++				idx = map.indexOf(typ);
++				if(typ === "interval"){
++					var val = event.model.interval;
++					if(val !== undefined){
++						var needUpdate = false;
++						//console.error("why here val: " +val + ", disabled: " + event.model.allDayDisabled+ ", openStartEnd: " + event.model.openStartEnd);
++						if(val.indexOf("m") !== -1 || (val.indexOf("h") !== -1 && parseInt(val,10) <= 6)){
++							//console.error("is minutes: " + val + ", disabled: " + event.model.allDayDisabled );
++							this.advReqAcctListItems[Id].allDayDisabled = false;
++							//this.advReqAcctListItems[Id].allday = !(event.model.allday);
++							this.advReqAcctListItems[Id].openStartEnd = !this.advReqAcctListItems[Id].allday;
++							//this.controller.get('uber-cal-timedrawer'+Id).mojo.setOpenState(!this.advReqAcctListItems[Id].allday);
++							this.controller.get('uber-cal-advreq-drawer'+Id).mojo.setOpenState(true);
++							needUpdate = true;
++						} else {
++							//set old values
++							//console.error("not minutes val: " + val + ", disabled: " + event.model.allDayDisabled );
++							this.advReqAcctListItems[Id].allday = true;
++							this.advReqAcctListItems[Id].allDayDisabled = true;
++							//this.advReqAcctListItems[Id].openStartEnd = false;
++							//this.advReqAcctListItems[Id].bigOpen = true;
++							this.controller.get('uber-cal-advreq-drawer'+Id).mojo.setOpenState(true);
++							//this.controller.get(('uber-cal-timedrawer'+Id)).mojo.setOpenState(false);
++							needUpdate = true;
++						}
++						if(needUpdate === true){
++							this.controller.get('uber-cal-advreqList').mojo.noticeUpdatedItems(0, this.advReqAcctListModel.items);
++							for(var i=0;i<this.advReqAcctListItems.length;i++){
++								this.controller.get(i+"uber-cal-advreq-btn").observe('mojo-tap', this.ucDrawerBtnHandler);
++								this.controller.get(i+"uber-cal-advreq-timebtn").observe('mojo-tap', this.ucDrawerBtnHandler);
++							}
++						}
++					}
++				} else if(typ === "allday"){
++					this.advReqAcctListItems[Id].openStartEnd = !(event.model.allday);
++					this.controller.get('uber-cal-timedrawer'+Id).mojo.setOpenState(!(event.model.allday));
++				}
 +				this.userChangedAdvReqs = true;
-+				console.error("handle adv req change:2505, _id: " + event.model._id + " , type: " + type + " ,new: " + event.model[type] + ", old: " +this.advSyncReq[_id][idx]);
++				var txt, temp = new Date();
++				txt = temp.toISOString();
++				txt = txt.replace("T"," ");
++				txt = txt.replace(/(\.\d\d\dZ)$/, "Z")
++				console.error("handle adv req change:2590, iso date: " + txt);
 +				//console.error("handle adv req change:2487 model: " + JSON.stringify(this.advReqAcctListItems[Id]))
-+				
-+				
 +			}
 +		}
 +	},
@@ -7717,7 +7793,7 @@ index 3b41954..bd52a3e 100644
  
  	startOfWeekChoose: function(val) {
  		//Mojo.Log.info('prefs-assistant: startOfWeekChoose: %s', val);
-@@ -558,8 +2619,23 @@ var PrefsAssistant	= Class.create({
+@@ -558,8 +2695,23 @@ var PrefsAssistant	= Class.create({
  					label: ONE_HOUR,
  					command: 60
  				}, {
@@ -7741,7 +7817,7 @@ index 3b41954..bd52a3e 100644
  				}]
  			});
  	},
-@@ -639,6 +2715,69 @@ var PrefsAssistant	= Class.create({
+@@ -639,6 +2791,82 @@ var PrefsAssistant	= Class.create({
  		});
  	},
  	
@@ -7766,21 +7842,34 @@ index 3b41954..bd52a3e 100644
 +			this.saveAdvReq();
 +		} else if(curBtn.indexOf("uber-cal-advreq-btn") !== -1) {
 +			var idx = parseInt(curBtn, 10);
-+			this.controller.get('uber-cal-advreq-drawer'+idx).mojo.setOpenState(!this.controller.get('uber-cal-advreq-drawer'+idx).mojo.getOpenState());
++			var val = this.controller.get('uber-cal-advreq-drawer'+idx).mojo.getOpenState();
++			this.advReqAcctListItems[idx].bigOpen = !val;
++			this.controller.get('uber-cal-advreq-drawer'+idx).mojo.setOpenState(!val);
++		} else if(curBtn.indexOf("uber-cal-advreq-timebtn") !== -1) {
++			var idx = parseInt(curBtn, 10);
++			var val = this.controller.get('uber-cal-timedrawer'+idx).mojo.getOpenState();
++			this.advReqAcctListItems[idx].openStartEnd = !val;
++			this.controller.get('uber-cal-timedrawer'+idx).mojo.setOpenState(!val);
 +		}
 +	},
 +	
 +	saveAdvReq: function(){
 +		if(this.advancedSyncEnabled){
-+			var acct = {}, acctId, tempList = [], obj = {}, len, _id;
-+			var map = ["onoff", "contacts","wifi","cell","batt","interval","charging","docked"];
++			var hrs, mins, acct = {}, acctId, tempList = [], obj = {}, len, _id;
++			var map = ["onoff", "contacts","wifi","cell","batt","interval","charging","docked", "allday", "starttime", "endtime"];
 +			
 +			len = this.advReqAcctListItems.length;
 +			for(var i=0;i<len;i++){
 +				acct = this.advReqAcctListItems[i];
 +				_id = acct._id;
 +				for(var j=0;j<map.length;j++){
-+					tempList[j] = acct[map[j]];
++					if(j === 9 || j === 10){
++						hrs = (acct[map[j]]).getHours();
++						mins = (acct[map[j]]).getMinutes();
++						tempList[j] = Date.UTC(2000, 0, 1, hrs, mins, 0, 0);
++					} else {
++						tempList[j] = acct[map[j]];
++					}
 +				}
 +				obj[_id] = tempList.slice(0);
 +			}
@@ -7811,7 +7900,7 @@ index 3b41954..bd52a3e 100644
  	// *** WIDGET ATTRS & MODELS
  
  	
-@@ -651,22 +2790,338 @@ var PrefsAssistant	= Class.create({
+@@ -651,22 +2879,338 @@ var PrefsAssistant	= Class.create({
  		listTitle: $L('Accounts'),
  		items: []
  	},
@@ -13152,10 +13241,10 @@ index 0000000..81e8009
 +</div>
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubercaladvreqitem.html b/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubercaladvreqitem.html
 new file mode 100644
-index 0000000..564b699
+index 0000000..89ee3fe
 --- /dev/null
 +++ b/usr/palm/applications/com.palm.app.calendar/app/views/shared/ubercaladvreqitem.html
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,88 @@
 +<div id="uber-cal-advreq#{-Id}" class="palm-list" >
 +		<div class="palm-row #{listplace}" id="#{-Id}uber-cal-advreq-btn" x-mojo-tap-highlight="momentary">
 +			<div class="palm-row-wrapper">
@@ -13214,6 +13303,32 @@ index 0000000..564b699
 +				<div id="uber-cal-advreq-docked#{-Id}" x-mojo-element="ToggleButton" ></div>
 +				<div class="title" x-mojo-loc="">#{-advReqDockedTitle}</div>
 +				</div>
++			</div>
++			<div class="palm-row" id="#{-Id}uber-cal-advreq-timebtn" x-mojo-tap-highlight="momentary">
++				<div class="palm-row-wrapper">
++				<div id="uber-cal-advreq-allday#{-Id}" x-mojo-element="ToggleButton" ></div>
++				<div class="title" x-mojo-loc="">#{-advReqAllDayTitle}</div>
++				</div>
++			</div>
++			<div class="palm-list" >
++			<div id="uber-cal-timedrawer#{-Id}" class="drawer" x-mojo-element="Drawer" >
++				
++				<div class="palm-row first" >
++					<div class="palm-row-wrapper">
++					
++					<div class="" id="uber-cal-advreq-starttime#{-Id}" x-mojo-element="TimePicker"></div>          
++					
++					</div>
++				</div>
++				<div class="palm-row last" >
++					<div class="palm-row-wrapper">
++					
++					<div class="" id="uber-cal-advreq-endtime#{-Id}" x-mojo-element="TimePicker"></div>          
++					
++					</div>
++				</div>
++				
++			</div>
 +			</div>
 +			</div>
 +		</div>
