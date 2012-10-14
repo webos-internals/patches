@@ -3000,7 +3000,7 @@ index d28ca07..afd4099 100644
  		ui.btnEdit.setShowing(!isReadOnly);
  	},
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
-index e1dd533..878f5fb 100644
+index e1dd533..8ce5b6d 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/EditView.js
 @@ -33,6 +33,17 @@ enyo.kind({
@@ -3576,18 +3576,20 @@ index e1dd533..878f5fb 100644
  	name		: "calendar.edit.EditView",
  	kind		: enyo.VFlexBox,
  	className	: "edit enyo-bg",
-@@ -109,42 +668,56 @@ enyo.kind({
+@@ -109,42 +668,57 @@ enyo.kind({
  			{name: "contentContainer", className: "content-container", components:[
  				{kind:enyo.RowGroup, className: "group", components:[
  					{name:"subject"		, kind: enyo.RichText, hint: $L("Event Name"), className: "event-name", onblur:"editSubject", autoLinking: true, allowHtml: true, onkeydown:"ignoreNewLines", inputClassName: "event-name-input", maxTextHeight: "23px"},
 -					{name:"location"	, kind: enyo.Input, hint: $L("Event Location"), className: "event-location", onblur:"editLocation"},
+-					{name:"calendarPicker", kind: "calendar.edit.CalendarSelector", onChange: "editCalendar", className: "list1", hideArrow: false}
 +					{layoutKind: "HFlexLayout", components: [ 
 +						{name:"location"	, flex:2, kind: enyo.Input, hint: $L("Event Location"), style:"margin-right:10px;", className: "event-location", onblur:"editLocation"},
 +						{name:"pickButton", kind: enyo.IconButton, icon:"./edit/images/participants-icon.png", onclick:"popPicker"},
 +						{name:"addressPicker", kind: "com.palm.library.contactsui.peoplePicker", onContactClick:"pickedPerson"}
 +					]},
- 					{name:"calendarPicker", kind: "calendar.edit.CalendarSelector", onChange: "editCalendar", className: "list1", hideArrow: false}
++					{name:"calendarPicker", kind: "calendar.edit.CalendarSelector", onChange: "editCalendar", className: "list1", hideArrow: false}					
  				]},
++				{name:"clearUndefinedEvtsBtn", kind: enyo.Button, className:"enyo-button-negative", onclick: "cleanUndefinedCalEvent", showing:false, caption: $L("Delete undefined calendar events"), align: "center"},
  				{kind: enyo.Group, className: "group", components: [
  					{kind: enyo.HFlexBox, align: "center", height: "48px", components: [
  						{name: "allDay", kind: enyo.CheckBox, style: "margin-left: 10px", onChange: "changeAllDay"},
@@ -3645,7 +3647,7 @@ index e1dd533..878f5fb 100644
  										,	onSelect: "editRepeat"
  										,	className: "alert-list"
  										,	items	:
-@@ -159,14 +732,24 @@ enyo.kind({
+@@ -159,14 +733,24 @@ enyo.kind({
  								]}
  							]}
  						]},
@@ -3677,7 +3679,7 @@ index e1dd533..878f5fb 100644
  									]}
  								]}
  							]}
-@@ -182,23 +765,53 @@ enyo.kind({
+@@ -182,23 +766,53 @@ enyo.kind({
  
  				{kind: enyo.RowGroup, onclick:"focusNote", components: [
  					{name: "note", kind: enyo.RichText, hint: $L("Event Notes"), autoLinking: true, className: "note", onblur:"editNote", alwaysLooksFocused:true}	//HACK because onblur sux with back gesture!
@@ -3735,7 +3737,7 @@ index e1dd533..878f5fb 100644
  	],//end EditView components
  
  	create: function create () {
-@@ -223,6 +836,13 @@ enyo.kind({
+@@ -223,6 +837,13 @@ enyo.kind({
  		,	customMonthly	: $L("Custom Monthly")
  		,	customYearly	: $L("Custom Yearly")
  		};
@@ -3749,7 +3751,7 @@ index e1dd533..878f5fb 100644
  	},
  
  	destroy: function destroy () {
-@@ -256,6 +876,7 @@ enyo.kind({
+@@ -256,6 +877,7 @@ enyo.kind({
  
  	eventChanged: function eventChanged (oldEvent) {
  		var event = this.event;
@@ -3757,7 +3759,21 @@ index e1dd533..878f5fb 100644
  		if (!event) { return; }
  
  		event.event													// This event is likely an event's GUI because it contains an event object:
-@@ -282,14 +903,14 @@ enyo.kind({
+@@ -275,6 +897,13 @@ enyo.kind({
+ 			subject = enyo.string.runTextIndexer(subject);
+ 		}
+ 		
++		if(event && event.color === undefined){
++			var calmgr = enyo.application.calendarsManager;
++			console.error("event calId: " + event.calendarId+", cal color: "+ calmgr.getCalColor(event.calendarId));
++			ui.clearUndefinedEvtsBtn.setShowing(true);
++		} else {
++			ui.clearUndefinedEvtsBtn.setShowing(false);
++		}
+ 		this.undoEvent				= new CalendarEvent (event);	// undoEvent is used to reset the event if the user cancel's editing.
+ 		this.undoEvent.color		= event.color;					// Add the event color to undoEvent since it is sanitized out above.
+ 		this.undoEvent.indexedNote	= indexedNote;					// Add the cached indexed note to undoEvent, no need to process again if nothing changed
+@@ -282,14 +911,14 @@ enyo.kind({
  		ui.subject	.setValue	(subject	||	"");
  		ui.location	.setValue	(event.location	||	"");
  		ui.note		.setValue	(indexedNote);
@@ -3775,7 +3791,7 @@ index e1dd533..878f5fb 100644
  		//pickerStart and pickerEnd are the values displayed by the 
  		//time and date pickers.  If they change, they'll be merged back on to
  		//the event before we save.
-@@ -297,6 +918,8 @@ enyo.kind({
+@@ -297,6 +926,8 @@ enyo.kind({
  		this.pickerEnd   = event.currentLocalEnd;
  		var start = new Date (this.pickerStart);
  		var end   = new Date (this.pickerEnd);		
@@ -3784,7 +3800,7 @@ index e1dd533..878f5fb 100644
  		ui.startDate.setValue	(start);
  		ui.startTime.setValue	(start);
  
-@@ -305,8 +928,9 @@ enyo.kind({
+@@ -305,8 +936,9 @@ enyo.kind({
  
  		ui.allDay			.setChecked	(!!event.allDay);					
  		ui.startTimeDrawer	.setOpen	(!event.allDay);
@@ -3795,7 +3811,7 @@ index e1dd533..878f5fb 100644
  		Utilities.findEventOrganizer(event);
  
  		this.setupRepeatValue();
-@@ -347,6 +971,7 @@ enyo.kind({
+@@ -347,6 +979,7 @@ enyo.kind({
  			this.startDateOld	=	this.endDateOld	= null;
  			this.pickerStart	=	this.pickerEnd	= null;
  			enyo.call(document.activeElement, "blur");
@@ -3803,7 +3819,7 @@ index e1dd533..878f5fb 100644
  			
  			if (this.hasCustomReminderItem && this.hasCustomReminderItem.selector) {
  				var	selector	= this.hasCustomReminderItem.selector
-@@ -389,7 +1014,8 @@ enyo.kind({
+@@ -389,7 +1022,8 @@ enyo.kind({
  				}
  				break;	
  
@@ -3813,7 +3829,7 @@ index e1dd533..878f5fb 100644
  				this.doDelete (this.eventGUI || this.event);
  				break;
  
-@@ -434,6 +1060,451 @@ enyo.kind({
+@@ -434,6 +1068,451 @@ enyo.kind({
  		this.$.contentScroller.setScrollTop (0);	// Reset the scroll position.
  	},
  
@@ -4265,7 +4281,15 @@ index e1dd533..878f5fb 100644
  	setupRepeatValue: function setupRepeatValue(sender, repeatType){
  		var	customType
  		,	event = this.event
-@@ -520,6 +1591,94 @@ enyo.kind({
+@@ -485,6 +1564,7 @@ enyo.kind({
+ 		var reminderValue = Utilities.findReminderValue(event.alarm);
+ 		var items;
+ 		var alarmType = Utilities.isStandardAlarmValue(reminderValue, event.allDay);
++		//console.error("event alarms:  " + JSON.stringify({alarm: event.alarm}));
+ 		if(alarmType.isStandard && alarmType.isStandardForType && !allDayChanged){
+ 			selector.setValue(reminderValue);
+ 			return;
+@@ -520,6 +1600,94 @@ enyo.kind({
  		selector.setValue(reminderValue);
  	},
  
@@ -4360,7 +4384,11 @@ index e1dd533..878f5fb 100644
  	setupCalendarPicker: function setupCalendarPicker(calendarId){
  		var mgr = enyo.application.calendarsManager;
  		this.calendars = mgr.getCalendarsList({sorted: true, excludeReadOnly: true});
-@@ -541,6 +1700,35 @@ enyo.kind({
+@@ -538,9 +1706,39 @@ enyo.kind({
+ 		}
+ 		ui.calendarPicker.setItems (items);
+ 		calendarId = calendarId || (this.event && this.event.calendarId) || enyo.application.prefsManager.getDefaultCalendar();		
++		
  		ui.calendarPicker.setValue (calendarId);	// calendarId will be undefined on accountsAndCalendarsChanged().
  	},
  
@@ -4396,7 +4424,7 @@ index e1dd533..878f5fb 100644
  	ignoreNewLines: function ignoreNewLines (inSender, inResponse) {
  		if (inResponse && inResponse.keyCode === 13) {
  			enyo.stopEvent(inResponse);
-@@ -580,6 +1768,10 @@ enyo.kind({
+@@ -580,6 +1778,10 @@ enyo.kind({
  		,	end = new Date(timestamp);
  		ui.endTime.setValue (end);
  		ui.endDate.setValue (end);	
@@ -4407,7 +4435,7 @@ index e1dd533..878f5fb 100644
  	},
  	 
  	//Rules for date and time changes:
-@@ -596,9 +1788,11 @@ enyo.kind({
+@@ -596,9 +1798,11 @@ enyo.kind({
  		,	event	= this.event
  		;
  		
@@ -4422,7 +4450,7 @@ index e1dd533..878f5fb 100644
  
  		var duration = this.pickerEnd - this.pickerStart;
  		
-@@ -622,10 +1816,18 @@ enyo.kind({
+@@ -622,10 +1826,18 @@ enyo.kind({
  		var event	= this.event;
  		
  		this.changeStartTime();
@@ -4442,7 +4470,7 @@ index e1dd533..878f5fb 100644
  		}
  		this.oldStartValue = this.$.startDate.getValue().getTime();
  	},
-@@ -638,9 +1840,10 @@ enyo.kind({
+@@ -638,9 +1850,10 @@ enyo.kind({
  		,	changedDate = false
  		;
  
@@ -4456,7 +4484,7 @@ index e1dd533..878f5fb 100644
  		
  		if(time < this.pickerStart){			
  			//consider it as setting for next 12 hour clock
-@@ -664,9 +1867,13 @@ enyo.kind({
+@@ -664,9 +1877,13 @@ enyo.kind({
  		,	changedDate = false
  		;
  
@@ -4473,7 +4501,7 @@ index e1dd533..878f5fb 100644
  		
  		if(time < this.pickerStart){
  			var startDate = new Date(this.pickerStart);
-@@ -731,7 +1938,9 @@ enyo.kind({
+@@ -731,7 +1948,9 @@ enyo.kind({
  		ui.startTime.setValue	(start);	
  		event.allDay = state;
  		ui.startTimeDrawer	.setOpen (!state);
@@ -4483,7 +4511,7 @@ index e1dd533..878f5fb 100644
  		
  		this.setupReminder(event, true);
  	},
-@@ -1053,6 +2262,7 @@ enyo.kind({
+@@ -1053,6 +2272,7 @@ enyo.kind({
  	
  	editNote: function editNote (note) {
  		this.event.note = note && note.getText();
@@ -4491,10 +4519,28 @@ index e1dd533..878f5fb 100644
  	},
  	
  	confirmSave: function confirmSave(){
-@@ -1120,6 +2330,67 @@ enyo.kind({
+@@ -1119,6 +2339,84 @@ enyo.kind({
+ 		this.saveEvent(parentId);
  		this.doExit(this.event);
  	},
- 
++	
++	cleanUndefinedCalEvent: function(){
++		var calmgr = enyo.application.calendarsManager;
++		if(this.event.calendarId && (calmgr.getCalColor(event.calendarId) === undefined)){
++			function delCallback (response){
++				console.error("clean undefined events result: " + JSON.stringify(response));
++				if(response && response.returnValue === true && response.results && response.results.length){
++					enyo.application.cacheManager.eventManager.getEvents();
++					//enyo.application.cacheManager.buildEventCache(false);
++				}
++				this.closeView(this.$.btnCancel);
++			}
++			console.error("clean undefined event calId: " + this.event.calendarId);
++			delUndefCB = enyo.bind(this, delCallback);
++			this.dbManager.clearEventsFromDeletedCalendar(this.event.calendarId, delUndefCB);
++		}
++	},
++
 +	changeThisAndFuture: function changeThisAndFuture(inSender, parentId){
 +		if(this.event.dtstart === this.event.currentLocalStart){
 +			//this is the first event so, this and future is the whole series
@@ -4555,10 +4601,9 @@ index e1dd533..878f5fb 100644
 +		this.saveEvent();
 +		this.doExit(this.event);
 +	},
-+
+ 
  	resetEventModels: function resetEventModels () {
  		this.event = this.undoEvent = this.eventGUI = null;		// Reset the event, "undo" event, and event GUI models.
- 	},
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/RepeatChangeConfirm.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/RepeatChangeConfirm.js
 index ef01f23..e2ed7d8 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/edit/RepeatChangeConfirm.js
@@ -6124,7 +6169,7 @@ index 592cb6e..decd2c8 100644
  		}
  		this.startOfWeekChanged();
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
-index d06f5ca..ce389b8 100644
+index d06f5ca..356f66e 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/prefs/PreferencesView.js
 @@ -12,6 +12,39 @@ enyo.kind(
@@ -6537,7 +6582,16 @@ index d06f5ca..ce389b8 100644
  	name		: "calendar.prefs.PreferencesView",
  	kind		: enyo.VFlexBox,
  	className	: "prefs enyo-bg",
-@@ -183,30 +543,219 @@ enyo.kind({
+@@ -157,6 +517,8 @@ enyo.kind({
+ 	},
+ 
+ 	components: [
++		{kind:"PalmService", name:"geTweaks", method:"get", service:"palm://org.webosinternals.tweaks.prefs/", onFailure:"tweaksFailedCallback", onSuccess: "gotTweaksReply"},
++		{kind:"PalmService", name:"seTweaks", method:"set", service:"palm://org.webosinternals.tweaks.prefs/", onFailure:"tweaksFailedCallback", onSuccess: "setAdvReq"},
+ 		{name: "pane", kind: enyo.Pane, flex: 1, components: [
+ 	    // This is the first view.  It contains all the app preferences and the accountsList
+ 
+@@ -183,30 +545,219 @@ enyo.kind({
  					{kind: enyo.RowGroup, caption: $L("First Day of Week"), components:[
  						{kind: "calendar.day.DayPicker", name: "startOfWeek", onChange: "chooseStartOfWeek"}
  					]},
@@ -6769,15 +6823,117 @@ index d06f5ca..ce389b8 100644
  					{kind: enyo.Group, caption: $L("Calendar Colors"), components: [
  						{name: "calendarList", kind: enyo.VirtualRepeater, onSetupRow: "getCalendar", components: [
  							{kind: enyo.Item, name: "calendarItem", onclick: "calendarClick", layoutKind: enyo.HFlexLayout, className:"accounts-list-item", components: [
-@@ -242,6 +791,7 @@ enyo.kind({
+@@ -216,7 +767,90 @@ enyo.kind({
+ 							]}
+ 						]},
+ 						{kind: "calendar.prefs.ColorPicker", name: "colorPicker", onSelect: "colorSelected"}
+-					]}
++					]},
++					{kind: enyo.RowGroup, caption: $L("Advanced Sync Requirements"), components:[
++						
++							{name: "advReqNotEnabled", kind: enyo.RowItem, tapHighlight: false, components:[
++								{ content: $L("Tweaks Not Enabled")}
++							]},
++						{kind: enyo.VFlexBox, flex:1,components: [
++							{name: "advSyncReqList", kind: enyo.VirtualRepeater, onSetupRow: "setupAdvReqList", components: [
++								{kind: enyo.VFlexBox, flex:1,components: [
++								{kind: enyo.Item, tapHighlight: true, layoutKind: enyo.HFlexLayout, onclick:"openAdvSRAcctDrawer", components:[
++									{name: "advSRAcctIcon", kind: enyo.Image, className:"icon-image"},
++									{name: "advSRAcctName", flex: 1, className: "ellipsis cal-name"},
++									{name:"advSRUserName"}
++								 ]},
++								{name:"advSRAcctDrawer", kind: enyo.Drawer, style:"padding:5px;", open:false, components: [
++									{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++										{flex: 1, content: $L("Enable Requirements")},
++										{name:"advSRAcctEnable", kind: enyo.ToggleButton, state: false, onChange:"chooseAdvSRAcctOption"}
++									]},
++									{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++										{flex: 1, content: $L("Use for contacts")},
++										{name:"advSRAcctContacts", kind: enyo.ToggleButton, state: false, onChange:"chooseAdvSRAcctOption"}
++									]},
++									{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++										{flex: 1, content: $L("Wifi only")},
++										{name:"advSRAcctWifi", kind: enyo.ToggleButton, state: false, onChange:"chooseAdvSRAcctOption"}
++									]},
++									{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++										{flex: 1, content: $L("Cell data only")},
++										{name:"advSRAcctCell", kind: enyo.ToggleButton, state: false, onChange:"chooseAdvSRAcctOption"}
++									]},
++									{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++										{name:"advSRAcctBatt", kind: enyo.IntegerPicker, label: $L("Min. battery %"), value:0, min: 0, max: 100, onChange: "chooseAdvSRAcctBatt"}
++									]},
++									{kind: enyo.RowItem, tapHighlight: false, components:[
++										{name:"advSRAcctInterval", kind: enyo.ListSelector, label: $L("Interval"), value: "20m", onChange:"chooseAdvSRAcctInterval",
++											items: [{caption:$L('5 Minutes'), value:'5m'},
++													{caption:$L('10 Minutes'), value:'10m'},
++													{caption:$L('15 Minutes'), value:'15m'},
++													{caption:$L('20 Minutes'), value:'20m'},
++													{caption:$L('30 Minutes'), value:'30m'},
++													{caption:$L('1 Hour'), value:'60m'},
++													{caption:$L('3 Hours'), value:'3h'},
++													{caption:$L('6 Hours'), value:'6h'},
++													{caption:$L('12 Hours'), value:'12h'},
++													{caption:$L('1 Day'), value:'24h'},
++													{caption:$L('2 Days'), value:'2d'},
++													{caption:$L('4 Days'), value:'4d'},
++													{caption:$L('6 Days'), value:'6d'},
++													{caption:$L('8 Days'), value:'8d'},
++													{caption:$L('10 Days'), value:'10d'},
++													{caption:$L('14 Days'), value:'14d'}
++												]
++										}
++									 ]},
++									{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++										{flex: 1, content: $L("Charging")},
++										{name:"advSRAcctCharging", kind: enyo.ToggleButton, state: false, onChange:"chooseAdvSRAcctOption"}
++									]},
++									{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++										{flex: 1, content: $L("On touchstone")},
++										{name:"advSRAcctTouchstone", kind: enyo.ToggleButton, state: false, onChange:"chooseAdvSRAcctOption"}
++									]},
++									{kind: enyo.RowItem, tapHighlight: true, layoutKind: enyo.HFlexLayout, onclick: "openadvSRAcctTimeDrawer", components:[
++										{flex: 1, content: $L("Sync all day")},
++										{name:"advSRAcctAllday", kind: enyo.ToggleButton, state: false, onChange:"chooseAdvSRAcctOption"}
++									]},
++									
++									{name:"advSRAcctTimeDrawer", kind: enyo.Drawer, style:"padding:5px;", open:true, components: [
++										{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++											{content: $L("Start"), width: "3em", className: "enyo-picker-label"},
++											{name: "advSRAcctStartTime", kind: enyo.TimePicker, label: " ", minuteInterval: 5, onChange: "chooseAdvSRAcctStartTime"}
++										]},
++										{kind: enyo.RowItem, tapHighlight: false, layoutKind: enyo.HFlexLayout, components:[
++											{content: $L("End"), width: "3em", className: "enyo-picker-label"},
++											{name: "advSRAcctStopTime", kind: enyo.TimePicker, label: " ", minuteInterval: 5, onChange: "chooseAdvSRAcctStopTime"}
++										]}
++									]}
++								]}
++								]}
++							]}
++						]}
++					]},
++					{kind: enyo.Button, name: "advReqSetTweaksBtn", caption: $L("Set sync requirements"), onclick: "saveAdvReq"}
+ 				 ]}
+ 				]},
+ 				{className:"accounts-footer-shadow"},
+@@ -237,12 +871,17 @@ enyo.kind({
+ 	],
+ 
+ 	create: function create () {
++		this.validReqAccounts = [];
++		this.advReqAcctListItems = [];
++		this.advancedSyncEnabled = false;
+ 		this.inherited (arguments);
+ 		enyo.application.watch({accountsAndCalendars: this});
  	},
  
  	ready: function ready (){
 +		this.remindersManager = enyo.application.reminderManager;
  		this.$.accountsList.getAccountsList("CALENDAR", []);
++		this.setupAdvReqAccts();
  	},
  
-@@ -298,18 +848,64 @@ enyo.kind({
+ 	destroy: function destroy(){
+@@ -298,19 +937,66 @@ enyo.kind({
  		var ui = this.$;
  		ui.startOfWeek		.setValue (this.prefs.startOfWeek);
  		ui.reminder			.setValue (this.prefs.defaultEventReminder);
@@ -6847,9 +7003,11 @@ index d06f5ca..ce389b8 100644
 +		utcEndTime.addMinutes (utcEndTime.getTimezoneOffset());
 +		ui.dayEndTime.setValue (utcEndTime);
  		this.setupDefaultCalendar();
++		this.setupAdvReqAccts();
  	},
  
-@@ -359,25 +955,25 @@ enyo.kind({
+ 	setupDefaultCalendar: function setupDefaultCalendar(){
+@@ -359,25 +1045,25 @@ enyo.kind({
  	},
  
  //	Commenting out the following but keeping it in case it is needed again.
@@ -6894,7 +7052,7 @@ index d06f5ca..ce389b8 100644
  	chooseReminder: function chooseReminder () {
  		this.prefs.defaultEventReminder = this.$.reminder.getValue();
  	},
-@@ -389,6 +985,10 @@ enyo.kind({
+@@ -389,6 +1075,10 @@ enyo.kind({
  	chooseDuration: function chooseDuration () {
  		this.prefs.defaultEventDuration = this.$.durationSelector.getValue();
  	},
@@ -6905,7 +7063,7 @@ index d06f5ca..ce389b8 100644
  
  	syncNow: function syncNow () {
  		enyo.application.calendarsManager.syncAllCalendars();
-@@ -408,6 +1008,185 @@ enyo.kind({
+@@ -408,6 +1098,185 @@ enyo.kind({
  		}
  	},
  
@@ -7091,7 +7249,59 @@ index d06f5ca..ce389b8 100644
  	calendarClick: function calendarClick(inSender, inEvent) {
  		var calendar = this.calendars[inEvent.rowIndex];
  		this.$.colorPicker.setCalendarId(calendar._id);
-@@ -427,7 +1206,36 @@ enyo.kind({
+@@ -422,12 +1291,363 @@ enyo.kind({
+ 		var calendarIndex = inSender.getCalendarIndex();
+ 		enyo.application.calendarsManager.setCalendarColor(calendarId, value);
+ 	},
++	
++	openAdvSRAcctDrawer: function openAdvSRAcctDrawer(inSender, inEvent){
++		this.$.advSRAcctDrawer.toggleOpen();
++	},
++	
++	openadvSRAcctTimeDrawer: function openadvSRAcctTimeDrawer(inSender, inEvent){
++		this.$.advSRAcctTimeDrawer.toggleOpen();
++	},
++	
++	chooseAdvSRAcctOption: function chooseAdvSRAcctOption(inSender, inState){
++		console.error("toggle sender " + inSender.name);
++		var map = {advSRAcctEnable: "onoff", advSRAcctContacts: "contacts", advSRAcctWifi: "wifi",
++			advSRAcctCell: "cell", advSRAcctCharging: "charging", advSRAcctTouchstone: "docked",
++			advSRAcctAllday: "allday"};
++		var prop = map[inSender.name];
++		var idx = this.$.advSyncReqList.fetchRowIndex();
++		this.advReqAcctListItems[idx][prop] = inState;
++		console.error("advReqAcctListItems index " +idx+ ", prop " + prop + ", value: "+inState);
++	},
++	
++	chooseAdvSRAcctInterval: function chooseAdvSRAcctInterval(inSender, inValue, oldValue){
++		var idx = this.$.advSyncReqList.fetchRowIndex();
++		var val = inValue;
++		this.advReqAcctListItems[idx].interval = val;
++		console.error("advReqAcctListItems index:" +idx+ ", interval: " + val);
++	},
++	
++	chooseAdvSRAcctBatt: function chooseAdvSRAcctBatt(inSender){
++		var idx = this.$.advSyncReqList.fetchRowIndex();
++		var val = this.$.advSRAcctBatt.getValue();
++		this.advReqAcctListItems[idx].batt = val;
++		console.error("advReqAcctListItems index:" +idx+ ", battery: " + val);
++	},
++	
++	chooseAdvSRAcctStartTime: function chooseAdvSRAcctStartTime(inSender){
++		var idx = this.$.advSyncReqList.fetchRowIndex();
++		var val = this.$.advSRAcctStartTime.getValue();
++		this.advReqAcctListItems[idx].starttime =  new Date(val.getTime());
++		console.error("advReqAcctListItems index:" +idx+ ", starttime: " + val);
++	},
++	
++	chooseAdvSRAcctStopTime: function chooseAdvSRAcctStopTime(inSender){
++		var idx = this.$.advSyncReqList.fetchRowIndex();
++		var val = this.$.advSRAcctStopTime.getValue();
++		this.advReqAcctListItems[idx].endtime = new Date(val.getTime());
++		console.error("advReqAcctListItems index:" +idx+ ", endtime: " + val);
++	},
+ 
+ 	addAccountTemplates: function(inSender, templates) {
  		this.templates = templates;
  	},
  
@@ -7126,6 +7336,281 @@ index d06f5ca..ce389b8 100644
 +			}
 +		}
 +	},
++	
++	setupAdvReqAccts: function setupAdvReqAccts(){
++		var calmgr = enyo.application.calendarsManager;
++		this.advReqAccounts = calmgr.getAdvReqCalList();
++		if(this.advReqAccounts && this.advReqAccounts.length > 0){
++			var acct, len = this.advReqAccounts.length;
++			for(var i=0;i<len;i++){
++				acct = this.advReqAccounts[i] && this.advReqAccounts[i]._id;
++				if(acct && acct !== undefined && acct !== ""){
++					if(this.validReqAccounts.indexOf(acct) === -1){
++						this.validReqAccounts.push(acct);
++					}
++				}
++			}
++		}
++		return this.getTweaksAdvReq();
++	},
++	
++	tweaksFailedCallback: function tweaksFailedCallback(inSender, response){
++		console.error("TWEAKS call failed : " + (inSender && JSON.stringify(response)) );
++		this.advSyncReq = {};
++		this.$.advReqNotEnabled.setShowing(true);
++		this.$.advReqSetTweaksBtn.setShowing(false);
++	},
++	
++	gotTweaksReply: function(inSender, response){
++		//console.error("got tweaks response: " + JSON.stringify(response));
++		var fromDefault = false, reqs = {}, ui = this.$,
++		defaults,
++		acctOps;
++		
++		this.advSyncReq = {};
++		this.needTweaksSave = false;
++		if(response){
++			if(response.advancedSyncEnabled){
++				this.advancedSyncEnabled = true;
++				ui.advReqNotEnabled.setShowing(false);
++				ui.advReqSetTweaksBtn.setShowing(true);
++				if(response.syncStringField && response.syncStringField !== ""){
++					try{
++						reqs = JSON.parse(response.syncStringField);
++						if(reqs && reqs !== undefined){
++							for(var prop in reqs){// saved accountIds
++								if(this.validReqAccounts.indexOf(prop) !== -1 && reqs.hasOwnProperty(prop) && !this.advSyncReq.hasOwnProperty(prop)){
++									//valid account, not previously added, so add
++									this.advSyncReq[prop] = [];
++									defaults = this.getDefaultSync(prop);
++									if(reqs[prop] && reqs[prop] !== undefined && reqs[prop].length){
++										//has a valid array
++										acctOps = reqs[prop].slice(0);
++										for(var j=0;j<defaults.length;j++){
++											if(acctOps[j] != undefined && acctOps[j] !== null ){
++												this.advSyncReq[prop][j] = acctOps[j];
++											} else {
++												this.advSyncReq[prop][j] = defaults[j];
++												this.needTweaksSave = true;
++											}
++										}
++									} else {
++										this.needTweaksSave = true;
++										this.advSyncReq[prop] = defaults.slice(0);
++									}
++									//console.error("TWEAKS adv req results: " + prop + ",values: " + JSON.stringify(this.advSyncReq[prop]) );
++								} else {
++									//not valid account or duplicate
++									console.error("TWEAKS adv req results skipping account Id: " + prop);
++								}
++							}
++						}
++					} catch(err){//parsing error set defaults
++						console.error("TWEAKS adv req parsing response error!!! " + JSON.stringify(err) );
++						var id,len = this.validReqAccounts.length;
++						this.needTweaksSave = true;
++						for(var i=0;i<len;i++){
++							id = this.validReqAccounts[i];
++							this.advSyncReq[id] = this.getDefaultSync(id);
++						}
++						fromDefault = true;
++					}
++				} else { // enabled but nothing saved, set defaults
++					console.error("TWEAKS adv req no saved requirements");
++					this.needTweaksSave = true;
++					var id,len = this.validReqAccounts.length;
++					for(var i=0;i<len;i++){
++						id = this.validReqAccounts[i];
++						this.advSyncReq[id] = this.getDefaultSync(id);
++					}
++					fromDefault = true;
++				}
++				// have an object from tweaks, did a calendar get added?
++				if(!fromDefault){
++					var acctOps, def, id,len = this.validReqAccounts.length;
++					for(var i=0;i<len;i++){
++						id = this.validReqAccounts[i];
++						def = this.getDefaultSync(id);
++						if(!this.advSyncReq.hasOwnProperty(id) || this.advSyncReq[id] === undefined){
++							this.advSyncReq[id] = def.slice(0);
++							this.needTweaksSave = true;
++							console.error("TWEAKS adv req added an account or reset account: " + id);
++						} else {
++							acctOps = this.advSyncReq[id].slice(0);
++							for(var j=0;j<def.length;j++){
++								if(acctOps[j] != undefined && acctOps[j] !== null ){
++									this.advSyncReq[id][j] = acctOps[j];
++								} else {
++									this.advSyncReq[id][j] = def[j];
++									this.needTweaksSave = true;
++								}
++							}
++						}
++						console.error("TWEAKS adv req results: " + id + ",values: " + JSON.stringify(this.advSyncReq[id]) );
++					}
++				}
++				this.buildAdvReqModels();
++			} else {
++				console.error("TWEAKS adv req not enabled");
++				this.advancedSyncEnabled = false;
++				ui.advReqNotEnabled.setShowing(true);
++				ui.advReqSetTweaksBtn.setShowing(false);
++			}
++			
++		}
++	},
++	
++	buildAdvReqModels: function buildAdvReqModels(){
++		this.advReqAcctListItems = [];
++		if(this.validReqAccounts && this.validReqAccounts.length > 0){
++			var hrs, mins, sDate, eDate, acctId, allDay, allDayDisabled, openStartEnd, interval, obj = {}, acctOps =[], len = this.validReqAccounts.length;
++			var timeMachine = new Date();
++			for(var i=0;i<len;i++){
++				acctId = this.validReqAccounts[i];
++				acctOps = this.advSyncReq[acctId].slice(0);
++				this.advReqAcctListItems[i] = {};
++				this.advReqAcctListItems[i].Id = i;
++				interval = acctOps[5];
++				timeMachine.setTime(acctOps[9]);
++				hrs = timeMachine.getUTCHours();
++				mins = timeMachine.getUTCMinutes();
++				sDate = new Date(2000, 0, 1, hrs, mins, 0, 0);
++				timeMachine.setTime(acctOps[10]);
++				hrs = timeMachine.getUTCHours();
++				mins = timeMachine.getUTCMinutes();
++				eDate = new Date(2000, 0, 1, hrs, mins, 0, 0);
++				if(interval.indexOf("m") !== -1 || (interval.indexOf("h") !== -1 && parseInt(interval,10) <= 6)){
++					allDay = acctOps[8];
++					allDayDisabled = false;
++					openStartEnd = !allDay;
++				} else {
++					openStartEnd =false;
++					allDayDisabled = true;
++					allDay = true;
++				}
++				this.advReqAcctListItems[i]._id = this.advReqAccounts[i]._id;
++				this.advReqAcctListItems[i].alias = this.advReqAccounts[i].alias;
++				this.advReqAcctListItems[i].username = this.advReqAccounts[i].username;
++				this.advReqAcctListItems[i].accountName = this.advReqAccounts[i].accountName;
++				this.advReqAcctListItems[i].icon = this.advReqAccounts[i].icon;
++				this.advReqAcctListItems[i].bigOpen = false;
++				this.advReqAcctListItems[i].onoff = acctOps[0];
++				this.advReqAcctListItems[i].contacts  = acctOps[1];
++				this.advReqAcctListItems[i].wifi = acctOps[2];
++				this.advReqAcctListItems[i].cell = acctOps[3];
++				this.advReqAcctListItems[i].batt = parseInt(acctOps[4], 10);
++				this.advReqAcctListItems[i].interval = acctOps[5];
++				this.advReqAcctListItems[i].charging = acctOps[6];
++				this.advReqAcctListItems[i].docked = acctOps[7];
++				this.advReqAcctListItems[i].allday = allDay;
++				this.advReqAcctListItems[i].openStartEnd = openStartEnd;
++				this.advReqAcctListItems[i].allDayDisabled = allDayDisabled;
++				this.advReqAcctListItems[i].starttime = sDate;
++				this.advReqAcctListItems[i].endtime = eDate;
++				//console.error("build adv req models, account: " + acctId + ", ops: " + JSON.stringify(this.advReqAcctListItems[i]));
++			}
++			this.$.advSyncReqList.render();
++		}
++	},
++	
++	setupAdvReqList: function setupAdvReqList(inSender, inIndex){
++		if(!this.showing){console.error("AdvReq prefs view not showing");return false;}
++		//console.error("setupAdvReqList " + inSender + ", inIndex " + inIndex);
++		var item, ui = this.$, len = this.advReqAcctListItems.length;
++		var idx = inIndex;
++		var is24Hr = this.is24Hr;
++		//console.error("len " + len + " , asEnabled: " + this.advancedSyncEnabled + ", idx: " + idx);
++		if(len > 0 && idx < len && this.advancedSyncEnabled){
++			item = this.advReqAcctListItems[idx];
++			if(item){
++				ui.advSRAcctIcon.setSrc(item.icon);
++				ui.advSRAcctName.setContent(item.alias?item.alias:item.accountName);
++				ui.advSRUserName.setContent(item.username);
++				ui.advSRAcctEnable.setState(item.onoff);
++				ui.advSRAcctContacts.setState(item.contacts);
++				ui.advSRAcctWifi.setState(item.wifi);
++				ui.advSRAcctCell.setState(item.cell);
++				ui.advSRAcctBatt.setValue(item.batt);
++				ui.advSRAcctInterval.setValue(item.interval);
++				ui.advSRAcctCharging.setState(item.charing);
++				ui.advSRAcctTouchstone.setState(item.docked);
++				ui.advSRAcctAllday.setState(item.allday);
++				ui.advSRAcctAllday.setDisabled(item.allDayDisabled);
++				ui.advSRAcctStartTime.setValue(item.starttime);
++				ui.advSRAcctStartTime.setIs24HrMode (is24Hr);
++				ui.advSRAcctStopTime.setValue(item.endtime);
++				ui.advSRAcctStopTime.setIs24HrMode (is24Hr);
++				ui.advSRAcctTimeDrawer.setOpen(item.openStartEnd);
++			}
++			return true;
++		}
++	},
++	
++	getTweaksAdvReq: function(){
++		var ui = this.$;
++		if(this.validReqAccounts && this.validReqAccounts.length > 0){
++			ui.geTweaks.call({ owner: "google-first-sync", 
++					keys: ["advancedSyncEnabled", "syncStringField"]});
++		} else { //no valid sync accounts, skip
++			this.advSyncReq = {};
++		}
++	},
++	
++	getDefaultSync: function (Id){
++		var timeMachine = new Date(2000, 0, 1, 0, 0, 0, 0);
++		timeMachine.setHours(7);
++		var start = timeMachine.getTime();
++		timeMachine.setHours(18);
++		var end = timeMachine.getTime();
++		var defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, 0 /*battery*/, "20m" /*0d0h20m0s*/, false /*charging*/, false /*docked*/, true /*all day*/, start, end];
++		var acct, idx, len = this.advReqAccounts.length;
++		for(var i=0;i<len;i++){
++			acct = this.advReqAccounts[i];
++			if(acct && acct._id === Id){
++				idx = i;
++				if((acct.accountName.toLowerCase()).indexOf("facebook") !== -1){
++					defaults[5] = "24h";
++				}
++				break;
++			}
++		}
++		return defaults.slice(0);
++	},
++	
++	saveAdvReq: function(){
++		if(this.advancedSyncEnabled){
++			var hrs, mins, acct = {}, acctId, tempList = [], obj = {}, len, _id;
++			var map = ["onoff", "contacts","wifi","cell","batt","interval","charging","docked", "allday", "starttime", "endtime"];
++			
++			len = this.advReqAcctListItems.length;
++			for(var i=0;i<len;i++){
++				acct = this.advReqAcctListItems[i];
++				_id = acct._id;
++				for(var j=0;j<map.length;j++){
++					if(j === 9 || j === 10){
++						hrs = (acct[map[j]]).getHours();
++						mins = (acct[map[j]]).getMinutes();
++						tempList[j] = Date.UTC(2000, 0, 1, hrs, mins, 0, 0);
++					} else {
++						tempList[j] = acct[map[j]];
++					}
++				}
++				obj[_id] = tempList.slice(0);
++			}
++			if(obj){
++				var objJson = JSON.stringify(obj);
++				console.error("prefs saving tweaks: " + objJson)
++				this.$.seTweaks.call({ owner: "google-first-sync", 
++									"syncStringField": objJson});
++			}
++		}
++	},
++	
++	setAdvReq: function(inSender, result){
++		console.error("prefs saved tweaks result: " + JSON.stringify(result) );
++		//close???
++	},
++	
  	// "Add Account" button was tapped
  	addAccount: function addAccount(button) {
  		this.$.AccountsView.AddAccount(this.templates);
@@ -7670,7 +8155,7 @@ index 599fa21..bfcb85b 100644
 +	]
  });
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js
-index e3f546a..35fa410 100644
+index e3f546a..39e2f46 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js
 +++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/CalendarsManager.js
 @@ -564,7 +564,13 @@ enyo.kind({
@@ -7688,6 +8173,116 @@ index e3f546a..35fa410 100644
  	},
  
  	getCal: function getCal(calId) {
+@@ -692,6 +698,60 @@ enyo.kind({
+ 		//console.log("==== Calendar color changed.");
+ 	},	
+ 	
++	getAdvReqCalList: function(){
++		var account, tempList = [], syncingAccounts = [];
++		var accounts = this.rawAccounts;
++		
++		if (accounts) {
++			for(var id in accounts){
++				if(accounts.hasOwnProperty(id) && accounts[id]){
++					account = accounts[id];
++					EAS = false;
++					if(account.capabilityProviders && account.capabilityProviders.length){
++						var len = account.capabilityProviders.length;
++						for(var i=0;i<len;i++){
++							if(account.capabilityProviders[i] && account.capabilityProviders[i].implementation){
++								EAS = account.capabilityProviders[i].implementation.indexOf("com.palm.eas") !== -1;
++								if(EAS === true) {break;}
++							}
++						}
++					}
++					//console.error("Account: (" + id + ")" + JSON.stringify(account));
++					//console.error("Account provider: (" + id + ")" + JSON.stringify(account.provider));
++					if(account.provider && account.provider.sync && !EAS){
++						syncingAccounts.push(account);
++						//console.error("Account: (" + account._id + ", " + account.alias + ", " + account.accountName + " , " + account.username+ ")");
++					}
++				}
++			}
++	
++			var acct, obj = {}, sAlen = syncingAccounts.length;
++			for(var j=0;j<sAlen;j++){
++				acct = syncingAccounts[j];
++				obj = {
++					_id: acct._id,
++					alias: acct.alias,
++					provider: acct.provider,
++					accountName: acct.accountName,
++					username: acct.username
++				};
++				if(acct.provider && acct.provider.icon && acct.provider.icon.loc_32x32) {
++					// There is an icon in this account's template just for calendars
++					obj.icon = acct.provider.icon.loc_32x32;
++				}else {
++					var accountTemplate = acct && this.accountTemplates[acct.templateId];
++					if (accountTemplate && accountTemplate.icon && accountTemplate.icon.loc_32x32) {
++						obj.icon =  accountTemplate.icon.loc_32x32;
++					}
++				}
++				//console.error("AdvReqsList num: " + j + ", info " + JSON.stringify(obj));
++				tempList.push(obj);
++			}
++		}
++		return tempList;
++	},
++
++	
+ 	syncAllCalendars: function syncAllCalendars () {
+ 
+ 		var	account
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/DatabaseManager.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/DatabaseManager.js
+index e213a73..827e16e 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/DatabaseManager.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/DatabaseManager.js
+@@ -273,6 +273,44 @@ enyo.kind({
+ 		this.shimCallbacks(request, successCB, failureCB);
+ 	},
+ 	
++	clearEventsFromDeletedCalendar: function(calId, callBack){
++		//from edit scene undefined calType from a removed account, find and delete them
++		var query = {	"select": ["_id", "subject"]
++					,	"from": "com.palm.calendarevent:1"
++					,	"where":[{"prop": "calendarId", "op": "=", "val": calId}]
++					};
++		
++		var request0 = this.$.findCalendarEvents.call({query: query	});
++		var goEventIdsCB = enyo.bind(this, goEventIds);
++		var eventIds = [], badLen = 0;
++		this.shimCallbacks(request0, goEventIdsCB, goEventIdsCB);
++		
++		function goEventIds(response){
++			var event, badEvents = response.results;
++			badLen = badEvents && badEvents.length;
++			for(var i=0;i<badLen;i++){
++				event = badEvents[i];
++				eventIds.push(event._id);
++				console.error("found to be del: " + event.subject + ", id: " + event._id);
++			}
++			
++			console.error("Deleting: " + eventIds.length + " undefined events");
++			if(badLen){
++				var request = this.$.deleteByIds.call({"ids": eventIds, "purge":true});
++				var deletedBadEventsCB = enyo.bind(this, deletedBadEvents);
++				this.shimCallbacks(request, deletedBadEventsCB, deletedBadEventsCB);
++			} else {
++				callBack(false);
++			}
++		}
++		
++		function deletedBadEvents(response){
++			console.error("clearEventsFromDeletedCalendar done: "+JSON.stringify(response))
++			callBack(response);
++		}
++
++	},
++	
+ 	//Used for adding an exception to a parent, and creating the exception child event.
+ 	updateParentAddChild: function updateParentAddChild (parentSlice, childEvent, successCB, failureCB, markChildDeleted) {
+ 		//Mojo.Log.info("$$$$$$$$$$$$ In updateParentAddChild %j, %j", parentSlice, childEvent);
 diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/EventView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/EventView.js
 index ee68003..30d1cac 100644
 --- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/shared/EventView.js

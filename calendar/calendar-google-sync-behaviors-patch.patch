@@ -1,46 +1,1138 @@
+diff --git a/usr/palm/frameworks/foundations/submission/108/javascript/comms/ajaxcall.js b/usr/palm/frameworks/foundations/submission/108/javascript/comms/ajaxcall.js
+index 28b38c6..e37d274 100644
+--- a/usr/palm/frameworks/foundations/submission/108/javascript/comms/ajaxcall.js
++++ b/usr/palm/frameworks/foundations/submission/108/javascript/comms/ajaxcall.js
+@@ -409,7 +409,7 @@ var AjaxCall =
+ 				local_result.status = response.statusCode;
+ 				local_result.getResponseHeader = function(name) {
+ 					var lowerCaseName = name.toLowerCase();
+-					if (lowerCaseName === 'set-cookie') {
++					if (lowerCaseName === 'set-cookie' && (Object.prototype.toString.call(response.headers['set-cookie']) === '[object Array]')) {
+ 						// set-cookie headers returned
+ 						// as an array so convert to
+ 						// comma-separated string
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/commands/synccommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/commands/synccommand.js
+index f14f0f1..8ebd9aa 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/commands/synccommand.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/commands/synccommand.js
+@@ -139,6 +139,288 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		Utils.debug("synccomand: postPutRemoteModify()");
+ 		return new Future([]);
+ 	},
++	
++	getTweakedInterval: function(interval){
++		var serviceName = this.controller.service.name;
++		if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
++			if(serviceName.indexOf("calendar") !== -1 || (serviceName.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
++				interval = this.advSyncReq.interval !== "" ? this.advSyncReq.interval : interval
++			}
++		}
++		//console.error("returning Tweaked interval: " + interval);
++		return interval;
++	},
++	
++	getUTCDateString: function(date){
++		
++		//UTC time format	  
++		var year = date.getUTCFullYear();
++		var month = date.getUTCMonth()+1;
++		var day = date.getUTCDate();
++		var hour= date.getUTCHours();
++		var minute=date.getUTCMinutes();
++		var second =date.getUTCSeconds();
++			
++		month	= (month > 9)	? month		: "0"+month;
++		day		= (day > 9)		? day		: "0"+day;
++		hour	= (hour > 9)	? hour		: "0"+hour;
++		minute	= (minute > 9)	? minute	: "0"+minute;
++		second	= (second > 9)	? second	: "0"+second;
++		
++		//YYYY-MM-DD HH:MM:SSZ
++		return (""+year+"-"+month+"-"+day+" "+hour+":"+minute+":"+second+"Z");  
++	},
++	
++	getNextStart: function(){
++		var nextStart = false;
++		if(this.customSyncSchedule){
++			if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++				// only do this if we're not doing an initial sync from accounts app
++				if(!(this.client.transport && this.client.transport.initialSync)){
++					var timeMachine = new Date(this.advSyncReq.endtime);
++					var hrs, mins, startTS, stopTS, now = (new Date()).getTime();
++					
++					hrs = timeMachine.getUTCHours();
++					mins = timeMachine.getUTCMinutes();
++					timeMachine.setTime(now);
++					timeMachine.setHours(hrs);
++					timeMachine.setMinutes(mins);
++					stopTS = timeMachine.getTime();
++					timeMachine.setTime(this.advSyncReq.starttime);
++					hrs = timeMachine.getUTCHours();
++					mins = timeMachine.getUTCMinutes();
++					timeMachine.setTime(now);
++					timeMachine.setHours(hrs);
++					timeMachine.setMinutes(mins);
++					startTS = timeMachine.getTime();
++					if(parseInt(this.advSyncReq.endtime,10) <= parseInt(this.advSyncReq.starttime,10)){
++						//start after end, subtract a day from start
++						startTS = startTS - 86400000;
++						timeMachine.setTime(startTS);
++						timeMachine.setHours(hrs);
++						timeMachine.setMinutes(mins);
++						startTS = timeMachine.getTime();
++					}
++					console.error("CustomSyncStart start: " + (timeMachine.setTime(startTS) && timeMachine.toString()) + ", now: " + (timeMachine.setTime(now) && timeMachine.toString()) + ", stop: "+ (timeMachine.setTime(stopTS) && timeMachine.toString()+" "+ this.client.clientId) );
++					if(!(now < stopTS && now >= startTS)){
++						if(now < startTS){
++							timeMachine.setTime(startTS);
++							nextStart = this.getUTCDateString(timeMachine);
++						} else {//next day compensate for daylight savings
++							timeMachine.setTime(startTS + 86400000);
++							timeMachine.setHours(hrs);
++							timeMachine.setMinutes(mins);
++							nextStart = this.getUTCDateString(timeMachine);
++						}
++						if(timeMachine.getTime() < now){
++							// safety check
++							// if scheduled start is before now
++							// it will start immediately, resulting in infinite loop
++							// so add another day
++							var aday = timeMachine.getTime() + 86400000;
++							timeMachine.setTime(aday);
++							timeMachine.setHours(hrs);
++							timeMachine.setMinutes(mins);
++							nextStart = this.getUTCDateString(timeMachine);
++						}
++						console.error("CustomSyncStart schedule starting at: " + nextStart +" "+ this.client.clientId);
++						return nextStart;
++					} else {
++						console.error("CustomSyncStart schedule in sync window continuing sync "+ this.client.clientId);
++					}
++				} else {
++					console.error("CustomSyncStart schedule initial sync in process "+ this.client.clientId);
++				}
++			} else {
++				console.error("CustomSyncStart schedule, bad start and stop times "+ this.client.clientId);
++			}
++		}
++		return nextStart;
++	},
++	
++	getTweakedReqs: function(update){
++		this.customSyncSchedule = false;
++		var req = {};
++		var oldReqs = this.oldReqs;
++		var serviceName = this.controller.service.name;
++		//var defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, false /*battery*/, "20m" /*0d0h20m0s*/, false/*charging*/, false /*docked*/];
++		if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
++			if(serviceName.indexOf("calendar") !== -1 || (serviceName.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
++				// calendars or contacts "on" as well
++				if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++					this.customSyncSchedule = true;
++				}
++				if(this.advSyncReq.wifi === true && this.advSyncReq.wan === true){
++					//both on, best to remove the requirements as this is AND not an OR
++					if(update && oldReqs && oldReqs.wifi){
++						req.wifi = false;
++					}
++					if(update && oldReqs && oldReqs.wan){
++						req.wan = false;
++					}
++				} else {
++					if(!!this.advSyncReq.wifi){
++						req.wifi = true;
++					} else if(update && oldReqs && oldReqs.wifi){
++						req.wifi = false;
++					}
++					if(!!this.advSyncReq.wan){
++						req.wan = true;
++					} else if(update && oldReqs && oldReqs.wan){
++						req.wan = false;
++					}
++				}
++				if(parseInt(this.advSyncReq.battery, 10) > 0){
++					req.battery = parseInt(this.advSyncReq.battery, 10);
++				} else if(update && oldReqs && oldReqs.battery){
++					req.battery = false;
++				}
++				if(!!this.advSyncReq.charging){
++					req.charging = true;
++				} else if(update && oldReqs && oldReqs.charging){
++					req.charging = false;
++				}
++				if(!!this.advSyncReq.docked){
++					req.docked = true;
++				} else if(update && oldReqs && oldReqs.docked){
++					req.docked = false;
++				}
++			} else if(serviceName.indexOf("contacts") !== -1 && this.advSyncReq.contacts === false){
++				if(update && oldReqs && oldReqs.battery){
++					req.battery = false;
++				}
++				//req.interval = (serviceName.indexOf("facebook") === -1 ? "20m" : "24h");
++				if(update && oldReqs && oldReqs.docked){
++					req.docked = false;
++				}
++				if(update && oldReqs && oldReqs.charging){
++					req.charging = false;
++				}
++				if(update && oldReqs && oldReqs.wan){
++					req.wan = false;
++				}
++				if(update && oldReqs && oldReqs.wifi){
++					req.wifi = false;
++				}
++			}
++		} else {
++			//must set defaults in case it was previously on
++			if(update && oldReqs && oldReqs.battery){
++				req.battery = false;
++			}
++			//req.interval = (serviceName.indexOf("facebook") === -1 ? "20m" : "24h");
++			if(update && oldReqs && oldReqs.docked){
++				req.docked = false;
++			}
++			if(update && oldReqs && oldReqs.charging){
++				req.charging = false;
++			}
++			if(update && oldReqs && oldReqs.wan){
++				req.wan = false;
++			}
++			if(update && oldReqs && oldReqs.wifi){
++				req.wifi = false;
++			}
++		}
++		req.internetConfidence = "fair";
++		
++		return req;
++	},
++	
++	getAdvConfigReq: function () {
++		var timeMachine = new Date(2000, 0, 1, 0, 0, 0, 0);
++		timeMachine.setHours(7);
++		var start = timeMachine.getTime();
++		timeMachine.setHours(18);
++		var end = timeMachine.getTime();
++		var accountId = this.client.clientId,
++		serviceId = this.controller.service.name,
++		serviceAssistant = this.controller.service.assistant,
++		name = this.controller.config.name,
++		map = ["onoff", "contacts","wifi","wan","battery","interval", "charging", "docked", "syncallday", "starttime", "endtime"],
++		defaults = [false /*onoff*/, false /*contacts*/, false /*wifi*/, false /*cell*/, false /*battery*/, "20m" /*0d0h20m0s*/, false/*charging*/, false /*docked*/, true /*all day*/, start, end];
++		
++		this.advSyncReq ={};
++		this.useTweaksReq = false;
++		this.customSyncSchedule = false;
++		
++		if(this.controller.args && this.controller.args.$activity){
++			if(this.controller.args.$activity.trigger &&  this.controller.args.$activity.trigger.returnValue===true){
++				serviceAssistant._EditOnSyncFired[this.client.clientId] = true;
++			} else {
++				serviceAssistant._EditOnSyncFired[this.client.clientId] = false;
++			}
++			if(this.controller.args.$activity.requirements !== undefined){
++				this.oldReqs = this.controller.args.$activity.requirements;
++			} else {
++				this.oldReqs = {};
++			}
++		}
++		if(serviceId.indexOf("facebook") !== -1){
++			defaults[5] = "24h";
++		}
++		
++		var future = new Future();
++		Utils.error("Adv config req start .... " + serviceId + ", name: " +name + ",account: " + accountId);
++		var inner = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
++							"get",
++									{owner: "google-first-sync",
++									keys: ["advancedSyncEnabled", "syncStringField"], subscribe:false}
++		);
++		
++		future.nest(inner).then(this, function gotTweaks(inner) {
++			var reqs = {}, result, exception;
++			
++			Utils.error("in got tweaks synccommand old reqs: " + JSON.stringify(this.oldReqs));
++
++			try{
++				//Utils.error("Get tweaks results????");
++				result = inner.result;
++				exception = inner.exception;
++				//Utils.error("TWEAKS adv req results: " + (result && JSON.stringify(result)) );
++				//Utils.error("TWEAKS call started result: " + JSON.stringify(future.result) );
++				//Utils.error("TWEAKS call exception: " + JSON.stringify(future.exception) );
++				if(result && result.returnValue === true) {
++					this.useTweaksReq = !!result.advancedSyncEnabled;
++					if(result.syncStringField && result.syncStringField !== ""){
++						reqs = JSON.parse(result.syncStringField);
++						for(var prop in reqs){
++							if(reqs.hasOwnProperty(prop) && reqs[prop] !== undefined && accountId === prop){
++								var opt;
++								if(reqs[prop] && reqs[prop].length === defaults.length){
++									for(var i=0;i<defaults.length;i++){
++										opt = reqs[prop][i];
++										if(opt !== undefined && opt !== null && opt !== ""){
++											this.advSyncReq[map[i]] = opt;
++										} else {
++											this.advSyncReq[map[i]] = defaults[i];
++										}
++									}
++								}
++								Utils.error("TWEAKS adv req results: " + prop + ",values: " + JSON.stringify(this.advSyncReq) );
++								break;
++							}
++						}
++						if(this.useTweaksReq && this.advSyncReq && this.advSyncReq.onoff === true){
++							if(serviceId.indexOf("calendar") !== -1 || (serviceId.indexOf("contacts") !== -1 && this.advSyncReq.contacts === true) ){
++								if(this.advSyncReq.syncallday === false && !isNaN(this.advSyncReq.starttime) && !isNaN(this.advSyncReq.endtime) ){
++									this.customSyncSchedule = true;
++								}
++							}
++						}
++					}
++				}
++				
++				inner.result = true;
++				//return (useReq && {useReq: useReq, reqs: reqs});
++			} catch(error) {
++				//Utils.error("in Get tweaks::: error ");
++				console.error("failed to read TWEAKS advanced requirements" + JSON.stringify(error && error.message));
++				inner.result = true;
++			}
++		});
++		return future;
++	},
+ 
+ 	initialize: function()
+ 	{
+@@ -155,6 +437,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			capabilityFuture;
+ 		
+ 		serviceAssistant._syncInProgress 	= serviceAssistant._syncInProgress || {};
++		serviceAssistant._EditOnSyncFired 	= serviceAssistant._EditOnSyncFired || {};
+ 
+ 		// determine if the account capability is enabled for this transport
+ 		try {
+@@ -162,9 +445,16 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		} catch(e) {
+ 			console.error("Error fetching capabilityProviderId from client");
+ 		}
+-
++		console.error("sync arguments trigger: "+JSON.stringify((this.controller.args && this.controller.args.$activity)));
++		
+ 		if (capabilityId) {
+-			capabilityFuture = PalmCall.call("palm://com.palm.service.accounts/", "getAccountInfo", {"accountId": this.client.clientId}); 
++			capabilityFuture = this.getAdvConfigReq();
++			
++			capabilityFuture.then(this, function(){
++				var result = capabilityFuture.result;
++				
++				return PalmCall.call("palm://com.palm.service.accounts/", "getAccountInfo", {"accountId": this.client.clientId}); 
++			});
+ 			
+ 			capabilityFuture.then(this, function(accountDataFuture) {
+ 				var isEnabled = false,
+@@ -185,7 +475,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			});
+ 		} else {
+ 			console.error("CapabilityId is empty, allowing sync to continue");
+-			capabilityFuture = new Future(true);
++			capabilityFuture = this.getAdvConfigReq(); //new Future(true);
+ 		}
+ 
+ 		capabilityFuture.then(this, function() {
+@@ -210,7 +500,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 			}
+ 			else if (serviceAssistant._syncInProgress[this.client.clientId])
+ 			{
+-				console.log("Sync activity already in progress, ignoring sync request");
++				console.error("Sync activity already in progress, ignoring sync request");
+ 				future.result={returnValue:true, result:"sync already in progress"};
+ 			}
+ 			else if (this.controller.args.$activity &&  this.controller.args.$activity.trigger &&  this.controller.args.$activity.trigger.returnValue===false) {
+@@ -248,12 +538,13 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		var details = PalmCall.call("palm://com.palm.activitymanager", "getDetails", {"activityName": name}).then(this, function(future) {
+ 			// got it - return details
+ 			future.result = future.result.activity;
++			console.error("Query for 'Periodic Sync' found activity: " +JSON.stringify(future.result.activityId));
+ 		},
+ 		function(future) {
+ 			// error - create activity
+ 			var error = future.exception;
+ 			if (error.errorCode === 2) {
+-				console.log("Periodic Sync Activity not found, re-creating it");
++				console.error("Periodic Sync Activity not found, re-creating it");
+ 			} else {
+ 				console.error("Error getting details for Sync Activity, re-creating it: " + error);
+ 			}
+@@ -280,6 +571,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				else {
+ 					interval = future.result;
+ 				}
++				interval = this.getTweakedInterval(interval);
+ 				var requiresInternet;
+ 				var requirements;
+ 				if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
+@@ -295,17 +587,34 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 					console.error("=== Default answer is 'true' - internet is required ===");
+ 					requiresInternet = true;
+ 				}
+-				requirements = (requiresInternet) ? { internetConfidence: "fair" } : undefined;
++				requirements = this.getTweakedReqs(false);
+ 				var args = { accountId: this.client.clientId };
+-				var activity = new Foundations.Control.Activity(name, "Periodic Sync", true)
+-					.setScheduleInterval(interval)
+-					.setUserInitiated(false)
+-					.setExplicit(true)
+-					.setPersist(true)
+-					.setReplace(true)
+-					.setRequirements(requirements)
+-					.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
+-				return activity.start();
++				var activityMethod = "create";
++				var activityArgs = {
++					"start": true,
++					"replace": true,
++					"schedule": {"interval": interval},
++					"activity": {
++						"name": name,
++						"description": "Periodic Sync",
++						"type": {
++							"persist": true,
++							"immediate": true,
++							"priority": "low",
++							"explicit":true,
++							"power":true
++						},
++						"requirements": requirements,
++						"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++					}
++				};
++				console.error("Find periodic error create act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements) +", sched: "+interval);
++				return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++						var result = inner.result;
++						console.error("Find periodic error, create result: " + JSON.stringify(result));
++						return result;
++						})
++					);
+ 			});
+ 		});
+ 		return details;
+@@ -338,6 +647,124 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	complete: function(activity) {
+ 		console.log("Completing activity "+activity.name);
+ 		
++		//custom sync logic
++		if(this.customSyncSchedule){
++			var nextStart = this.getNextStart();
++			if(nextStart){
++				var schedule, future = new Future();
++				//we complete whatever just fired, then schedule the Custom sync restart
++				var innerCS = activity.complete().then(this, function(innerCS) {
++							Utils.error("CustomSyncStart previos sync complete succeeded, result = "+ this.client.clientId+" "+JSON.stringify(innerCS.result));
++							innerCS.result=true;
++						},
++						function(innerCS) {
++							//causes bug where database sync types are crossed
++							console.error("CustomSyncStart previos sync FAILED, exception = "+JSON.stringify(innerCS.exception));
++							//ignoring error try to establish database watch
++							innerCS.result=true;
++						}
++					);
++				
++				future.nest(innerCS).then(this, function(future){
++					var r = future.result;
++					schedule = {"start": nextStart};
++					var name = "CustomSyncStart:"+this.controller.service.name + ":" + this.client.clientId; 
++					var requiresInternet;
++					var requirements;
++					
++					if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
++						try {
++							requiresInternet = this.client.requiresInternet();
++						} catch (e) {
++							logError("requiresInternet", e);
++							requiresInternet = true;
++						}
++					} else {
++						console.error("=== No requiresInternet function in client for "+this.controller.service.name +" ===");
++						console.error("=== Default answer is 'true' - internet is required ===");
++						requiresInternet = true;
++					}
++					var getDetailsArgs = {"activityName" : name};
++					var needToRestart, actId, innerCustom = PalmCall.call("palm://com.palm.activitymanager/", "getDetails", getDetailsArgs);
++					
++					future.nest(innerCustom).then(this, function(innerCustom){
++						var result;
++						
++						try{
++							var error = innerCustom.exception;
++							result = innerCustom.result;
++						} catch(e){  console.error("Complete query for CustomSyncStart not found "+ this.client.clientId);}
++						if(result && result.activity && result.returnValue === true){
++							console.error("Complete query for CustomSyncStart found activityId: "+ this.client.clientId +" " +result.activity.activityId);
++							// found the CustomSyncStart, we should complete and restart and update the trigger
++							needToRestart = true;
++							actId = result.activity.activityId;
++						}
++						innerCustom.result = true; 
++					});
++					
++					future.then(this, function(future){
++						try{
++							var result = future.result;
++						}catch(e4){console.error("restarting CustomSyncStart error "+ this.client.clientId);}
++						
++						var serviceAssistant = this.controller.service.assistant;
++						//console.error("In CustomSyncStart serviceAssistant._syncInProgress:"+this.client.clientId+ " , " + serviceAssistant._syncInProgress[this.client.clientId]);
++						
++						requirements = this.getTweakedReqs(!!(needToRestart && actId));
++						var args = { accountId: this.client.clientId };
++						
++						if(needToRestart && actId){
++							var activityMethod = "complete";
++							var activityArgs = {
++								"activityId": actId,
++								"restart": true,
++								"schedule": schedule,
++								"requirements": requirements
++							};
++							console.error("CustomSyncStart restarting, name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++
++							return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++								var result = inner.result;
++								console.error("in Complete, CustomSyncStart restarting result: "+ this.client.clientId+" " + JSON.stringify(result));
++								return result;
++								})
++							);
++							
++						} else {
++							var activityMethod = "create";
++							var activityArgs = {
++								"start": true,
++								"replace": true,
++								"activity": {
++									"name": name,
++									"description": "Custom Sync Start",
++									"type": {
++										"persist": true,
++										"immediate": true,
++										"priority": "low",
++										"power":true
++										//"explicit":true
++									},
++									"schedule": schedule,
++									"requirements": requirements,
++									"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++								}
++							};
++							console.error("CustomSyncStart create name: "+ name + ", activityArgs: " + JSON.stringify(activityArgs));
++							return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++								var result = inner.result;
++								console.error("In CustomSyncStart, CustomSyncStart creating result: " + this.client.clientId+" "+ JSON.stringify(result));
++								return result;
++								})
++							);
++						}
++					});
++					this.recreateActivitiesOnComplete = false;
++				});
++				return future;
++			}
++		}
+ 		// this.recreateActivitiesOnComplete will be set to false when
+ 		// the sync command is run while the capability is disabled
+ 		// This is a little messy
+@@ -353,28 +780,140 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				var restart=false;
+ 				syncActivity = future.result;
+ 				if (activity._activityId === syncActivity.activityId) {
+-					console.log("Periodic sync. Restarting activity");
++					console.log("Periodic sync. Restarting activityId: " + syncActivity.activityId);
+ 					restart=true;
++					var requirements = this.getTweakedReqs(true);
++					var def = this.controller.service.name.indexOf("facebook") === -1 ? "20m" : "24h";
++					var sched = this.getTweakedInterval(def);
+ 				} else {
+-					console.log("Not periodic sync. Completing activity");
++					console.log("Not periodic sync. Completing activity ");
+ 				}
+ 				if(this._hadLocalRevisionError) {
+ 					restart = true;
+ 					this._hadLocalRevisionError = false;
+ 				}
+-				if (this._error && this._error.message.indexOf("httpRequest error") != -1) {
++				if (this._error && this._error.message && this._error.message.indexOf("httpRequest error") != -1) {
+ 					networkError=true;
+ 					this.retryNetworkError(activity);
+ 				}
+-				return activity.complete(restart);
+-			}).then(function(future) {
+-				Utils.debug("Complete succeeded, result = "+JSON.stringify(future.result));
++				if(restart && syncActivity.activityId && syncActivity.name === this.getPeriodicSyncActivityName() ){
++					if(syncActivity.type && (syncActivity.type.background || !syncActivity.type.power)){
++						//fix to make them immediate, but low priority
++						var inner = activity.complete().then(this, function(inner) {
++									Utils.error("tweak periodic complete succeeded, result = "+ this.client.clientId+" "+JSON.stringify(inner.result));
++									inner.result=true;
++								},
++								function(inner) {
++									//causes bug where database sync types are crossed
++									console.error("tweak periodic FAILED, exception = "+JSON.stringify(inner.exception));
++									//ignoring error try to establish database watch
++									inner.result=true;
++								}
++							);
++						
++						future.nest(inner).then(this, function(future){
++							var r = future.result;
++							var name = this.getPeriodicSyncActivityName();
++							var inner2;
++							if (this.client.getSyncInterval && typeof this.client.getSyncInterval === 'function') {
++								try {
++									inner2 = this.client.getSyncInterval();
++								} catch (e) {
++									logError("getSyncInterval", e);
++									inner2 = new Future("24h");
++								}
++							} else {
++								console.error("=== No getSyncInterval function in client for "+this.controller.service.name +" ===");
++								console.error("=== Default sync interval is 24 hours ===");
++								inner2 = new Future("24h");
++							}
++							future.nest(inner2).then(this, function(future) {
++								//ToDo: merge this with implementation in EnableAccoutCommand
++								var interval;
++								if (future.exception) {
++									console.error("Error in client.getSyncInterval, assuming syncInterval 24h "+ this.client.clientId);
++									interval="24h";
++								} 
++								else {
++									interval = future.result;
++								}
++								interval = this.getTweakedInterval(interval);
++								var requiresInternet;
++								var requirements;
++								if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
++									try {
++										requiresInternet = this.client.requiresInternet();
++									}
++									catch (_) {
++										console.error("client error in requiresInternet");
++										requiresInternet=true;
++									}
++								} else {
++									console.error("=== No requiresInternet function in client for "+this.controller.service.name +" ===");
++									console.error("=== Default answer is 'true' - internet is required ===");
++									requiresInternet = true;
++								}
++								requirements = this.getTweakedReqs(false);
++								var args = { accountId: this.client.clientId };
++								var activityMethod = "create";
++								var activityArgs = {
++									"start": true,
++									"replace": true,
++									"schedule": {"interval": interval},
++									"activity": {
++										"name": name,
++										"description": "Periodic Sync",
++										"type": {
++											"persist": true,
++											"immediate": true,
++											"priority": "low",
++											"explicit":true,
++											"power":true
++										},
++										"requirements": requirements,
++										"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++									}
++								};
++								console.error("tweak replacing periodic with act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements));
++								return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner3){
++										var result = inner3.result;
++										console.error("tweak periodic, create result: " + this.client.clientId+" "+ JSON.stringify(result));
++										return result;
++										})
++									);
++						
++							});
++							//future.result 
++						});
++					} else {
++						var activityMethod = "complete";
++						var activityArgs = {
++							"activityId": syncActivity.activityId,
++							"restart": true,
++							"schedule": {interval: sched},
++							"requirements": requirements
++						};
++						console.error("Periodic sync. set requirements: " + JSON.stringify(requirements) + ", schedule: " + sched);
++						return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++									var result = inner.result;
++									console.error("Complete periodic sync, restart result: "+ this.client.clientId+" " + JSON.stringify(result));
++									return result;
++									})
++							);
++					}
++				} else {
++					return activity.complete(restart);
++				}
++			}).then(this, function(future) {
++				Utils.debug("Complete succeeded, result = "+ this.client.clientId +" "+JSON.stringify(future.result));
+ 				future.result=true;
+ 			},
+ 			function(future) {
+-				console.log("Complete FAILED, exception = "+JSON.stringify(future.exception));
+-				future.result=false;
++				console.error("Complete FAILED, exception = "+JSON.stringify(future.exception));
++				//ignoring error try to establish database watch
++				future.result=true;
+ 			}).then(this, function(future) {
++				
+ 				if (future.result) {
+ 					// TODO: Set up one of these for each synced kind...
+ 					if (this._local2remoteTransformer) { // if we can up-sync, set up a watch to kick of sync on edit
+@@ -382,6 +921,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 						var name = "SyncOnEdit:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand
+ 						var requiresInternet;
+ 						var requirements;
++						//console.error("sync complete results: " + JSON.stringify(future));
+ 						if (this.client.requiresInternet && typeof this.client.requiresInternet === 'function') {
+ 							try {
+ 								requiresInternet = this.client.requiresInternet();
+@@ -394,31 +934,110 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 							console.error("=== Default answer is 'true' - internet is required ===");
+ 							requiresInternet = true;
+ 						}
+-						requirements = (requiresInternet) ? { internetConfidence: "fair" } : undefined;
+-						var queryParams = {
+-							"query":{
+-								"from":this._kind,
+-								"where":[
+-									{"prop":"accountId", "op":"=", "val":this.client.transport.accountId},
+-									{"prop":"_rev", "op":">", "val": rev}
+-								],
+-								incDel: true
+-							},
+-							"subscribe": true
+-						};
+-						var args = { accountId: this.client.clientId };
+-						var activity = new Foundations.Control.Activity(name, "Sync On Edit", true)
+-							.setUserInitiated(false)
+-							.setExplicit(true)
+-							.setPersist(true)
+-							.setReplace(true)
+-							.setRequirements(requirements)
+-							.setTrigger("fired", "palm://com.palm.db/watch", queryParams)
+-							.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
+-						return activity.start();
++						var getDetailsArgs = {"activityName" : name};
++						var needToRestart, actId, inner1 = PalmCall.call("palm://com.palm.activitymanager/", "getDetails", getDetailsArgs);
++						
++						future.nest(inner1).then(this, function(inner1){
++							var result;
++							
++							try{
++								var error = inner1.exception;
++								result = inner1.result;
++							} catch(e){  console.error("Complete query for synconedit not found"+ this.client.clientId);}
++							if(result && result.activity && result.returnValue === true){
++								console.error("Complete query for synconedit found activityId: "+ this.client.clientId +" : " +result.activity.activityId);
++								// found the sync on edit, we should complete and restart and update the trigger
++								needToRestart = true;
++								actId = result.activity.activityId;
++							}
++							inner1.result = true; 
++						});
++						
++						future.then(this, function(future){
++							try{
++								var result = future.result;
++							}catch(e4){console.error("restarting synconedit error"+ this.client.clientId);}
++							
++							var serviceAssistant = this.controller.service.assistant;
++							//console.error("In sync on edit serviceAssistant._syncInProgress:"+this.client.clientId+ " , " + serviceAssistant._syncInProgress[this.client.clientId]);
++							if(!serviceAssistant._syncInProgress[this.client.clientId]){
++								requirements = this.getTweakedReqs(!!(needToRestart && actId));
++								var queryParams = {
++									"query":{
++										"from":this._kind,
++										"where":[
++											{"prop":"accountId", "op":"=", "val":this.client.transport.accountId},
++											{"prop":"_rev", "op":">", "val": rev}
++										],
++										incDel: true
++									},
++									"subscribe": true
++								};
++								var args = { accountId: this.client.clientId };
++								
++								if(needToRestart && actId){
++									var activityMethod = "complete";
++									var activityArgs = {
++										"activityId": actId,
++										"restart": true,
++										"requirements": requirements,
++										"trigger": {"method": "palm://com.palm.db/watch", key:"fired", params: queryParams},
++										
++									};
++									//only here if it was a periodic sync and the sync on edit exists
++									//if there were changes, sync on edit might have already fired
++									//don't complete it if it already fired
++									if(!serviceAssistant._EditOnSyncFired[this.client.clientId]){
++										console.error("DBwatch trigger restarting, rev: " + rev + ", act: "+ this.client.clientId + ", requirements: " + JSON.stringify(requirements));
++										return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++											var result = inner.result;
++											console.error("in Complete, dbwatch restarting result: "+ this.client.clientId+" " + JSON.stringify(result));
++											return result;
++											})
++										);
++									} else {
++										//SyncOnEdit already fired just set good result
++										console.error("second check for SyncOnEdit -- already running "+ this.client.clientId);
++										future.result = true;
++									}
++								} else {
++									var activityMethod = "create";
++									var activityArgs = {
++										"start": true,
++										"replace": true,
++										
++										"activity": {
++											"name": name,
++											"description": "Sync On Edit",
++											"type": {
++												"persist": true,
++												"immediate": true,
++												"priority": "low",
++												"power":true
++												//"explicit":true
++											},
++											"requirements": requirements,
++											"trigger": {"method": "palm://com.palm.db/watch", key:"fired", params: queryParams},
++											"callback": {method:"palm://" + this.controller.service.name + "/"+this.controller.config.name, params: args}
++										}
++									};
++									console.error("DBwatch trigger "+ (activityMethod === "complete"? "restarting" : activityMethod)+", rev: " + rev + ", name: "+ name + ", requirements: " + JSON.stringify(requirements));
++									return future.nest(PalmCall.call("palm://com.palm.activitymanager", activityMethod, activityArgs).then(this, function(inner){
++										var result = inner.result;
++										console.error("In complete, dbwatch creating result: "+ this.client.clientId+" " + JSON.stringify(result));
++										return result;
++										})
++									);
++								}
++							} else {
++								//SyncOnEdit already fired just set good result
++								console.error("In sync on edit restart step, is SyncOnEdit already running "+ this.client.clientId);
++								future.result = true;
++							}
++						});
+ 					}
+ 				}
+-				future.result=true;
++				return future;
+ 			});
+ 			return details;
+ 		}
+@@ -426,14 +1045,14 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 	
+ 	retryNetworkError: function(activity) {
+ 		var retryCount=0;
+-		console.log("Creating retry activity");
++		console.error("Creating retry activity");
+ 		// This should really get parsed in at command startup
+ 		if (this.controller.args.$activity && this.controller.args.$activity.metadata  && this.controller.args.$activity.metadata.retryCount) {
+ 			retryCount = this.controller.args.$activity.metadata.retryCount;
+-			console.log("Retry count is "+retryCount);
++			console.error("Retry count is "+retryCount);
+ 		}
+ 		if (retryCount < this.getMaxSyncRetries()) {
+-			console.log("Network error detected, restarting activity after " + this.getSyncRetryInterval(retryCount));
++			console.error("Network error detected, restarting activity after " + this.getSyncRetryInterval(retryCount));
+ 			var name = "SyncRetry:"+this.controller.service.name + ":" + this.client.clientId;
+ 			var requiresInternet;
+ 			var requirements;
+@@ -449,7 +1068,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				console.error("=== Default answer is 'true' - internet is required ===");
+ 				requiresInternet = true;
+ 			}
+-			requirements = (requiresInternet) ? { internetConfidence: "fair" } : undefined;
++			requirements = this.getTweakedReqs(false);
+ 			var args = { accountId: this.client.clientId };
+ 			var retryActivity = new Foundations.Control.Activity(name, "SyncRetry", true)
+ 				.setUserInitiated(false)
+@@ -462,7 +1081,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
+ 			return retryActivity.start();
+ 		} else {
+-			console.log(">>>Too many retries, giving up for now.");
++			console.error(">>>Too many retries, giving up for now.");
+ 		}
+ 	},
+ 	
+@@ -526,9 +1145,9 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		__enter: function()
+ 		{
+ 			this._kindName=this._syncOrder[this._kindIndex];
+-			console.log(">>> kindName="+this._kindName);
++			Utils.debug(">>> kindName="+this._kindName);
+ 			this._kind=this._syncObjects[this._kindName].id;
+-			console.log(">>> kind="+JSON.stringify(this._kind));
++			Utils.debug(">>> kind="+JSON.stringify(this._kind));
+ 
+ 			try {
+ 				this._remote2localTransformer = this.getTransformer("remote2local", this._kindName);
+@@ -562,7 +1181,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		__enter: function()
+ 		{
+ 			try {
+-				console.log("getMoreRemoteChanges");
++				Utils.debug("getMoreRemoteChanges");
+ 				this.getRemoteChanges(this._remoteState, this._kindName).then(this._gotReply);
+ 			} catch (e) {
+ 				logError("getRemoteChanges", e);
+@@ -1296,7 +1915,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 
+ 			//TODO: NOV-111365: before we clear the sync status, we need to check to see if it's a recoverable network error,
+ 			//		in which case we should retry the sync (based on a retry count provided by the sync engine)
+-			
++
+ 			this.client.syncStatusMgr.clearSyncStatus().then(this, function (join) {
+ 				join.getResult();
+ 
+@@ -1331,7 +1950,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 		urlObject,
+ 		hashPhoto = MD5(JSON.stringify( photo ));
+ 		
+-	console.log("SyncCommand.fetchPhoto: "+hashPhoto);
++	Utils.debug("SyncCommand.fetchPhoto: "+hashPhoto);
+ 	future.now(function () {
+ 		if (typeof require === 'undefined') {
+ 			require = IMPORTS.require;
+@@ -1349,7 +1968,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 				if (exists)
+ 				{
+ 					fs.closeSync(exists);
+-					console.log("fetchPhoto: photo already exists: " + photo.localPath);
++					Utils.debug("fetchPhoto: photo already exists: " + photo.localPath);
+ 					return new Future({
+ 						skippedInsert: true,
+ 						path: photo.localPath
+@@ -1383,7 +2002,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 		
+ 		var result = future.result,
+ 			path = future.result.pathName;
+-		console.log("insert into filecache: "+ path +" :hash: "+hashPhoto);
++		Utils.debug("insert into filecache: "+ path +" :hash: "+hashPhoto);
+ 		if (result.skippedInsert) {
+ 			return result.path;
+ 		}
+@@ -1413,7 +2032,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 		ajaxCallFuture.then(function () {
+ 			var status = ajaxCallFuture.result.status;
+ 
+-			console.log("File finished downloading - (" + count + "): " + hashPhoto);
++			Utils.debug("File finished downloading - (" + count + "): " + hashPhoto);
+ 
+ 			// close the file we had open
+ 			fs.closeSync(file);
+@@ -1439,7 +2058,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 			});
+ 			resizeFuture.then(function () {
+ 				resizeFuture.getResult();
+-				console.log("resize filecache, hash: " + hashPhoto);
++				Utils.debug("resize filecache, hash: " + hashPhoto);
+ 				//cancel the subscription we had open with the filecache so that it will save the object
+ 				PalmCall.cancel(cacheInsertFuture);
+ 				haveCanceledSubscription = true;
+@@ -1459,7 +2078,7 @@ SyncCommand.fetchPhoto = function( photo, headers )
+ 
+ 	future.then(function () {
+ 		try {
+-			console.log("fetchPhoto: image copied to file cache: " + JSON.stringify(future.result) +", hash: "+hashPhoto);
++			Utils.debug("fetchPhoto: image copied to file cache: " + JSON.stringify(future.result) +", hash: "+hashPhoto);
+ 			return future.result;
+ 		} catch(e) {
+ 			logError("fetchPhoto", e);
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/handlers/synchandler.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/handlers/synchandler.js
+index 1eb528b..fbc7dd2 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/handlers/synchandler.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/83/javascript/handlers/synchandler.js
+@@ -138,7 +138,7 @@ exports.SyncHandler = function(kinds)
+ 			//console.log(">>>getChangedObjects rev="+rev+", kind="+JSON.stringify(name));
+ 			function getChanged(object_kind) {
+ 				return function(future) {
+-					console.log(">>>getChanged object_kind: "+object_kind+", _rev: "+rev);
++					//console.log(">>>getChanged object_kind: "+object_kind+", _rev: "+rev);
+ 					future.nest(this.find({ from: object_kind, where: [{ prop: "accountId", op: "=", val: this.command.client.clientId},{ prop: "_rev", op: ">", val: rev }], incDel: true}).then(this, function(future2)
+ 					{
+ 						if (future2.exception) {
+@@ -218,13 +218,13 @@ exports.SyncHandler = function(kinds)
+ 					count++;
+ 				}
+ 			});
+-			console.log(">>>>>putObjects, count="+count);
++			//console.log(">>>>>putObjects, count="+count);
+ 			// Get the ids
+ 			var f = this.reserveIds(count);
+ 			
+ 			f.then(function(future)
+ 			{
+-				console.log("return from reserveIds()");
++				//console.log("return from reserveIds()");
+ 				var ids = future.result;
+ 				var i = 0;
+ 				// Create an array of items we need to save and delete, and allocate new ids
+@@ -253,14 +253,14 @@ exports.SyncHandler = function(kinds)
+ 			
+ 			f.then(function(future)
+ 			{
+-				console.log("return from del()");
++				//console.log("return from del()");
+ 				var result = future.result;
+ 				f.nest(scope.put(saved));
+ 			});
+ 			
+ 			f.then(function(future)
+ 			{
+-				console.log("return from put()");
++				//console.log("return from put()");
+ 				var result = future.result;
+ 				future.result = {
+ 					"put": result,
+@@ -364,7 +364,7 @@ exports.SyncHandler = function(kinds)
+ 			// find the account
+ 			function delKind(kind) {
+ 				return function(future) {
+-					console.log("delKind: "+kind);
++					//console.log("delKind: "+kind);
+ 					// delete objects via merge so we can set the _del property AND preventSync
+ 					// preventSync:true is an indicator that the object was deleted as a result of disabling the account
+ 					// this is used in synchandler.js to avoid upsyncing these deletes!
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-index b47ecac..7b9cc25 100644
+index b47ecac..beb0673 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-@@ -28,6 +28,36 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+@@ -28,7 +28,13 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
  		},
  
  		setup: function setup(service, accountId, launchConfig, launchArgs) {
-+			try{
-+				Config.syncWindowMonthsAfter = 48; 
-+				Config.syncWindowMonthsBefore = 12;
-+				Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
-+				var configFuture = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
-+						"get",
-+								{owner: "google-first-sync",
-+								keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"]}
-+						);
-+				configFuture.then(Config, function(future)
-+						{ var result = future.result;
-+							if(result.returnValue === true) {
-+								if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
-+									Utils.error("TWEAKS preferences before sync: " + result.syncWindowMonthsBefore);
-+									Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
-+								}
-+								if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
-+									Utils.error("TWEAKS preferences after sync: " + result.syncWindowMonthsAfter);
-+									Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
-+								}
-+								future.result = {returnValue: true};
-+							} else{
-+								Config.syncWindowMonthsAfter = 48;
-+								Config.syncWindowMonthsBefore = 12;
-+								Utils.error("failed to read TWEAKS preferences no result" + stringify(result));
-+							}
-+						});
-+			} catch(e) {Utils.error("failed to read TWEAKS no service preferences");}
-+			Utils.error("google sync start preferences: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
+-			var future = this._getAccount(accountId);
 +			
- 			var future = this._getAccount(accountId);
++			//var future = this._getAccount(accountId);
++
++			Config.syncWindowMonthsAfter = 48; 
++			Config.syncWindowMonthsBefore = 12;
++			
++			var future = this._goTweaks(accountId);
  			
  			future.then(this, function finishSetup() {
+ 				var account = future.result,
+@@ -84,6 +90,50 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+ 			
+ 			return future;
+ 		},
++		
++		_goTweaks: function(Id){
++			//Utils.error("in Get tweaks ");
++			var future = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
++							"get",
++									{owner: "google-first-sync",
++									keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"], subscribe:false}
++							);
++		
++			future.then(this, function readTweaks() {
++				//Utils.error("in Read tweaks ");
++				var result;
++				try{
++					//Utils.error("Get tweaks results????");
++					result = future.result;
++					Utils.error("TWEAKS call started: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++					//Utils.error("TWEAKS call started result: " + stringify(future.result) );
++					//Utils.error("TWEAKS call exception: " + stringify(future.exception) );
++					if(result && result.returnValue === true) {
++						if(result.syncWindowMonthsBefore && parseInt(result.syncWindowMonthsBefore,10) >= 1 && parseInt(result.syncWindowMonthsBefore,10) <= 60) {
++							Utils.error("TWEAKS preference: before sync = " + result.syncWindowMonthsBefore);
++							Config.syncWindowMonthsBefore = parseInt(result.syncWindowMonthsBefore,10);
++						}
++						if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
++							Utils.error("TWEAKS preference: after sync = " + result.syncWindowMonthsAfter);
++							Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
++						}
++					}
++					future.result= true;
++				} catch(error) {
++					//Utils.error("in Get tweaks::: error ");
++					Utils.error("failed to read TWEAKS preferences no result" + stringify(error && error.message));
++				}
++				future.result= true;
++			});
++			
++			future.then(this, function(){
++				var result = future.result;
++				//Utils.error("in Get tweaks::: then again ");
++				return this._getAccount(Id);
++			});
++			
++			return future;
++		},
+ 
+ 		_getAccount: function (id) {
+ 			var future = DB.find({
+diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
+index fc9ea0b..f54fb05 100644
+--- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
++++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/syncassistant.js
+@@ -98,12 +98,14 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			if (transform) {
+ 				transformer = new Json.Transformer(transform);
+ 				return function (to, from) {
+-					Utils.log("\n-->> Transforming " + (from.title && from.title.$t) + " (" + to.accountId + ") " + " (" + direction + ")");
++					Utils.debug("\n-->> Transforming " + (from.title && from.title.$t) + " (" + to.description + ") " + " (" + direction + ")");
+ 					// Utils.log("\n-->> To: " + stringify(to));
+ 					// Utils.log("\n-->> From: " + stringify(from));
+ 					// Utils.log("\n-->> Transform: " + stringify(transform));
+ 					from.to = to;
+ 					var t = transformer.transformAndMerge(to, from);
++					Utils.debug("\n-->> Transforming t:" + stringify(t));
++					Utils.debug("\n-->> Transforming t.rrule:" + (t ? stringify(t.rrule) : t));
+ 					Utils.debug("\n-->> Transformed " + (from.title && from.title.$t)); // + ": " + stringify(t));
+ 					return t;
+ 				};
+@@ -484,11 +486,13 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 					// modified since we last down-synced, and the server
+ 					// always wins.
+ 					Utils.debug(">>> _filterRemoteEventChangeList(): lEvent: " + stringify(lEvent));
++					Utils.debug(">>> _filterRemoteEventChangeList(): lEvent: " + (lEvent && stringify(lEvent.rrule)));
+ 					if (lEvent.etag === rEvent.getEtag()) {
+ 						// The ETAG hasn't changed, so we don't want to down-sync
+ 						// the event.
++						Utils.debug(">>> _filterRemoteEventChangeList(): skipping down-sync for " + (lEvent.description || rEvent.title && rEvent.title.$t));
+ 						ridMap[lEvent.remoteId] = undefined;
+-						Utils.debug(">>> _filterRemoteEventChangeList(): skipping down-sync for " + lEvent.remoteId);
++						//Utils.debug(">>> _filterRemoteEventChangeList(): skipping down-sync for " + lEvent.remoteId);
+ 					} else if (this.isDeleted(rEvent, Kinds.objects.calendarevent.name) && lEvent.exdates && lEvent.exdates.length) {
+ 						// This is a parent event being deleted; we need to generate
+ 						// deletion entries for each of the children
+@@ -688,7 +692,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 			calendar.deletedChildren = (calendar.deletedChildren || []).concat(deletedChildren);
+ 
+ 			if (!more) {
+-				Utils.log("\n\n----->>>>> All entries fetched for calendar " + calendar.name);
++				Utils.debug("\n\n----->>>>> All entries fetched for calendar " + calendar.name);
+ 				this.query = undefined;
+ 				this._curCalendarIndex += 1;
+ 				if (this._curCalendarIndex < this._calendarEntries.length) {
+@@ -948,7 +952,7 @@ var SyncAssistant = Class.create(Sync.SyncCommand, {
+ 							remoteCalendarEvent: calendarEventEntry
+ 						};
+ 					}), mapFuture.callback(that, function (error) {
+-						if (error.cause.status === 404) {
++						if (error && error.cause && error.cause.status === 404) {
+ 							// Get the local event
+ 							return DB.find({
+ 								from: Kinds.objects.calendarevent.id,
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-index b7c3668..4e02fb0 100644
+index b7c3668..813e008 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 @@ -44,8 +44,10 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
@@ -56,6 +1148,15 @@ index b7c3668..4e02fb0 100644
  			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
  
  			if (update) {
+@@ -93,7 +95,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			}
+ 		}
+ 
+-		Utils.log("\n\n---->>>> Feed entries count: " + feedEntries.length);
++		Utils.debug("\n\n---->>>> Feed entries count: " + feedEntries.length);
+ 		// Utils.log("---->>>> Modifying entries: " + stringify(calendar.modifyingEntries));
+ 
+ 		return {
 @@ -127,8 +129,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			query.setUpdatedMin(startDate);
  			query.setUpdatedMax(endDate);
@@ -63,7 +1164,7 @@ index b7c3668..4e02fb0 100644
 -			Utils.debug("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
 +			Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
  		} else {
-+			Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
++			//Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
  			if (lastModTime) {
  				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
  			} else {
@@ -76,6 +1177,15 @@ index b7c3668..4e02fb0 100644
  		}
  	}
  
+@@ -216,7 +219,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			future.then(function (join) {
+ 				var queryResult = join.getResult();
+ 
+-				Utils.log("--->>> Query result count: " + queryResult.count);
++				Utils.debug("--->>> Query result count: " + queryResult.count);
+ 
+ 				startIndex += queryResult.count;
+ 				if (!queryResult.count) {
 @@ -238,7 +241,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  						if (!queryResult.error) {
  							// If the fetch didn't succeed, leave the existing fetch time to use next
@@ -147,7 +1257,7 @@ index 4f28b56..d284285 100644
 +	return escString.replace(/(")/g, "\"");
  };
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
-index f97c32d..87b9636 100644
+index f97c32d..12a39db 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/transforms.js
 @@ -167,11 +167,11 @@ function transformAttendee(participant) {
@@ -165,15 +1275,46 @@ index f97c32d..87b9636 100644
  	}
  
  	attendee.email = attendeeEmail;
+@@ -243,7 +243,7 @@ Transforms = {
+ 				
+ 				var recurrence = from.parsedRecurrence || Transforms.parseRecurrence(from);
+ 				if (recurrence) {
+-					// Utils.log("\n\n---->>>> transformed rrule: " + stringify(recurrence));
++					 Utils.debug("\n\n---->>>> transformed rrule: " + stringify(recurrence));
+ 					Utils.debug("\n\n---->>>> Recurrence exceptions: " + stringify(from.getRecurrenceException()));
+ 				}
+ 
+@@ -258,7 +258,7 @@ Transforms = {
+ 				//    when the user remove the recurrence from server).
+ 				
+ 				if(recurrence && recurrence.rrule) {
+-					Utils.debug("\n\n---->>>> has rrule");
++					Utils.debug("\n\n---->>>> has rrule: " + stringify(recurrence.rrule));
+ 					return (recurrence && recurrence.rrule)
+ 				} else if (from.exdates && from.exdates.length) {
+ 					Utils.debug("\n\n---->>>> undefined rrule, use existing rrule");
+@@ -643,7 +643,7 @@ Transforms = {
+ 
+ Transforms.parseRecurrence = function parseRecurrence(obj) {
+ 	var recurStr = obj && obj.getRecurrence();
+-	// Utils.log("\n\n\n---->>>> recurStr: " + stringify(recurStr));
++	 Utils.debug("\n\n\n---->>>> recurStr: " + stringify(recurStr));
+ 	recurStr = recurStr && recurStr.getValue();
+ 	if (recurStr) {
+ 		// Utils.log("\n\n\n---->>>> recurStr.getValue(): " + stringify(recurStr));
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
-index 1d5adac..4c548ca 100644
+index 1d5adac..26247c9 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/utils/xhr.js
-@@ -61,7 +61,7 @@ var XMLHttpRequest = Class.create({
+@@ -59,9 +59,9 @@ var XMLHttpRequest = Class.create({
+ 			/*jslint eqeqeq: false */
+ 			if (this.status != 412) {	// Implicit string to int conversion OK here
  				/*jslint eqeqeq: true */
- 				Utils.log("\n\n\n--->>> send called. post body: " + postBody + "");
- 				Utils.log("--->>> method: " + this.httpMethod + ", url: " + this.url + ", options: " + stringify(this.options));
+-				Utils.log("\n\n\n--->>> send called. post body: " + postBody + "");
+-				Utils.log("--->>> method: " + this.httpMethod + ", url: " + this.url + ", options: " + stringify(this.options));
 -				Utils.log("\n\n\n--->>> status: " + this.result.status);
++				Utils.debug("\n\n\n--->>> send called. post body: " + postBody + "");
++				Utils.debug("--->>> method: " + this.httpMethod + ", url: " + this.url + ", options: " + stringify(this.options));
 +				Utils.error("\n\n\n--->>> status: " + this.result.status);
  				Utils.debug("\n--->>> responseText: " + this.result.responseText + " \n");
  				Utils.debug("\n--->>> responseJSON: " + this.result.responseJSON + " \n");
