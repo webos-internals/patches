@@ -1,0 +1,110 @@
+diff --git a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
+index 87b6e88..c731755 100644
+--- a/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
++++ b/usr/palm/frameworks/mojoservice.transport.sync/submission/77/javascript/commands/synccommand.js
+@@ -232,21 +232,42 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 		var name = "Periodic Sync:"+this.controller.service.name + ":" + this.client.clientId; //TODO: clean this up here and in EnableAccountCommand - started by adding syncactivityhelper.js
+ 		return name;
+ 	},
++	
++	getTweaksConfig: function() {
++		var patchId = "tweakable-pimsync-frequency";
++		var serviceSyncIntervalKey = "syncInterval-" + this.controller.service.name;
++		
++		var type = serviceSyncIntervalKey.indexOf("contacts") >= 0 ? "contacts" : "calendar";
++		var wifiOnlyKey = "wifiOnly-" + type;
++		var minBatteryKey = "minBattery-" + type;
++		
++		var keys = [wifiOnlyKey, minBatteryKey, serviceSyncIntervalKey];
++		
++		var details = PalmCall.call("palm://org.webosinternals.tweaks.prefs", "get",
++										{owner: patchId, keys: keys}).then(this, function(future) {
++			future.result = {
++				// NOTE: interval *must* be a valid smart interval as defined by com.palm.activitymanager docs
++				// "Interval must be a number of days<n>d, or one of: 12h, 6h, 3h, 1h, 20m, 30m, 15m, 10m or 5m"
++				syncInterval: future.result[serviceSyncIntervalKey] || undefined,
++				wifiOnly: future.result[wifiOnlyKey] || false,
++				minBattery: future.result[minBatteryKey] || undefined
++			};
++		});
++		
++		return details;
++	},
+ 
+ 	getPeriodicSyncActivity: function() {
+ 		var name = this.getPeriodicSyncActivityName();
+-		var details = PalmCall.call("palm://com.palm.activitymanager", "getDetails", {"activityName": name}).then(this, function(future) {
+-			// got it - return details
+-			future.result = future.result.activity;
+-		},
+-		function(future) {
+-			// error - create activity
+-			var error = future.exception;
+-			if (error.errorCode === 2) {
+-				console.log("Periodic Sync Activity not found, re-creating it");
+-			} else {
+-				console.error("Error getting details for Sync Activity, re-creating it: " + error);
++		var details = this.getTweaksConfig().then(this, function(future) {
++			var tweaksConfig = {};
++			
++			try {
++				tweaksConfig = future.result;
++			} catch (e) {
++				console.error("error connecting to tweaks service");
+ 			}
++			
+ 			var inner;
+ 			if (this.client.getSyncInterval && typeof this.client.getSyncInterval === 'function') {
+ 				try {
+@@ -286,13 +307,31 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 					requiresInternet = true;
+ 				}
+ 				requirements = (requiresInternet) ? { internetConfidence: "fair" } : undefined;
++				
++				// Adjust for tweaks
++				console.log("Sync tweaks: " + JSON.stringify(tweaksConfig));
++				
++				if (tweaksConfig.syncInterval) {
++					// NOTE: interval *must* be a valid smart interval as defined by com.palm.activitymanager docs
++					interval = tweaksConfig.syncInterval;
++				}
++				
++				if (tweaksConfig.minBattery) {
++					requirements.battery = tweaksConfig.minBattery;
++				}
++						
++				if (tweaksConfig.wifiOnly) {
++					requirements.wifi = true;
++				}
++				
+ 				var args = { accountId: this.client.clientId };
+-				var activity = new Foundations.Control.Activity(name, "Periodic Sync", true)
++				var activity = new Foundations.Control.Activity(name, "Periodic Sync" + (tweaksConfig ? " (Tweaked)" : ""), true)
+ 					.setScheduleInterval(interval)
+ 					.setUserInitiated(false)
+ 					.setExplicit(true)
+ 					.setPersist(true)
+ 					.setReplace(true)
++					.setPower(true) // prevent narcolepsy
+ 					.setRequirements(requirements)
+ 					.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
+ 				return activity.start();
+@@ -344,7 +383,9 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 				syncActivity = future.result;
+ 				if (activity._activityId === syncActivity.activityId) {
+ 					console.log("Periodic sync. Restarting activity");
+-					restart=true;
++					//restart=true;
++					// Prevent replacing newly-created activity
++					return new Future(true);
+ 				} else {
+ 					console.log("Not periodic sync. Completing activity");
+ 				}
+@@ -398,6 +439,7 @@ var SyncCommand = exports.SyncCommand = Class.create(Transport.Command,
+ 							.setExplicit(true)
+ 							.setPersist(true)
+ 							.setReplace(true)
++							.setPower(true) // prevent narcolepsy
+ 							.setRequirements(requirements)
+ 							.setTrigger("fired", "palm://com.palm.db/watch", queryParams)
+ 							.setCallback("palm://" + this.controller.service.name + "/"+this.controller.config.name, args);
