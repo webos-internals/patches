@@ -1,0 +1,53 @@
+diff --git a/usr/palm/applications/com.palm.app.browser/source/URLSearch.js b/usr/palm/applications/com.palm.app.browser/source/URLSearch.js
+index af5952e..de624a7 100644
+--- a/usr/palm/applications/com.palm.app.browser/source/URLSearch.js
++++ b/usr/palm/applications/com.palm.app.browser/source/URLSearch.js
+@@ -17,6 +17,7 @@ enyo.kind({
+ 	components: [
+ 		{name: "bookmarksService", kind: "DbService", method: "search", dbKind: "com.palm.browserbookmarks:1", onSuccess: "gotBookmarksData", onFailure: "finishShowSearchResults"},
+ 		{name: "historyService", kind: "DbService", method: "search", dbKind: "com.palm.browserhistory:1", onSuccess: "gotHistoryData", onFailure: "finishShowSearchResults"},			
++		{name: "suggestSearch", kind: "WebService", onSuccess: "gotSearchSuggestion", onFailure: "endSearchSuggestion", headers: {"Content-Type": "application/json", "Connection": "close"}, timeout: 3000},		
+ 		{name: "address", kind: "AddressInput", flex: 1, hint: $L("Enter URL or search terms"),
+ 			onInputChange: "startSearch",
+ 			onGo: "go",
+@@ -117,6 +118,30 @@ enyo.kind({
+ 	},
+ 	gotHistoryData: function(inSender, inResponse) {
+ 		this._searchResults = this._searchResults.concat(inResponse.results);
++		if (this._searchResults.length >= this.maxSearchResults) {
++			this.finishShowSearchResults();
++		} else {
++			this.fetchSearchSuggestions();
++		}
++	},
++	fetchSearchSuggestions: function() {
++		if (this.searchPreferences[0].suggestURL) {
++			var suggestStr = enyo.macroize(this.searchPreferences[0].suggestURL, {query: this.$.address.getUserInput(true)});
++			this.$.suggestSearch.setUrl(suggestStr);
++			this.$.suggestSearch.call();
++		}
++	},
++	gotSearchSuggestion: function(inSender, inResponse) {
++		if (inResponse[0] && inResponse[0] == this.$.address.getUserInput()) {
++			var suggestItems = inResponse[1] || [];
++			var providerIconPath = this.searchPreferences[0].iconFilePath;
++			for (var i=0;i < suggestItems.length && this._searchResults.length < this.maxSearchResults;i++) {
++				this._searchResults.push({title: suggestItems[i], url: enyo.macroize(this.searchPreferences[0].url, {query: suggestItems[i]}), iconFile32: providerIconPath});
++			}
++		}
++		this.endSearchSuggestion();
++	},
++	endSearchSuggestion: function(inSender, inResponse) {
+ 		if(this._searchResults.length > 0) {
+ 			this.$.popDivider.show();
+ 		} else {
+@@ -127,7 +152,8 @@ enyo.kind({
+ 	searchPreferencesChanged: function() {
+ 		for (var i=0,s;s=this.searchPreferences[i];i++) {
+ 			var url = s.url.replace(/\#\{searchTerms\}/, "{$query}");
+-			enyo.mixin(s, {url: url});
++			var suggestURL = s.suggestURL.replace(/\#\{searchTerms\}/, "{$query}");
++			enyo.mixin(s, {url: url, suggestURL: suggestURL});
+ 		}
+ 	},
+ 	defaultSearchChanged: function() {
