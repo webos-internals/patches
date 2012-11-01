@@ -1,5 +1,5 @@
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
-index 9e9c2da..bdf03cb 100644
+index 9e9c2da..cd7bfb3 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/app-assistant.js
 @@ -119,6 +119,9 @@ var AppAssistant = Class.create (
@@ -12,24 +12,25 @@ index 9e9c2da..bdf03cb 100644
  		else if (launchParams.alarmDeleted){
  			Mojo.Log.info("========= AA: closing by event ids "+JSON.stringify(launchParams.alarmDeleted));
  			this.reminderManager.closeRemindersByEventId(launchParams.alarmDeleted);
-@@ -253,6 +256,31 @@ var AppAssistant = Class.create (
+@@ -253,6 +256,32 @@ var AppAssistant = Class.create (
  			}
  			
  			if(launchParams.quickLaunchText){
 +				var datetxt, loc, subject, end, evt, fmt, fmtm, fmtl, dtStr, dt, parts = [], str = launchParams.quickLaunchText.toString();
 +				parts = str.split(";");
++				var UcDate =this.getUcDateParser();
 +				if(parts && parts.length >0){
 +					loc = ((parts.length > 0) && parts[2]) ? parts[2] : "";
 +					datetxt = ((parts.length > 0) && parts[1]) ? parts[1] : "";
-+					dt = !!datetxt ? Date.parse(datetxt) : "";
++					dt = !!datetxt ? UcDate.parse(datetxt) : "";
 +					dt = (!!datetxt && (dt === null || dt === "")) ? Date.parse(datetxt): dt;
 +					dt = ((dt === null) || (dt==="") || (dt && isNaN(dt.getTime()))) ? "" : dt.getTime();
 +					
 +					subject = ((parts.length > 0) && parts[0]) ? parts[0] : params.quickLaunchText;
-+					//console.error("quicktext :::::: " + subject);
-+					//console.error("quicktext :::::: " + datetxt);
-+					//console.error("quicktext :::::: " + dt);
-+					//console.error("quicktext :::::: " + loc);
++					//console.error("quicktext :::::: " + (UcDate.CultureInfo && JSON.stringify(UcDate.CultureInfo.name)));
++					//console.error("quicktext :::::: " + (Date.CultureInfo && JSON.stringify(Date.CultureInfo.name)));
++					//console.error("quicktext is leap year:::::: " + Object.keys(UcDate.CultureInfo.abbreviatedTimeZoneStandard));
++					//console.error("quicktext :::::: " + Date.parse(datetxt));
 +					if(dt !== "" && !(isNaN(dt))){
 +						var prefs = this.prefsManager.getPrefs();
 +						end = parseInt(prefs.defaultEventDuration,10)*60*1000 + dt;
@@ -44,7 +45,7 @@ index 9e9c2da..bdf03cb 100644
  				//for quick launch text, we don't save first, we just launch straight into edit view with the given subject
  				var start = new Date();
  				if(start.minutes > 30){
-@@ -401,7 +429,7 @@ var AppAssistant = Class.create (
+@@ -401,7 +430,7 @@ var AppAssistant = Class.create (
  		
  		if(response.results && response.results.length > 0){
  			var item = response.results[0];
@@ -53,7 +54,7 @@ index 9e9c2da..bdf03cb 100644
  		}
  		
  	},
-@@ -487,8 +515,36 @@ var AppAssistant = Class.create (
+@@ -487,8 +516,36 @@ var AppAssistant = Class.create (
  				}.bind(this)
  			});
  		} else {
@@ -91,7 +92,7 @@ index 9e9c2da..bdf03cb 100644
  		}
  	},
  
-@@ -566,6 +622,133 @@ var AppAssistant = Class.create (
+@@ -566,6 +623,133 @@ var AppAssistant = Class.create (
  		return (""+year+"-"+month+"-"+day+" "+hour+":"+minute+":"+second+"Z");  
  	},
  	
@@ -225,7 +226,1061 @@ index 9e9c2da..bdf03cb 100644
  	setupDayChangeTimer: function() {
  		if(Mojo.Host.current === Mojo.Host.mojoHost) {
  			return;
-@@ -881,6 +1064,9 @@ var AppAssistant = Class.create (
+@@ -858,6 +1042,1053 @@ var AppAssistant = Class.create (
+ 	stopObservingTimeFormat: function (sceneName) {
+ 		this.timeFormatObservers.unset(sceneName);
+ 	},
++	
++	getUcDateParser: function(){
++		var cusDate, dTimeHash, formatHash;
++		cusDate = new Date();
++		dTimeHash = Mojo.Format.getDateTimeHash();
++		formatHash = Mojo.Format.getFormatHash()
++		if(!(dTimeHash && formatHash)){
++			//just use default
++			cusDate.parse = Date.parse;
++			return cusDate;
++		}
++		//cusDate.prototype = Object.create(Date.prototype);
++		cusDate.CultureInfo = JSON.parse(JSON.stringify(Date.CultureInfo));
++		var defRegExp = Date.CultureInfo.regexPatterns;
++		//region formatting
++		var CI = cusDate.CultureInfo;
++		if(dTimeHash && formatHash){
++			CI.name = Mojo.Locale.getCurrentLocale();
++			CI.dayNames = dTimeHash["long"].day ? dTimeHash["long"].day.slice(0) : CI.dayNames;
++			var cleanArr = [], hArr = dTimeHash["medium"].day ? dTimeHash["medium"].day.slice(0): CI.abbreviatedDayNames;
++			for(var i=0;i<hArr.length;i++){
++				cleanArr.push(hArr[i].replace(/(\.$|\s$|^\s)/g,""));
++			}
++			CI.abbreviatedDayNames = cleanArr.slice(0);
++			var cleanArr = [], hArr =  dTimeHash["short"].day ? dTimeHash["short"].day.slice(0): CI.shortestDayNames;
++			for(var i=0;i<hArr.length;i++){
++				cleanArr.push(hArr[i].replace(/(\.$|\s$|^\s)/g,""));
++			}
++			CI.shortestDayNames =cleanArr.slice(0);
++			CI.firstLetterDayNames = dTimeHash["single"].day ? dTimeHash["single"].day.slice(0):CI.firstLetterDayNames;
++			CI.monthNames = dTimeHash["long"].month ? dTimeHash["long"].month.slice(0): CI.monthNames;
++			var cleanArr = [], hArr = dTimeHash["medium"].month ? dTimeHash["medium"].month.slice(0) : CI.abbreviatedMonthNames;
++			for(var i=0;i<hArr.length;i++){
++				cleanArr.push(hArr[i].replace(/(\.$|\s$|^\s)/g,""));
++			}
++			CI.abbreviatedMonthNames = cleanArr.slice(0);
++			CI.amDesignator = dTimeHash["am"];
++			CI.pmDesignator = dTimeHash["pm"];
++			CI.firstDayOfWeek = !isNaN(formatHash["firstDayOfWeek"]) ? formatHash["firstDayOfWeek"] : CI.firstDayOfWeek;
++			CI.dateElementOrder = formatHash["dateFieldOrder"] ? formatHash["dateFieldOrder"]: CI.dateElementOrder;
++			CI.formatPatterns.shortDate = formatHash["shortDate"] ? formatHash["shortDate"]: CI.formatPatterns.shortDate;
++			if(formatHash["fullDate"]){
++				var mod = formatHash["fullDate"].replace(/E/g,"d");
++				CI.formatPatterns.longDate = mod;
++			}
++			CI.formatPatterns.shortTime = formatHash["is12HourDefault"]?formatHash["shortTime12"]&&formatHash["shortTime12"].replace("a","tt"):formatHash["shortTime24"] && formatHash["shortTime24"].replace("a","tt");
++			CI.formatPatterns.longTime = formatHash["is12HourDefault"]?formatHash["fullTime12"]&&formatHash["fullTime12"].replace("a","tt"):formatHash["fullTime24"] && formatHash["fullTime24"].replace("a","tt");
++			//CI.formatPatterns.fullDateTime = formatHash["shortDate"];
++			CI.formatPatterns.monthDay = (formatHash["longDate"].replace(/y*/g,"")).replace(/\s*$/,"");
++			CI.formatPatterns.yearMonth = (formatHash["longDate"].replace(/d*/g,"")).replace(/^\s*/,"");
++			//regex 
++			function transRegE(word, shrt, med, lng){
++				var part = false, whole;
++				if(word){
++					whole = $L(word);
++					if(whole === word){
++						return false;
++					}
++					if(shrt !== undefined && !isNaN(parseInt(shrt,10))){
++						part = whole.length > shrt ? whole.substring(0,shrt) + "("+whole.substring(shrt) +")?":whole;
++						return part;
++					} else {
++						part = whole.length > 4 ? whole.substring(0,4) + "("+whole.substring(4) +")?" : whole;
++						return part;
++					}
++				} else {
++					var doMed, doLong, cleanS, cleanM, cleanL;
++					if( !(isNaN(parseInt(shrt,10)) && !!shrt) && !(!!med && isNaN(parseInt(med,10))) && !(!!lng && isNaN(parseInt(lng,10))) ){
++						//no short, no med, no long
++						return false;
++					}
++					if(isNaN(parseInt(shrt,10)) && !!shrt) {//short
++						cleanS = (shrt.toLowerCase()).replace(/(\.$|\s$|^\s)/g,"");
++						if(!!med && isNaN(parseInt(med,10))){//short,med
++							cleanM = (med.toLowerCase()).replace(/(\.$|\s$|^\s)/g,"");
++							if(!!lng && isNaN(parseInt(lng,10))){//short, med, long
++								cleanL = (lng.toLowerCase()).replace(/(\.$|\s$|^\s)/g,"");
++							}
++						} else if(!!lng && isNaN(parseInt(lng,10)) ){// short, no med, long
++							cleanM = (lng.toLowerCase()).replace(/(\.$|\s$|^\s)/g,"");
++						}
++					} else if(!(isNaN(shrt) && !!shrt) && (!!med && isNaN(parseInt(med,10))) ){// no short, med
++						cleanS = (med.toLowerCase()).replace(/(\.$|\s$|^\s)/g,"");
++						if(!!lng && isNaN(parseInt(lng,10))){// no short, med, long
++							cleanM = (lng.toLowerCase()).replace(/(\.$|\s$|^\s)/g,"");
++						}
++					} else if(!!lng && isNaN(parseInt(lng,10)) ){// no short or med, long
++						cleanS = (lng.toLowerCase()).replace(/(\.$|\s$|^\s)/g,"");
++					}
++					if(!!cleanS){ //should always be a cleanS, unless the entry is "." was " "
++						if(!!cleanM && cleanS !== cleanM && cleanM.length > cleanS.length && cleanM.indexOf(cleanS) === 0){
++							doMed = cleanM.substring(cleanS.length);
++							if(!!doMed){// med ok
++								if(!!cleanL && cleanS !== cleanL && cleanL.length > cleanS.length && cleanL.indexOf(cleanS) === 0){
++									doLong = cleanL.substring(cleanS.length);
++								}
++								if(!!doLong && doLong !== doMed && doLong.length > doMed.length && doLong.indexOf(doMed) === 0){
++									doLong = doLong.substring(doMed.length);
++									if(!!doLong){//long ok
++										part = cleanS+"("+doMed+"("+doLong+")?)?";
++										
++									} else {//no long
++										part = cleanS+"("+doMed+")?";
++									}
++								} else { // no long
++									part = cleanS+"("+doMed+")?";
++								}
++							} else { // no med
++								if(!!cleanL && cleanS !== cleanL && cleanL.length > cleanS.length && cleanL.indexOf(cleanS) === 0){
++									doLong = cleanL.substring(cleanS.length);
++								}
++								if(!!doLong){//long ok
++									part = cleanS+"("+doLong+")?";
++								} else {//no long
++									part = cleanS.length > 4 ? cleanS.substring(0,4) + "("+cleanS.substring(4) +")?" : cleanS;
++								}
++							}
++							return part;
++						} else { //short, but no med ?long
++							if(!!cleanL && cleanS !== cleanL && cleanL.length > cleanS.length && cleanL.indexOf(cleanS) === 0){
++								doLong = cleanL.substring(cleanS.length);
++							}
++							if(!!doLong){//long ok
++								part = cleanS+"("+doLong+")?";
++							} else {//no long
++								part = cleanS.length > 4 ? cleanS.substring(0,4) + "("+cleanS.substring(4) +")?" : cleanS;
++							}
++						}
++					}
++					return part;
++				}
++			}
++			var regE = CI.regexPatterns = {
++					millisecond: /^(ms|milli(second)?s?)/i,
++					second: /^sec(ond)?s?/i,
++					minute: /^min(ute)?s?/i,
++					hour: /^h(ou)?rs?/i,
++					week: /^w(ee)?k/i,
++					month: /^m(o(nth)?s?)?/i,
++					day: /^d(ays?)?/i,
++					year: /^y((ea)?rs?)?/i,
++					
++					shortMeridian: /^(a|p)/i,
++					longMeridian: /^(a\.?m?\.?|p\.?m?\.?)/i,
++					timezone: /^((e(s|d)t|c(s|d)t|m(s|d)t|p(s|d)t)|((gmt)?\s*(\+|\-)\s*\d\d\d\d?)|gmt)/i,
++					ordinalSuffix: /^\s*(st|nd|rd|th)/i,
++					timeContext: /^\s*(\:|a|p)/i
++				};
++			regE.future = transRegE("next") ? new RegExp("^("+transRegE("next")+"|next)", "i") : /^next/i ;
++			var lastTxt = transRegE("last") ? "^("+transRegE("last") + "|last" : "^(last";
++			lastTxt += transRegE("past") ? "|"+transRegE("past") + "|past" : "|past";
++			lastTxt += transRegE("previous") ? "|"+transRegE("previous") + "|prev(ious)?)" : "|prev(ious)?)";
++			regE.past = new RegExp(lastTxt, "i");
++			
++			lastTxt = transRegE("after") ? "^(\\+|"+transRegE("after") + "|after" : "^(\\+|after";
++			lastTxt += transRegE("from") ? "|"+transRegE("from") + "|from)" : "|from)";
++			regE.add = new RegExp(lastTxt, "i");
++			
++			lastTxt = transRegE("before") ? "^(\\-|"+transRegE("before") + "|before" : "^(\\-|before";
++			lastTxt += transRegE("ago") ? "|"+transRegE("ago") + "|ago)" : "|ago)";
++			regE.subtract = new RegExp(lastTxt, "i");
++			
++			var hashTxt = dTimeHash.relative.yesterday;
++			lastTxt = transRegE(false, hashTxt) ? "^("+transRegE(false, hashTxt) + "|yesterday)" : "^yesterday";
++			regE.yesterday = new RegExp(lastTxt, "i");
++			
++			hashTxt = dTimeHash.relative.today;
++			lastTxt = transRegE(false, hashTxt) ? "^("+transRegE(false, hashTxt) + "|t(oday)?)" : "^t(oday)?";
++			regE.today = new RegExp(lastTxt, "i");
++			
++			hashTxt = dTimeHash.relative.tomorrow;
++			lastTxt = transRegE(false, hashTxt) ? "^("+transRegE(false, hashTxt) + "|tomorrow)" : "^tomorrow";
++			regE.tomorrow = new RegExp(lastTxt, "i");
++			
++			lastTxt = transRegE("now") ? "^("+transRegE("now") + "|n(ow)?)" : "^n(ow)?";
++			regE.now = new RegExp(lastTxt, "i");
++			//days
++			var i=0, dArr = {"sun": "su(n(day)?)?", "mon": "mo(n(day)?)?", "tue": "tu(e(s(day)?)?)?", "wed": "we(d(nesday)?)?", "thu": "th(u(r(s(day)?)?)?)?", "fri": "fr(i(day)?)?", "sat": "sa(t(urday)?)?"};
++			for(var prop in dArr){
++				if(prop && dArr.hasOwnProperty(prop)){
++					var sTxt = dTimeHash["short"].day[i], mTxt = dTimeHash["medium"].day[i], lTxt = dTimeHash["long"].day[i];
++					lastTxt = (transRegE(false, sTxt, mTxt, lTxt) && (transRegE(false, sTxt, mTxt, lTxt) !== dArr[prop])) ? "^("+transRegE(false, sTxt, mTxt, lTxt) + "|"+dArr[prop]+")" : "^"+dArr[prop];
++					regE[prop] = new RegExp(lastTxt, "i");
++					i++
++				}
++			}
++			//months
++			var i=0, mArr = {jan: "jan(uary)?",feb: "feb(ruary)?",mar:"mar(ch)?", apr: "apr(il)?",may: "may",jun:"jun(e)?",jul:"jul(y)?",aug:"aug(ust)?",sep:"sep(t(ember)?)?",oct:"oct(ober)?",nov:"nov(ember)?",dec:"dec(ember)?"};
++			for(var prop in mArr){
++				if(prop && mArr.hasOwnProperty(prop)){
++					var sTxt = dTimeHash["short"].month[i], mTxt = dTimeHash["medium"].month[i], lTxt = dTimeHash["long"].month[i];
++					lastTxt = (transRegE(false, sTxt, mTxt, lTxt) && (transRegE(false, sTxt, mTxt, lTxt) !== mArr[prop])) ? "^("+transRegE(false, sTxt, mTxt, lTxt) + "|"+mArr[prop]+")" : "^"+mArr[prop];
++					regE[prop] = new RegExp(lastTxt, "i");
++					i++
++				}
++			}
++		}
++		cusDate.getMonthNumberFromName = function (name) {
++		var n = Date.CultureInfo.monthNames,
++			m = Date.CultureInfo.abbreviatedMonthNames,
++			s = name.toLowerCase();
++			for (var i = 0; i < n.length; i++) {
++				if (n[i].toLowerCase() == s || m[i].toLowerCase() == s) {
++					return i;
++				}
++			}
++			return -1;
++		};
++		
++		cusDate.getDayNumberFromName = function (name) {
++			var n = Date.CultureInfo.dayNames,
++				m = Date.CultureInfo.abbreviatedDayNames,
++				o = Date.CultureInfo.shortestDayNames,
++				s = name.toLowerCase();
++			for (var i = 0; i < n.length; i++) {
++				if (n[i].toLowerCase() == s || m[i].toLowerCase() == s) {
++					return i;
++				}
++			}
++			return -1;
++		};
++		cusDate.getWeekOfYear = function (firstDayOfWeek) {
++			var y = this.getFullYear(),
++				m = this.getMonth(),
++				d = this.getDate();
++			var dow = firstDayOfWeek || cusDate.CultureInfo.firstDayOfWeek;
++			var offset = 7 + 1 - new Date(y, 0, 1).getDay();
++			if (offset == 8) {
++				offset = 1;
++			}
++			var daynum = ((Date.UTC(y, m, d, 0, 0, 0) - Date.UTC(y, 0, 1, 0, 0, 0)) / 86400000) + 1;
++			var w = Math.floor((daynum - offset + 7) / 7);
++			if (w === dow) {
++				y--;
++				var prevOffset = 7 + 1 - new Date(y, 0, 1).getDay();
++				if (prevOffset == 2 || prevOffset == 8) {
++					w = 53;
++				} else {
++					w = 52;
++				}
++			}
++			return w;
++		};
++		cusDate.getDayName = function (abbrev) {
++			return abbrev ? cusDate.CultureInfo.abbreviatedDayNames[cusDate.getDay()] : cusDate.CultureInfo.dayNames[cusDate.getDay()];
++		};
++		cusDate.getMonthName = function (abbrev) {
++			return abbrev ? cusDate.CultureInfo.abbreviatedMonthNames[cusDate.getMonth()] : cusDate.CultureInfo.monthNames[cusDate.getMonth()];
++		};
++		cusDate._toString = Date.toString;
++		cusDate.toString = function (format) {
++			var self = cusDate;
++			var p = function p(s) {
++				return (s.toString().length == 1) ? "0" + s : s;
++			};
++			return format ? format.replace(/dd?d?d?|MM?M?M?|yy?y?y?|hh?|HH?|mm?|ss?|tt?|zz?z?/g, function (format) {
++				switch (format) {
++					case "hh":
++						return p(self.getHours() < 13 ? self.getHours() : (self.getHours() - 12));
++					case "h":
++						return self.getHours() < 13 ? self.getHours() : (self.getHours() - 12);
++					case "HH":
++						return p(self.getHours());
++					case "H":
++						return self.getHours();
++					case "mm":
++						return p(self.getMinutes());
++					case "m":
++						return self.getMinutes();
++					case "ss":
++						return p(self.getSeconds());
++					case "s":
++						return self.getSeconds();
++					case "yyyy":
++						return self.getFullYear();
++					case "yy":
++						return self.getFullYear().toString().substring(2, 4);
++					case "dddd":
++						return self.getDayName();
++					case "ddd":
++						return self.getDayName(true);
++					case "dd":
++						return p(self.getDate());
++					case "d":
++						return self.getDate().toString();
++					case "MMMM":
++						return self.getMonthName();
++					case "MMM":
++						return self.getMonthName(true);
++					case "MM":
++						return p((self.getMonth() + 1));
++					case "M":
++						return self.getMonth() + 1;
++					case "t":
++						return self.getHours() < 12 ? cusDate.CultureInfo.amDesignator.substring(0, 1) : cusDate.CultureInfo.pmDesignator.substring(0, 1);
++					case "tt":
++						return self.getHours() < 12 ? cusDate.CultureInfo.amDesignator : cusDate.CultureInfo.pmDesignator;
++					case "zzz":
++					case "zz":
++					case "z":
++						return "";
++				}
++			}) : cusDate._toString();
++		};
++		cusDate.isLeapYear = function (year) {
++			return (((year % 4 === 0) && (year % 100 !== 0)) || (year % 400 === 0));
++		};
++		cusDate.getDaysInMonth = function (year, month) {
++			return [31, (cusDate.isLeapYear(year) ? 29 : 28), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month];
++		};
++		cusDate.getTimezoneOffset = function (s, dst) {
++			return (dst || false) ? cusDate.CultureInfo.abbreviatedTimeZoneDST[s.toUpperCase()] : cusDate.CultureInfo.abbreviatedTimeZoneStandard[s.toUpperCase()];
++		};
++		cusDate.getTimezoneAbbreviation = function (offset, dst) {
++			var n = (dst || false) ? cusDate.CultureInfo.abbreviatedTimeZoneDST : cusDate.CultureInfo.abbreviatedTimeZoneStandard,
++				p;
++			for (p in n) {
++				if (n[p] === offset) {
++					return p;
++				}
++			}
++			return null;
++		};
++		cusDate._validate = function (value, min, max, name) {
++			if (typeof value != "number") {
++				throw new TypeError(value + " is not a Number.");
++			} else if (value < min || value > max) {
++				throw new RangeError(value + " is not a valid value for " + name + ".");
++			}
++			return true;
++		};
++		cusDate.validateMillisecond = function (n) {
++			return cusDate._validate(n, 0, 999, "milliseconds");
++		};
++		cusDate.validateSecond = function (n) {
++			return cusDate._validate(n, 0, 59, "seconds");
++		};
++		cusDate.validateMinute = function (n) {
++			return cusDate._validate(n, 0, 59, "minutes");
++		};
++		cusDate.validateHour = function (n) {
++			return cusDate._validate(n, 0, 23, "hours");
++		};
++		cusDate.validateDay = function (n, year, month) {
++			return cusDate._validate(n, 1, cusDate.getDaysInMonth(year, month), "days");
++		};
++		cusDate.validateMonth = function (n) {
++			return cusDate._validate(n, 0, 11, "months");
++		};
++		cusDate.validateYear = function (n) {
++			return cusDate._validate(n, 1, 9999, "seconds");
++		};
++		cusDate.now2 = function () {
++			return new Date();
++		};
++		cusDate.today = function () {
++			return cusDate.now2().clearTime();
++		};
++		
++		cusDate.Parsing = {
++				Exception: function (s) {
++					this.message = "Parse error at '" + s.substring(0, 10) + " ...'";
++				}
++		};
++		//(function () {
++			
++			var $P = cusDate.Parsing;
++			var _ = cusDate.Parsing.Operators = {
++				rtoken: function (r) {
++					return function (s) {
++						//console.error("_.rtoken " + r + ", s: "+s);
++						var mx = s.match(r);
++						if (mx) {
++							return ([mx[0], s.substring(mx[0].length)]);
++						} else {
++							throw new $P.Exception(s);
++						}
++					};
++				},
++				token: function (s) {
++					return function (s) {
++						return _.rtoken(new RegExp("^\s*" + s + "\s*"))(s);
++					};
++				},
++				stoken: function (s) {
++					return _.rtoken(new RegExp("^" + s));
++				},
++				until: function (p) {
++					return function (s) {
++						var qx = [],
++							rx = null;
++						while (s.length) {
++							try {
++								rx = p.call(this, s);
++							} catch (e) {
++								qx.push(rx[0]);
++								s = rx[1];
++								continue;
++							}
++							break;
++						}
++						return [qx, s];
++					};
++				},
++				many: function (p) {
++					return function (s) {
++						var rx = [],
++							r = null;
++						while (s.length) {
++							try {
++								r = p.call(this, s);
++							} catch (e) {
++								return [rx, s];
++							}
++							rx.push(r[0]);
++							s = r[1];
++						}
++						return [rx, s];
++					};
++				},
++				optional: function (p) {
++					return function (s) {
++						var r = null;
++						try {
++							r = p.call(this, s);
++						} catch (e) {
++							return [null, s];
++						}
++						return [r[0], r[1]];
++					};
++				},
++				not: function (p) {
++					return function (s) {
++						try {
++							p.call(this, s);
++						} catch (e) {
++							return [null, s];
++						}
++						throw new $P.Exception(s);
++					};
++				},
++				ignore: function (p) {
++					return p ? function (s) {
++						var r = null;
++						r = p.call(this, s);
++						return [null, r[1]];
++					} : null;
++				},
++				product: function () {
++					var px = arguments[0],
++						qx = Array.prototype.slice.call(arguments, 1),
++						rx = [];
++					for (var i = 0; i < px.length; i++) {
++						rx.push(_.each(px[i], qx));
++					}
++					return rx;
++				},
++				cache: function (rule) {
++					var cache = {}, r = null;
++					return function (s) {
++						try {
++							r = cache[s] = (cache[s] || rule.call(this, s));
++						} catch (e) {
++							r = cache[s] = e;
++						}
++						if (r instanceof $P.Exception) {
++							throw r;
++						} else {
++							return r;
++						}
++					};
++				},
++				any: function () {
++					var px = arguments;
++					return function (s) {
++						var r = null;
++						for (var i = 0; i < px.length; i++) {
++							if (px[i] == null) {
++								continue;
++							}
++							try {
++								r = (px[i].call(this, s));
++							} catch (e) {
++								r = null;
++							}
++							if (r) {
++								return r;
++							}
++						}
++						throw new $P.Exception(s);
++					};
++				},
++				each: function () {
++					var px = arguments;
++					return function (s) {
++						var rx = [],
++							r = null;
++						for (var i = 0; i < px.length; i++) {
++							if (px[i] == null) {
++								continue;
++							}
++							try {
++								r = (px[i].call(this, s));
++							} catch (e) {
++								throw new $P.Exception(s);
++							}
++							rx.push(r[0]);
++							s = r[1];
++						}
++						return [rx, s];
++					};
++				},
++				all: function () {
++					var px = arguments,
++						_ = _;
++					return _.each(_.optional(px));
++				},
++				sequence: function (px, d, c) {
++					d = d || _.rtoken(/^\s*/);
++					c = c || null;
++					if (px.length == 1) {
++						return px[0];
++					}
++					return function (s) {
++						var r = null,
++							q = null;
++						var rx = [];
++						for (var i = 0; i < px.length; i++) {
++							try {
++								r = px[i].call(this, s);
++							} catch (e) {
++								break;
++							}
++							rx.push(r[0]);
++							try {
++								q = d.call(this, r[1]);
++							} catch (ex) {
++								q = null;
++								break;
++							}
++							s = q[1];
++						}
++						if (!r) {
++							throw new $P.Exception(s);
++						}
++						if (q) {
++							throw new $P.Exception(q[1]);
++						}
++						if (c) {
++							try {
++								r = c.call(this, r[1]);
++							} catch (ey) {
++								throw new $P.Exception(r[1]);
++							}
++						}
++						return [rx, (r ? r[1] : s)];
++					};
++				},
++				between: function (d1, p, d2) {
++					d2 = d2 || d1;
++					var _fn = _.each(_.ignore(d1), p, _.ignore(d2));
++					return function (s) {
++						var rx = _fn.call(this, s);
++						return [[rx[0][0], r[0][2]], rx[1]];
++					};
++				},
++				list: function (p, d, c) {
++					d = d || _.rtoken(/^\s*/);
++					c = c || null;
++					return (p instanceof Array ? _.each(_.product(p.slice(0, - 1), _.ignore(d)), p.slice(-1), _.ignore(c)) : _.each(_.many(_.each(p, _.ignore(d))), px, _.ignore(c)));
++				},
++				set: function (px, d, c) {
++					d = d || _.rtoken(/^\s*/);
++					c = c || null;
++					return function (s) {
++						var r = null,
++							p = null,
++							q = null,
++							rx = null,
++							best = [
++								[], s],
++							last = false;
++						for (var i = 0; i < px.length; i++) {
++							q = null;
++							p = null;
++							r = null;
++							last = (px.length == 1);
++							try {
++								r = px[i].call(this, s);
++							} catch (e) {
++								continue;
++							}
++							rx = [
++								[r[0]], r[1]
++							];
++							if (r[1].length > 0 && !last) {
++								try {
++									q = d.call(this, r[1]);
++								} catch (ex) {
++									last = true;
++								}
++							} else {
++								last = true;
++							}
++							if (!last && q[1].length === 0) {
++								last = true;
++							}
++							if (!last) {
++								var qx = [];
++								for (var j = 0; j < px.length; j++) {
++									if (i != j) {
++										qx.push(px[j]);
++									}
++								}
++								p = _.set(qx, d).call(this, q[1]);
++								if (p[0].length > 0) {
++									rx[0] = rx[0].concat(p[0]);
++									rx[1] = p[1];
++								}
++							}
++							if (rx[1].length < best[1].length) {
++								best = rx;
++							}
++							if (best[1].length === 0) {
++								break;
++							}
++						}
++						if (best[0].length === 0) {
++							return best;
++						}
++						if (c) {
++							try {
++								q = c.call(this, best[1]);
++							} catch (ey) {
++								throw new $P.Exception(best[1]);
++							}
++							best[1] = q[1];
++						}
++						return best;
++					};
++				},
++				forward: function (gr, fname) {
++					return function (s) {
++						return gr[fname].call(this, s);
++					};
++				},
++				replace: function (rule, repl) {
++					return function (s) {
++						var r = rule.call(this, s);
++						return [repl, r[1]];
++					};
++				},
++				process: function (rule, fn) {
++					return function (s) {
++						var r = rule.call(this, s);
++						//console.error(".process " +r+ ", s: "+s);
++						return [fn.call(this, r[0]), r[1]];
++					};
++				},
++				min: function (min, rule) {
++					return function (s) {
++						var rx = rule.call(this, s);
++						if (rx[0].length < min) {
++							throw new $P.Exception(s);
++						}
++						return rx;
++					};
++				}
++			};
++			var _generator = function (op) {
++				return function () {
++					var args = null,
++						rx = [];
++					if (arguments.length > 1) {
++						args = Array.prototype.slice.call(arguments);
++					} else if (arguments[0] instanceof Array) {
++						args = arguments[0];
++					}
++					if (args) {
++						for (var i = 0, px = args.shift(); i < px.length; i++) {
++							args.unshift(px[i]);
++							rx.push(op.apply(null, args));
++							args.shift();
++							return rx;
++						}
++					} else {
++						return op.apply(null, arguments);
++					}
++				};
++			};
++			var gx = "optional not ignore cache".split(/\s/);
++			for (var i = 0; i < gx.length; i++) {
++				_[gx[i]] = _generator(_[gx[i]]);
++			}
++			var _vector = function (op) {
++				return function () {
++					if (arguments[0] instanceof Array) {
++						return op.apply(null, arguments[0]);
++					} else {
++						return op.apply(null, arguments);
++					}
++				};
++			};
++			var vx = "each any all".split(/\s/);
++			for (var j = 0; j < vx.length; j++) {
++				_[vx[j]] = _vector(_[vx[j]]);
++			}
++		//}());
++		//(function () {
++			var flattenAndCompact = function (ax) {
++				var rx = [];
++				for (var i = 0; i < ax.length; i++) {
++					if (ax[i] instanceof Array) {
++						rx = rx.concat(flattenAndCompact(ax[i]));
++					} else {
++						if (ax[i]) {
++							rx.push(ax[i]);
++						}
++					}
++				}
++				return rx;
++			};
++			cusDate.Grammar = {};
++			cusDate.Translator = {
++				hour: function (s) {
++					return function () {
++						this.hour = Number(s);
++					};
++				},
++				minute: function (s) {
++					return function () {
++						this.minute = Number(s);
++					};
++				},
++				second: function (s) {
++					return function () {
++						this.second = Number(s);
++					};
++				},
++				meridian: function (s) {
++					return function () {
++						this.meridian = s.slice(0, 1).toLowerCase();
++					};
++				},
++				timezone: function (s) {
++					return function () {
++						var n = s.replace(/[^\d\+\-]/g, "");
++						if (n.length) {
++							this.timezoneOffset = Number(n);
++						} else {
++							this.timezone = s.toLowerCase();
++						}
++					};
++				},
++				day: function (x) {
++					var s = x[0];
++					return function () {
++						this.day = Number(s.match(/\d+/)[0]);
++					};
++				},
++				month: function (s) {
++					return function () {
++						this.month = ((s.length == 3) ? cusDate.getMonthNumberFromName(s) : (Number(s) - 1));
++					};
++				},
++				year: function (s) {
++					return function () {
++						var n = Number(s);
++						this.year = ((s.length > 2) ? n : (n + (((n + 2000) < cusDate.CultureInfo.twoDigitYearMax) ? 2000 : 1900)));
++					};
++				},
++				rday: function (s) {
++					return function () {
++						switch (s) {
++							case "yesterday":
++								this.days = -1;
++								break;
++							case "tomorrow":
++								this.days = 1;
++								break;
++							case "today":
++								this.days = 0;
++								break;
++							case "now":
++								this.days = 0;
++								this.now = true;
++								break;
++						}
++					};
++				},
++				finishExact: function (x) {
++					x = (x instanceof Array) ? x : [x];
++					var now = new Date();
++					this.year = now.getFullYear();
++					this.month = now.getMonth();
++					this.day = 1;
++					this.hour = 0;
++					this.minute = 0;
++					this.second = 0;
++					for (var i = 0; i < x.length; i++) {
++						if (x[i]) {
++							x[i].call(this);
++						}
++					}
++					this.hour = (this.meridian == "p" && this.hour < 13) ? this.hour + 12 : this.hour;
++					if (this.day > cusDate.getDaysInMonth(this.year, this.month)) {
++						throw new RangeError(this.day + " is not a valid value for days.");
++					}
++					var r = new Date(this.year, this.month, this.day, this.hour, this.minute, this.second);
++					if (this.timezone) {
++						r.set({
++							timezone: this.timezone
++						});
++					} else if (this.timezoneOffset) {
++						r.set({
++							timezoneOffset: this.timezoneOffset
++						});
++					}
++					return r;
++				},
++				finish: function (x) {
++					x = (x instanceof Array) ? flattenAndCompact(x) : [x];
++					if (x.length === 0) {
++						return null;
++					}
++					for (var i = 0; i < x.length; i++) {
++						if (typeof x[i] == "function") {
++							x[i].call(this);
++						}
++					}
++					if (this.now) {
++						return new Date();
++					}
++					var today = Date.today();
++					var method = null;
++					var expression = !! (this.days != null || this.orient || this.operator);
++					if (expression) {
++						var gap, mod, orient;
++						orient = ((this.orient == "past" || this.operator == "subtract") ? -1 : 1);
++						if (this.weekday) {
++							this.unit = "day";
++							gap = (cusDate.getDayNumberFromName(this.weekday) - today.getDay());
++							mod = 7;
++							this.days = gap ? ((gap + (orient * mod)) % mod) : (orient * mod);
++						}
++						if (this.month) {
++							this.unit = "month";
++							gap = (this.month - today.getMonth());
++							mod = 12;
++							this.months = gap ? ((gap + (orient * mod)) % mod) : (orient * mod);
++							this.month = null;
++						}
++						if (!this.unit) {
++							this.unit = "day";
++						}
++						if (this[this.unit + "s"] == null || this.operator != null) {
++							if (!this.value) {
++								this.value = 1;
++							}
++							if (this.unit == "week") {
++								this.unit = "day";
++								this.value = this.value * 7;
++							}
++							this[this.unit + "s"] = this.value * orient;
++						}
++						return today.add(this);
++					} else {
++						if (this.meridian && this.hour) {
++							this.hour = (this.hour < 13 && this.meridian == "p") ? this.hour + 12 : this.hour;
++						}
++						if (this.weekday && !this.day) {
++							//console.error("finish :::: " + cusDate.getDayNumberFromName(this.weekday));
++							this.day = (today.addDays((cusDate.getDayNumberFromName(this.weekday) - today.getDay()))).getDate();
++						}
++						if (this.month && !this.day) {
++							this.day = 1;
++						}
++						return today.set(this);
++					}
++				}
++			};
++			//var _ = cusDate.Parsing.Operators,
++			var	g = cusDate.Grammar,
++				t = cusDate.Translator,
++				_fn;
++			g.datePartDelimiter = _.rtoken(/^([\s\-\.\,\/\x27]+)/);
++			g.timePartDelimiter = _.stoken(":");
++			g.whiteSpace = _.rtoken(/^\s*/);
++			g.generalDelimiter = _.rtoken(/^(([\s\,]|at|on)+)/);
++			var _C = {};
++			g.ctoken = function (keys) {
++				var fn = _C[keys];
++				if (!fn) {
++					var c = cusDate.CultureInfo.regexPatterns;
++					var kx = keys.split(/\s+/),
++						px = [];
++					for (var i = 0; i < kx.length; i++) {
++						px.push(_.replace(_.rtoken(c[kx[i]]), kx[i]));
++					}
++					fn = _C[keys] = _.any.apply(null, px);
++				}
++				return fn;
++			};
++			g.ctoken2 = function (key) {
++				return _.rtoken(cusDate.CultureInfo.regexPatterns[key]);
++			};
++			g.h = _.cache(_.process(_.rtoken(/^(0[0-9]|1[0-2]|[1-9])/), t.hour));
++			g.hh = _.cache(_.process(_.rtoken(/^(0[0-9]|1[0-2])/), t.hour));
++			g.H = _.cache(_.process(_.rtoken(/^([0-1][0-9]|2[0-3]|[0-9])/), t.hour));
++			g.HH = _.cache(_.process(_.rtoken(/^([0-1][0-9]|2[0-3])/), t.hour));
++			g.m = _.cache(_.process(_.rtoken(/^([0-5][0-9]|[0-9])/), t.minute));
++			g.mm = _.cache(_.process(_.rtoken(/^[0-5][0-9]/), t.minute));
++			g.s = _.cache(_.process(_.rtoken(/^([0-5][0-9]|[0-9])/), t.second));
++			g.ss = _.cache(_.process(_.rtoken(/^[0-5][0-9]/), t.second));
++			g.hms = _.cache(_.sequence([g.H, g.mm, g.ss], g.timePartDelimiter));
++			g.t = _.cache(_.process(g.ctoken2("shortMeridian"), t.meridian));
++			g.tt = _.cache(_.process(g.ctoken2("longMeridian"), t.meridian));
++			g.z = _.cache(_.process(_.rtoken(/^(\+|\-)?\s*\d\d\d\d?/), t.timezone));
++			g.zz = _.cache(_.process(_.rtoken(/^(\+|\-)\s*\d\d\d\d/), t.timezone));
++			g.zzz = _.cache(_.process(g.ctoken2("timezone"), t.timezone));
++			g.timeSuffix = _.each(_.ignore(g.whiteSpace), _.set([g.tt, g.zzz]));
++			g.time = _.each(_.optional(_.ignore(_.stoken("T"))), g.hms, g.timeSuffix);
++			g.d = _.cache(_.process(_.each(_.rtoken(/^([0-2]\d|3[0-1]|\d)/), _.optional(g.ctoken2("ordinalSuffix"))), t.day));
++			g.dd = _.cache(_.process(_.each(_.rtoken(/^([0-2]\d|3[0-1])/), _.optional(g.ctoken2("ordinalSuffix"))), t.day));
++			g.ddd = g.dddd = _.cache(_.process(g.ctoken("sun mon tue wed thu fri sat"), function (s) {
++				return function () {
++					//console.error("g.ddd weekday: " +s);
++					this.weekday = s;
++				};
++			}));
++			g.M = _.cache(_.process(_.rtoken(/^(1[0-2]|0\d|\d)/), t.month));
++			g.MM = _.cache(_.process(_.rtoken(/^(1[0-2]|0\d)/), t.month));
++			g.MMM = g.MMMM = _.cache(_.process(g.ctoken("jan feb mar apr may jun jul aug sep oct nov dec"), t.month));
++			g.y = _.cache(_.process(_.rtoken(/^(\d\d?)/), t.year));
++			g.yy = _.cache(_.process(_.rtoken(/^(\d\d)/), t.year));
++			g.yyy = _.cache(_.process(_.rtoken(/^(\d\d?\d?\d?)/), t.year));
++			g.yyyy = _.cache(_.process(_.rtoken(/^(\d\d\d\d)/), t.year));
++			_fn = function () {
++				return _.each(_.any.apply(null, arguments), _.not(g.ctoken2("timeContext")));
++			};
++			g.day = _fn(g.d, g.dd);
++			g.month = _fn(g.M, g.MMM);
++			g.year = _fn(g.yyyy, g.yy);
++			g.orientation = _.process(g.ctoken("past future"), function (s) {
++				return function () {
++					this.orient = s;
++				};
++			});
++			g.operator = _.process(g.ctoken("add subtract"), function (s) {
++				return function () {
++					this.operator = s;
++				};
++			});
++			g.rday = _.process(g.ctoken("yesterday tomorrow today now"), t.rday);
++			g.unit = _.process(g.ctoken("minute hour day week month year"), function (s) {
++				return function () {
++					this.unit = s;
++				};
++			});
++			g.value = _.process(_.rtoken(/^\d\d?(st|nd|rd|th)?/), function (s) {
++				return function () {
++					this.value = s.replace(/\D/g, "");
++				};
++			});
++			g.expression = _.set([g.rday, g.operator, g.value, g.unit, g.orientation, g.ddd, g.MMM]);
++			_fn = function () {
++				return _.set(arguments, g.datePartDelimiter);
++			};
++			g.mdy = _fn(g.ddd, g.month, g.day, g.year);
++			g.ymd = _fn(g.ddd, g.year, g.month, g.day);
++			g.dmy = _fn(g.ddd, g.day, g.month, g.year);
++			g.date = function (s) {
++				return ((g[cusDate.CultureInfo.dateElementOrder] || g.mdy).call(this, s));
++			};
++			g.format = _.process(_.many(_.any(_.process(_.rtoken(/^(dd?d?d?|MM?M?M?|yy?y?y?|hh?|HH?|mm?|ss?|tt?|zz?z?)/), function (fmt) {
++				if (g[fmt]) {
++					return g[fmt];
++				} else {
++					throw cusDate.Parsing.Exception(fmt);
++				}
++			}), _.process(_.rtoken(/^[^dMyhHmstz]+/), function (s) {
++				return _.ignore(_.stoken(s));
++			}))), function (rules) {
++				return _.process(_.each.apply(null, rules), t.finishExact);
++			});
++			var _F = {};
++			var _get = function (f) {
++				return _F[f] = (_F[f] || g.format(f)[0]);
++			};
++			g.formats = function (fx) {
++				if (fx instanceof Array) {
++					var rx = [];
++					//console.error("g.formats " + JSON.stringify(fx));
++					for (var i = 0; i < fx.length; i++) {
++						rx.push(_get(fx[i]));
++					}
++					return _.any.apply(null, rx);
++				} else {
++					//console.error("g.formats " + JSON.stringify(fx));
++					return _get(fx);
++				}
++			};
++			g._formats = g.formats(["yyyy-MM-ddTHH:mm:ss", "ddd, MMM dd, yyyy H:mm:ss tt", "ddd MMM d yyyy HH:mm:ss zzz", "d"]);
++			g._start = _.process(_.set([g.date, g.time, g.expression], g.generalDelimiter, g.whiteSpace), t.finish);
++			g.start = function (s) {
++				try {
++					var r = g._formats.call({}, s);
++					//console.error("cusDate.start " + JSON.stringify(s));
++					if (r[1].length === 0) {
++						return r;
++					}
++				} catch (e) {/* console.error("cusDate.start " + JSON.stringify(e)); */}
++				return g._start.call({}, s);
++			};
++		//}());
++		cusDate._parse = cusDate.parse;
++		cusDate.parse = function (s) {
++			var r = null;
++			if (!s) {
++				return null;
++			}
++			try {
++				r = cusDate.Grammar.start.call({}, s);
++			} catch (e) {
++				console.error("cusDate.parse " + JSON.stringify(e)); 
++				return null;
++			}
++			return ((r[1].length === 0) ? r[0] : null);
++		};
++		cusDate.getParseFunction = function (fx) {
++			var fn = cusDate.Grammar.formats(fx);
++			return function (s) {
++				var r = null;
++				try {
++					r = fn.call({}, s);
++				} catch (e) {
++					return null;
++				}
++				return ((r[1].length === 0) ? r[0] : null);
++			};
++		};
++		cusDate.parseExact = function (s, fx) {
++			return cusDate.getParseFunction(fx)(s);
++		};
++		
++		return cusDate;
++	},
+ 
+ 
+ 	// ** SERVICES
+@@ -881,6 +2112,9 @@ var AppAssistant = Class.create (
  	},
  	getReminderManager: function () {
  		return this.reminderManager;
@@ -2991,7 +4046,7 @@ index c581461..814740e 100644
  			}.bind (this, this.tds [this.THIS_DAY].scroller.mojo.scrollTo)
  
 diff --git a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
-index 93e05ce..08015ca 100644
+index 93e05ce..4943594 100644
 --- a/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 +++ b/usr/palm/applications/com.palm.app.calendar/app/controllers/edit-assistant.js
 @@ -14,16 +14,20 @@ var EditAssistant = Class.create({
@@ -3017,7 +4072,7 @@ index 93e05ce..08015ca 100644
  		this.targetId			= {string: targetId, id: 0};
  		this.targetModifiedTime	= {start: 0, end: 0, id: 0};
  
-@@ -40,8 +44,36 @@ var EditAssistant = Class.create({
+@@ -40,20 +44,49 @@ var EditAssistant = Class.create({
  		this.forceCommit		= forceCommit;
  		this.callBackAfterUpdate= callBackAfterUpdate;
  		this.formatter			= this.app.getFormatterService();
@@ -3054,7 +4109,10 @@ index 93e05ce..08015ca 100644
  	},
  
  	databaseChanged: function() {
-@@ -51,9 +83,10 @@ var EditAssistant = Class.create({
+ 		//Mojo.Log.info("\n\n\nedit: databaseChanged\n\n\n");
+-		if (!this.targetEvent._id) { return; }
++		if (!(this.targetEvent && this.targetEvent._id)) { return; }
+ 		this.app.db.getEvent (this.targetEvent._id, this.updateTargetEvent, this.updateTargetEvent);
  	},
  
  	updateTargetEvent: function (response) {
