@@ -1,0 +1,343 @@
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+index 46c3d51..34e7436 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/chatview-assistant.js
+@@ -221,12 +221,13 @@ var ChatviewAssistant = Class.create({
+ 			visible: true
+ 		};
+ 		
+-		this.appMenuAddPictureItem = {
++		/*this.appMenuAddPictureItem = {
+ 			label: $L('Attach file...'),
+ 			command: ChatviewAssistant.kMenuCmdAddPicture,
+ 			disabled: false,
+ 			visible: true
+-		};
++		};*/
++		this.appMenuAddPictureItem = {label: $L('Attach file...'), shortcut: 'p', command:'addPicture', enabled:true};
+ 
+ 		this.appMenuBlockUsernameItem = {
+ 			label: $L('Block this person'),
+@@ -316,7 +317,7 @@ var ChatviewAssistant = Class.create({
+ 			hintText: $L('Enter message here...'),
+ 			multiline: true,
+ 			focus: false,
+-			enterSubmits: true,
++			enterSubmits: false,
+ 			inputName: "messageTextElement",
+ 			className: " ",
+ 			changeOnKeyPress: true
+@@ -569,7 +570,12 @@ var ChatviewAssistant = Class.create({
+ 				segmentCountContainer: this.controller.get('segmentCounterContainer'),
+ 				segmentCountElement: this.controller.get('segmentCounter'),
+ 				setTextFieldValueFn: this.setTextFieldValue.bind(this)
+-			}
++			},
++			charCounter: {
++				charCountContainer: this.controller.get('charCounterContainer'),
++				charCountElement: this.controller.get('charCounter'),
++				setTextFieldValueFn: this.setTextFieldValue.bind(this)
++ 			}
+ 		};
+ 
+ 		this.characterCounter = new CharacterCounter(this.controller, this.Messaging.platformType, this.Messaging.carrier, this.messageTextElement, charCounterParams);
+@@ -741,6 +747,8 @@ var ChatviewAssistant = Class.create({
+ 					Mojo.Log.info("[CV]: unhandled command", event.command);
+ 					break;
+ 			}
++		} else if (event.type == Mojo.Event.forward) { 
++			this.considerForSend();			
+ 		} else if (event.type === Mojo.Event.back) {
+ 			event.stop();
+ 			this.popAndRevealListView();
+@@ -2078,6 +2086,7 @@ var ChatviewAssistant = Class.create({
+ 				}
+ 				//msg.messageText = PalmSystem.runTextIndexer(msg.messageText);
+ 				delayed.messageText = msg.messageText;
++				msg.messageText = msg.messageText.replace(/\n/g,"<br>");
+ 			}
+ 			
+ 			var icons = this.Messaging.IMAccounts.getIcons(msg.serviceName);
+@@ -2090,6 +2099,10 @@ var ChatviewAssistant = Class.create({
+ 				msg.dividerAddress = prevAddress; // this used to use msg.timeStamp - changed 2008-11-05	
+ 			}
+ 			msg.niceDate = BucketDateFormatter.getDateBucket(d, true, true);
++			// (Timestamp - Clean) timestamp hack - enables timestamps on all messages (clean-messenger);
++			var ts = new Date();
++			ts.setTime(msg.deviceTimeStamp);
++			msg.timeStampText = Mojo.Format.formatDate(ts,'short');			
+ 
+ 			// divider hack - round to the nearest 5 minutes
+ 			// we have to do this because the list divider implementation does not allow a divider
+@@ -2102,7 +2115,7 @@ var ChatviewAssistant = Class.create({
+ 				this.dividerAddress = prevAddress;
+ 			}
+ 			if (msg.locked !== true) {
+-				msg.dividerLabel = msg.transportClass + BucketDateFormatter.getDateBucket(d, true, true) + this.dividerAddress;
++				msg.dividerLabel = msg.transportClass; // (Timestamp - Clean)+ BucketDateFormatter.getDateBucket(d, true, true) + this.dividerAddress;
+ 			}else if(i>1){
+ 				msg.dividerLabel = stuff[i-1].dividerLabel; 
+ 			}
+@@ -2119,9 +2132,9 @@ var ChatviewAssistant = Class.create({
+ 				
+ 				// Only show the message sent time if it is less than two days old
+ 				// from when it arrived on device
+-				if (today - msg.timeStamp <= 172800000) { //172800000 = (1000*60*60*24*2)
+-					msg.timeStampDeltaMsg = new Template($L("Message Sent: #{dateTime}")).evaluate({dateTime:Mojo.Format.formatDate(sentTimeStamp,'short')});
+-				}
++				//if (today - msg.timeStamp <= 172800000) { //172800000 = (1000*60*60*24*2)
++					msg.timeStampDeltaMsg = new Template($L("#{dateTime}")).evaluate({dateTime:Mojo.Format.formatDate(sentTimeStamp,'short')});
++				//}
+ //			}
+ 
+ 			if (msg.callbackNumber) {
+@@ -2955,7 +2968,7 @@ var ChatviewAssistant = Class.create({
+ 		// It will be cleared on key up.
+ 		if (event) {
+ 			if (Mojo.Char.isEnterKey(event.keyCode)) {
+-				this.sendButton.addClassName('selected');
++				//this.sendButton.addClassName('selected');
+ 			} else if (event.keyCode===129) {
+ 				this.ctrlKeyPressed = true;
+ 			} else if (event.keyCode===Mojo.Char.spaceBar && this.ctrlKeyPressed) {
+@@ -2973,11 +2986,11 @@ var ChatviewAssistant = Class.create({
+ 	handleTextAreaKeyUp: function(event) {
+ 		if (event) {
+ 			if (Mojo.Char.isEnterKey(event.keyCode)) {
+-				this.considerForSend();
+-				Event.stop(event);
++				//this.considerForSend();
++				//Event.stop(event);
+ 				
+ 				// Remove highlight that was added on keydown.
+-				this.sendButton.removeClassName('selected');
++				//this.sendButton.removeClassName('selected');
+ 			} else if (event.keyCode===129) {
+ 				this.ctrlKeyPressed = false;
+ 			}
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+index f37e579..4f8508a 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/controllers/compose-assistant.js
+@@ -15,7 +15,7 @@ var ComposeAssistant = Class.create({
+ 			this.toggleDebugMenu = listviewSceneAssistant.toggleDebugMenu.bind(listviewSceneAssistant,true);
+ 		}
+ 
+-		this.appMenuAddPictureItem = {label: $L('Add file...'), command:'addPicture', enabled:true};
++		this.appMenuAddPictureItem = {label: $L('Attach file...'), shortcut: 'p', command:'addPicture', enabled:true};
+ 
+ 		this.appMenuAttrs = {omitDefaultItems: true};	
+ 		this.appMenuModel = { visible:true, label: $L('Chat view menu'), items: [Mojo.Menu.editItem,this.appMenuAddPictureItem,Mojo.Menu.helpItem]};   
+@@ -170,7 +170,7 @@ var ComposeAssistant = Class.create({
+ 		    hintText: $L('Enter message here...'),
+ 		    multiline: true,
+ 		    focus: (this.prePopulatedRecipients.length > 0),
+-		    enterSubmits: true,
++		    enterSubmits: false,
+ 			requiresEnterKey: true,
+ 		    modelProperty: "value",
+ 			changeOnKeyPress: true
+@@ -224,7 +224,12 @@ var ComposeAssistant = Class.create({
+ 				segmentCountContainer: this.controller.get('segmentCounterContainer'),
+ 				segmentCountElement: this.controller.get('segmentCounter'),
+ 				setTextFieldValueFn: this.setTextFieldValue.bind(this)
+-			}
++			},
++			charCounter: {
++				charCountContainer: this.controller.get('charCounterContainer'),
++				charCountElement: this.controller.get('charCounter'),
++				setTextFieldValueFn: this.setTextFieldValue.bind(this)
++ 			}
+ 		};
+ 
+ 		this.characterCounter = new CharacterCounter(this.controller,this.Messaging.platformType,this.Messaging.carrier,this.messageTextElement,charCounterParams);
+@@ -690,8 +695,8 @@ var ComposeAssistant = Class.create({
+ 
+ 	handleTextAreaKeyUp: function(event) {
+ 		if (event && Mojo.Char.isEnterKey(event.keyCode)) {
+-			this.considerForSend();
+-			Event.stop(event);
++			//this.considerForSend();
++			//Event.stop(event);
+ 		}		
+ 	},
+ 
+@@ -869,7 +874,9 @@ var ComposeAssistant = Class.create({
+ 			if(event.command === 'addPicture') {
+ 				this.attachFilePicker();
+ 				event.stop();
+-			} 
++			}
++		} else if (event.type == Mojo.Event.forward) {	
++	        this.considerForSend();				
+ 		} else if(event.type === Mojo.Event.back) {
+ 			if (this.launchedAsForward === undefined) {
+ 				event.stop();
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/utilities/CharacterCounter.js b/usr/palm/applications/com.palm.app.messaging/app/utilities/CharacterCounter.js
+index 8376753..10b3697 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/utilities/CharacterCounter.js
++++ b/usr/palm/applications/com.palm.app.messaging/app/utilities/CharacterCounter.js
+@@ -60,7 +60,10 @@ var CharacterCounter = Class.create({
+ 				containerElement: null,
+ 				valueElement: null
+ 			};
+-			
++			var charCounterUI = {
++				containerElement: null,
++				valueElement: null
++			};
+ 						
+ 			// TODO: eventually we might want to implement some cleverness that counts
+ 			// bytes so we can accurately limit text that includes UTF-8 characters.
+@@ -485,6 +488,20 @@ var CharacterCounter = Class.create({
+ 				}
+ 			};
+ 			
++			var setCurrentCharCount = function(newCharCount) {
++				if(charCounterUI.valueElement)
++					charCounterUI.valueElement.update(newCharCount);
++				if(charCounterUI.containerElement) {
++					if (newCharCount == 0) {
++						if (charCounterUI.containerElement.visible())
++							charCounterUI.containerElement.hide();
++					} else {
++						if (!charCounterUI.containerElement.visible())
++							charCounterUI.containerElement.show();
++					}
++				}
++			};
++		
+ 			return {
+ 				
+ 				init: function(controller,platform,carrier,textElement,params) {
+@@ -593,6 +610,13 @@ var CharacterCounter = Class.create({
+ 								setTextFieldValueFn = params.segmentCounter.setTextFieldValueFn;
+ 							}						
+ 						}
++						if(params.charCounter) {
++							charCounterUI.containerElement = params.charCounter.charCountContainer;
++							charCounterUI.valueElement = params.charCounter.charCountElement;
++							if(params.charCounter.setTextFieldValueFn) {
++								setTextFieldValueFn = params.charCounter.setTextFieldValueFn;
++							}						
++						}
+ 
+ 					}					
+ 				},
+@@ -686,7 +710,7 @@ var CharacterCounter = Class.create({
+ 					this.resetTimer = undefined;
+ 
+ 					var rawCharacterData = getRawCharacterData();
+-					
++					setCurrentCharCount(rawCharacterData.count);
+ //					if (rawCharacterData.count > 69){
+ //						recheckAllTextForNonGsm = true;
+ //						Mojo.Log.info("text changed, looking for char size");
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/views/chatview/chatview-scene.html b/usr/palm/applications/com.palm.app.messaging/app/views/chatview/chatview-scene.html
+index e1f7235..2c37f7b 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/views/chatview/chatview-scene.html
++++ b/usr/palm/applications/com.palm.app.messaging/app/views/chatview/chatview-scene.html
+@@ -25,15 +25,19 @@
+ 			<div id="messageContainer" class="palm-row view-#{availabilityClass}">
+ 				<div class="palm-row-wrapper textfield-group focused">
+ 					<div class="title">
++						<div id="charCounterContainer" style="display: none;">
++							<div id="charCounter">
++							</div>
++						</div>
+ 						<div id="attachmentContainer" style="display: none;">
+ 							<div id="cancelAttachment">
+ 							</div>
+ 							<img id="attachmentImage" src=""/>
+ 						</div>
+-						<div id="ActionButton" class="icon right empty">
++						<div id="ActionButton" class="icon right empty" style="display:none;">
+ 							<div id="AttachButton" class="stuck attachButton" style="display:none;" x-mojo-tap-highlight="momentary">
+ 							</div>
+-							<div id="SendButton" class="stuck sendButton" x-mojo-tap-highlight="immediate">
++							<div id="SendButton" class="stuck sendButton" style="display:none;" x-mojo-tap-highlight="immediate">
+ 								<div id="segmentCounterContainer">
+ 									<div id="segmentCounter">
+ 									</div>
+diff --git a/usr/palm/applications/com.palm.app.messaging/app/views/compose/compose-scene.html b/usr/palm/applications/com.palm.app.messaging/app/views/compose/compose-scene.html
+index 79fca4a..e243b95 100644
+--- a/usr/palm/applications/com.palm.app.messaging/app/views/compose/compose-scene.html
++++ b/usr/palm/applications/com.palm.app.messaging/app/views/compose/compose-scene.html
+@@ -10,15 +10,19 @@
+ 		<div id="messageContainer" class='palm-row'>
+ 			<div class="palm-row-wrapper textfield-group focused">
+ 				<div class="title">
++					<div id="charCounterContainer" style="display: none;">
++						<div id="charCounter">
++						</div>
++					</div>
+ 					<div id="attachmentContainer" style="display: none;">
+ 						<div id="cancelAttachment">
+ 						</div>
+ 						<img id="attachmentImage" src=""/>
+ 					</div>
+-					<div id="ActionButton" class="icon right empty">
++					<div id="ActionButton" class="icon right empty" style="display:none;">
+ 						<div id="AttachButton" class="stuck attachButton" x-mojo-tap-highlight="momentary">
+ 						</div>
+-						<div id="SendButton" class="stuck sendButton" x-mojo-tap-highlight="momentary">
++						<div id="SendButton" class="stuck sendButton" style="display:none;" x-mojo-tap-highlight="momentary">
+ 							<div id="segmentCounterContainer">
+ 								<div id="segmentCounter">
+ 								</div>
+diff --git a/usr/palm/applications/com.palm.app.messaging/resources/de/views/chatview/chatview-scene.html b/usr/palm/applications/com.palm.app.messaging/resources/de/views/chatview/chatview-scene.html
+index 02f03c4..9bcd1de 100644
+--- a/usr/palm/applications/com.palm.app.messaging/resources/de/views/chatview/chatview-scene.html
++++ b/usr/palm/applications/com.palm.app.messaging/resources/de/views/chatview/chatview-scene.html
+@@ -25,15 +25,19 @@
+ 			<div id="messageContainer" class="palm-row view-#{availabilityClass}">
+ 				<div class="palm-row-wrapper textfield-group focused">
+ 					<div class="title">
++						<div id="charCounterContainer" style="display: none;">
++							<div id="charCounter">
++							</div>
++						</div>
+ 						<div id="attachmentContainer" style="display: none;">
+ 							<div id="cancelAttachment">
+ 							</div>
+ 							<img id="attachmentImage" src=""/>
+ 						</div>
+-						<div id="ActionButton" class="icon right empty">
++						<div id="ActionButton" class="icon right empty" style="display:none;">
+ 							<div id="AttachButton" class="stuck attachButton" style="display:none;" x-mojo-tap-highlight="momentary">
+ 							</div>
+-							<div id="SendButton" class="stuck sendButton" x-mojo-tap-highlight="immediate">
++							<div id="SendButton" class="stuck sendButton" style="display:none;" x-mojo-tap-highlight="immediate">
+ 								<div id="segmentCounterContainer">
+ 									<div id="segmentCounter">
+ 									</div>
+diff --git a/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css b/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
+index b816479..e3ba3e3 100644
+--- a/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
++++ b/usr/palm/applications/com.palm.app.messaging/stylesheets/messaging.css
+@@ -993,6 +993,25 @@
+ 		height: 61px;
+ }
+ 
++#messageContainer #charCounterContainer {
++	line-height: 20px;
++	display:block;
++	height: 20px;
++	border-width: 0px 10px 0px 9px;
++	-webkit-border-image: url(../images/message-segment-badge.png) 0 10 0 9 stretch stretch;
++	position: absolute;
++	z-index: 3;
++	top: 2px;
++	left: 2px;
++}
++
++#messageContainer #charCounterContainer #charCounter {
++	font-size: 12px;
++	font-weight: bold;
++	color: #000000;
++	margin: 0px -4px 3px -3px;
++}
++
+ #messageContainer #attachmentContainer {
+ 		position: relative;
+ 		margin-top: 10px;
