@@ -1,0 +1,147 @@
+diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+index 638958f..3582ea7 100644
+--- a/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
++++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/controllers/soundsalertsconfig-assistant.js
+@@ -96,9 +96,13 @@ var SoundsalertsconfigAssistant = Class.create({
+ 		$('system_ui_sounds').observe('mojo-property-change', this.toggleSystemUISounds.bindAsEventListener(this));
+ 		
+ 		$('currentringtonerow').observe(Mojo.Event.tap, this.showAudioFilePicker.bindAsEventListener(this));
++		$('currentalertrow').observe(Mojo.Event.tap, this.showAlertFilePicker.bindAsEventListener(this));
++		$('currentnotificationrow').observe(Mojo.Event.tap, this.showNotificationFilePicker.bindAsEventListener(this));
+ 				
+ 		this.getCurrentVolumes();
+ 		this.getCurrentRingtone();
++		this.getCurrentAlert();
++		this.getCurrentNotification();
+ 		this.getVibrateSettings();	
+ 		this.getOtherSettings();
+ 		
+@@ -272,6 +276,58 @@ var SoundsalertsconfigAssistant = Class.create({
+ 		$('currentringtone').innerHTML = file.name;
+ 	},
+ 	
++	// Alert Picking
++	getCurrentAlert: function() {
++	this.getCurrentAlertReq = SystemService.getAlerts(this.getCurrentAlertQuery.bind(this));
++	},
++	
++	getCurrentAlertQuery: function(payload) {
++	if (payload.alerttone) {
++	$('currentalert').innerHTML = payload.alerttone.name;
++	this.currAlertPath = payload.alerttone.fullPath;
++	}
++	else 
++	$('currentalert').innerHTML = $L("Alarm ausw‰hlen");
++	
++	},
++	
++	showAlertFilePicker: function(event) {
++	var params = {"kinds": ["ringtone"],"filePath":this.currAlertPath,"onSelect":this.selectedAlertFile.bind(this),actionType:"attach",actionName: $L("Done")};
++	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	},
++	
++	selectedAlertFile: function(file) {
++	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
++	this.setAlertReq = SystemService.setAlerts(file);
++	$('currentalert').innerHTML = file.name;
++	},
++	
++	// Notification Picking
++	getCurrentNotification: function() {
++	this.getCurrentNotificationReq = SystemService.getNotifications(this.getCurrentNotificationQuery.bind(this));
++	},
++	
++	getCurrentNotificationQuery: function(payload) {
++	if (payload.notificationtone) {
++	$('currentnotification').innerHTML = payload.notificationtone.name;
++	this.currNotificationPath = payload.notificationtone.fullPath;
++	}
++	else 
++	$('currentnotification').innerHTML = $L("Benachrichtigung ausw‰hlen");
++	
++	},
++	
++	showNotificationFilePicker: function(event) {
++	var params = {"kinds": ["ringtone"],"filePath":this.currNotificationPath,"onSelect":this.selectedNotificationFile.bind(this),actionType:"attach",actionName: $L("Done")};
++	Mojo.FilePicker.pickFile(params,Mojo.Controller.stageController);
++	},
++	
++	selectedNotificationFile: function(file) {
++	//var params = {"fullPath": encodeURIComponent(file.fullPath), "name":file.name};
++	this.setNotificationReq = SystemService.setNotifications(file);
++	$('currentnotification').innerHTML = file.name;
++	},
++	
+ 	getVibrateSettings: function() {
+ 		this.getVibrateSettingsReq = AudioService.getVibrateSettings(this.vibrateSettingsCB.bind(this),this);
+ 	},
+diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js b/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+index c5babe5..8952c47 100644
+--- a/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
++++ b/usr/palm/applications/com.palm.app.soundsandalerts/app/models/SystemService.js
+@@ -28,6 +28,42 @@ SystemService.getRingtone = function(callback) {
+ 	return request;
+ }
+ 
++SystemService.getAlerts = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["alerttone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setAlerts = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"alerttone":value}, 
++	});
++	return request;
++}
++
++SystemService.getNotifications = function(callback) {
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'getPreferences',
++		parameters: {"keys":["notificationtone"]}, 
++		onSuccess: callback,
++		onFailure: callback
++	});
++	return request;
++}
++
++SystemService.setNotifications = function(value){
++	var request = new Mojo.Service.Request(SystemService.identifier, {
++		method: 'setPreferences',
++		parameters: {"notificationtone":value}, 
++	});
++	return request;
++}
++
+ SystemService.getSystemUISounds = function(callback) {
+ 	var request = new Mojo.Service.Request(SystemService.identifier, {
+ 			method: 'getPreferences',
+diff --git a/usr/palm/applications/com.palm.app.soundsandalerts/resources/de/views/soundsalertsconfig/soundsalertsconfig-scene.html b/usr/palm/applications/com.palm.app.soundsandalerts/resources/de/views/soundsalertsconfig/soundsalertsconfig-scene.html
+index c4fc4d1..56ce6e9 100644
+--- a/usr/palm/applications/com.palm.app.soundsandalerts/resources/de/views/soundsalertsconfig/soundsalertsconfig-scene.html
++++ b/usr/palm/applications/com.palm.app.soundsandalerts/resources/de/views/soundsalertsconfig/soundsalertsconfig-scene.html
+@@ -52,6 +52,18 @@
+ 	                </div>
+ 	            </div>
+             </div>
++	    <div id='currentalertrow' class="palm-row" x-mojo-tap-highlight="momentary">
++		<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Alarm</div>
++			<div id='currentalert' class="title"></div> 
++		</div>
++	    </div>
++	    <div id='currentnotificationrow' class="palm-row" x-mojo-tap-highlight="momentary">
++			<div class="palm-row-wrapper">
++				<div class="label" x-mojo-loc=''>Benachrichtigung</div>
++			<div id='currentnotification' class="title"></div>  
++		</div>
++	    </div>
+ 			<div class="palm-row last">
+ 				<div class="palm-row-wrapper">
+ 					<div class="title">Lautst√§rke</div>
