@@ -1009,10 +1009,10 @@ index 1eb528b..fbc7dd2 100644
  					// preventSync:true is an indicator that the object was deleted as a result of disabling the account
  					// this is used in synchandler.js to avoid upsyncing these deletes!
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-index b47ecac..beb0673 100644
+index b47ecac..a81f3b8 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/assistants/serviceassistant.js
-@@ -28,7 +28,13 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+@@ -28,7 +28,14 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
  		},
  
  		setup: function setup(service, accountId, launchConfig, launchArgs) {
@@ -1022,12 +1022,13 @@ index b47ecac..beb0673 100644
 +
 +			Config.syncWindowMonthsAfter = 48; 
 +			Config.syncWindowMonthsBefore = 12;
++			Config.syncChangesOnly = false;
 +			
 +			var future = this._goTweaks(accountId);
  			
  			future.then(this, function finishSetup() {
  				var account = future.result,
-@@ -84,6 +90,50 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
+@@ -84,6 +91,57 @@ var ServiceAssistant = Transport.ServiceAssistantBuilder({
  			
  			return future;
  		},
@@ -1037,7 +1038,7 @@ index b47ecac..beb0673 100644
 +			var future = PalmCall.call("palm://org.webosinternals.tweaks.prefs",
 +							"get",
 +									{owner: "google-first-sync",
-+									keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter"], subscribe:false}
++									keys: ["syncWindowMonthsBefore", "syncWindowMonthsAfter", "syncStrategy"], subscribe:false}
 +							);
 +		
 +			future.then(this, function readTweaks() {
@@ -1057,6 +1058,13 @@ index b47ecac..beb0673 100644
 +						if(result.syncWindowMonthsAfter && parseInt(result.syncWindowMonthsAfter,10) >= 2 && parseInt(result.syncWindowMonthsAfter,10) <= 60) {
 +							Utils.error("TWEAKS preference: after sync = " + result.syncWindowMonthsAfter);
 +							Config.syncWindowMonthsAfter = parseInt(result.syncWindowMonthsAfter,10);
++						}
++						if(result.syncStrategy && result.syncStrategy === "changesonly"){
++							Utils.error("TWEAKS preference: sync strategy = " + result.syncStrategy);
++							Config.syncChangesOnly = true;
++						} else {
++							Utils.error("TWEAKS preference:  sync strategy = default");
++							Config.syncChangesOnly = false;
 +						}
 +					}
 +					future.result= true;
@@ -1132,7 +1140,7 @@ index fc9ea0b..f54fb05 100644
  							return DB.find({
  								from: Kinds.objects.calendarevent.id,
 diff --git a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
-index b7c3668..813e008 100644
+index b7c3668..0fb6f6d 100644
 --- a/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 +++ b/usr/palm/services/com.palm.service.calendar.google/javascript/models/calendar_event_query.js
 @@ -44,8 +44,10 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
@@ -1148,7 +1156,17 @@ index b7c3668..813e008 100644
  			logTime("google", Calendar.IO.Utils.dateToIso8601(time));
  
  			if (update) {
-@@ -93,7 +95,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -85,15 +87,15 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 			feedEntries[i].tzId = feedRoot.feed.gCal$timezone;
+ 			feedEntries[i].calendarId = calendar._id;
+ 			if (feedEntries[i].getOriginalEvent()) {
+-				Utils.debug("\n\n---->>>> Found modifying entry (" + i + "): " + feedEntries[i].getTitle().getText());
++				Utils.error("\n\n---->>>> Found modifying entry (" + i + "): " + feedEntries[i].getTitle().getText());
+ 				modifyingEntries.push(feedEntries[i]);
+ 			} else {
+-				Utils.debug("\n\n---->>>> Entry " + i + ": " + feedEntries[i].getTitle().getText() + " (" + feedEntries[i].calendarId + ")");
++				Utils.error("\n\n---->>>> Entry " + i + ": " + feedEntries[i].getTitle().getText() + " (" + feedEntries[i].calendarId + ")");
+ 				entries.push(feedEntries[i]);
  			}
  		}
  
@@ -1157,18 +1175,41 @@ index b7c3668..813e008 100644
  		// Utils.log("---->>>> Modifying entries: " + stringify(calendar.modifyingEntries));
  
  		return {
-@@ -127,8 +129,9 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -127,18 +129,30 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			query.setUpdatedMin(startDate);
  			query.setUpdatedMax(endDate);
  
 -			Utils.debug("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
-+			Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
++			//Utils.error("---->>>> Update window for calendar '" + calendar.name + "' from " + startDate.getDate() + " to " + endDate.getDate());
  		} else {
 +			//Utils.error("TWEAKS preferences applied: " + stringify(Config.syncWindowMonthsBefore) +": " +stringify(Config.syncWindowMonthsAfter) );
  			if (lastModTime) {
  				startDate = google.gdata.DateTime.fromIso8601(lastModTime);
  			} else {
-@@ -147,7 +150,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 				startDate = new Date(now);
+-				startDate.setMonth(startDate.getMonth() - Config.syncWindowMonthsBefore);
++				if(!!(getLastModifiedTimeForCalendar(true)) && Config.syncChangesOnly){
++					//if not first sync and not default sync strategy 7 days into past
++					startDate.setTime(startDate.getTime() - 604800);
++				} else {
++					startDate.setMonth(startDate.getMonth() - Config.syncWindowMonthsBefore);
++				}
+ 				startDate = new google.gdata.DateTime(startDate);
+ 			}
+ 
+ 			endDate = new Date(now);
+-			endDate.setMonth(endDate.getMonth() + Config.syncWindowMonthsAfter);
++			if(!!(getLastModifiedTimeForCalendar(true)) && Config.syncChangesOnly){
++				//if not first sync and not default sync strategy 14 days forward
++				endDate.setTime(endDate.getTime() + 1209600);
++			} else {
++				endDate.setMonth(endDate.getMonth() + Config.syncWindowMonthsAfter);
++			}
++			//endDate.setMonth(endDate.getMonth() + Config.syncWindowMonthsAfter);
+ 			endDate = new google.gdata.DateTime(endDate);
+ 
+ 			query.setMinimumStartTime(startDate);
+@@ -147,7 +161,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			query.setUpdatedMin(undefined);
  			query.setUpdatedMax(undefined);
  
@@ -1177,7 +1218,7 @@ index b7c3668..813e008 100644
  		}
  	}
  
-@@ -216,7 +219,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -216,7 +230,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  			future.then(function (join) {
  				var queryResult = join.getResult();
  
@@ -1186,7 +1227,25 @@ index b7c3668..813e008 100644
  
  				startIndex += queryResult.count;
  				if (!queryResult.count) {
-@@ -238,7 +241,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+@@ -226,9 +240,14 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
+ 						setLastModifiedTimeForCalendar(update, queryResult.modTime);
+ 						// We just wrapped up an update query; now we'll do
+ 						// a fetch
+-						update = false;
+-						startIndex = 1;
+-						join.result = true;
++						if(Config.syncChangesOnly && !queryResult.error){
++							Utils.error("TWEAKS sync strategy = changes only no updates, skipping fetch");
++							join.result = false;
++						} else {
++							update = false;
++							startIndex = 1;
++							join.result = true;
++						}
+ 					} else {
+ 						if (!getLastModifiedTimeForCalendar(true)) {
+ 							// If this is the first sync, there'll be no stored
+@@ -238,7 +257,7 @@ var CalendarEventQuery = function CalendarEventQuery(gdataService, calendar, syn
  						if (!queryResult.error) {
  							// If the fetch didn't succeed, leave the existing fetch time to use next
  							// sync so we don't end up skipping events
