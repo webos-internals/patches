@@ -1,0 +1,232 @@
+diff --git a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
+index 82de994..938bd21 100644
+--- a/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
++++ b/usr/palm/applications/com.palm.app.email/app/controllers/notification-assistant.js
+@@ -184,6 +184,12 @@ NotificationAssistant.prototype._addNewEmail = function(email) {
+ NotificationAssistant.prototype._getTimestamp = function(o) {
+ 	return o.timestamp;
+ };
++//Returns Date formated according to the options param.
++NotificationAssistant.prototype._getDatefromTimestamp = function(o,options) {
++	var d = new Date();
++	d.setTime(o.timestamp);
++	return Mojo.Format.formatDate(d,options);
++};
+ 
+ // Returns a decorated email object with added properties needed for displaying dashboards.
+ NotificationAssistant.prototype._decorateEmail = function(email) {
+@@ -197,6 +203,7 @@ NotificationAssistant.prototype._decorateEmail = function(email) {
+ 		Mojo.Log.error("Email %s is missing Sender information, subject len= %s", email._id, email.subject && email.subject.length);
+ 	}
+ 	newMail.text = Foundations.StringUtils.escapeHTML(email.subject);
++	newMail.time = this._getDatefromTimestamp(email,{time: 'short'});
+ 	
+ 	return newMail;
+ };
+@@ -333,7 +340,7 @@ NotificationAssistant.prototype._closeDashboard = function(accountId) {
+ // creating it if necessary.
+ NotificationAssistant.prototype._updateDashboard = function(accountId, messages) {
+ 	var db = this.dashboards[accountId];
+-	
++	var autoCycleActive = true;
+ 	if(messages.length > 0) {
+ 		
+ 		// Make sure icon paths are correct.
+@@ -355,9 +362,10 @@ NotificationAssistant.prototype._updateDashboard = function(accountId, messages)
+ 			Mojo.Log.info("Creating dashboard for account %s, %d messages.", accountId, messages.length);
+ 			db = this.appController.createDashboard(NotificationAssistant.kNewEmailDashboardStageName+accountId, messages, {
+ 				mainTapHandler: this._dashboardMainTap.bind(this, accountId),
+-				iconTapHandler: this._dashboardIconTap.bind(this, accountId),
++				iconTapHandler: this._dashboardIconTap.bind(this, autoCycleActive),
++				actionTapHandler: this._dashboardActionTap.bind(this, accountId),
+ 				cleanup: this._dashboardClosed.bind(this, accountId)
+-			});
++			}, "notification/dashboard-single-scene", "notification/dashboard-double-scene");
+ 				/* 
+ 				{
+ 					onSuccess: updateDb,
+@@ -368,15 +376,43 @@ NotificationAssistant.prototype._updateDashboard = function(accountId, messages)
+ 				});*/
+ 				
+ 			this.dashboards[accountId] = db;
++			
++			if (!this.autoCycleActive)
++			{
++				//TODO: tweaks to specify the cycle length
++				this.autoCycleIntervalId = window.setInterval(this._autoCycleDashes.bind(this), 5000);
++				this.autoCycleActive = true;
++			}
+ 		}
+ 	}
+ };
+ 
++NotificationAssistant.prototype._autoCycleDashes = function()
++{
++	if (!Object.keys(this.dashboards).length || this.displayOff === true)
++	{
++		window.clearInterval(this.autoCycleIntervalId);
++		this.autoCycleActive = false;
++		return;
++	}
++	
++	for (var key in this.dashboards) {
++		var db = this.dashboards[key];
++		var contents = db.contents;
++		var icon = db.icon;
++		if (contents.length > 1) {
++			contents.unshift(contents.pop());
++			db.updateDashboard(false);
++		}
++	}
++}
++
+ // Run through the given array of dashboard layer objects, and set the icon properties properly for each layer in the dashboard.
+ NotificationAssistant.prototype._updateIcons = function(messages) {
+ 	var i;
+ 	var accountId;
+ 	var iconPath;
++	var timeStamp;
+ 	
+ 	if(messages.length <= 0){
+ 		return;
+@@ -391,12 +427,16 @@ NotificationAssistant.prototype._updateIcons = function(messages) {
+ 	// This way, as the user dismissed the dashboard layers, the icon will change to the one 
+ 	// for the correct account when the only remaining emails are from a single account.
+ 	for (i = 0; i < messages.length; i++) {
+-		if (accountId !== messages[i].accountId) {
++		/*if (accountId !== messages[i].accountId) {
+ 			accountId = this.kUnifiedAccountId;
+ 			messages[i].icon = 'images/notification-large-generic.png';
+-		} else {
+-			messages[i].icon = iconPath;
+-		}
++		} else { */
++		//for cycling notifications we rather have the actual icon
++		//TODO: if using tweaks have a service call to tweaks to check that
++		//	messages[i].icon = iconPath;
++		messages[i].icon = EmailApp.accounts.getIconById(messages[i].accountId, true);
++	//	}
++		messages[i].timestamp = messages[i].time;
+ 		//Mojo.Log.info("Message %s is using icon %s", messages[i]._id, messages[i].icon);
+ 	}
+ 	
+@@ -413,14 +453,38 @@ NotificationAssistant.prototype._dashboardMainTap = function(accountId) {
+ 	//window.logger.log("_dashboardMainTap done");
+ };
+ 
+-NotificationAssistant.prototype._dashboardIconTap = function(accountId) {
+-	var message = _.last(this.pending[accountId]);
++NotificationAssistant.prototype._dashboardIconTap = function(autoCycleActive) {
++	/*var message = _.last(this.pending[accountId]);
+ 	var folder = this._getFolderForMessage(message);
+ 	this._clearDashboard(accountId);
+ 	Mojo.Log.info("NotificationAssistant._dashboardIconTap for account %s, displaying folder %s", accountId, folder);
+ 	AppAssistant.showEmailStage({folder:folder});	
++	*/
++	//someting I wasn't aware of. Let's reuse this and make it play/pause button for the cycle dash
++	Mojo.Log.info("NotificationAssistant._dashboardIconTap autoCycleActive : %s", this.autoCycleActive);
++	if(this.autoCycleActive)
++	{
++		if(this.autoCycleIntervalId != "undefined")
++			window.clearInterval(this.autoCycleIntervalId);
++		this.autoCycleActive = false;
++	}
++	else
++	{
++		this.autoCycleIntervalId = window.setInterval(this._autoCycleDashes.bind(this), 5000);
++		this.autoCycleActive = true;
++	}
++	Mojo.Log.info("NotificationAssistant._dashboardIconTap autoCycleActive : %s", this.autoCycleActive);		
+ };
+ 
++ 
++NotificationAssistant.prototype._dashboardActionTap = function(accountId) {
++	var messages = this.pending[accountId];
++	var message = _.last(messages);
++	this.clear(undefined, undefined, message._id);
++	Message.deleteMessage(message._id);
++};
++
++
+ NotificationAssistant.prototype._dashboardErrorTap = function(accountId, destBox) {
+     var account = EmailApp.accounts.mailAccounts[accountId];
+ 	var folder = account && account[destBox + "FolderId"];
+@@ -563,6 +627,13 @@ NotificationAssistant.prototype.displayUpdate = function(data) {
+ 		} else if (data.event == 'displayOn') {
+ 			this.displayOff = false;
+ 			this.newMailDeferralTimeout = 7;
++		//Turn autoCylce to on	
++			if (!this.autoCycleActive)
++			{
++				//TODO: tweaks to specify the cycle length
++				this.autoCycleIntervalId = window.setInterval(this._autoCycleDashes.bind(this), 5000);
++				this.autoCycleActive = true;
++			}
+ 		}
+ 
+ 		Mojo.Log.info("displayUpdate displayOff", this.displayOff, "event", data.event);
+@@ -820,6 +891,7 @@ NotificationAssistant.prototype.handleNewEmailNotification = function(list) {
+ 				}
+ 			}
+ 			if (checkIndex === this.notificationInfo.length) {
++			if (checkIndex === this.notificationInfo.length) {
+ 				clearDashboardList.push(notifications[listIndex]);
+ 			}
+ 		}
+diff --git a/usr/palm/applications/com.palm.app.email/app/views/notification/dashboard-double-scene.html b/usr/palm/applications/com.palm.app.email/app/views/notification/dashboard-double-scene.html
+new file mode 100644
+index 0000000..078e404
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.email/app/views/notification/dashboard-double-scene.html
+@@ -0,0 +1,25 @@
++<div class="palm-scene dashboard-notification-module">
++    <div id="icon-target" class="palm-dashboard-icon-container" x-mojo-dashboard-target="icon">
++        <div class="dashboard-newitem">
++            <span id="_dashboardCount">#{_dashboardCount}</span>
++        </div>
++        <div class="palm-dashboard-icon" style="background-image: url(#{icon});" id="icon"></div>
++    </div>
++    <div id="main-target" class="palm-dashboard-text-container" x-mojo-dashboard-target="main">
++        <div style="float:right;;margin-right:-13px;margin-top:5px;width:48px;height:48px;" id="action" x-mojo-dashboard-target="action">
++            <div style="margin-right:-10px;height:100%;width:100%;background:url(images/icon_trash.png) no-repeat center center;-webkit-background-size:70% 70%;"></div>
++        </div>
++        <span id="rightHTML">
++            #{-rightHTML}
++        </span>
++        <div id="title" class="dashboard-title">
++            #{-title}
++        </div>
++        <div id="text" class="palm-dashboard-text">
++            #{text}
++        </div>
++    </div>
++	<div class="dashboard-newitem" style="display:block;font-weight: normal;height: 20px;  min-width: 25px;margin-top: -55px;margin-right: 0px;">
++   	<span style="  top:-5px;margin: 0 -9px;font-size: 14px;">#{time}</span>
++   </div>
++</div>
+diff --git a/usr/palm/applications/com.palm.app.email/app/views/notification/dashboard-single-scene.html b/usr/palm/applications/com.palm.app.email/app/views/notification/dashboard-single-scene.html
+new file mode 100644
+index 0000000..07e9519
+--- /dev/null
++++ b/usr/palm/applications/com.palm.app.email/app/views/notification/dashboard-single-scene.html
+@@ -0,0 +1,20 @@
++<div id="main-target" class="palm-scene dashboard-notification-module single" x-mojo-dashboard-target="main">
++    <div class="palm-dashboard-icon-container">
++        <div class="palm-dashboard-icon" style="background-image: url(#{icon});" id="icon"></div>
++    </div>  
++    <div id="rightHTML" class="palm-dashboard-text-container">
++        <div style="float:right;;margin-right:-13px;margin-top:5px;width:48px;height:48px;" id="action" x-mojo-dashboard-target="action">
++        <div style="margin-right:-10px;height:100%;width:100%;background:url(images/icon_trash.png) no-repeat center center;-webkit-background-size:70% 70%;"></div>
++        </div>
++        #{-rightHTML}
++        <div id="title" class="dashboard-title">
++            #{-title}
++        </div>
++        <div id="text" class="palm-dashboard-text">
++            #{text}
++        </div>
++    </div>
++	<div class="dashboard-newitem" style="display:block;font-weight: normal;height: 20px;  min-width: 25px;margin-top: -55px;margin-right: 0px;">
++   	<span style="top:-5px;margin: 0 -9px;font-size: 14px;">#{time}</span>
++   </div>
++</div>
