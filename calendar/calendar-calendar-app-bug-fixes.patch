@@ -1,0 +1,375 @@
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/App.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/App.js
+index 26e301c..251b9b6 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/App.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/App.js
+@@ -37,9 +37,8 @@ enyo.kind ({
+ 
+ 		this.watchClock	(true);
+ 
+-		this.loadLibraries ();
+-		!window.PalmSystem		&&	MOCK.initialize ({override: true});						// !!! Must initialize mock before creating CalendarsManager, DatabaseManager, and EventManager because it overrides their prototypes for the browser environment !!!
+-		!enyoApp.cacheManager	&&	(enyoApp.cacheManager = new calendar.CacheManager());	// Requires EventManager so needs MOCK.initialize() to happen before.
++		enyo.global.MojoLoader ? this.loadLibraries () : MOCK.initialize ({override: true});
++		!enyoApp.cacheManager && (enyoApp.cacheManager = new calendar.CacheManager());	// Requires EventManager so needs MOCK.initialize() to happen before.
+ 	},
+ 
+ 	destroy: function destroy () {
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
+index 510366d..305c57c 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppLaunch.js
+@@ -37,10 +37,10 @@ enyo.kind ({
+ 		this.inherited (arguments);
+ 
+ 		var enyoApp = enyo.application;
++		enyoApp.shareCurrentDate	= enyo.bind (this, this.shareCurrentDate);
+ 		enyoApp.fmts				= new enyo.g11n.Fmts();				// Cached for getting format info.
+ 		enyoApp.watch ({createEvent:this, currentDate:this});
+ 		enyoApp.app					= new calendar.App();
+-		enyoApp.shareCurrentDate	= enyo.bind (this, this.shareCurrentDate);
+ 	},
+ 
+ 	destroy: function destroy () {
+@@ -203,59 +203,39 @@ enyo.kind ({
+ // BEGIN :-------: Custom Methods :---------------------------------------------------------------------------------------------------------------------------//
+ 
+ 	checkFirstLaunchResult: function checkFirstLaunchResult (inSender, inResponse) {
+-
+ 		var showFirstLaunch = !!(inResponse && inResponse.showFirstLaunch);
+-
+ 		showFirstLaunch && enyo.application.watch ({firstLaunchDone: this});	// If we're going to show First Launch, watch for when it is done.
+ 
+ 		// Share the result so that when the window is ready it will receive it and launch the appropriate view synchronously (perf).
+-		enyo.application.share	({firstLaunch: {data: showFirstLaunch, keep: true, wait: true}});
++		enyo.application.share	({firstLaunch: {data:showFirstLaunch, keep:true, wait:true}});
+ 	},
+ 
+ 	shareCurrentDate: function shareCurrentDate (params) {
+-		var	currentDate		= {
+-			data	: ((params && params.date && new Date (params.date)) || new Date(enyo.application.currentDate) || new Date())
+-		,	keep	: (params && "keep" in params) ? !!params.keep : true
+-		,	wait	: (params && "wait" in params) ? !!params.wait : false
++		var	currentDate =
++		{	data: new Date ((params && params.date) || enyo.application.currentDate) || new Date()
++		,	keep: (params && "keep" in params) ? !!params.keep : true
++		,	wait: (params && "wait" in params) ? !!params.wait : false
+ 		};
+ 		enyo.application.share ({currentDate: currentDate});
+ 	},
+ 
+ 	showCalendarView: function showCalendarView () {
+-		var calendarWindow	= enyo.windows.fetchWindow ("Calendar")		// Find any pre-existing Calendar GUI Window.
+-		,	enyoApp			= enyo.application
+-		;
+-
+-		var	launchDate
+-		,	timeMachine		= this.timeMachine
+-
+-		// Show day view at launch.  Turn off auto-propogation of the previous view's date.
+-		,	view			= {data: {view:"DayView", autoDate:false}, keep: true}
+-		,	windowParams	= enyo.windowParams
++		var	enyoApp		= enyo.application
++		,	params		= enyo.windowParams
++		,	date		= +params.date
++		,	windows		= enyo.windows
++		,	isAppOpen		= !!windows.fetchWindow ("Calendar")
++		,	view		= {data: {view:"DayView", autoDate:false}, keep:true}	// Show day view. Disable auto-propogation of the previous view's date.
+ 		;
+-		calendarWindow && (view.wait = true);									// If the window already exists, make it switch views first.
++		isAppOpen && (view.wait = true);						// If the window already exists, make it switch views first.
+ 		enyoApp.share ({showView: view});
+ 
+-		// Set up the launch date.
+-		if ("date" in windowParams && isFinite (windowParams.date)) {
+-			timeMachine.setTime(windowParams.date);
+-			launchDate = new Date(timeMachine);
+-		} else {
+-			launchDate = new Date();
+-		}
+-
+-		// If the launch date is different than the current date, share it.
+-		timeMachine.setTime(+launchDate);
+-		var launch = +timeMachine.clearTime()
+-		,	current = enyoApp.currentDate && (timeMachine.setTime(+enyoApp.currentDate), +timeMachine.clearTime())
+-		;
+-
+-		if (!current || launch != current) {
+-			enyoApp.shareCurrentDate ({date: launchDate});
+-		}
++		date  && isFinite (date) && (date = new Date (date));
++		date  || (date = isAppOpen && enyoApp.currentDate || new Date());
++		date  && date.clearTime() && enyoApp.shareCurrentDate ({date: date});		// Update the app's displayed date.
+ 
+ 		DEBUG && this.log ("======= LAUNCHING APP GUI...");
+-		enyo.windows.activate ("app/calendar.html", "Calendar", windowParams);	// Activate/open the Calendar GUI window.
++		windows.activate ("app/calendar.html", "Calendar", params);			// Open and/or focus the app.
+ 	},
+ 
+ 	handleLaunchParams: function handleLaunchParams (params) {
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
+index 40d8368..ef451de 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/AppView.js
+@@ -70,7 +70,10 @@ enyo.kind({
+ 						//{name: "btnJump",   kind: enyo.IconButton, className: "menuButtons enyo-button-light", ca_ption: $L("Jump to..."), icon: "../images/menu-icon-jumpTo.png", onclick:"showJumpTo"},				// ca_ption is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
+ 						//{name: "btnToday",  kind: enyo.IconButton, className: "menuButtons btnToday enyo-button-light", ca_ption: $L("Show today"), icon: "../images/menu-icon-showToday.png", onclick:"showToday"}		// ca_ption is intentionally misspelled to keep but not use the display text per Calendar's Visual Design.
+ 					]},
+-					{className:"footerPageEffect"}
++					{className:"footerPageEffect"},
++					{name: "detailPopup", kind: enyo.ModalDialog, lazy:true, scrim:true, caption: $L("Event Details"), className: "enyo-modaldialog-customWidth", showing:false, onClose:"resetMenu", components: [
++						{name: "detailView", kind: "calendar.edit.DetailView", showing:false, onEdit:"displayEvent", onDelete:"showDeleteConfirm"}
++					]}
+ 			]},//End: calendar
+ 			{name:"editView"		, kind:"calendar.edit.EditView"			, lazy: true, showing: false, onExit:"closeView", onDelete:"showDeleteConfirm", flex:1},
+ 			{name:"prefsView"		, kind:"calendar.prefs.PreferencesView"	, lazy: true, showing: false, onExit:"closeView"}
+@@ -82,9 +85,6 @@ enyo.kind({
+ 		{name: "jumpToDialog", kind: enyo.ModalDialog, caption: $L("Jump To..."), scrim:true, showing:false, onClose:"resetMenu", components: [
+ 			{name: "jumpTo", kind: "calendar.JumpToView", onDateChanged:"jumpToDate" }
+ 		]},
+-		{name: "detailPopup", kind: enyo.ModalDialog, scrim:true, caption: $L("Event Details"), className: "enyo-modaldialog-customWidth", showing:false, onClose:"resetMenu", components: [
+-			{name: "detailView", kind: "calendar.edit.DetailView", showing:false, onEdit:"displayEvent", onDelete:"showDeleteConfirm"}
+-		]},
+ 		{name: "deleteDialog", kind: enyo.ModalDialog, scrim:true, showing:false, components: [
+ 			{name: "deleteConfirm", kind: "calendar.edit.DeleteConfirm"}
+ 		]}
+@@ -116,9 +116,9 @@ enyo.kind({
+ 		ui.pane.selectView (ui.calendar);
+ 
+ 		this.createComponents (this.popups);
+-
++this.log ("---: Created popups. detail: ", !!ui.detailPopup);
+ 		this.is24Hr = !enyoApp.fmts.isAmPm();	// Use the current 24hr mode system setting as default.
+-		enyoApp.autoDate = true;				// When switching views (example: WeekView->DayView), use the previous view's date.
++		enyoApp.autoDate = true;		// When switching views (example: WeekView->DayView), use the previous view's date.
+ 
+ 		enyoApp.watch	({ is24Hr:this, showEvent:this, showView:this });
+ 	},
+@@ -164,7 +164,7 @@ enyo.kind({
+ 		DEBUG && this.log ("======= HIDDEN\t");
+ 		var	view	= {data: {view: calendar.day.DayView, autoDate: false}, wait: true};	// Since keep-alive suspends timers, make share synchronous.
+ 
+-		enyo.application.share	({showView: view});							// Ensure that "today" view is already displayed when opened with keep-alive.
++		enyo.application.share			({showView: view});		// Ensure that "today" view is already displayed when opened with keep-alive.
+ 		enyo.application.shareCurrentDate	({date:new Date(), wait:true});	// Ensure that the current date is already today when opened with keep-alive.
+ 	},
+ 
+@@ -192,8 +192,10 @@ enyo.kind({
+ 	},
+ 
+ 	showEventChanged: function showEventChanged (lastEventShown) {
+-		this.log(" ENYO PERF: SINGLE CLICK OCCURED time: "+ Date.now());
++		var clickTime = Date.now();
++		enyo.application.free ({showEvent:true});	// Free the showEvent from datahub just in case it's being kept.
+ 		this.displayEvent (this, this.showEvent);
++		this.log(" ENYO PERF: SINGLE CLICK OCCURED time: "+ clickTime);
+ 		this.log(" ENYO PERF: TRANSITION DONE time: "+ Date.now());
+ 	},
+ 
+@@ -310,22 +312,22 @@ enyo.kind({
+ 		}
+ 		var event = eventGUIOrEvent.event || eventGUIOrEvent;
+ 		var	hasId	= ("_id" in event)
+-		,	ui		= this.$
++		,	ui	= this.$
+ 		,	view
+ 		;
+ 
+ 		// Had to add an additional case below for when detailView hasn't been loaded yet.  from == ui.detailView in this case, since they are both undefined.
+ 		if ((!ui.detailView || (from != ui.detailView)) && hasId) {		// Show Event Detail if not already doing so or performing a tap-to-create:
+ 			ui.detailPopup.lazy && ui.detailPopup.validateComponents();
+-			view				= ui.detailView;						//		cache detail view,
+-			this.viewSelected	(from, view, from);						//		trigger menu update,
+-			view.setShowing		(true);									//		trigger ContactsManager lazy loading if needed,
+-			view.setEvent		(eventGUIOrEvent);						//		update the view with the event's content,
+-			ui.detailPopup.openAtCenter();								//		then show Detail View.
++			view = ui.detailView;						//		cache detail view,
++			view.setShowing	(true);						//		trigger ContactsManager lazy loading if needed,
++			view.setEvent	(eventGUIOrEvent);				//		update the view with the event's content,
++			ui.detailPopup.openAtCenter();					//		then show Detail View.
+ 			//ui.detailPopup.resize();
+-		} else {														// Otherwise:
++			this.viewSelected (from, view, from);				//		trigger menu update,
++		} else {								// Otherwise:
+ 			ui.pane.viewByName ("editView").setEvent (eventGUIOrEvent);	//		Update Edit View with the event's content.
+-			ui.pane.selectView (ui.editView);							//		then show Edit View.
++			ui.pane.selectView (ui.editView);				//		then show Edit View.
+ 		}
+ 	},
+ 
+@@ -333,10 +335,10 @@ enyo.kind({
+ 		DEBUG && this.log ("\tParams: ", params, "\t");
+ 
+ 		switch (true) {
+-			case !params || (typeof params != "object"): 	// Ensure that params exist and that they're within an object.
++			case !params || (typeof params != "object"): 			// Ensure that params exist and that they're within an object.
+ 				break;
+ 
+-			case ("newEvent"		in params):				// Supports "New Calendar Event" Spec on webOS Developer Network:
++			case ("newEvent"	in params):				// Supports "New Calendar Event" Spec on webOS Developer Network:
+ 			case ("quickLaunchText"	in params):				// Supports Just Type "New Calendar Event" Quick Action:
+ 				var createEvent =
+ 				{	event		: params.newEvent || {subject: params.quickLaunchText}
+@@ -348,16 +350,16 @@ enyo.kind({
+ 
+ 			case ("showEventDetail" in params):
+ 				enyo.application.databaseManager.getEvent
+-				(	params.showEventDetail					// This launch param is expected to be an event id.
++				(	params.showEventDetail				// This launch param is expected to be an event id.
+ 				,	this.handleUniversalSearch
+ 				,	this.handleUniversalSearch
+ 				);
+ 				return;
+ 			
+ 			case ("showDetailFromReminder" in params):
+-				var eventId = params.showDetailFromReminder.eventId
++				var	eventId = params.showDetailFromReminder.eventId
+ 				,	start	= parseInt(params.showDetailFromReminder.startTime, 10)
+-				,	end		= parseInt(params.showDetailFromReminder.endTime, 10)
++				,	end	= parseInt(params.showDetailFromReminder.endTime, 10)
+ 				;
+ 				
+ 				if(eventId === undefined || start === undefined || end === undefined){
+@@ -374,33 +376,31 @@ enyo.kind({
+ 				return;	
+ 
+ 			default:
++				enyo.application.shareCurrentDate();
+ 				break;
+-		}
+-
+-		var view = this.$.main.getView();
+-		view && enyo.isFunction (view.currentDateChanged) && view.currentDateChanged();
+-	},
++		}//end:switch
++	},//end:handleLaunchParms
+ 
+ 	handleShowReminderDetail: function handleShowReminderDetail (startTime, endTime, response) {
+ 		var event = response.returnValue && response.results && response.results.length && response.results[0];
+-		if (event) {
+-			event.currentLocalStart = startTime;
+-			event.currentLocalEnd = endTime;
+-			this.displayEvent	(null, event);
+-			enyo.application.shareCurrentDate ({date:startTime/*, wait:true*/});
++		if (!event) {
++			this.error ("\tCalendar Detail From Reminder Failed: ", response, "\t");
+ 			return;
+ 		}
+-		this.error ("\tCalendar Detail From Reminder Failed: ", response, "\t");
++		event.currentLocalStart = startTime;
++		event.currentLocalEnd   = endTime;
++		enyo.application.share ({showEvent: {data:event, keep:true}});
++		enyo.application.shareCurrentDate ({date: new Date (+startTime)});
+ 	},
+ 
+ 	handleUniversalSearch: function handleUniversalSearch (response) {
+ 		var event = response.returnValue && response.results && response.results.length && response.results[0];
+-		if (event) {
+-			this.displayEvent	(null, event);
+-			enyo.application.shareCurrentDate ({date:event.dtstart/*, wait:true*/});
++		if (!event) {
++			this.error ("\tCalendar Universal Search Failed: ", response, "\t");
+ 			return;
+ 		}
+-		this.error ("\tCalendar Universal Search Failed: ", response, "\t");
++		enyo.application.share ({showEvent: {data:event, keep:true}});
++		enyo.application.shareCurrentDate ({date: new Date (+event.dtstart)});
+ 	},
+ 
+ 	jumpToDate: function jumpToDate (from, date) {
+@@ -443,19 +443,19 @@ enyo.kind({
+ 
+ 	viewIdNameMap: ["dayCarousel", "weekCarousel", "monthCarousel"],
+ 
+-	switchView: function switchView (from, i) {							// This is called when switching between views.
+-		var name = this.viewIdNameMap [i];	
+-		this.switchViewClicked.lastClickedViewName = name;				//	Set the view switching flag.
++	switchView: function switchView (from, i) {
++		var name = this.viewIdNameMap [i];
++		this.switchViewClicked.lastClickedViewName = name;
+ 		this.log(" ENYO PERF: SINGLE CLICK OCCURED time: "+ Date.now());
+-		this.$.main.selectViewByName (name);							//	Switch to the selected view.
++		this.$.main.selectViewByName (name);
+ 	},
+ 
+ 	switchViewClicked: function switchViewClicked (from, domEvent) {	// This is automatically called after switchView.
+-		var nowShowing = this.$.main.getViewName();						//	Which view is currently showing
+-		if(nowShowing == this.switchViewClicked.lastClickedViewName){	//	Is that the last-clicked view, meaning we're already showing it?
+-			this.showDate();											//  Then show today within the current view.
+-		}		
+-		return true;													//	Stop the click event from being handled by any ancestor component.
++		var nowShowing = this.$.main.getViewName();			// Get the name of the currently showing view
++		if (nowShowing == this.switchViewClicked.lastClickedViewName){	// If it's the last-clicked view
++			this.showDate();					//	Update it to show today.
++		}
++		return true;							// Don't send the click event to ancestor component(s).
+ 	},
+ 
+ 	syncNow: function syncNow () {
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
+index 4285875..139077e 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/day/DayView.js
+@@ -197,8 +197,8 @@ enyo.kind({
+ 	},
+ 
+ 	daysChanged: function daysChanged (oldDays) {
+-		var dateString = String(+this.date)
+-		,	day = this.days && this.days[dateString] && (this.day = this.days[dateString])
++		var	dateString	= String(+this.date)
++		,	day		= this.days && this.days[dateString] && (this.day = this.days[dateString])
+ 		;
+ 
+ 		if (!this.showing || !day) {
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js
+index 6b52fb0..41c925b 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/month/MonthView.js
+@@ -101,12 +101,10 @@ enyo.kind({
+ 
+ 	daysChanged: function daysChanged (oldDays) {
+ 		var days = this.days;
+-		if(!days[String(+this.date)]) {					// Skip modifying child days if this month's date isn't present in the days object.
++		if (!days || !days[String(+this.date)]) {		// Skip modifying child days if this month's date isn't present in the days object.
+ 			return;
+ 		}
+-		var	weeks = this.weeks;
+-
+-		for (var i=0, numWeeks = weeks.length; i < numWeeks; i++) {
++		for (var weeks=this.weeks, i=0, numWeeks = weeks.length; i < numWeeks; i++) {
+ 			weeks[i].setDays(days);
+ 		}
+ 	},
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
+index efcb2ab..801507c 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/app/week/WeekView.js
+@@ -127,7 +127,7 @@ enyo.kind({
+ 
+ 	daysChanged: function daysChanged (oldDays) {
+ 		var days = this.days;
+-		if(!days[String(+this.date)]) {					// Skip modifying child days if this week's date isn't present in the days object.
++		if (!days || !days[String(+this.date)]) {		// Skip modifying child days if this week's date isn't present in the days object.
+ 			return;
+ 		}
+ 		var weekdays = this.weekdays;
+diff --git a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/libs/DataHub.js b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/libs/DataHub.js
+index 3665d31..8af1c30 100644
+--- a/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/libs/DataHub.js
++++ b/media/cryptofs/apps/usr/palm/applications/com.palm.app.calendar/libs/DataHub.js
+@@ -9,7 +9,7 @@ NOTES:
+ 	enhance method as follows:
+ 
+ 		DataHub.enhance (myObject); ). 
+-		myObject.share ({ something: { data:This is fun!" }});
++		myObject.share ({ something: { data: "This is fun!" }});
+ 
+ 
+ 	WATCHING	:	DataHub.watch	({ something: myObject });
+@@ -192,7 +192,6 @@ var DataHub = (function defineDataHub (global) {
+ 			if (!wait && watcher.sharing && !watcher.sharing [property]) {	// Cancel async sharing if the watcher is now ignoring this property.
+ 				return;
+ 			}
+-			watcher.sharing && delete (watcher.sharing [property]);
+ 			DEBUG && log.log ("\tSHARE\t"+ sharer +"() ---> "+ property +" ---> "+ (watcher.name || "dhId:"+watcher.dataHubId) +"   "+ [(!wait ? "ASYNC":""), (keep ? "KEEP":"")].join("___") +"]\t");
+ 			watcher [method] .apply (watcher, [value]);
+ 		}
